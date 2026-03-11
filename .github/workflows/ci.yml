@@ -62,6 +62,10 @@ jobs:
             libjavascriptcoregtk-4.1-dev \
             protobuf-compiler
 
+      - name: Install protoc (Windows)
+        if: runner.os == 'Windows'
+        run: choco install protoc -y
+
       # ── Frontend ────────────────────────────────────────────────
       - name: Install npm dependencies
         working-directory: crates/mumble-tauri/ui
@@ -149,6 +153,10 @@ jobs:
             libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev \
             protobuf-compiler
+
+      - name: Install protoc (Windows)
+        if: runner.os == 'Windows'
+        run: choco install protoc -y
 
       - name: Install npm dependencies
         working-directory: crates/mumble-tauri/ui
