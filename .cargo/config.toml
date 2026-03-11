@@ -1,0 +1,5 @@
+# Workspace-wide Cargo configuration.
+#
+# Clippy lints are configured in [workspace.lints.clippy] in the root Cargo.toml.
+# rust-analyzer is configured to use `cargo clippy` instead of `cargo check`
+# (see .vscode/settings.json) so lints surface automatically during development.

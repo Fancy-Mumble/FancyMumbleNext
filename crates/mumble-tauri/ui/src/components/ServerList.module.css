@@ -1,0 +1,205 @@
+/* ─── Server List ───────────────────────────────────────────────── */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+/* individual server card */
+.serverCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: var(--color-glass);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s,
+    transform 0.1s;
+  position: relative;
+}
+
+.serverCard:hover {
+  background: var(--color-glass-hover);
+  border-color: var(--color-glass-border-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+.serverCard:active {
+  transform: scale(0.99);
+}
+
+/* ─── Avatar with status dot overlay ───────────────────────────── */
+
+.avatarWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, var(--color-accent), #7c3aed);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: white;
+  text-transform: uppercase;
+}
+
+/* Ping status dot - overlaid on bottom-right of avatar */
+.pingDot {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--color-bg-primary);
+  flex-shrink: 0;
+}
+
+.dotGreat {
+  background: #22c55e;
+  box-shadow: 0 0 5px rgba(34, 197, 94, 0.5);
+}
+
+.dotOkay {
+  background: #eab308;
+  box-shadow: 0 0 5px rgba(234, 179, 8, 0.4);
+}
+
+.dotPoor {
+  background: #ef4444;
+  box-shadow: 0 0 5px rgba(239, 68, 68, 0.4);
+}
+
+.dotOffline {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.dotProbing {
+  background: var(--color-text-muted);
+  animation: pingPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pingPulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+/* ─── Text block ───────────────────────────────────────────────── */
+
+.info {
+  flex: 1;
+  min-width: 0;
+}
+
+.label {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── Delete button - fades in on hover ────────────────────────── */
+
+.deleteBtn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.serverCard:hover .deleteBtn {
+  opacity: 1;
+}
+
+.deleteBtn:hover {
+  color: var(--color-danger);
+  background: var(--color-glass-hover);
+}
+
+/* ─── Empty state ──────────────────────────────────────────────── */
+
+.empty {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+}
+
+/* ─── Section header with "Add server" link ────────────────────── */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.heading {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.addLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-accent);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+
+.addLink:hover {
+  background: var(--color-glass-hover);
+}
+
+/* mobile-friendly tap target */
+@media (pointer: coarse) {
+  .serverCard {
+    padding: 14px;
+  }
+}

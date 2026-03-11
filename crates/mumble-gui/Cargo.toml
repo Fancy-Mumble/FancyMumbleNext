@@ -1,0 +1,22 @@
+[package]
+name = "mumble-gui"
+version = "0.1.0"
+edition = "2021"
+description = "Dioxus desktop GUI for mumble-protocol"
+license = "MIT"
+default-run = "mumble-gui"
+
+[[bin]]
+name = "mumble-gui"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+mumble-protocol = { path = "../mumble-protocol" }
+dioxus = { version = "0.7", features = ["desktop"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time"] }
+rustls = { version = "0.23", features = ["ring"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"

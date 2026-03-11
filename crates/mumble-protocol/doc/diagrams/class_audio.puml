@@ -1,0 +1,227 @@
+@startuml class_audio
+!theme plain
+title Audio Pipeline - Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam class {
+    BackgroundColor #FEFEFE
+    BorderColor #333333
+}
+
+package "audio::sample" #D4EDDA {
+    enum SampleFormat {
+        I16
+        F32
+        + byte_width(): usize
+    }
+
+    class AudioFormat {
+        + sample_rate: u32
+        + channels: u16
+        + sample_format: SampleFormat
+        + {static} MONO_48KHZ_F32: AudioFormat
+        + {static} MONO_48KHZ_I16: AudioFormat
+    }
+
+    class AudioFrame {
+        + data: Vec<u8>
+        + format: AudioFormat
+        + sequence: u64
+        + is_silent: bool
+        + samples_per_channel(): usize
+        + as_f32_samples(): &[f32]
+        + as_f32_samples_mut(): &mut [f32]
+    }
+
+    AudioFormat --> SampleFormat
+    AudioFrame --> AudioFormat
+}
+
+package "audio::capture" #D4EDDA {
+    interface AudioCapture <<trait>> {
+        + format(): AudioFormat
+        + read_frame(): Result<AudioFrame>
+        + start(): Result<()>
+        + stop(): Result<()>
+    }
+
+    class SilentCapture {
+        - format: AudioFormat
+        - frame_size: usize
+        - sequence: u64
+        + new(format, frame_size_samples): Self
+    }
+
+    SilentCapture ..|> AudioCapture
+}
+
+package "audio::playback" #D4EDDA {
+    interface AudioPlayback <<trait>> {
+        + format(): AudioFormat
+        + write_frame(frame: &AudioFrame): Result<()>
+        + start(): Result<()>
+        + stop(): Result<()>
+    }
+
+    class NullPlayback {
+        - format: AudioFormat
+        + new(format): Self
+    }
+
+    NullPlayback ..|> AudioPlayback
+}
+
+package "audio::encoder" #D4EDDA {
+    class EncodedPacket {
+        + data: Vec<u8>
+        + sequence: u64
+        + frame_samples: u32
+    }
+
+    interface AudioEncoder <<trait>> {
+        + input_format(): AudioFormat
+        + encode(frame: &AudioFrame): Result<EncodedPacket>
+        + reset()
+    }
+
+    enum OpusApplication {
+        Voip
+        Audio
+        LowDelay
+    }
+
+    class OpusEncoderConfig {
+        + bitrate: i32
+        + frame_size: usize
+        + application: OpusApplication
+        + vbr: bool
+        + complexity: i32
+        + fec: bool
+        + packet_loss_percent: i32
+        + dtx: bool
+    }
+
+    class OpusEncoder <<feature: opus-codec>> {
+        - format: AudioFormat
+        - inner: opus::Encoder
+        - config: OpusEncoderConfig
+        - sequence: u64
+        - encode_buf: Vec<u8>
+        + new(format, config): Result<Self>
+    }
+
+    OpusEncoder ..|> AudioEncoder
+    OpusEncoder --> OpusEncoderConfig
+    OpusEncoderConfig --> OpusApplication
+}
+
+package "audio::decoder" #D4EDDA {
+    interface AudioDecoder <<trait>> {
+        + output_format(): AudioFormat
+        + decode(packet: &EncodedPacket): Result<AudioFrame>
+        + decode_lost(): Result<AudioFrame>
+        + reset()
+    }
+
+    class OpusDecoder <<feature: opus-codec>> {
+        - format: AudioFormat
+        - inner: opus::Decoder
+        - out_buf: Vec<f32>
+        - frame_size: usize
+        + new(format): Result<Self>
+    }
+
+    OpusDecoder ..|> AudioDecoder
+}
+
+package "audio::filter" #D4EDDA {
+    interface AudioFilter <<trait>> {
+        + name(): &str
+        + process(frame: &mut AudioFrame): Result<()>
+        + reset()
+        + is_enabled(): bool
+        + set_enabled(enabled: bool)
+    }
+
+    class FilterChain {
+        - filters: Vec<Box<dyn AudioFilter>>
+        + new(): Self
+        + push(filter: Box<dyn AudioFilter>)
+        + process(frame: &mut AudioFrame): Result<()>
+        + reset()
+        + len(): usize
+    }
+
+    class NoiseGate {
+        - config: NoiseGateConfig
+        - state: GateState {Closed, Open}
+        - hold_counter: u32
+        - enabled: bool
+        + new(config): Self
+    }
+
+    class AutomaticGainControl {
+        - config: AgcConfig
+        - current_gain: f32
+        - enabled: bool
+        + new(config): Self
+    }
+
+    class SpectralDenoiser {
+        - config: DenoiserConfig
+        - enabled: bool
+        + new(config): Self
+    }
+
+    class VolumeFilter {
+        - gain: f32
+        - enabled: bool
+        + new(gain: f32): Self
+        + set_gain(gain: f32)
+        + gain(): f32
+    }
+
+    FilterChain o--> "0..*" AudioFilter
+
+    NoiseGate ..|> AudioFilter
+    AutomaticGainControl ..|> AudioFilter
+    SpectralDenoiser ..|> AudioFilter
+    VolumeFilter ..|> AudioFilter
+}
+
+package "audio::pipeline" #D4EDDA {
+    enum OutboundTick {
+        Audio(EncodedPacket)
+        Terminator(EncodedPacket)
+        Silence
+        NoData
+    }
+
+    class OutboundPipeline {
+        - capture: Box<dyn AudioCapture>
+        - filters: FilterChain
+        - encoder: Box<dyn AudioEncoder>
+        - was_talking: bool
+        + new(capture, filters, encoder): Self
+        + tick(): Result<OutboundTick>
+    }
+
+    class InboundPipeline {
+        - decoder: Box<dyn AudioDecoder>
+        - filters: FilterChain
+        - playback: Box<dyn AudioPlayback>
+        + new(decoder, filters, playback): Self
+        + tick(packet: &EncodedPacket): Result<()>
+        + handle_packet_loss(): Result<()>
+    }
+
+    OutboundPipeline --> AudioCapture
+    OutboundPipeline --> FilterChain
+    OutboundPipeline --> AudioEncoder
+
+    InboundPipeline --> AudioDecoder
+    InboundPipeline --> FilterChain
+    InboundPipeline --> AudioPlayback
+}
+
+@enduml

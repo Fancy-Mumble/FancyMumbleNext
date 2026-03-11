@@ -1,0 +1,106 @@
+.titleBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  padding: 0 8px 0 16px;
+  background: rgba(14, 14, 22, 0.85);
+  backdrop-filter: blur(20px) saturate(150%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  position: relative;
+  z-index: 9999;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.titleSection {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.logo {
+  width: 20px;
+  height: 20px;
+  color: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.controlBtn {
+  width: 46px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  border-radius: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.controlBtn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.05);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.controlBtn:hover {
+  color: var(--color-text-primary);
+}
+
+.controlBtn:hover::before {
+  opacity: 1;
+}
+
+.controlBtn:active {
+  transform: scale(0.96);
+}
+
+.controlBtn:active::before {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.closeBtn:hover {
+  color: #ffffff;
+}
+
+.closeBtn:hover::before {
+  background: var(--color-danger);
+  opacity: 1;
+}
+
+.closeBtn:active::before {
+  background: #dc2626;
+}
+
+/* Windows-specific adjustments */
+@media (min-width: 0) {
+  .controls {
+    margin-right: 0;
+  }
+}

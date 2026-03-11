@@ -1,0 +1,197 @@
+/* ─── Welcome / Onboarding Page ─────────────────────────────────── */
+
+.page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  padding: 24px;
+  position: relative;
+  z-index: 1;
+  overflow-y: auto;
+}
+
+.card {
+  width: 100%;
+  max-width: 360px;
+  padding: 32px 28px;
+  background: var(--color-glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ─── Logo ─────────────────────────────────────────────────────── */
+
+.logo {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.logoIcon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 12px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--color-accent), #7c3aed);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 700;
+  color: white;
+  box-shadow: 0 4px 16px var(--color-accent-glow);
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ─── Form fields ──────────────────────────────────────────────── */
+
+.field {
+  margin-bottom: 20px;
+}
+
+.label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: var(--color-text-secondary);
+}
+
+.input {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--color-glass);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.input:focus {
+  border-color: var(--color-accent);
+  background: var(--color-glass-hover);
+}
+
+.actionRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.actionRow .button {
+  flex: 1;
+}
+
+.backLink {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.backLink:hover {
+  background: var(--color-glass-hover);
+}
+
+/* ─── Continue button ──────────────────────────────────────────── */
+
+.button {
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, var(--color-accent), #229ed9);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s, box-shadow 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 4px 16px var(--color-accent-glow);
+}
+
+.button:hover:not(:disabled) {
+  opacity: 0.9;
+  box-shadow: 0 6px 24px var(--color-accent-glow);
+}
+
+.button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* ─── Mode toggle ──────────────────────────────────────────────── */
+
+.modeToggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: var(--radius-md);
+  padding: 3px;
+}
+
+.modeOption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 8px;
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius-md) - 2px);
+  cursor: pointer;
+  transition: background 0.18s, box-shadow 0.18s;
+  color: var(--color-text-secondary);
+  line-height: 1;
+}
+
+.modeOption:hover:not(.modeActive) {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-primary);
+}
+
+.modeActive {
+  background: var(--color-glass-active, rgba(255, 255, 255, 0.1));
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+  color: var(--color-text-primary);
+}
+
+.modeTitle {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.modeHint {
+  font-size: 11px;
+  color: inherit;
+  opacity: 0.65;
+}

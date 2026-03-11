@@ -1,0 +1,12 @@
+[application]
+name = "mumble-gui"
+default_platform = "desktop"
+
+[application.platforms.desktop]
+enable_file_watcher = true
+
+[web.app]
+title = "Mumble"
+
+[web.watcher]
+watch_path = ["src", "assets"]

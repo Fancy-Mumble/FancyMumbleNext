@@ -1,0 +1,30 @@
+{
+  "productName": "Fancy Mumble",
+  "version": "0.1.0",
+  "identifier": "com.fancymumble.app",
+  "build": {
+    "frontendDist": "./ui/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": { "script": "npm run dev", "cwd": "./ui" },
+    "beforeBuildCommand": { "script": "npm run build", "cwd": "./ui" }
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Fancy Mumble",
+        "width": 1024,
+        "height": 768,
+        "resizable": true,
+        "decorations": false,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "icon": []
+  }
+}

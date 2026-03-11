@@ -1,0 +1,122 @@
+@startuml class_transport
+!theme plain
+title Transport Layer - Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam class {
+    BackgroundColor #FEFEFE
+    BorderColor #333333
+}
+
+package "transport::tcp" #FFF3CD {
+    class TcpConfig {
+        + server_host: String
+        + server_port: u16
+        + accept_invalid_certs: bool
+    }
+
+    class TcpTransport {
+        - stream: TlsStream<TcpStream>
+        - read_buf: BytesMut
+        + connect(config: &TcpConfig): Result<Self>
+        + send(msg: &ControlMessage): Result<()>
+        + recv(): Result<ControlMessage>
+        + split(): (TcpReader, TcpWriter)
+    }
+
+    class TcpReader {
+        - reader: ReadHalf<TlsStream<TcpStream>>
+        - read_buf: BytesMut
+        + recv(): Result<ControlMessage>
+    }
+
+    class TcpWriter {
+        - writer: WriteHalf<TlsStream<TcpStream>>
+        + send(msg: &ControlMessage): Result<()>
+    }
+
+    class InsecureVerifier <<internal>> {
+        Accepts all TLS certificates
+    }
+
+    TcpTransport --> TcpReader : split()
+    TcpTransport --> TcpWriter : split()
+    TcpTransport ..> TcpConfig : configured by
+}
+
+package "transport::udp" #FFF3CD {
+    interface CryptState <<trait>> {
+        + encrypt(plaintext: &[u8]): Result<Vec<u8>>
+        + decrypt(ciphertext: &[u8]): Result<Vec<u8>>
+        + is_initialized(): bool
+    }
+
+    class PlaintextCryptState {
+        No-op (pass-through)
+    }
+
+    class UdpConfig {
+        + server_host: String
+        + server_port: u16
+    }
+
+    class "UdpTransport<C: CryptState>" as UdpTransport {
+        - socket: UdpSocket
+        - server_addr: SocketAddr
+        - crypt: C
+        - recv_buf: Vec<u8>
+        + connect(config: &UdpConfig, crypt: C): Result<Self>
+        + send(msg: &UdpMessage): Result<()>
+        + recv(): Result<UdpMessage>
+        + server_addr(): SocketAddr
+        + set_crypt_state(crypt: C)
+    }
+
+    PlaintextCryptState ..|> CryptState
+    UdpTransport --> CryptState : uses
+    UdpTransport ..> UdpConfig : configured by
+}
+
+package "transport::codec" #FFF3CD {
+    class "codec" <<module>> {
+        + {static} HEADER_SIZE: usize = 6
+        + encode(msg: &ControlMessage): Result<Vec<u8>>
+        + decode(buf: &mut BytesMut): Result<Option<ControlMessage>>
+        - serialize_control_message(msg): Result<(u16, Vec<u8>)>
+        - deserialize_control_message(type_id, payload): Result<ControlMessage>
+    }
+
+    note right of "codec"
+        Wire format:
+        [type: u16][length: u32][payload: bytes]
+        Max payload: 8 MiB
+    end note
+}
+
+package "transport::audio_codec" #FFF3CD {
+    class "audio_codec" <<module>> {
+        + decode_legacy_audio(data: &[u8], from_server: bool): Result<Audio>
+        + encode_legacy_audio(audio: &Audio, target: u8): Vec<u8>
+        + decode_protobuf_audio(data: &[u8]): Result<Audio>
+        + encode_protobuf_audio(audio: &Audio): Vec<u8>
+        + decode_tunnel_audio(data: &[u8]): Result<Audio>
+        - read_varint(buf: &[u8]): Result<(u64, usize)>
+        - write_varint(buf: &mut Vec<u8>, val: u64)
+    }
+
+    note right of "audio_codec"
+        Legacy header byte:
+        (type << 5) | target
+        Type 4 = Opus
+
+        Protobuf (Mumble 1.5+):
+        0x20 = Ping
+        0x80+ = Audio
+    end note
+}
+
+TcpTransport --> "codec" : uses for framing
+TcpReader --> "codec" : decode
+TcpWriter --> "codec" : encode
+
+@enduml

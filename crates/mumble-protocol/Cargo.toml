@@ -1,0 +1,44 @@
+[package]
+name = "mumble-protocol"
+version = "0.1.0"
+edition = "2021"
+description = "Async Mumble protocol client library with priority-based work queue"
+license = "MIT"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "time", "io-util"] }
+
+# TLS for Mumble TCP connection
+tokio-rustls = "0.26"
+rustls = { version = "0.23", features = ["ring"] }
+webpki-roots = "0.26"
+rustls-pemfile = "2"
+
+# Protobuf
+prost = "0.13"
+bytes = "1"
+
+# Logging
+tracing = "0.1"
+
+# Error handling
+thiserror = "2"
+
+# Audio codec (C libopus via audiopus_sys - reliable, well-tested)
+opus = { version = "0.3", optional = true }
+
+[features]
+default = []
+opus-codec = ["opus"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "time", "io-util", "test-util"] }
+tokio-rustls = "0.26"
+rustls = { version = "0.23", features = ["ring"] }
+
+[lints]
+workspace = true
+
+[build-dependencies]
+prost-build = "0.13"

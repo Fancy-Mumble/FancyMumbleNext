@@ -1,0 +1,71 @@
+@startuml flow_command_execution
+!theme plain
+title Command Submission & Execution Flow
+
+actor "User / UI" as user
+participant "ClientHandle" as handle
+participant "mpsc channel" as chan
+participant "Command\nForwarder Task" as fwd
+participant "WorkQueue" as wq
+participant "Event Loop\n(main)" as loop
+participant "CommandAction\n(concrete cmd)" as cmd
+participant "ServerState" as state
+participant "Outbound\nChannel" as outbound
+participant "TcpWriter\nTask" as writer
+database "Mumble Server" as server
+
+== 1. Command Submission ==
+
+user -> handle : handle.send(JoinChannel { channel_id: 3 })
+handle -> chan : cmd_tx.send(Box::new(JoinChannel { .. }))
+chan -> fwd : ext_cmd_rx.recv()
+fwd -> wq : wq_sender.send_command(cmd)
+
+== 2. Command Dispatch ==
+
+wq -> loop : WorkItem::UserCommand(cmd)
+loop -> cmd : cmd.execute(&state)
+
+note right of cmd
+    JoinChannel::execute(&self, state):
+      session = state.own_session()   // e.g. 42
+      return CommandOutput {
+          tcp_messages: vec![
+              UserState { session: 42, channel_id: 3 }
+          ],
+          udp_messages: vec![],
+          disconnect: false,
+      }
+end note
+
+cmd -> state : read: own_session() → 42
+state --> cmd : Some(42)
+cmd --> loop : CommandOutput
+
+== 3. Output Processing ==
+
+loop -> outbound : send(UserState { session: 42, channel_id: 3 })
+outbound -> writer : ControlMessage::UserState(...)
+writer -> server : [type=9][len][UserState protobuf]
+
+note over loop
+    If output.disconnect == true,
+    the event loop would call
+    handler.on_disconnected()
+    and break.
+end note
+
+== 4. Server Response ==
+
+server -> loop : (via TCP reader → WorkQueue)\nUserState { session: 42, channel_id: 3 }
+loop -> state : apply_user_state(...)
+loop -> user : handler.on_control_message(UserState)
+
+note over user, server
+    The server confirms the channel change
+    by echoing back a UserState message.
+    ServerState is now updated with the
+    user's new channel_id.
+end note
+
+@enduml

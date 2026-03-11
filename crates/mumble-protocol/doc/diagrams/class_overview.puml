@@ -1,0 +1,103 @@
+@startuml class_overview
+!theme plain
+title mumble-protocol - Top-Level Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam class {
+    BackgroundColor #FEFEFE
+    BorderColor #333333
+}
+
+package "client" #E8F4FD {
+    class ClientConfig {
+        + tcp: TcpConfig
+        + udp: UdpConfig
+        + ping_interval: Duration
+    }
+
+    class ClientHandle {
+        - cmd_tx: mpsc::Sender<BoxedCommand>
+        + send<C: CommandAction>(cmd: C): Result<()>
+    }
+
+    class "run()" as run <<function>> {
+        Connects, spawns tasks,
+        returns (ClientHandle, JoinHandle)
+    }
+}
+
+package "event" #E8F4FD {
+    interface EventHandler <<trait>> {
+        + on_control_message(&mut self, msg: &ControlMessage)
+        + on_udp_message(&mut self, msg: &UdpMessage)
+        + on_connected(&mut self)
+        + on_disconnected(&mut self)
+    }
+
+    class NoopEventHandler {
+        {All methods are no-ops}
+    }
+}
+
+package "state" #E8F4FD {
+    class ServerState {
+        + connection: ConnectionInfo
+        + users: HashMap<u32, User>
+        + channels: HashMap<u32, Channel>
+        + apply_user_state(state: &UserState)
+        + apply_channel_state(state: &ChannelState)
+        + apply_server_sync(sync: &ServerSync)
+        + remove_user(session: u32)
+        + remove_channel(channel_id: u32)
+        + own_session(): Option<u32>
+    }
+}
+
+package "work_queue" #E8F4FD {
+    enum WorkItem {
+        ServerMessage(ServerMessage)
+        UserCommand(BoxedCommand)
+        Ping
+        Shutdown
+    }
+
+    class WorkQueueSender {
+        + send_udp(msg: UdpMessage): Result<()>
+        + send_tcp(msg: ControlMessage): Result<()>
+        + send_command(cmd: BoxedCommand): Result<()>
+    }
+
+    class WorkQueueReceiver {
+        + recv(): WorkItem
+    }
+}
+
+package "error" #E8F4FD {
+    enum Error {
+        Io(io::Error)
+        Tls(rustls::Error)
+        Decode(prost::DecodeError)
+        Encode(prost::EncodeError)
+        UnknownMessageType(u16)
+        Rejected(String)
+        ConnectionClosed
+        QueueClosed
+        InvalidState(String)
+        OpusCodec(String)
+    }
+}
+
+NoopEventHandler ..|> EventHandler
+
+run ..> ClientConfig : uses
+run ..> EventHandler : requires
+run ..> ClientHandle : returns
+
+ClientHandle ..> WorkQueueSender : submits commands
+
+WorkQueueReceiver ..> WorkItem : yields
+WorkQueueSender ..> WorkItem : produces
+
+run ..> ServerState : creates & updates
+
+@enduml

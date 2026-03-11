@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/mumble-protocol",
+    "crates/mumble-gui",
+    "crates/mumble-tauri",
+]
+
+# ── Workspace-wide Clippy lints ─────────────────────────────────────
+# These apply to every crate in the workspace automatically.
+[workspace.lints.rust]
+unsafe_code = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+# Lint groups – use lower priority so individual overrides take effect.
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+
+# Individual style / pedantic lints (default priority 0 overrides groups)
+needless_pass_by_value = "warn"
+redundant_closure_for_method_calls = "warn"
+manual_let_else = "warn"
+cloned_instead_of_copied = "warn"
+implicit_clone = "warn"
+uninlined_format_args = "warn"
+doc_markdown = "warn"
+missing_errors_doc = "allow"         # too noisy for early development
+module_name_repetitions = "allow"    # common pattern in Rust

@@ -1,0 +1,108 @@
+@startuml flow_connection
+!theme plain
+title Mumble Connection Handshake
+
+actor "Application" as app
+participant "client::run()" as client
+participant "TcpTransport" as tcp
+participant "TcpReader" as reader
+participant "TcpWriter" as writer
+participant "WorkQueue" as wq
+participant "ServerState" as state
+participant "EventHandler" as handler
+database "Mumble Server" as server
+
+== Phase 1: TCP/TLS Connection ==
+
+app -> client : run(config, handler)
+activate client
+
+client -> tcp : connect(&config.tcp)
+activate tcp
+tcp -> server : TCP connect
+tcp -> server : TLS handshake
+server --> tcp : TLS established
+tcp --> client : TcpTransport
+deactivate tcp
+
+== Phase 2: Version Exchange ==
+
+client -> tcp : send(Version { v1: 1.5, v2: 1.5.0 })
+tcp -> server : [type=0][len][Version protobuf]
+
+client -> tcp : split()
+tcp --> client : (TcpReader, TcpWriter)
+
+== Phase 3: Task Spawning ==
+
+client -> reader : spawn TCP reader task
+note right of reader
+    loop {
+        msg = reader.recv()
+        wq_sender.send_tcp(msg)
+    }
+end note
+
+client -> writer : spawn TCP writer task
+note right of writer
+    loop {
+        msg = outbound_rx.recv()
+        writer.send(msg)
+    }
+end note
+
+client -> client : spawn Ping timer task
+note right of client
+    Every 15s:
+    outbound_tx.send(Ping { timestamp })
+end note
+
+client -> client : spawn Command forwarder task
+
+== Phase 4: Authentication (via ClientHandle) ==
+
+client --> app : ClientHandle
+app -> client : handle.send(Authenticate { ... })
+client -> wq : send_command(Authenticate)
+wq --> client : WorkItem::UserCommand(Authenticate)
+client -> writer : outbound_tx.send(Authenticate msg)
+writer -> server : [type=2][len][Authenticate protobuf]
+
+== Phase 5: Server Response ==
+
+server -> reader : Version
+reader -> wq : send_tcp(Version)
+wq --> client : WorkItem::ServerMessage(Control(Version))
+client -> handler : on_control_message(Version)
+
+server -> reader : CryptSetup (encryption keys)
+reader -> wq : send_tcp(CryptSetup)
+wq --> client : WorkItem::ServerMessage(Control(CryptSetup))
+client -> client : start_udp() - attempt UDP transport
+client -> handler : on_control_message(CryptSetup)
+
+server -> reader : ChannelState (for each channel)
+reader -> wq : send_tcp(ChannelState)
+wq --> client : WorkItem::ServerMessage(Control(ChannelState))
+client -> state : apply_channel_state(...)
+
+server -> reader : UserState (for each user)
+reader -> wq : send_tcp(UserState)
+wq --> client : WorkItem::ServerMessage(Control(UserState))
+client -> state : apply_user_state(...)
+
+server -> reader : ServerSync { session, max_bandwidth }
+reader -> wq : send_tcp(ServerSync)
+wq --> client : WorkItem::ServerMessage(Control(ServerSync))
+client -> state : apply_server_sync(...)
+client -> handler : **on_connected()**
+
+note over client, handler
+    Connection is now fully established.
+    The event loop continues processing
+    messages from the work queue.
+end note
+
+deactivate client
+
+@enduml

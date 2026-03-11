@@ -1,0 +1,103 @@
+@startuml component_overview
+!theme plain
+title mumble-protocol - Component Overview
+
+skinparam component {
+    BackgroundColor<<core>> #E8F4FD
+    BackgroundColor<<transport>> #FFF3CD
+    BackgroundColor<<audio>> #D4EDDA
+    BackgroundColor<<command>> #F8D7DA
+    BackgroundColor<<external>> #E2E3E5
+}
+
+package "Application Layer" {
+    component [mumble-gui\n(Dioxus)] <<external>> as gui
+    component [mumble-tauri\n(Tauri)] <<external>> as tauri
+}
+
+package "mumble-protocol" {
+    component [Client\nOrchestrator] <<core>> as client
+    component [Priority\nWork Queue] <<core>> as wq
+    component [Server\nState] <<core>> as state
+    component [Event\nHandler] <<core>> as events
+
+    package "Transport" {
+        component [TCP Transport\n(TLS)] <<transport>> as tcp
+        component [UDP Transport\n(CryptState)] <<transport>> as udp
+        component [TCP Codec\n(framing)] <<transport>> as codec
+        component [Audio Codec\n(legacy + proto)] <<transport>> as acodec
+    }
+
+    package "Command Pattern" {
+        component [CommandAction\ntrait] <<command>> as cmdtrait
+        component [Authenticate] <<command>> as auth
+        component [JoinChannel] <<command>> as join
+        component [SendAudio] <<command>> as sendaudio
+        component [SendTextMessage] <<command>> as sendtext
+        component [SetSelfMute\n/ SetSelfDeaf] <<command>> as mute
+        component [...other\ncommands] <<command>> as othercmd
+    }
+
+    package "Audio Pipeline" {
+        component [AudioCapture\ntrait] <<audio>> as capture
+        component [AudioPlayback\ntrait] <<audio>> as playback
+        component [AudioEncoder\n(Opus)] <<audio>> as encoder
+        component [AudioDecoder\n(Opus)] <<audio>> as decoder
+        component [FilterChain] <<audio>> as filters
+        component [OutboundPipeline] <<audio>> as outpipe
+        component [InboundPipeline] <<audio>> as inpipe
+    }
+
+    package "Proto (generated)" {
+        component [mumble_tcp\n(Mumble.proto)] <<external>> as prototcp
+        component [mumble_udp\n(MumbleUDP.proto)] <<external>> as protoudp
+    }
+}
+
+component [Mumble\nServer] <<external>> as server
+
+' Application → Client
+gui --> client : ClientHandle
+tauri --> client : ClientHandle
+
+' Client internals
+client --> wq : drains
+client --> state : updates
+client --> events : invokes
+client --> tcp : read/write
+client --> udp : read/write
+
+' Work queue feeds
+tcp --> wq : ControlMessage
+udp --> wq : UdpMessage
+cmdtrait --> wq : BoxedCommand
+
+' Transport uses codec
+tcp --> codec : encode/decode
+udp --> acodec : encode/decode
+
+' Commands implement trait
+auth ..|> cmdtrait
+join ..|> cmdtrait
+sendaudio ..|> cmdtrait
+sendtext ..|> cmdtrait
+mute ..|> cmdtrait
+othercmd ..|> cmdtrait
+
+' Audio pipeline stages
+capture --> outpipe
+filters --> outpipe
+encoder --> outpipe
+decoder --> inpipe
+filters --> inpipe
+playback --> inpipe
+
+' Generated proto
+prototcp --> codec
+protoudp --> acodec
+
+' Network
+tcp --> server : TLS
+udp --> server : OCB2-AES128
+
+@enduml

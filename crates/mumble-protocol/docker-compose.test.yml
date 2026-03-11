@@ -1,0 +1,39 @@
+# Docker Compose for Mumble server integration tests.
+#
+# Starts a Mumble server with relaxed limits suitable for testing large images.
+# Usage:
+#   docker compose -f docker-compose.test.yml up -d
+#   cargo test --package mumble-protocol --test integration
+#   docker compose -f docker-compose.test.yml down
+
+services:
+  mumble-server:
+    image: mumblevoip/mumble-server:latest
+    container_name: mumble-test-server
+    ports:
+      - "${MUMBLE_TEST_PORT:-64738}:64738/tcp"
+      - "${MUMBLE_TEST_PORT:-64738}:64738/udp"
+    environment:
+      MUMBLE_SUPERUSER_PASSWORD: "testpassword"
+      # Relaxed limits for testing large images / messages
+      MUMBLE_CONFIG_textmessagelength: "131072"
+      MUMBLE_CONFIG_imagemessagelength: "10485760"
+      MUMBLE_CONFIG_allowhtml: "true"
+      MUMBLE_CONFIG_certrequired: "false"
+      MUMBLE_CONFIG_serverpassword: ""
+      # Disable auto-ban so rapid test connections don't get blocked
+      MUMBLE_CONFIG_autobanAttempts: "0"
+      MUMBLE_CONFIG_autobanTimeframe: "0"
+      MUMBLE_CONFIG_autobanTime: "0"
+      MUMBLE_CONFIG_users: "100"
+      MUMBLE_CONFIG_bandwidth: "320000"
+      MUMBLE_CONFIG_opusthreshold: "0"
+      MUMBLE_CONFIG_welcometext: "<b>Integration Test Server</b>"
+      MUMBLE_CONFIG_registerName: "MumbleTestServer"
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "cat /proc/net/tcp 2>/dev/null | grep -qi ':FCC2' || ss -tlnp 2>/dev/null | grep -q 64738 || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 10s

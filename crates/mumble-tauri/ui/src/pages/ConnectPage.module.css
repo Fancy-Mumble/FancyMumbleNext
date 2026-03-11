@@ -1,0 +1,369 @@
+/* ─── Connect Page ─────────────────────────────────────────────── */
+
+.page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  padding: 24px;
+  position: relative;
+  z-index: 1;
+  overflow-y: auto;
+}
+
+/* Card - frosted glass panel */
+.card {
+  width: 100%;
+  max-width: 400px;
+  padding: 40px 32px;
+  background: var(--color-glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ─── Logo ─────────────────────────────────────────────────────── */
+
+.logo {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.logoIcon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 16px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--color-accent), #7c3aed);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 700;
+  color: white;
+  box-shadow: 0 4px 20px var(--color-accent-glow);
+}
+
+.title {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  margin-top: 4px;
+}
+
+/* ─── Error Banner ─────────────────────────────────────────────── */
+
+.error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-md);
+  color: #fca5a5;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.errorIcon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-danger);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ─── Form ─────────────────────────────────────────────────────── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.input {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--color-glass);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.input:focus {
+  border-color: var(--color-accent);
+  background: var(--color-glass-hover);
+}
+
+.input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── Button ───────────────────────────────────────────────────── */
+
+.button {
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, var(--color-accent), #229ed9);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s, box-shadow 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 4px 16px var(--color-accent-glow);
+}
+
+/* inside a button row, let it fill remaining space */
+.buttonRow .button {
+  width: auto;
+  flex: 1;
+}
+
+.button:hover:not(:disabled) {
+  opacity: 0.9;
+  box-shadow: 0 6px 24px var(--color-accent-glow);
+}
+
+.button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── Spinner ──────────────────────────────────────────────────── */
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ─── Back link ────────────────────────────────────────────────── */
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 16px;
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+
+.backLink:hover {
+  background: var(--color-glass-hover);
+}
+
+.backLink:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── Step Indicator ───────────────────────────────────────────── */
+
+.stepIndicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.stepDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  transition: background 0.3s, transform 0.3s, box-shadow 0.3s;
+}
+
+.stepDotActive {
+  background: var(--color-accent);
+}
+
+.stepDotCurrent {
+  transform: scale(1.25);
+  box-shadow: 0 0 8px var(--color-accent-glow);
+}
+
+.stepLabel {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+/* ─── Hint Card ────────────────────────────────────────────────── */
+
+.hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(42, 171, 238, 0.06);
+  border: 1px solid rgba(42, 171, 238, 0.12);
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.hintIcon {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+/* ─── Button row (Quick Connect + Connect & Save) ─────────────── */
+
+.buttonRow {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.buttonGhost {
+  flex: 0 0 auto;
+  padding: 12px 18px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.buttonGhost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--color-text-primary);
+}
+
+.buttonGhost:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.buttonGhost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── Username happy-path confirmation ─────────────────────────── */
+
+.usernameSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.usernameConfirm {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(42, 171, 238, 0.08);
+  border: 1px solid rgba(42, 171, 238, 0.2);
+  border-radius: var(--radius-md);
+}
+
+.usernameCheckmark {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.usernameValue {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.usernameOtherLink {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: 2px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s;
+}
+
+.usernameOtherLink:hover:not(:disabled) {
+  color: var(--color-accent);
+}
+
+.usernameOtherLink:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

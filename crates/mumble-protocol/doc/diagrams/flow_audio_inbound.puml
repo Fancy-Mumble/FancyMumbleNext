@@ -1,0 +1,83 @@
+@startuml flow_audio_inbound
+!theme plain
+title Inbound Audio Pipeline - Network to Playback
+
+database "Mumble Server" as server
+participant "TcpReader /\nUdpReader" as reader
+participant "WorkQueue" as wq
+participant "Event Loop" as loop
+participant "audio_codec" as codec
+participant "InboundPipeline" as pipeline
+participant "AudioDecoder\n(Opus)" as decoder
+participant "FilterChain" as filters
+participant "VolumeFilter" as volume
+participant "AudioPlayback\n(Speakers)" as speakers
+
+== Path A: Audio via UDP ==
+
+server -> reader : encrypted UDP packet
+reader -> reader : crypt.decrypt(data)
+reader -> reader : decode_udp_message(data)
+reader -> wq : send_udp(UdpMessage::Audio(audio))
+wq -> loop : WorkItem::ServerMessage(Udp(Audio))
+loop -> loop : handler.on_udp_message(&Audio)
+
+== Path B: Audio via TCP Tunnel (fallback) ==
+
+server -> reader : [type=1][len][payload]  (UdpTunnel)
+reader -> wq : send_tcp(UdpTunnel(raw_bytes))
+wq -> loop : WorkItem::ServerMessage(Control(UdpTunnel))
+
+loop -> codec : decode_tunnel_audio(data)
+note right of codec
+    Try protobuf Audio::decode() first
+    (Mumble 1.5+ format).
+    On failure, try decode_legacy_audio()
+    (pre-1.5 binary varint format).
+end note
+codec --> loop : mumble_udp::Audio
+
+loop -> loop : handler.on_udp_message(&Audio)
+
+== Pipeline Processing (driven by EventHandler / application) ==
+
+loop -> pipeline : tick(encoded_packet)
+activate pipeline
+
+pipeline -> decoder : decode(&EncodedPacket)
+decoder -> decoder : opus::decode_float(data, out_buf)
+decoder --> pipeline : AudioFrame { pcm_data, format, sequence }
+
+pipeline -> filters : process(&mut frame)
+activate filters
+filters -> volume : process(&mut frame)
+note right of volume
+    Multiply each sample
+    by gain factor.
+    Clamp to [-1.0, 1.0].
+end note
+volume --> filters : Ok
+filters --> pipeline : Ok
+deactivate filters
+
+pipeline -> speakers : write_frame(&frame)
+speakers -> speakers : Submit to OS audio output\n(WASAPI / PulseAudio / CoreAudio)
+speakers --> pipeline : Ok
+
+pipeline --> loop : Ok
+deactivate pipeline
+
+== Packet Loss Concealment ==
+
+loop -> pipeline : handle_packet_loss()
+pipeline -> decoder : decode_lost()
+note right of decoder
+    Opus PLC generates
+    a concealment frame
+    from previous state.
+end note
+decoder --> pipeline : AudioFrame (concealment)
+pipeline -> filters : process(&mut frame)
+pipeline -> speakers : write_frame(&frame)
+
+@enduml

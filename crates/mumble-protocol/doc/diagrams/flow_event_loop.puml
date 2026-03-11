@@ -1,0 +1,84 @@
+@startuml flow_event_loop
+!theme plain
+title Main Event Loop - Dispatch Logic
+
+participant "TcpReader\nTask" as tcpread
+participant "UdpReader\nTask" as udpread
+participant "Command\nForwarder" as cmdfwd
+participant "WorkQueue\nReceiver" as wq
+participant "Event Loop\n(main)" as loop
+participant "ServerState" as state
+participant "EventHandler" as handler
+participant "Outbound\nChannel" as outbound
+participant "TcpWriter\nTask" as tcpwrite
+
+== Biased select! priority: UDP > TCP > Commands ==
+
+group UDP Message (highest priority)
+    udpread -> wq : send_udp(UdpMessage::Audio)
+    wq -> loop : WorkItem::ServerMessage(Udp(Audio))
+    loop -> handler : on_udp_message(&Audio)
+end
+
+group TCP Control Message
+    tcpread -> wq : send_tcp(ControlMessage)
+    wq -> loop : WorkItem::ServerMessage(Control(msg))
+
+    alt msg is UserState
+        loop -> state : apply_user_state(...)
+    else msg is ChannelState
+        loop -> state : apply_channel_state(...)
+    else msg is UserRemove
+        loop -> state : remove_user(session)
+    else msg is ChannelRemove
+        loop -> state : remove_channel(id)
+    else msg is ServerSync
+        loop -> state : apply_server_sync(...)
+        loop -> handler : on_connected()
+    else msg is CryptSetup
+        loop -> loop : start_udp()
+    else msg is UdpTunnel
+        loop -> loop : decode_tunnel_audio(data)
+        loop -> handler : on_udp_message(&Audio)
+    else msg is Reject
+        loop -> loop : warn!("rejected")
+    end
+
+    loop -> handler : on_control_message(&msg)
+end
+
+group User Command (lowest priority)
+    cmdfwd -> wq : send_command(BoxedCommand)
+    wq -> loop : WorkItem::UserCommand(cmd)
+    loop -> loop : cmd.execute(&state)
+    note right of loop
+        CommandOutput {
+            tcp_messages,
+            udp_messages,
+            disconnect
+        }
+    end note
+
+    loop -> outbound : send TCP messages
+    outbound -> tcpwrite : ControlMessage
+
+    alt has UDP audio messages
+        loop -> loop : encode as UdpTunnel\n(TCP fallback)
+        loop -> outbound : send UdpTunnel
+        outbound -> tcpwrite : UdpTunnel
+    end
+
+    alt output.disconnect == true
+        loop -> handler : on_disconnected()
+        loop -> loop : break (exit event loop)
+    end
+end
+
+group Shutdown
+    note over wq : All sender channels dropped
+    wq -> loop : WorkItem::Shutdown
+    loop -> handler : on_disconnected()
+    loop -> loop : break
+end
+
+@enduml

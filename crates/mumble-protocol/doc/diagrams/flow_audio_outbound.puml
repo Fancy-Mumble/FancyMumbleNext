@@ -1,0 +1,101 @@
+@startuml flow_audio_outbound
+!theme plain
+title Outbound Audio Pipeline - Capture to Network
+
+participant "Microphone /\nAudioCapture" as mic
+participant "OutboundPipeline" as pipeline
+participant "FilterChain" as filters
+participant "NoiseGate" as gate
+participant "AGC" as agc
+participant "SpectralDenoiser" as denoiser
+participant "AudioEncoder\n(Opus)" as encoder
+participant "Client\nEvent Loop" as client
+participant "TcpWriter\n(UdpTunnel)" as writer
+database "Mumble Server" as server
+
+== Pipeline tick() - called at frame cadence ==
+
+client -> pipeline : tick()
+activate pipeline
+
+pipeline -> mic : read_frame()
+alt capture buffer empty
+    mic --> pipeline : Err(InvalidState)
+    pipeline --> client : OutboundTick::NoData
+    note right: No audio available yet.\nSkip this tick.
+else device error
+    mic --> pipeline : Err(...)
+    pipeline --> client : propagate error
+else frame available
+    mic --> pipeline : AudioFrame { data, format, sequence }
+end
+
+== Filter Processing (in-place, sequential) ==
+
+pipeline -> filters : process(&mut frame)
+activate filters
+
+filters -> gate : process(&mut frame)
+note right of gate
+    Compute RMS of frame.
+    If below open_threshold:
+      frame.is_silent = true
+      Zero the samples
+    If above close_threshold:
+      frame.is_silent = false
+    Hysteresis hold prevents chop.
+end note
+gate --> filters : Ok
+
+filters -> agc : process(&mut frame)
+note right of agc
+    Compute RMS, compare to target_level.
+    Adjust current_gain with
+    attack/release smoothing.
+    Multiply all samples by gain.
+end note
+agc --> filters : Ok
+
+filters -> denoiser : process(&mut frame)
+note right of denoiser
+    (Stub - passthrough)
+    Production: ML inference
+    to suppress background noise.
+end note
+denoiser --> filters : Ok
+
+filters --> pipeline : Ok
+deactivate filters
+
+== Encoding & Result ==
+
+alt frame.is_silent AND was_talking
+    pipeline -> encoder : encode(&frame)
+    encoder --> pipeline : EncodedPacket
+    pipeline -> pipeline : was_talking = false
+    pipeline --> client : OutboundTick::Terminator(packet)
+    note right: Last frame of speech.\nSend with is_terminator = true.
+
+else frame.is_silent AND !was_talking
+    pipeline --> client : OutboundTick::Silence
+    note right: Noise gate is active.\nDo not send anything.
+
+else !frame.is_silent
+    pipeline -> encoder : encode(&frame)
+    encoder --> pipeline : EncodedPacket { data, sequence, frame_samples }
+    pipeline -> pipeline : was_talking = true
+    pipeline --> client : OutboundTick::Audio(packet)
+end
+
+deactivate pipeline
+
+== Network Transmission ==
+
+alt OutboundTick::Audio or Terminator
+    client -> client : SendAudio command\n→ CommandOutput { udp_messages }
+    client -> client : encode_protobuf_audio(audio)
+    client -> writer : outbound_tx.send(UdpTunnel(bytes))
+    writer -> server : [type=1][len][protobuf Audio]
+end
+
+@enduml

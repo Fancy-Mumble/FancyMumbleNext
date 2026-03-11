@@ -1,0 +1,217 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ────────────────────────────────────────────────────────────────
+  # 1. Lint & test (runs on every push / PR)
+  # ────────────────────────────────────────────────────────────────
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Toolchain ───────────────────────────────────────────────
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.os }}-test
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # ── Linux system deps (Tauri + ALSA for cpal) ──────────────
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libasound2-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            protobuf-compiler
+
+      # ── Frontend ────────────────────────────────────────────────
+      - name: Install npm dependencies
+        working-directory: crates/mumble-tauri/ui
+        run: npm ci
+
+      - name: TypeScript type-check
+        working-directory: crates/mumble-tauri/ui
+        run: npx tsc --noEmit
+
+      - name: Frontend unit tests
+        working-directory: crates/mumble-tauri/ui
+        run: npm test
+
+      # ── Rust ────────────────────────────────────────────────────
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Rust unit tests (mumble-protocol)
+        run: cargo test --package mumble-protocol --features opus-codec --lib
+
+      - name: Rust unit tests (mumble-tauri)
+        run: cargo test --package mumble-tauri --lib
+
+      # ── Integration tests (Linux only - Docker) ────────────────
+      - name: Start Mumble test server
+        if: runner.os == 'Linux'
+        working-directory: crates/mumble-protocol
+        run: docker compose -f docker-compose.test.yml up -d --wait
+
+      - name: Integration tests
+        if: runner.os == 'Linux'
+        run: cargo test --package mumble-protocol --test integration
+
+      - name: Stop Mumble test server
+        if: runner.os == 'Linux' && always()
+        working-directory: crates/mumble-protocol
+        run: docker compose -f docker-compose.test.yml down
+
+  # ────────────────────────────────────────────────────────────────
+  # 2. Build Tauri app (runs on every push / PR)
+  # ────────────────────────────────────────────────────────────────
+
+  build:
+    name: Build (${{ matrix.target.name }})
+    needs: test
+    runs-on: ${{ matrix.target.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: Linux
+            os: ubuntu-latest
+            bundle-ext: "deb,appimage"
+          - name: Windows
+            os: windows-latest
+            bundle-ext: "msi,nsis"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.target.os }}-build
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libasound2-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            protobuf-compiler
+
+      - name: Install npm dependencies
+        working-directory: crates/mumble-tauri/ui
+        run: npm ci
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2"
+
+      - name: Build Tauri app
+        working-directory: crates/mumble-tauri
+        run: cargo tauri build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fancy-mumble-${{ matrix.target.name }}
+          path: |
+            target/release/bundle/**/*.deb
+            target/release/bundle/**/*.AppImage
+            target/release/bundle/**/*.msi
+            target/release/bundle/**/*.exe
+          if-no-files-found: warn
+
+  # ────────────────────────────────────────────────────────────────
+  # 3. Release (only on push to main)
+  # ────────────────────────────────────────────────────────────────
+
+  release:
+    name: Release
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version from tauri.conf.json
+        id: version
+        run: |
+          VERSION=$(jq -r '.version' crates/mumble-tauri/tauri.conf.json)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f | head -50
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Fancy Mumble ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/**/*.deb
+            artifacts/**/*.AppImage
+            artifacts/**/*.msi
+            artifacts/**/*.exe

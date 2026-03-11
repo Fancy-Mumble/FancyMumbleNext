@@ -1,0 +1,1248 @@
+/* ─── Settings Page – Sidebar Layout ────────────────────────────── */
+
+.page {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ─── Sidebar ──────────────────────────────────────────────────── */
+
+.sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 12px;
+  background: var(--color-glass);
+  border-right: 1px solid var(--color-glass-border);
+  overflow-y: auto;
+}
+
+.backBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--color-text-secondary);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.backBtn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-glass-hover);
+  border-color: var(--color-glass-border);
+}
+
+.sidebarHeading {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  padding: 0 10px;
+  margin-bottom: 8px;
+}
+
+.tabList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tabBtn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+}
+
+.tabBtn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-glass-hover);
+}
+
+.tabBtnActive {
+  color: var(--color-text-primary);
+  background: var(--color-glass-hover);
+  border-color: var(--color-glass-border);
+}
+
+.tabIcon {
+  font-size: 16px;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+/* ─── Main area (scrolling container) ──────────────────────────── */
+
+.mainArea {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.mainAreaWithPreview {
+  display: grid;
+  grid-template-columns: minmax(0, 600px) 280px;
+}
+
+/* ─── Content area ─────────────────────────────────────────────── */
+
+.content {
+  min-width: 0;
+  padding: 32px 40px;
+  max-width: 600px;
+}
+
+.panelTitle {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-bottom: 24px;
+}
+
+.error {
+  color: var(--color-danger);
+  font-size: 13px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  border-radius: var(--radius-sm);
+}
+
+/* ─── Sections ─────────────────────────────────────────────────── */
+
+.section {
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--color-glass-border);
+}
+
+.section:last-of-type {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.sectionTitle {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--color-text-primary);
+}
+
+/* ─── Fields ───────────────────────────────────────────────────── */
+
+.field {
+  margin-top: 8px;
+}
+
+.fieldRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.fieldLabel {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.fieldHint {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+/* ─── Input ────────────────────────────────────────────────────── */
+
+.input {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.input:focus {
+  border-color: var(--color-accent);
+}
+
+/* ─── Select ───────────────────────────────────────────────────── */
+
+.select {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  cursor: pointer;
+  appearance: auto;
+  transition: border-color 0.2s;
+}
+
+.select:hover {
+  border-color: var(--color-glass-border-hover);
+}
+
+.select:focus {
+  border-color: var(--color-accent);
+}
+
+.select option {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+/* ─── Toggle switch ────────────────────────────────────────────── */
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.toggleInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.toggleInfo .sectionTitle {
+  margin-bottom: 4px;
+}
+
+.toggle {
+  position: relative;
+  width: 48px;
+  height: 26px;
+  border-radius: 13px;
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.toggleOn {
+  background: var(--color-accent);
+}
+
+.toggleKnob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 0.2s;
+  box-shadow: var(--shadow-sm);
+}
+
+.toggleOn .toggleKnob {
+  transform: translateX(22px);
+}
+
+/* ─── Slider ───────────────────────────────────────────────────── */
+
+.slider {
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: var(--shadow-sm);
+}
+
+.slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: var(--shadow-sm);
+}
+
+.sliderValue {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-accent);
+  min-width: 40px;
+  text-align: right;
+}
+
+/* ─── Shortcut recorder ───────────────────────────────────────── */
+
+.recorderRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.recorderLabel {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  min-width: 110px;
+}
+
+.recorderBtn {
+  flex: 1;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s;
+}
+
+.recorderBtn:hover {
+  border-color: var(--color-glass-border-hover);
+  color: var(--color-text-primary);
+}
+
+.recorderInput {
+  flex: 1;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--color-accent);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-accent-glow);
+}
+
+.recorderActive {
+  animation: pulse 1.2s infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px var(--color-accent-glow);
+  }
+  50% {
+    box-shadow: 0 0 0 4px var(--color-accent-glow);
+  }
+}
+
+.clearBtn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.clearBtn:hover {
+  color: var(--color-danger);
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.15);
+}
+
+/* ─── PTT key row ──────────────────────────────────────────────── */
+
+.pttKeyRow {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-glass-border);
+}
+
+/* ─── Danger zone ──────────────────────────────────────────────── */
+
+.dangerBtn {
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  color: white;
+  background: var(--color-danger, #ef4444);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.dangerBtn:hover {
+  opacity: 0.9;
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.3);
+}
+
+.confirmBox {
+  padding: 16px;
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  border-radius: var(--radius-sm);
+}
+
+.confirmText {
+  font-size: 14px;
+  color: var(--color-text-primary);
+  margin-bottom: 14px;
+}
+
+.confirmBtns {
+  display: flex;
+  gap: 10px;
+}
+
+.ghostBtn {
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--color-text-secondary);
+  background: none;
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ghostBtn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-glass-hover);
+}
+
+/* ─── Avatar picker ────────────────────────────────────────────── */
+
+.avatarRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.avatarPreview {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 2px dashed var(--color-glass-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--color-bg-secondary);
+  transition: border-color 0.2s;
+}
+
+.avatarPreview:hover {
+  border-color: var(--color-accent);
+}
+
+.avatarImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatarPlaceholder {
+  font-size: 28px;
+  opacity: 0.5;
+}
+
+.avatarActions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ─── Textarea ─────────────────────────────────────────────────── */
+
+.textarea {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.textarea::placeholder {
+  color: var(--color-text-muted);
+}
+
+.textarea:focus {
+  border-color: var(--color-accent);
+}
+
+/* ─── Option grid (decorations / effects) ──────────────────────── */
+
+.optionGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.optionCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 72px;
+  height: 72px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+  border: 2px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.optionCard:hover {
+  border-color: var(--color-glass-border-hover);
+  color: var(--color-text-primary);
+}
+
+.optionCardSelected {
+  border-color: var(--color-accent);
+  background: rgba(99, 102, 241, 0.08);
+  color: var(--color-text-primary);
+}
+
+.optionPreview {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.optionLabel {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* ─── Nameplate cards (gradient backgrounds) ───────────────────── */
+
+.nameplateCard {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 36px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  border: 2px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.nameplateCard:hover {
+  border-color: var(--color-glass-border-hover);
+  transform: translateY(-1px);
+}
+
+/* ─── Name preview ─────────────────────────────────────────────── */
+
+.namePreview {
+  font-size: 22px;
+  font-weight: 600;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-glass-border);
+  text-align: center;
+  user-select: none;
+}
+
+/* ─── Colour picker ────────────────────────────────────────────── */
+
+.colorInput {
+  width: 36px;
+  height: 36px;
+  padding: 2px;
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.colorInput::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.colorInput::-webkit-color-swatch {
+  border-radius: 3px;
+  border: none;
+}
+
+/* ─── Gradient row ─────────────────────────────────────────────── */
+
+.gradientRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.gradientRow .field {
+  flex: 1;
+}
+
+/* ─── Banner thumbnail ─────────────────────────────────────────── */
+
+.bannerThumb {
+  width: 100%;
+  max-height: 100px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-glass-border);
+  margin-bottom: 8px;
+}
+
+/* ─── Apply button ─────────────────────────────────────────────── */
+
+.applyBtn {
+  width: 100%;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  color: white;
+  background: var(--color-accent, #6366f1);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.applyBtn:hover:not(:disabled) {
+  opacity: 0.9;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+}
+
+.applyBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ─── Preview pane (sticky right column) ───────────────────────── */
+
+.previewPane {
+  padding: 32px 20px 32px 0;
+}
+
+.previewSticky {
+  position: sticky;
+  top: 32px;
+}
+
+/* ─── Profile Preview Card ─────────────────────────────────────── */
+
+.previewCard {
+  position: relative;
+  width: 260px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--color-glass);
+  border: 1px solid var(--color-glass-border);
+  box-shadow: var(--shadow-sm);
+}
+
+.previewBanner {
+  height: 90px;
+  background: #1a1a2e;
+}
+
+.previewAvatarArea {
+  padding: 0 16px;
+  margin-top: -30px;
+}
+
+.previewAvatarWrapper {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  overflow: visible;
+  border: 3px solid var(--color-glass);
+  background: var(--color-bg-secondary, #1a1a2e);
+}
+
+.previewAvatarImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.previewAvatarPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 24px;
+  border-radius: 50%;
+  background: var(--color-bg-secondary, #1a1a2e);
+}
+
+.previewDecoration {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  font-size: 18px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+
+.previewBody {
+  padding: 12px 16px 16px;
+}
+
+.previewNameRow {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.previewNameplate {
+  position: absolute;
+  inset: -3px -8px;
+  border-radius: 4px;
+  z-index: 0;
+}
+
+.previewName {
+  position: relative;
+  z-index: 1;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.previewBio {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+}
+
+.previewEffectBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 10px;
+  background: var(--color-glass-hover);
+  color: var(--color-text-secondary);
+}
+
+/* ─── Custom Status ────────────────────────────────────────────── */
+
+.previewStatus {
+  font-size: 12px;
+  color: var(--color-text-muted, #888);
+  margin: 0 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── Card Background option cards ─────────────────────────────── */
+
+.cardBgCard {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 52px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  color: white;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  border: 2px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cardBgCard:hover {
+  border-color: var(--color-glass-border-hover);
+  transform: translateY(-1px);
+}
+
+/* ─── Avatar Border option cards ───────────────────────────────── */
+
+.avatarBorderCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 72px;
+  height: 72px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+  border: 2px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.avatarBorderCard:hover {
+  border-color: var(--color-glass-border-hover);
+  color: var(--color-text-primary);
+}
+
+.borderPreview {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-bg-secondary, #1a1a2e);
+  flex-shrink: 0;
+}
+
+/* ─── Effect overlay (animated layer over the whole card) ──────── */
+
+.previewEffectOverlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Particles - floating dots */
+.effectParticles {
+  background-image:
+    radial-gradient(1.5px 1.5px at 20% 30%, rgba(255,255,255,0.7) 50%, transparent 50%),
+    radial-gradient(2px 2px at 70% 20%, rgba(255,255,255,0.5) 50%, transparent 50%),
+    radial-gradient(1.5px 1.5px at 40% 70%, rgba(255,255,255,0.6) 50%, transparent 50%),
+    radial-gradient(2px 2px at 80% 80%, rgba(255,255,255,0.4) 50%, transparent 50%),
+    radial-gradient(1px 1px at 10% 60%, rgba(255,255,255,0.5) 50%, transparent 50%),
+    radial-gradient(1.5px 1.5px at 55% 50%, rgba(255,255,255,0.6) 50%, transparent 50%);
+  background-size: 100% 100%;
+  animation: particleFloat 6s ease-in-out infinite alternate;
+}
+
+@keyframes particleFloat {
+  0%   { transform: translateY(0); opacity: 0.7; }
+  100% { transform: translateY(-12px); opacity: 1; }
+}
+
+/* Sparkle - glinting stars */
+.effectSparkle {
+  background-image:
+    radial-gradient(2px 2px at 25% 25%, rgba(255,255,150,0.9) 50%, transparent 50%),
+    radial-gradient(2px 2px at 75% 35%, rgba(255,255,150,0.7) 50%, transparent 50%),
+    radial-gradient(1.5px 1.5px at 50% 75%, rgba(255,255,150,0.8) 50%, transparent 50%),
+    radial-gradient(2px 2px at 15% 65%, rgba(255,255,150,0.6) 50%, transparent 50%),
+    radial-gradient(1.5px 1.5px at 85% 70%, rgba(255,255,150,0.7) 50%, transparent 50%);
+  background-size: 100% 100%;
+  animation: sparkleFlicker 2s ease-in-out infinite;
+}
+
+@keyframes sparkleFlicker {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
+}
+
+/* Snow - falling dots */
+.effectSnow {
+  background-image:
+    radial-gradient(2px 2px at 10% 0%,  rgba(255,255,255,0.8) 50%, transparent 50%),
+    radial-gradient(3px 3px at 30% 10%, rgba(255,255,255,0.6) 50%, transparent 50%),
+    radial-gradient(2px 2px at 50% 5%,  rgba(255,255,255,0.7) 50%, transparent 50%),
+    radial-gradient(2px 2px at 70% 0%,  rgba(255,255,255,0.5) 50%, transparent 50%),
+    radial-gradient(3px 3px at 90% 10%, rgba(255,255,255,0.6) 50%, transparent 50%);
+  background-size: 100% 100%;
+  animation: snowFall 4s linear infinite;
+}
+
+@keyframes snowFall {
+  0%   { transform: translateY(-10px); opacity: 0.8; }
+  100% { transform: translateY(100%); opacity: 0.3; }
+}
+
+/* Rain - vertical streaks */
+.effectRain {
+  background-image:
+    linear-gradient(transparent 60%, rgba(100,180,255,0.15) 60%, rgba(100,180,255,0.15) 61%, transparent 61%),
+    linear-gradient(transparent 30%, rgba(100,180,255,0.12) 30%, rgba(100,180,255,0.12) 31%, transparent 31%),
+    linear-gradient(transparent 75%, rgba(100,180,255,0.1) 75%, rgba(100,180,255,0.1) 76%, transparent 76%);
+  background-size: 3px 80px, 5px 60px, 7px 100px;
+  animation: rainDrop 1.2s linear infinite;
+}
+
+@keyframes rainDrop {
+  0%   { background-position: 0 -80px; }
+  100% { background-position: 0 100%; }
+}
+
+/* Fireflies - slowly drifting warm dots */
+.effectFireflies {
+  background-image:
+    radial-gradient(3px 3px at 20% 50%, rgba(255,230,100,0.9) 50%, transparent 50%),
+    radial-gradient(2px 2px at 60% 30%, rgba(255,200,80,0.8) 50%, transparent 50%),
+    radial-gradient(2.5px 2.5px at 80% 70%, rgba(255,230,100,0.6) 50%, transparent 50%);
+  background-size: 100% 100%;
+  animation: fireflyDrift 5s ease-in-out infinite alternate;
+}
+
+@keyframes fireflyDrift {
+  0%   { transform: translate(0, 0); opacity: 0.5; }
+  33%  { opacity: 1; }
+  66%  { opacity: 0.4; }
+  100% { transform: translate(6px, -8px); opacity: 0.9; }
+}
+
+/* Pulse glow - breathing glow from inside the card */
+.effectPulseGlow {
+  box-shadow: inset 0 0 30px rgba(99,102,241,0.3);
+  animation: pulseGlow 3s ease-in-out infinite;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: inset 0 0 30px rgba(99,102,241,0.15); }
+  50%      { box-shadow: inset 0 0 50px rgba(99,102,241,0.45); }
+}
+
+/* Rainbow shift - hue-rotating gradient overlay */
+.effectRainbowShift {
+  background: linear-gradient(135deg,
+    rgba(255,0,0,0.08),
+    rgba(255,165,0,0.08),
+    rgba(255,255,0,0.08),
+    rgba(0,128,0,0.08),
+    rgba(0,0,255,0.08),
+    rgba(128,0,128,0.08));
+  background-size: 300% 300%;
+  animation: rainbowMove 6s linear infinite;
+}
+
+@keyframes rainbowMove {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ─── Image Editor Modal ───────────────────────────────────────── */
+
+.editorOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.editorModal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  border-radius: 12px;
+  background: var(--color-glass);
+  border: 1px solid var(--color-glass-border);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  max-width: 95vw;
+}
+
+.editorTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.editorViewport {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #0a0a0a;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.editorViewport:active {
+  cursor: grabbing;
+}
+
+.editorImg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.editorMask {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.editorControls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.editorZoomIcon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.editorSlider {
+  flex: 1;
+  height: 4px;
+  accent-color: var(--color-accent, #6366f1);
+}
+
+.editorActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ─── Bio WYSIWYG editor ───────────────────────────────────────── */
+
+.bioEditor {
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-secondary);
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.bioEditor:focus-within {
+  border-color: var(--color-accent);
+}
+
+.bioToolbar {
+  display: flex;
+  gap: 2px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--color-glass-border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.bioToolBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.bioToolBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-primary);
+}
+
+.bioToolBtnActive {
+  background: rgba(42, 171, 238, 0.18);
+  color: var(--color-accent);
+}
+
+/* Editor content area - targets tiptap's ProseMirror div */
+.bioEditorContent {
+  min-height: 72px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.bioEditorContent p {
+  margin: 0 0 0.4em;
+}
+
+.bioEditorContent p:last-child {
+  margin-bottom: 0;
+}
+
+/* Empty-state placeholder (tiptap Placeholder extension) */
+.bioEditorContent :global(.is-editor-empty):first-child::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-muted);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* ── Colour picker ─────────────────────────────────────────────── */
+
+.bioColourWrap {
+  position: relative;
+}
+
+.bioColourIcon {
+  display: inline-block;
+  border-bottom: 3px solid var(--color-text-primary);
+  line-height: 1;
+  font-weight: 700;
+}
+
+.bioColourDropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  padding: 8px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.bioColourGrid {
+  display: grid;
+  grid-template-columns: repeat(6, 22px);
+  gap: 4px;
+}
+
+.bioColourSwatch {
+  width: 22px;
+  height: 22px;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s;
+}
+
+.bioColourSwatch:hover {
+  border-color: var(--color-text-primary);
+  transform: scale(1.15);
+}
+
+.bioColourReset {
+  width: 100%;
+  margin-top: 6px;
+  padding: 3px 0;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.bioColourReset:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--color-text-primary);
+}
+
+/* ─── Responsive: hide preview on narrow windows ───────────────── */
+
+@media (max-width: 900px) {
+  .mainAreaWithPreview {
+    grid-template-columns: 1fr;
+  }
+  .previewPane {
+    display: none;
+  }
+}

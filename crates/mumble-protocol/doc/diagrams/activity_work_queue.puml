@@ -1,0 +1,70 @@
+@startuml activity_work_queue
+!theme plain
+title Priority Work Queue - Dispatch Activity
+
+start
+
+:Initialize channels;
+note right
+  udp_tx / udp_rx  (high priority)
+  tcp_tx / tcp_rx  (medium priority)
+  cmd_tx / cmd_rx  (low priority)
+end note
+
+while (Event loop running?) is (yes)
+
+  :Enter biased select!;
+
+  if (udp_rx has data?) then (yes)
+    :Receive UdpMessage;
+    :Wrap in WorkItem::ServerMessage(Udp(msg));
+    :Return to event loop;
+  elseif (tcp_rx has data?) then (yes)
+    :Receive ControlMessage;
+    :Wrap in WorkItem::ServerMessage(Control(msg));
+    :Return to event loop;
+  elseif (cmd_rx has data?) then (yes)
+    :Receive BoxedCommand;
+    :Wrap in WorkItem::UserCommand(cmd);
+    :Return to event loop;
+  else (all channels closed)
+    :Return WorkItem::Shutdown;
+    stop
+  endif
+
+  :Event loop processes WorkItem;
+
+  if (WorkItem type?) then (ServerMessage)
+    if (is Control?) then (yes)
+      :Update ServerState;
+      :Call handler.on_control_message();
+      if (is CryptSetup?) then (yes)
+        :Start UDP transport;
+      endif
+      if (is UdpTunnel?) then (yes)
+        :Decode tunnel audio;
+        :Call handler.on_udp_message();
+      endif
+    else (is Udp)
+      :Call handler.on_udp_message();
+    endif
+  elseif (WorkItem type?) then (UserCommand)
+    :cmd.execute(&state) → CommandOutput;
+    :Send TCP messages via outbound channel;
+    :Encode UDP audio as UdpTunnel (TCP fallback);
+    if (output.disconnect?) then (yes)
+      :Call handler.on_disconnected();
+      stop
+    endif
+  elseif (WorkItem type?) then (Shutdown)
+    :Call handler.on_disconnected();
+    stop
+  else (Ping)
+    :No-op (handled by timer task);
+  endif
+
+endwhile (no)
+
+stop
+
+@enduml

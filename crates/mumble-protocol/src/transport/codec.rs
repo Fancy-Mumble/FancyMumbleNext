@@ -1,0 +1,487 @@
+//! Mumble TCP packet framing: encode and decode the `[type:u16][length:u32][payload]` wire format.
+
+use bytes::{Buf, BufMut, BytesMut};
+use prost::Message;
+
+use crate::error::{Error, Result};
+use crate::message::{ControlMessage, TcpMessageType};
+use crate::proto::mumble_tcp;
+
+/// Maximum allowed payload size (8 MiB, generous upper bound).
+const MAX_PAYLOAD_SIZE: u32 = 8 * 1024 * 1024;
+
+/// Header size: 2 bytes type + 4 bytes length.
+pub const HEADER_SIZE: usize = 6;
+
+/// Encode a [`ControlMessage`] into a framed byte buffer ready for the wire.
+pub fn encode(msg: &ControlMessage) -> Result<Vec<u8>> {
+    let (type_id, payload) = serialize_control_message(msg)?;
+    let len = payload.len() as u32;
+
+    let mut buf = Vec::with_capacity(HEADER_SIZE + payload.len());
+    buf.put_u16(type_id);
+    buf.put_u32(len);
+    buf.extend_from_slice(&payload);
+    Ok(buf)
+}
+
+/// Try to decode one complete frame from `buf`.
+///
+/// Returns `Ok(Some(msg))` if a full frame was available (consumed from `buf`),
+/// `Ok(None)` if more data is needed, or `Err` on protocol errors.
+pub fn decode(buf: &mut BytesMut) -> Result<Option<ControlMessage>> {
+    if buf.len() < HEADER_SIZE {
+        return Ok(None);
+    }
+
+    let msg_type = u16::from_be_bytes([buf[0], buf[1]]);
+    let payload_len = u32::from_be_bytes([buf[2], buf[3], buf[4], buf[5]]);
+
+    if payload_len > MAX_PAYLOAD_SIZE {
+        return Err(Error::InvalidState(format!(
+            "payload too large: {payload_len} bytes"
+        )));
+    }
+
+    let total = HEADER_SIZE + payload_len as usize;
+    if buf.len() < total {
+        return Ok(None);
+    }
+
+    buf.advance(HEADER_SIZE);
+    let payload = buf.split_to(payload_len as usize);
+
+    let msg = deserialize_control_message(msg_type, &payload)?;
+    Ok(Some(msg))
+}
+
+// ── Serialization helpers ──────────────────────────────────────────
+
+fn serialize_control_message(msg: &ControlMessage) -> Result<(u16, Vec<u8>)> {
+    use ControlMessage::*;
+
+    let (type_id, payload) = match msg {
+        Version(m) => (TcpMessageType::Version as u16, m.encode_to_vec()),
+        Authenticate(m) => (TcpMessageType::Authenticate as u16, m.encode_to_vec()),
+        Ping(m) => (TcpMessageType::Ping as u16, m.encode_to_vec()),
+        Reject(m) => (TcpMessageType::Reject as u16, m.encode_to_vec()),
+        ServerSync(m) => (TcpMessageType::ServerSync as u16, m.encode_to_vec()),
+        ChannelRemove(m) => (TcpMessageType::ChannelRemove as u16, m.encode_to_vec()),
+        ChannelState(m) => (TcpMessageType::ChannelState as u16, m.encode_to_vec()),
+        UserRemove(m) => (TcpMessageType::UserRemove as u16, m.encode_to_vec()),
+        UserState(m) => (TcpMessageType::UserState as u16, m.encode_to_vec()),
+        BanList(m) => (TcpMessageType::BanList as u16, m.encode_to_vec()),
+        TextMessage(m) => (TcpMessageType::TextMessage as u16, m.encode_to_vec()),
+        PermissionDenied(m) => (TcpMessageType::PermissionDenied as u16, m.encode_to_vec()),
+        Acl(m) => (TcpMessageType::Acl as u16, m.encode_to_vec()),
+        QueryUsers(m) => (TcpMessageType::QueryUsers as u16, m.encode_to_vec()),
+        CryptSetup(m) => (TcpMessageType::CryptSetup as u16, m.encode_to_vec()),
+        ContextActionModify(m) => (TcpMessageType::ContextActionModify as u16, m.encode_to_vec()),
+        ContextAction(m) => (TcpMessageType::ContextAction as u16, m.encode_to_vec()),
+        UserList(m) => (TcpMessageType::UserList as u16, m.encode_to_vec()),
+        VoiceTarget(m) => (TcpMessageType::VoiceTarget as u16, m.encode_to_vec()),
+        PermissionQuery(m) => (TcpMessageType::PermissionQuery as u16, m.encode_to_vec()),
+        CodecVersion(m) => (TcpMessageType::CodecVersion as u16, m.encode_to_vec()),
+        UserStats(m) => (TcpMessageType::UserStats as u16, m.encode_to_vec()),
+        RequestBlob(m) => (TcpMessageType::RequestBlob as u16, m.encode_to_vec()),
+        ServerConfig(m) => (TcpMessageType::ServerConfig as u16, m.encode_to_vec()),
+        SuggestConfig(m) => (TcpMessageType::SuggestConfig as u16, m.encode_to_vec()),
+        PluginDataTransmission(m) => (TcpMessageType::PluginDataTransmission as u16, m.encode_to_vec()),
+        UdpTunnel(data) => (TcpMessageType::UdpTunnel as u16, data.clone()),
+    };
+
+    Ok((type_id, payload))
+}
+
+fn deserialize_control_message(type_id: u16, payload: &[u8]) -> Result<ControlMessage> {
+    let msg_type = TcpMessageType::try_from(type_id)?;
+    use TcpMessageType::*;
+
+    let msg = match msg_type {
+        Version => ControlMessage::Version(mumble_tcp::Version::decode(payload)?),
+        UdpTunnel => ControlMessage::UdpTunnel(payload.to_vec()),
+        Authenticate => ControlMessage::Authenticate(mumble_tcp::Authenticate::decode(payload)?),
+        Ping => ControlMessage::Ping(mumble_tcp::Ping::decode(payload)?),
+        Reject => ControlMessage::Reject(mumble_tcp::Reject::decode(payload)?),
+        ServerSync => ControlMessage::ServerSync(mumble_tcp::ServerSync::decode(payload)?),
+        ChannelRemove => ControlMessage::ChannelRemove(mumble_tcp::ChannelRemove::decode(payload)?),
+        ChannelState => ControlMessage::ChannelState(mumble_tcp::ChannelState::decode(payload)?),
+        UserRemove => ControlMessage::UserRemove(mumble_tcp::UserRemove::decode(payload)?),
+        UserState => ControlMessage::UserState(mumble_tcp::UserState::decode(payload)?),
+        BanList => ControlMessage::BanList(mumble_tcp::BanList::decode(payload)?),
+        TextMessage => ControlMessage::TextMessage(mumble_tcp::TextMessage::decode(payload)?),
+        PermissionDenied => ControlMessage::PermissionDenied(mumble_tcp::PermissionDenied::decode(payload)?),
+        Acl => ControlMessage::Acl(mumble_tcp::Acl::decode(payload)?),
+        QueryUsers => ControlMessage::QueryUsers(mumble_tcp::QueryUsers::decode(payload)?),
+        CryptSetup => ControlMessage::CryptSetup(mumble_tcp::CryptSetup::decode(payload)?),
+        ContextActionModify => ControlMessage::ContextActionModify(mumble_tcp::ContextActionModify::decode(payload)?),
+        ContextAction => ControlMessage::ContextAction(mumble_tcp::ContextAction::decode(payload)?),
+        UserList => ControlMessage::UserList(mumble_tcp::UserList::decode(payload)?),
+        VoiceTarget => ControlMessage::VoiceTarget(mumble_tcp::VoiceTarget::decode(payload)?),
+        PermissionQuery => ControlMessage::PermissionQuery(mumble_tcp::PermissionQuery::decode(payload)?),
+        CodecVersion => ControlMessage::CodecVersion(mumble_tcp::CodecVersion::decode(payload)?),
+        UserStats => ControlMessage::UserStats(mumble_tcp::UserStats::decode(payload)?),
+        RequestBlob => ControlMessage::RequestBlob(mumble_tcp::RequestBlob::decode(payload)?),
+        ServerConfig => ControlMessage::ServerConfig(mumble_tcp::ServerConfig::decode(payload)?),
+        SuggestConfig => ControlMessage::SuggestConfig(mumble_tcp::SuggestConfig::decode(payload)?),
+        PluginDataTransmission => ControlMessage::PluginDataTransmission(mumble_tcp::PluginDataTransmission::decode(payload)?),
+    };
+    Ok(msg)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roundtrip_ping() -> crate::error::Result<()> {
+        let ping = mumble_tcp::Ping {
+            timestamp: Some(42),
+            ..Default::default()
+        };
+        let msg = ControlMessage::Ping(ping);
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?
+            .ok_or(crate::error::Error::InvalidState(
+                "expected complete frame".into(),
+            ))?;
+
+        match decoded {
+            ControlMessage::Ping(p) => assert_eq!(p.timestamp, Some(42)),
+            other => panic!("unexpected message: {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn partial_frame_returns_none() -> crate::error::Result<()> {
+        let mut buf = BytesMut::from(&[0u8; 4][..]);
+        assert!(decode(&mut buf)?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_version() -> crate::error::Result<()> {
+        let version = mumble_tcp::Version {
+            version_v2: Some(0x0001_0005_0000_0000),
+            release: Some("Test 1.5.0".into()),
+            os: Some("Windows".into()),
+            os_version: Some("10".into()),
+            ..Default::default()
+        };
+        let msg = ControlMessage::Version(version);
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::Version(v) => {
+                assert_eq!(v.release.as_deref(), Some("Test 1.5.0"));
+                assert_eq!(v.os.as_deref(), Some("Windows"));
+            }
+            other => panic!("expected Version, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_text_message() -> crate::error::Result<()> {
+        let msg = ControlMessage::TextMessage(mumble_tcp::TextMessage {
+            message: "Hello, world!".into(),
+            channel_id: vec![0],
+            ..Default::default()
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::TextMessage(tm) => {
+                assert_eq!(tm.message, "Hello, world!");
+                assert_eq!(tm.channel_id, vec![0]);
+            }
+            other => panic!("expected TextMessage, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_user_state() -> crate::error::Result<()> {
+        let msg = ControlMessage::UserState(mumble_tcp::UserState {
+            session: Some(42),
+            name: Some("TestUser".into()),
+            channel_id: Some(0),
+            self_mute: Some(true),
+            ..Default::default()
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::UserState(us) => {
+                assert_eq!(us.session, Some(42));
+                assert_eq!(us.name.as_deref(), Some("TestUser"));
+                assert_eq!(us.self_mute, Some(true));
+            }
+            other => panic!("expected UserState, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_server_sync() -> crate::error::Result<()> {
+        let msg = ControlMessage::ServerSync(mumble_tcp::ServerSync {
+            session: Some(7),
+            max_bandwidth: Some(72000),
+            welcome_text: Some("Welcome!".into()),
+            ..Default::default()
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::ServerSync(ss) => {
+                assert_eq!(ss.session, Some(7));
+                assert_eq!(ss.max_bandwidth, Some(72000));
+                assert_eq!(ss.welcome_text.as_deref(), Some("Welcome!"));
+            }
+            other => panic!("expected ServerSync, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_channel_state() -> crate::error::Result<()> {
+        let msg = ControlMessage::ChannelState(mumble_tcp::ChannelState {
+            channel_id: Some(1),
+            name: Some("Lobby".into()),
+            parent: Some(0),
+            temporary: Some(true),
+            ..Default::default()
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::ChannelState(cs) => {
+                assert_eq!(cs.channel_id, Some(1));
+                assert_eq!(cs.name.as_deref(), Some("Lobby"));
+                assert_eq!(cs.parent, Some(0));
+                assert!(cs.temporary.unwrap());
+            }
+            other => panic!("expected ChannelState, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_udp_tunnel() -> crate::error::Result<()> {
+        let data = vec![0xDE, 0xAD, 0xBE, 0xEF];
+        let msg = ControlMessage::UdpTunnel(data.clone());
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::UdpTunnel(d) => assert_eq!(d, data),
+            other => panic!("expected UdpTunnel, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_reject() -> crate::error::Result<()> {
+        let msg = ControlMessage::Reject(mumble_tcp::Reject {
+            r#type: Some(mumble_tcp::reject::RejectType::WrongUserPw as i32),
+            reason: Some("Bad password".into()),
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::Reject(r) => {
+                assert_eq!(
+                    r.r#type,
+                    Some(mumble_tcp::reject::RejectType::WrongUserPw as i32)
+                );
+                assert_eq!(r.reason.as_deref(), Some("Bad password"));
+            }
+            other => panic!("expected Reject, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn empty_buffer_returns_none() -> crate::error::Result<()> {
+        let mut buf = BytesMut::new();
+        assert!(decode(&mut buf)?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn header_only_no_payload_returns_none() -> crate::error::Result<()> {
+        // Header says payload is 100 bytes but buffer only has the header
+        let mut buf = BytesMut::new();
+        buf.put_u16(3); // Ping type
+        buf.put_u32(100); // payload_len = 100
+        // No payload bytes
+        assert!(decode(&mut buf)?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn payload_too_large_returns_error() {
+        let mut buf = BytesMut::new();
+        buf.put_u16(3); // Ping type
+        buf.put_u32(MAX_PAYLOAD_SIZE + 1); // exceeds limit
+        let result = decode(&mut buf);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn multiple_frames_in_buffer() -> crate::error::Result<()> {
+        let msg1 = ControlMessage::Ping(mumble_tcp::Ping {
+            timestamp: Some(1),
+            ..Default::default()
+        });
+        let msg2 = ControlMessage::Ping(mumble_tcp::Ping {
+            timestamp: Some(2),
+            ..Default::default()
+        });
+
+        let enc1 = encode(&msg1)?;
+        let enc2 = encode(&msg2)?;
+
+        let mut buf = BytesMut::new();
+        buf.extend_from_slice(&enc1);
+        buf.extend_from_slice(&enc2);
+
+        let decoded1 = decode(&mut buf)?.unwrap();
+        let decoded2 = decode(&mut buf)?.unwrap();
+        assert!(decode(&mut buf)?.is_none()); // no more
+
+        match decoded1 {
+            ControlMessage::Ping(p) => assert_eq!(p.timestamp, Some(1)),
+            _ => panic!("expected Ping"),
+        }
+        match decoded2 {
+            ControlMessage::Ping(p) => assert_eq!(p.timestamp, Some(2)),
+            _ => panic!("expected Ping"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn encode_header_format() -> crate::error::Result<()> {
+        let msg = ControlMessage::Ping(mumble_tcp::Ping::default());
+        let encoded = encode(&msg)?;
+
+        // First 2 bytes = type ID (Ping = 3)
+        assert_eq!(encoded[0], 0);
+        assert_eq!(encoded[1], 3);
+
+        // Next 4 bytes = payload length
+        let payload_len =
+            u32::from_be_bytes([encoded[2], encoded[3], encoded[4], encoded[5]]);
+        assert_eq!(payload_len as usize, encoded.len() - HEADER_SIZE);
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_server_config() -> crate::error::Result<()> {
+        let msg = ControlMessage::ServerConfig(mumble_tcp::ServerConfig {
+            max_bandwidth: Some(128000),
+            message_length: Some(5000),
+            image_message_length: Some(131072),
+            allow_html: Some(true),
+            ..Default::default()
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+        match decoded {
+            ControlMessage::ServerConfig(sc) => {
+                assert_eq!(sc.max_bandwidth, Some(128000));
+                assert_eq!(sc.image_message_length, Some(131072));
+            }
+            other => panic!("expected ServerConfig, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    // ── PluginDataTransmission codec tests ────────────────────────
+
+    #[test]
+    fn roundtrip_plugin_data_transmission() -> crate::error::Result<()> {
+        let msg = ControlMessage::PluginDataTransmission(mumble_tcp::PluginDataTransmission {
+            sender_session: Some(42),
+            receiver_sessions: vec![10, 20, 30],
+            data: Some(b"hello plugin".to_vec()),
+            data_id: Some("fancy-poll".into()),
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::PluginDataTransmission(pd) => {
+                assert_eq!(pd.sender_session, Some(42));
+                assert_eq!(pd.receiver_sessions, vec![10, 20, 30]);
+                assert_eq!(pd.data.as_deref(), Some(b"hello plugin".as_slice()));
+                assert_eq!(pd.data_id.as_deref(), Some("fancy-poll"));
+            }
+            other => panic!("expected PluginDataTransmission, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_plugin_data_empty_receivers() -> crate::error::Result<()> {
+        let msg = ControlMessage::PluginDataTransmission(mumble_tcp::PluginDataTransmission {
+            sender_session: None,
+            receiver_sessions: vec![],
+            data: Some(b"{}".to_vec()),
+            data_id: Some("fancy-poll".into()),
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::PluginDataTransmission(pd) => {
+                assert!(pd.sender_session.is_none());
+                assert!(pd.receiver_sessions.is_empty());
+            }
+            other => panic!("expected PluginDataTransmission, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_plugin_data_large_json_payload() -> crate::error::Result<()> {
+        let json = r#"{"type":"poll","id":"550e8400-e29b-41d4-a716-446655440000","question":"What is your favourite language?","options":["Rust","TypeScript","Python","Go"],"multiple":false,"creator":42,"creatorName":"Alice","createdAt":"2025-01-01T00:00:00Z"}"#;
+        let msg = ControlMessage::PluginDataTransmission(mumble_tcp::PluginDataTransmission {
+            sender_session: Some(42),
+            receiver_sessions: vec![10],
+            data: Some(json.as_bytes().to_vec()),
+            data_id: Some("fancy-poll".into()),
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::PluginDataTransmission(pd) => {
+                let payload = std::str::from_utf8(pd.data.as_deref().unwrap()).unwrap();
+                assert_eq!(payload, json);
+            }
+            other => panic!("expected PluginDataTransmission, got {other:?}"),
+        }
+        Ok(())
+    }
+}

@@ -1,0 +1,162 @@
+@startuml class_command
+!theme plain
+title Command Pattern - Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam class {
+    BackgroundColor #FEFEFE
+    BorderColor #333333
+}
+
+package "command::core" #F8D7DA {
+    interface CommandAction <<trait>> {
+        + execute(state: &ServerState): CommandOutput
+    }
+
+    class CommandOutput {
+        + tcp_messages: Vec<ControlMessage>
+        + udp_messages: Vec<UdpMessage>
+        + disconnect: bool
+    }
+
+    note right of CommandAction
+        Every command struct implements
+        this trait. Adding a new command
+        requires only a new file + struct.
+    end note
+}
+
+package "Concrete Commands" #FFF0F0 {
+    class Authenticate {
+        + username: String
+        + password: Option<String>
+        + tokens: Vec<String>
+        --
+        Produces: Authenticate msg
+    }
+
+    class JoinChannel {
+        + channel_id: u32
+        --
+        Produces: UserState msg
+        (uses session from ServerState)
+    }
+
+    class SendTextMessage {
+        + channel_ids: Vec<u32>
+        + user_sessions: Vec<u32>
+        + tree_ids: Vec<u32>
+        + message: String
+        --
+        Produces: TextMessage msg
+    }
+
+    class SendAudio {
+        + opus_data: Vec<u8>
+        + target: u32
+        + frame_number: u64
+        + positional_data: Option<[f32; 3]>
+        + is_terminator: bool
+        --
+        Produces: UdpMessage::Audio
+    }
+
+    class SetSelfMute {
+        + muted: bool
+        --
+        Produces: UserState msg
+    }
+
+    class SetSelfDeaf {
+        + deafened: bool
+        --
+        Produces: UserState msg
+    }
+
+    class SetComment {
+        + comment: String
+        --
+        Produces: UserState msg
+    }
+
+    class Disconnect {
+        --
+        Sets disconnect = true
+        (no messages produced)
+    }
+
+    class KickUser {
+        + session: u32
+        + reason: String
+        --
+        Produces: UserRemove msg
+    }
+
+    class BanUser {
+        + session: u32
+        + reason: String
+        + duration: u32
+        --
+        Produces: BanList msg
+    }
+
+    class ChannelListen {
+        + channel_id: u32
+        + listen: bool
+        --
+        Produces: UserState msg
+    }
+
+    class RequestBanList {
+        --
+        Produces: BanList (query) msg
+    }
+
+    class RequestUserStats {
+        + session: u32
+        --
+        Produces: UserStats msg
+    }
+
+    class SetVoiceTarget {
+        + id: u32
+        + entries: Vec<VoiceTargetEntry>
+        --
+        Produces: VoiceTarget msg
+    }
+
+    class VoiceTargetEntry {
+        + sessions: Vec<u32>
+        + channel_id: Option<u32>
+        + children: bool
+        + links: bool
+        + group: Option<String>
+    }
+}
+
+' All commands implement CommandAction
+Authenticate ..|> CommandAction
+JoinChannel ..|> CommandAction
+SendTextMessage ..|> CommandAction
+SendAudio ..|> CommandAction
+SetSelfMute ..|> CommandAction
+SetSelfDeaf ..|> CommandAction
+SetComment ..|> CommandAction
+Disconnect ..|> CommandAction
+KickUser ..|> CommandAction
+BanUser ..|> CommandAction
+ChannelListen ..|> CommandAction
+RequestBanList ..|> CommandAction
+RequestUserStats ..|> CommandAction
+SetVoiceTarget ..|> CommandAction
+
+SetVoiceTarget --> VoiceTargetEntry
+
+CommandAction ..> CommandOutput : returns
+
+note bottom of "Concrete Commands"
+    Type alias: BoxedCommand = Box<dyn CommandAction>
+    Commands are type-erased when stored in the work queue.
+end note
+
+@enduml

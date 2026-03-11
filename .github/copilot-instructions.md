@@ -1,0 +1,421 @@
+# Copilot Instructions - Fancy Mumble
+
+> Context document for GitHub Copilot.  Kept up-to-date so the assistant
+> can skip expensive context-gathering on every request.
+
+## Project overview
+
+**Fancy Mumble** is a modern desktop Mumble (VoIP) client with profile
+customisation features (avatar frames, banners, nameplates, effects).
+Licensed MIT.  Written in Rust + TypeScript/React.
+
+| Layer | Crate / package | Tech |
+|-------|-----------------|------|
+| Protocol library | `crates/mumble-protocol` | Rust, tokio, prost (protobuf), rustls, optional Opus codec |
+| Tauri backend | `crates/mumble-tauri` | Rust, Tauri 2, cpal (audio I/O), rcgen (self-signed certs) |
+| Tauri frontend | `crates/mumble-tauri/ui` | React 19, Vite 6, Zustand 5, react-router-dom 7, TypeScript 5 |
+| Dioxus GUI (alt) | `crates/mumble-gui` | Rust, Dioxus 0.7 desktop - older/parallel UI, same protocol lib |
+
+## Workspace layout
+
+```
+Cargo.toml                          # Rust workspace root (resolver = "2")
+crates/
+  mumble-protocol/                  # Pure async Mumble client library
+    proto/Mumble.proto              # TCP protobuf definitions
+    proto/MumbleUDP.proto           # UDP protobuf definitions
+    build.rs                        # prost-build code-gen
+    src/
+      lib.rs                        # re-exports: audio, client, command, error, event, message, proto, state, transport, work_queue
+      client.rs                     # Async event-loop orchestrator (ClientConfig, ClientHandle, run())
+      state.rs                      # ServerState: tracked users (User), channels (Channel), ConnectionInfo
+      event.rs                      # EventHandler trait (on_control_message, on_udp_message, on_connected, on_disconnected)
+      error.rs                      # Error enum (thiserror), Result alias
+      message.rs                    # ControlMessage / UdpMessage enums, TcpMessageType id mapping
+      work_queue.rs                 # Priority work queue: UDP > TCP > user commands
+      command/
+        mod.rs                      # CommandAction trait, CommandOutput, BoxedCommand
+        authenticate.rs  join_channel.rs  send_audio.rs  send_text_message.rs
+        set_comment.rs   set_texture.rs   set_self_mute.rs  set_self_deaf.rs
+        set_voice_target.rs  channel_listen.rs  disconnect.rs  ban_user.rs
+        kick_user.rs  request_blob.rs  request_ban_list.rs  request_user_stats.rs
+        send_plugin_data.rs
+      transport/
+        tcp.rs                      # TcpTransport (TLS via tokio-rustls), TcpConfig
+        udp.rs                      # UdpTransport, PlaintextCryptState, UdpConfig
+        codec.rs                    # Wire framing helpers
+        audio_codec.rs              # Opus-in-UDP framing
+      audio/
+        mod.rs                      # Pipeline architecture overview
+        sample.rs                   # AudioFrame, AudioFormat
+        capture.rs                  # AudioCapture trait + SilentCapture
+        playback.rs                 # AudioPlayback trait + NullPlayback
+        encoder.rs                  # AudioEncoder trait + OpusEncoder
+        decoder.rs                  # AudioDecoder trait + OpusDecoder
+        pipeline.rs                 # OutboundPipeline / InboundPipeline
+        filter/                     # AudioFilter trait, FilterChain, NoiseGate, AutomaticGainControl
+    tests/
+      integration.rs               # End-to-end tests against a real murmur (via docker-compose)
+      audio_quality.rs              # Audio pipeline quality tests
+
+  mumble-tauri/                     # Tauri 2 desktop app
+    tauri.conf.json                 # Product "Fancy Mumble", id com.fancymumble.app, 1024×768 frameless
+    Cargo.toml                      # depends on mumble-protocol (with opus-codec), tauri 2, cpal, rcgen
+    src/
+      main.rs                       # Tauri entry point (calls lib::run)
+      lib.rs                        # All #[tauri::command] handlers, app bootstrap
+      audio.rs                      # CpalCapture / CpalPlayback - OS audio via cpal
+      state/
+        mod.rs                      # AppState struct, SharedState, query/messaging/channel/profile methods
+        types.rs                    # UI value types (ChannelEntry, UserEntry, ChatMessage, etc.), event payloads, config structs
+        connection.rs               # connect() / disconnect() lifecycle
+        audio.rs                    # Voice pipeline management (enable, mute, deafen, outbound audio loop)
+        event_handler.rs            # TauriEventHandler - EventHandler impl bridging protocol events to Tauri
+    ui/                             # React frontend
+      package.json                  # npm deps: @tauri-apps/api 2, react 19, zustand 5, react-router-dom 7
+      vite.config.ts                # Vite 6, target esnext, Tauri env prefix
+      index.html
+      src/
+        main.tsx                    # ReactDOM.createRoot, BrowserRouter
+        App.tsx                     # Routes: /welcome (first-run), / (connect), /chat, /settings
+        store.ts                    # Zustand store: channels, users, messages, voice state, Tauri invoke/listen
+        types.ts                    # TS types mirroring Rust: ChannelEntry, UserEntry, ChatMessage, FancyProfile, AudioSettings, etc.
+        profileFormat.ts            # FancyMumble profile serialisation (comment marker <!--FANCY:{json}-->), base122 codec, data-URL helpers
+        serverStorage.ts            # Persistent saved servers via @tauri-apps/plugin-store
+        preferencesStorage.ts       # Persistent user preferences via @tauri-apps/plugin-store
+        components/
+          ChannelSidebar.tsx        # Channel tree, user list with hover profile cards
+          ChatView.tsx              # Chat message view with rich markdown input, GIF picker, polls
+          MarkdownInput.tsx         # Overlay-based markdown input with live formatting preview
+          GifPicker.tsx             # GIF/sticker search popup (Klipy API)
+          PollCreator.tsx           # Poll creation modal (question, options, checkbox/radio)
+          PollCard.tsx              # Poll rendering in chat with interactive voting
+          MediaPreview.tsx          # Image/file preview component
+          UserProfileView.tsx       # Full-height right panel showing user profile
+          ServerList.tsx            # Saved server list (connect page)
+          TitleBar.tsx              # Custom frameless title bar
+        pages/
+          ConnectPage.tsx           # Server connect / add-server page
+          ChatPage.tsx              # Main connected view (sidebar + chat)
+          WelcomePage.tsx           # First-run setup wizard
+          settings/
+            index.ts SettingsPage.tsx  # Tabbed settings container, auto-saves profile locally & to server
+            AudioPanel.tsx          # Input device, VAD, gain settings
+            VoicePanel.tsx          # Voice state controls
+            ProfilePanel.tsx        # FancyMumble profile editor (no manual save button - auto-saved)
+            ProfilePreviewCard.tsx  # Live profile preview (renders bio as HTML)
+            BioEditor.tsx           # Tiptap WYSIWYG bio editor (bold, italic, underline, colour)
+            AdvancedPanel.tsx       # Expert-mode settings
+            ShortcutsPanel.tsx      # PTT key binding
+            SharedControls.tsx      # Reusable setting controls
+            ImageEditor.tsx         # Avatar/banner crop/resize
+            imageUtils.ts           # Canvas helpers
+            profileData.ts          # Profile save/load logic
+            shortcutHelpers.ts      # Key combo helpers
+        utils/
+          media.ts                  # Media utility helpers
+
+  mumble-gui/                       # Dioxus desktop GUI (alternative frontend)
+    Dioxus.toml
+    src/main.rs                     # Dioxus launch, App component, event bridge
+    src/state.rs
+    src/components/                 # channel_sidebar, chat_view, connect_page
+    src/services/                   # mumble_backend (wraps mumble-protocol)
+```
+
+## Key architecture decisions
+
+1. **Command pattern** - every user action (join channel, send message, set
+   texture, etc.) is a self-contained struct implementing `CommandAction`.
+   Adding a new command = new file + struct, no central dispatcher changes.
+
+2. **Priority work queue** - the client event loop drains UDP (audio) first,
+   then TCP (control), then user commands.  Audio is never starved.
+
+3. **Event handler trait** - `EventHandler` has default no-op methods so
+   consumers override only what they need.
+
+4. **Backend ↔ Frontend bridge** - the Tauri backend exposes `#[tauri::command]`
+   functions called via `invoke()` from React, and pushes updates via
+   Tauri events consumed by `listen()` in the Zustand store.
+
+5. **FancyMumble profile format** - profile customisation data is stored in
+   the Mumble user `comment` field as `<!--FANCY:{"v":1,...}-->` followed by
+   the bio HTML.  Legacy clients ignore the HTML comment.  Avatar bytes use
+   the standard `UserState.texture` protobuf field.
+
+6. **Base122 encoding** - binary data inside the profile comment (which must
+   be valid UTF-8) is encoded with a custom base122 codec
+   (`profileFormat.ts`: `b122Encode` / `b122Decode`).  The alphabet is
+   ASCII 0–127 minus 6 illegal chars (NUL, LF, CR, `"`, `&`, `\`).  ~14 %
+   smaller than base64.  Data URLs use `;base122,` as the encoding tag.
+   `dataUrlToBytes` reads both `;base122` and legacy `;base64` for backwards
+   compatibility.
+
+7. **Persistent storage** - saved servers and user preferences are stored
+   via `@tauri-apps/plugin-store` as JSON files (`servers.json`,
+   `preferences.json`).  TLS client certificates are PEM files under
+   `{app_data_dir}/certs/`.
+
+8. **Audio pipeline** - trait-based: `AudioCapture` → `FilterChain` (noise
+   gate, AGC) → `OpusEncoder` → network; inbound is the reverse.
+   OS audio I/O uses `cpal`.
+
+## Boy Scout Rule
+
+> **"Always leave the campground cleaner than you found it."**
+
+When working in any file, apply this rule proactively:
+
+- **Fix issues you encounter** - if you spot a compiler warning, a lint
+  error, an unused import, or a `TODO`/`FIXME` comment that has an obvious
+  fix, clean it up as part of your change rather than leaving it for later.
+- **Fix TypeScript errors** - unused variables, missing types, incorrect
+  `noUnusedLocals` violations and similar issues must be resolved whenever
+  they are found in a file being edited.
+- **Fix SonarQube / linter suggestions** - style suggestions reported by
+  SonarQube or other linters must also be fixed in files being edited.
+  This includes, but is not limited to:
+  - Cognitive complexity violations - refactor functions that exceed the
+    allowed complexity threshold (e.g. extract helpers, simplify branches).
+  - `String#replaceAll()` preference - replace `String#replace()` with a
+    global regex with `String#replaceAll()` where applicable.
+  - Any other "code smell" or maintainability issue flagged by the linter.
+- **Fix Rust warnings** - dead code, unused imports, `clippy` warnings and
+  similar diagnostics should be addressed whenever they appear in touched
+  files.
+- **Suggest improvements proactively** - if you notice a code smell,
+  a performance issue, or a pattern inconsistent with the rest of the
+  codebase while working in a file, point it out and offer (or apply) a
+  fix.  Examples: duplicate logic that could be extracted, a `clone()` that
+  could be avoided, a React hook dependency array that is stale.
+- **Scope**: apply the rule to files you are *already editing*.  Do not
+  refactor unrelated files without being asked - only clean up what you
+  touch.
+
+## Coding conventions
+
+### Rust
+- Edition 2021, `resolver = "2"`
+- Workspace-wide Clippy lints: `correctness = deny`, `suspicious/style/perf = warn`
+- `thiserror` for error enums, `Result<T>` type alias per crate
+- `tracing` for logging (not `log`)
+- Async runtime: `tokio` with `rt-multi-thread`
+- TLS: `rustls` with `ring` crypto provider
+- Protobuf: `prost` + `prost-build`
+
+### TypeScript / React
+- React 19 with function components and hooks
+- State: Zustand 5 (`create` store, not context-based)
+- Routing: react-router-dom 7 (`Routes`/`Route`)
+- Styling: CSS Modules (`*.module.css`)
+- Build: Vite 6, target `esnext`
+- No ESLint config currently in repo
+- `type` imports preferred (`import type { ... }`)
+
+### General
+- MIT license
+- CI: GitHub Actions (`.github/workflows/ci.yml`) - lint, test, build,
+  auto-release on `main`
+- Workspace managed with `cargo` (Rust) and `npm` (frontend, in `crates/mumble-tauri/ui`)
+
+## Common workflows
+
+```bash
+# Run the Tauri dev server (auto-starts Vite + cargo build)
+cd crates/mumble-tauri
+cargo tauri dev
+
+# Run the Dioxus dev server
+cd crates/mumble-gui
+dx serve
+
+# Build the protocol library only
+cargo build -p mumble-protocol
+
+# Run unit tests (no Docker required)
+cargo test --package mumble-protocol --features opus-codec --lib
+
+# Run integration tests (requires Docker - see section below)
+cd crates/mumble-protocol
+docker compose -f docker-compose.test.yml up -d --wait
+cargo test --package mumble-protocol --test integration
+docker compose -f docker-compose.test.yml down
+
+# Frontend only (standalone Vite dev server for UI iteration)
+cd crates/mumble-tauri/ui
+npm run dev
+
+# Run frontend unit tests
+cd crates/mumble-tauri/ui
+npm test
+```
+
+## Integration tests
+
+The protocol library includes integration tests that run against a real
+Mumble server in Docker.  They live in
+`crates/mumble-protocol/tests/integration.rs`.
+
+### Prerequisites
+
+- **Docker** (or Docker Desktop) must be running.
+- No other process may occupy port **64738** (TCP + UDP).
+- **Windows / Hyper-V note**: Hyper-V may reserve port 64738.  Check with
+  `netsh interface ipv4 show excludedportrange protocol=udp`.  If blocked,
+  set `MUMBLE_TEST_PORT` to a free port (e.g. `63738`) before starting
+  Docker Compose and running tests.  Both `docker-compose.test.yml` and
+  `integration.rs` read this env var (default 64738).
+
+### Server configuration
+
+The Docker Compose file
+(`crates/mumble-protocol/docker-compose.test.yml`) starts a
+`mumblevoip/mumble-server:latest` container configured via
+`MUMBLE_CONFIG_*` environment variables that relax limits for testing:
+
+| Setting | Value | Purpose |
+|---------|-------|---------|
+| `textmessagelength` | 128 KiB | Allow large text messages |
+| `imagemessagelength` | 10 MiB | Allow large inline images |
+| `allowhtml` | true | HTML-formatted messages |
+| `certrequired` | false | No client certs needed |
+| `autobanAttempts` | 0 | Disable auto-banning |
+
+### Running
+
+```bash
+# 1. Start the test server (waits for healthy status)
+cd crates/mumble-protocol
+docker compose -f docker-compose.test.yml up -d --wait
+
+# On Windows with Hyper-V port conflict, set an alternative port first:
+# export MUMBLE_TEST_PORT=63738   # bash
+# $env:MUMBLE_TEST_PORT="63738"   # PowerShell
+
+# 2. Run all integration tests
+cargo test --package mumble-protocol --test integration
+
+# 3. Run a specific integration test
+cargo test --package mumble-protocol --test integration -- test_plugin_data_transmission_between_two_clients
+
+# 4. Tear down
+docker compose -f docker-compose.test.yml down
+```
+
+### Test coverage
+
+| Test | What it verifies |
+|------|-----------------|
+| `test_tcp_connect_and_version_exchange` | TLS handshake and version exchange |
+| `test_full_authentication_flow` | Authenticate → ServerSync, session ID assigned |
+| `test_send_text_message` | Send and (optionally) receive text message echo |
+| `test_send_large_image_message` | Large base64 image within server limits |
+| `test_set_self_mute_and_deaf` | Self-mute/deaf UserState round-trip |
+| `test_set_comment` | Comment set and echoed by server |
+| `test_ping_keepalive` | TCP ping/pong |
+| `test_multiple_concurrent_connections` | Two clients see each other |
+| `test_server_config_has_large_limits` | Server config matches test-mumble.ini |
+| `test_plugin_data_transmission_between_two_clients` | Client A sends `PluginDataTransmission` → Client B receives it with correct payload and sender session |
+| `test_plugin_data_empty_receivers_not_delivered` | Empty `receiver_sessions` → message not forwarded (confirms Mumble server behaviour) |
+| `test_poll_roundtrip_create_and_vote` | Full poll flow: create poll → deliver → vote → deliver vote back |
+| `test_poll_bidirectional_sending` | Both A→B and B→A poll delivery works (not one-directional) |
+| `test_poll_multiple_senders_same_channel` | Three users each send polls, all receive each other's |
+| `test_poll_cross_channel_is_delivered` | PluginData IS delivered to explicitly-listed sessions across channels |
+| `test_poll_mixed_channels_only_same_channel_receives` | Mixed-channel scenario: all explicitly-listed targets receive regardless of channel |
+
+> **Note:** The Mumble server delivers `PluginDataTransmission` to ALL
+> explicitly listed `receiver_sessions` regardless of channel membership.
+> Channel-scoped poll delivery is enforced by the UI (only listing
+> same-channel users as targets).
+
+### Graceful skip
+
+All tests call `ensure_server_available()` first.  If the server is
+unreachable they print a warning and return early instead of failing,
+so `cargo test` still passes without Docker.
+
+## Frontend tests
+
+The React frontend has unit tests using **Vitest** + **@testing-library/react**,
+located in `crates/mumble-tauri/ui/src/components/__tests__/`.
+
+```bash
+cd crates/mumble-tauri/ui
+npm test          # single run
+npm run test:watch # watch mode
+```
+
+| Test file | What it covers |
+|-----------|---------------|
+| `PollCard.test.ts` | Module-level stores: `pollStore`, `voteStore`, `localVotes`, `PollPayload` wire format |
+| `ChatViewPolls.test.ts` | Poll logic: channel filtering, poll-marker regex, dedup, target computation, payload round-trips, bidirectional delivery simulation |
+| `PollCardRender.test.tsx` | React component rendering: question/options display, voting interactions, single/multi choice indicators, vote percentages |
+| `StorePollProcessing.test.ts` | Regression: Zustand store `addPoll` action, simulated plugin-data event processing, creator name resolution, multi-sender scenarios, reset resilience |
+
+## Tauri commands (Rust → JS bridge)
+
+| Command | Parameters | Returns | Purpose |
+|---------|-----------|---------|---------|
+| `connect` | host, port, username, cert_label? | `()` | Connect to server |
+| `disconnect` | - | `()` | Disconnect |
+| `get_status` | - | `ConnectionStatus` | Current connection status |
+| `get_channels` | - | `ChannelEntry[]` | All channels |
+| `get_users` | - | `UserEntry[]` | All users |
+| `get_messages` | channel_id | `ChatMessage[]` | Messages for channel |
+| `send_message` | channel_id, body | `()` | Send text message |
+| `select_channel` | channel_id | `()` | UI selection |
+| `join_channel` | channel_id | `()` | Move to channel |
+| `toggle_listen` | channel_id | `bool` | Listen/unlisten |
+| `get_listened_channels` | - | `u32[]` | Listened channel IDs |
+| `get_unread_counts` | - | `Map<u32,u32>` | Unread per channel |
+| `mark_channel_read` | channel_id | - | Clear unread |
+| `get_server_config` | - | `ServerConfig` | Server limits |
+| `ping_server` | host, port | `PingResult` | Ping latency |
+| `generate_certificate` | label | `()` | Create self-signed cert |
+| `list_certificates` | - | `string[]` | Cert labels |
+| `delete_certificate` | label | `()` | Remove cert |
+| `get_audio_devices` | - | `AudioDevice[]` | List mics |
+| `get_audio_settings` | - | `AudioSettings` | Current audio config |
+| `set_audio_settings` | settings | - | Update audio config |
+| `get_voice_state` | - | `VoiceState` | Mute/deaf state |
+| `enable_voice` | - | `()` | Unmute+undeaf |
+| `disable_voice` | - | `()` | Go deaf+muted |
+| `toggle_mute` | - | `()` | Toggle mic |
+| `toggle_deafen` | - | `()` | Toggle deaf |
+| `set_user_comment` | comment | `()` | Set profile comment |
+| `set_user_texture` | texture (`Vec<u8>`) | `()` | Set avatar |
+| `send_plugin_data` | receiver_sessions, data (`Vec<u8>`), data_id | `()` | Send plugin data (polls, etc.) - receiver_sessions must list each target explicitly |
+| `get_own_session` | - | `u32 \| null` | Our own session ID (after connect) |
+| `reset_app_data` | - | `()` | Factory reset |
+
+## Key types (TypeScript)
+
+```typescript
+// types.ts
+ChannelEntry    { id, parent_id, name, description, user_count }
+UserEntry       { session, name, channel_id, texture: number[]|null, comment: string|null }
+ChatMessage     { sender_session, sender_name, body, channel_id, is_own }
+SavedServer     { id, label, host, port, username, cert_label }
+UserPreferences { userMode, hasCompletedSetup, defaultUsername }
+AudioSettings   { selected_device, auto_gain, vad_threshold, max_gain_db, noise_gate_close_ratio, hold_frames, push_to_talk, push_to_talk_key }
+FancyProfile    { v, decoration, nameplate, effect, banner: {color,image}, nameStyle: {font,color,gradient,glow,bold,italic}, cardBackground, cardBackgroundCustom, avatarBorder, avatarBorderCustom, status }
+VoiceState      = "inactive" | "active" | "muted"
+ConnectionStatus = "disconnected" | "connecting" | "connected"
+```
+
+## Key types (Rust - mumble-protocol)
+
+```rust
+// state.rs
+User     { session, name, channel_id, mute, deaf, self_mute, self_deaf, comment, texture, hash }
+Channel  { channel_id, parent_id, name, description, position, temporary, max_users }
+ServerState { connection: ConnectionInfo, users: HashMap<u32,User>, channels: HashMap<u32,Channel> }
+
+// client.rs
+ClientConfig { tcp: TcpConfig, udp: UdpConfig, ping_interval }
+ClientHandle { send<C: CommandAction>(cmd) }
+
+// error.rs
+Error { Io, Tls, Decode, Encode, UnknownMessageType, Rejected, ConnectionClosed, QueueClosed, InvalidState, OpusCodec, Other }
+```

@@ -1,0 +1,213 @@
+/* ─── PollCard ───────────────────────────────────────────────── */
+
+.card {
+  background: var(--color-glass);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  min-width: 240px;
+  max-width: 340px;
+}
+
+/* Higher-contrast variant for polls inside the user's own (blue) bubble. */
+.cardOwn {
+  background: rgba(0, 0, 0, 0.25);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.cardOwn .question,
+.cardOwn .optionText,
+.cardOwn .footer {
+  color: #fff;
+}
+
+.cardOwn .option {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.cardOwn .option:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.cardOwn .option.selected {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.cardOwn .optionPct {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.cardOwn .fill {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.cardOwn .creatorInfo {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.cardOwn .radio,
+.cardOwn .checkbox {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.cardOwn .voterNames {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ─── Header ───────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.pollIcon {
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.pollLabel {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-accent);
+}
+
+.creatorInfo {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-left: auto;
+}
+
+/* ─── Question ─────────────────────────────────────────────────── */
+
+.question {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 10px;
+  line-height: 1.35;
+}
+
+/* ─── Options ──────────────────────────────────────────────────── */
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  overflow: hidden;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.option:hover:not(:disabled) {
+  border-color: rgba(42, 171, 238, 0.3);
+  background: rgba(42, 171, 238, 0.05);
+}
+
+.option.selected {
+  border-color: var(--color-accent);
+  background: rgba(42, 171, 238, 0.08);
+}
+
+.option.voted {
+  cursor: default;
+}
+
+.option.voted.selected {
+  border-color: var(--color-accent);
+}
+
+/* Fill bar (animated on vote) */
+.fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(42, 171, 238, 0.12);
+  transition: width 0.4s ease-out;
+  border-radius: var(--radius-md);
+  pointer-events: none;
+}
+
+.optionText {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.checkbox,
+.radio {
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.optionPct {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+
+.voterNames {
+  position: relative;
+  z-index: 1;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+/* ─── Vote button (multiple choice) ────────────────────────────── */
+
+.voteBtn {
+  margin-top: 8px;
+  width: 100%;
+  padding: 7px;
+  border: none;
+  background: linear-gradient(135deg, var(--color-accent), #229ed9);
+  color: white;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.voteBtn:hover {
+  opacity: 0.9;
+}
+
+/* ─── Footer ───────────────────────────────────────────────────── */
+
+.footer {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}

@@ -1,0 +1,126 @@
+/* ─── MarkdownInput: overlay-based live preview ──────────────── */
+
+.wrapper {
+  position: relative;
+  flex: 1;
+  min-height: 40px;
+  max-height: 120px;
+  border-radius: var(--radius-lg);
+  background: var(--color-glass);
+  border: 1px solid var(--color-glass-border);
+  transition: border-color 0.2s;
+  overflow: hidden;
+}
+
+.wrapper.focused {
+  border-color: rgba(42, 171, 238, 0.3);
+}
+
+/* Shared positioning for both the textarea and the overlay. */
+.overlay,
+.textarea {
+  position: absolute;
+  inset: 0;
+  padding: 10px 14px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* The overlay renders the decorated text on top. */
+.overlay {
+  pointer-events: none;
+  color: var(--color-text-primary);
+  z-index: 1;
+}
+
+/* The textarea is fully invisible - used only for keyboard input. */
+.textarea {
+  z-index: 2;
+  color: transparent;
+  caret-color: transparent; /* We render our own caret in the overlay. */
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  width: 100%;
+  height: 100%;
+}
+
+.textarea::placeholder {
+  color: transparent;
+}
+
+/* Hide the browser's native selection highlight - we draw our own. */
+.textarea::selection {
+  background: transparent;
+  color: transparent;
+}
+
+.placeholder {
+  color: var(--color-text-muted);
+}
+
+/* ─── Custom caret (rendered in the overlay) ──────────────────── */
+
+.caret {
+  display: inline-block;
+  width: 0;
+  height: 1.15em;
+  border-left: 1.5px solid var(--color-text-primary);
+  vertical-align: text-bottom;
+  margin: 0 -0.75px;
+  animation: caretBlink 1s step-end infinite;
+  pointer-events: none;
+}
+
+@keyframes caretBlink {
+  50% {
+    border-color: transparent;
+  }
+}
+
+/* ─── Selection highlight ─────────────────────────────────────── */
+
+.selection {
+  background: rgba(42, 171, 238, 0.3);
+  border-radius: 1px;
+}
+
+/* ─── Markdown decoration classes (real WYSIWYG formatting) ──── */
+
+.mdBold {
+  font-weight: 700;
+}
+
+.mdItalic {
+  font-style: italic;
+}
+
+.mdUnderline {
+  text-decoration: underline;
+}
+
+.mdStrike {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.mdCode {
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+
+.mdLink {
+  color: var(--color-accent, #2AABEE);
+  text-decoration: underline;
+  text-decoration-color: rgba(42, 171, 238, 0.4);
+  text-underline-offset: 2px;
+}

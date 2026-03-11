@@ -1,0 +1,5 @@
+{
+    // Use clippy instead of plain `cargo check` so lint warnings appear
+    // on every save / build automatically.
+    "rust-analyzer.check.command": "clippy"
+}

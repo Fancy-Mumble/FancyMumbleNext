@@ -1,0 +1,33 @@
+// Copyright The Mumble Developers. All rights reserved.
+// Use of this source code is governed by a BSD-style license
+// that can be found in the LICENSE file at the root of the
+// Mumble source tree or at <https://www.mumble.info/LICENSE>.
+
+syntax = "proto3";
+
+package MumbleUDP;
+
+option optimize_for = SPEED;
+
+message Audio {
+	oneof Header {
+		uint32 target = 1;
+		uint32 context = 2;
+	};
+
+	uint32 sender_session = 3;
+	uint64 frame_number = 4;
+	bytes opus_data = 5;
+	repeated float positional_data = 6;
+	float volume_adjustment = 7;
+	bool is_terminator = 16;
+}
+
+message Ping {
+	uint64 timestamp = 1;
+	bool request_extended_information = 2;
+	uint64 server_version_v2 = 3;
+	uint32 user_count = 4;
+	uint32 max_user_count = 5;
+	uint32 max_bandwidth_per_user = 6;
+}
