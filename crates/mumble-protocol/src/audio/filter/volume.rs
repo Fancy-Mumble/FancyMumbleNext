@@ -83,7 +83,7 @@ mod tests {
     }
 
     #[test]
-    fn halving_volume() -> crate::error::Result<()> {
+    fn halving_volume() -> Result<()> {
         let mut vol = VolumeFilter::new(0.5);
         let mut frame = make_frame(&[0.4, -0.6, 0.8]);
         vol.process(&mut frame)?;
@@ -95,7 +95,7 @@ mod tests {
     }
 
     #[test]
-    fn mute() -> crate::error::Result<()> {
+    fn mute() -> Result<()> {
         let mut vol = VolumeFilter::new(0.0);
         let mut frame = make_frame(&[0.5, -0.5]);
         vol.process(&mut frame)?;

@@ -5,7 +5,7 @@ use crate::state::ServerState;
 
 /// Send a plugin data transmission to the server.
 ///
-/// Used by FancyMumble for features like polls that are invisible to
+/// Used by `FancyMumble` for features like polls that are invisible to
 /// legacy clients.  The `data_id` identifies the type of payload
 /// (e.g. `"fancy-poll"`).
 #[derive(Debug)]

@@ -176,7 +176,7 @@ fn build_tls_config(
     let config = match (client_cert_pem, client_key_pem) {
         (Some(cert_pem), Some(key_pem)) => {
             let certs: Vec<_> = rustls_pemfile::certs(&mut &*cert_pem)
-                .filter_map(|r| r.ok())
+                .filter_map(std::result::Result::ok)
                 .collect();
             let key = rustls_pemfile::private_key(&mut &*key_pem)
                 .map_err(|e| Error::Other(format!("failed to parse client key PEM: {e}")))?

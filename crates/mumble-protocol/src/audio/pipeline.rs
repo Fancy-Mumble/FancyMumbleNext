@@ -329,7 +329,7 @@ mod tests {
 
     #[cfg(feature = "opus-codec")]
     #[test]
-    fn outbound_roundtrip() -> crate::error::Result<()> {
+    fn outbound_roundtrip() -> Result<()> {
         use crate::audio::capture::SilentCapture;
         use crate::audio::encoder::{OpusEncoder, OpusEncoderConfig};
 
@@ -349,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn inbound_roundtrip() -> crate::error::Result<()> {
+    fn inbound_roundtrip() -> Result<()> {
         let fmt = AudioFormat::MONO_48KHZ_F32;
 
         // Produce a real Opus packet via the encoder so the decoder

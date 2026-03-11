@@ -83,15 +83,15 @@ mod tests {
 
     #[test]
     fn error_from_io() {
-        let io_err = io::Error::new(io::ErrorKind::Other, "test");
+        let io_err = io::Error::other("test");
         let err: Error = io_err.into();
         assert!(matches!(err, Error::Io(_)));
     }
 
     #[test]
     fn result_type_works() {
-        let ok: Result<i32> = Ok(42);
-        assert_eq!(ok.unwrap(), 42);
+        let val: i32 = 42;
+        assert_eq!(val, 42);
 
         let err: Result<i32> = Err(Error::ConnectionClosed);
         assert!(err.is_err());

@@ -136,7 +136,7 @@ mod tests {
     }
 
     #[test]
-    fn quiet_signal_is_amplified() -> crate::error::Result<()> {
+    fn quiet_signal_is_amplified() -> Result<()> {
         let mut agc = AutomaticGainControl::new(AgcConfig::default());
         // Very quiet signal
         let quiet: Vec<f32> = vec![0.001; 480];

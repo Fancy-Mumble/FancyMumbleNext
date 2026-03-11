@@ -41,7 +41,7 @@ pub trait AudioEncoder: Send + 'static {
 #[cfg(feature = "opus-codec")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpusApplication {
-    /// Optimised for voice / VoIP (lower latency, better speech quality).
+    /// Optimised for voice / `VoIP` (lower latency, better speech quality).
     Voip,
     /// Optimised for general audio (higher quality music).
     Audio,
@@ -237,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn encodes_silent_frame_f32() -> crate::error::Result<()> {
+    fn encodes_silent_frame_f32() -> Result<()> {
         let fmt = AudioFormat::MONO_48KHZ_F32;
         let config = OpusEncoderConfig::default();
         let frame_size = config.frame_size;
@@ -250,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn encodes_silent_frame_large() -> crate::error::Result<()> {
+    fn encodes_silent_frame_large() -> Result<()> {
         let fmt = AudioFormat::MONO_48KHZ_F32;
         let config = OpusEncoderConfig {
             frame_size: 960, // 20 ms
@@ -266,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn sequence_increments() -> crate::error::Result<()> {
+    fn sequence_increments() -> Result<()> {
         let fmt = AudioFormat::MONO_48KHZ_F32;
         let config = OpusEncoderConfig::default();
         let frame_size = config.frame_size;
@@ -280,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn reset_clears_sequence() -> crate::error::Result<()> {
+    fn reset_clears_sequence() -> Result<()> {
         let fmt = AudioFormat::MONO_48KHZ_F32;
         let config = OpusEncoderConfig::default();
         let frame_size = config.frame_size;

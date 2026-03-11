@@ -134,7 +134,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn roundtrip_ping() -> crate::error::Result<()> {
+    fn roundtrip_ping() -> Result<()> {
         let ping = mumble_tcp::Ping {
             timestamp: Some(42),
             ..Default::default()
@@ -143,7 +143,7 @@ mod tests {
         let encoded = encode(&msg)?;
         let mut buf = BytesMut::from(&encoded[..]);
         let decoded = decode(&mut buf)?
-            .ok_or(crate::error::Error::InvalidState(
+            .ok_or(Error::InvalidState(
                 "expected complete frame".into(),
             ))?;
 
@@ -155,14 +155,14 @@ mod tests {
     }
 
     #[test]
-    fn partial_frame_returns_none() -> crate::error::Result<()> {
+    fn partial_frame_returns_none() -> Result<()> {
         let mut buf = BytesMut::from(&[0u8; 4][..]);
         assert!(decode(&mut buf)?.is_none());
         Ok(())
     }
 
     #[test]
-    fn roundtrip_version() -> crate::error::Result<()> {
+    fn roundtrip_version() -> Result<()> {
         let version = mumble_tcp::Version {
             version_v2: Some(0x0001_0005_0000_0000),
             release: Some("Test 1.5.0".into()),
@@ -186,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_text_message() -> crate::error::Result<()> {
+    fn roundtrip_text_message() -> Result<()> {
         let msg = ControlMessage::TextMessage(mumble_tcp::TextMessage {
             message: "Hello, world!".into(),
             channel_id: vec![0],
@@ -207,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_user_state() -> crate::error::Result<()> {
+    fn roundtrip_user_state() -> Result<()> {
         let msg = ControlMessage::UserState(mumble_tcp::UserState {
             session: Some(42),
             name: Some("TestUser".into()),
@@ -231,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_server_sync() -> crate::error::Result<()> {
+    fn roundtrip_server_sync() -> Result<()> {
         let msg = ControlMessage::ServerSync(mumble_tcp::ServerSync {
             session: Some(7),
             max_bandwidth: Some(72000),
@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_channel_state() -> crate::error::Result<()> {
+    fn roundtrip_channel_state() -> Result<()> {
         let msg = ControlMessage::ChannelState(mumble_tcp::ChannelState {
             channel_id: Some(1),
             name: Some("Lobby".into()),
@@ -279,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_udp_tunnel() -> crate::error::Result<()> {
+    fn roundtrip_udp_tunnel() -> Result<()> {
         let data = vec![0xDE, 0xAD, 0xBE, 0xEF];
         let msg = ControlMessage::UdpTunnel(data.clone());
         let encoded = encode(&msg)?;
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_reject() -> crate::error::Result<()> {
+    fn roundtrip_reject() -> Result<()> {
         let msg = ControlMessage::Reject(mumble_tcp::Reject {
             r#type: Some(mumble_tcp::reject::RejectType::WrongUserPw as i32),
             reason: Some("Bad password".into()),
@@ -317,14 +317,14 @@ mod tests {
     }
 
     #[test]
-    fn empty_buffer_returns_none() -> crate::error::Result<()> {
+    fn empty_buffer_returns_none() -> Result<()> {
         let mut buf = BytesMut::new();
         assert!(decode(&mut buf)?.is_none());
         Ok(())
     }
 
     #[test]
-    fn header_only_no_payload_returns_none() -> crate::error::Result<()> {
+    fn header_only_no_payload_returns_none() -> Result<()> {
         // Header says payload is 100 bytes but buffer only has the header
         let mut buf = BytesMut::new();
         buf.put_u16(3); // Ping type
@@ -344,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn multiple_frames_in_buffer() -> crate::error::Result<()> {
+    fn multiple_frames_in_buffer() -> Result<()> {
         let msg1 = ControlMessage::Ping(mumble_tcp::Ping {
             timestamp: Some(1),
             ..Default::default()
@@ -377,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn encode_header_format() -> crate::error::Result<()> {
+    fn encode_header_format() -> Result<()> {
         let msg = ControlMessage::Ping(mumble_tcp::Ping::default());
         let encoded = encode(&msg)?;
 
@@ -393,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_server_config() -> crate::error::Result<()> {
+    fn roundtrip_server_config() -> Result<()> {
         let msg = ControlMessage::ServerConfig(mumble_tcp::ServerConfig {
             max_bandwidth: Some(128000),
             message_length: Some(5000),
@@ -417,7 +417,7 @@ mod tests {
     // ── PluginDataTransmission codec tests ────────────────────────
 
     #[test]
-    fn roundtrip_plugin_data_transmission() -> crate::error::Result<()> {
+    fn roundtrip_plugin_data_transmission() -> Result<()> {
         let msg = ControlMessage::PluginDataTransmission(mumble_tcp::PluginDataTransmission {
             sender_session: Some(42),
             receiver_sessions: vec![10, 20, 30],
@@ -441,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_plugin_data_empty_receivers() -> crate::error::Result<()> {
+    fn roundtrip_plugin_data_empty_receivers() -> Result<()> {
         let msg = ControlMessage::PluginDataTransmission(mumble_tcp::PluginDataTransmission {
             sender_session: None,
             receiver_sessions: vec![],
@@ -463,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_plugin_data_large_json_payload() -> crate::error::Result<()> {
+    fn roundtrip_plugin_data_large_json_payload() -> Result<()> {
         let json = r#"{"type":"poll","id":"550e8400-e29b-41d4-a716-446655440000","question":"What is your favourite language?","options":["Rust","TypeScript","Python","Go"],"multiple":false,"creator":42,"creatorName":"Alice","createdAt":"2025-01-01T00:00:00Z"}"#;
         let msg = ControlMessage::PluginDataTransmission(mumble_tcp::PluginDataTransmission {
             sender_session: Some(42),

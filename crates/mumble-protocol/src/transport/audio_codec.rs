@@ -245,7 +245,7 @@ pub fn encode_legacy_audio(audio: &mumble_udp::Audio) -> Vec<u8> {
     buf
 }
 
-/// Encode audio into Mumble protobuf v2 format for UdpTunnel.
+/// Encode audio into Mumble protobuf v2 format for `UdpTunnel`.
 ///
 /// ```text
 /// ┌──────────┬──────────────────────────┐
@@ -276,7 +276,7 @@ pub fn encode_protobuf_audio(audio: &mumble_udp::Audio) -> Vec<u8> {
     buf
 }
 
-/// Try to decode a UdpTunnel payload as audio.
+/// Try to decode a `UdpTunnel` payload as audio.
 ///
 /// Both legacy and protobuf v2 formats share the same header byte
 /// layout: `(type << 5) | target`.
@@ -358,7 +358,7 @@ mod tests {
     fn legacy_decode_with_session() {
         // Build a packet as the server would send it (with session id).
         let mut buf = Vec::new();
-        buf.push((AUDIO_TYPE_OPUS << 5) | 0); // header: Opus, target 0
+        buf.push(AUDIO_TYPE_OPUS << 5); // header: Opus, target 0
         write_varint(&mut buf, 5);   // session = 5
         write_varint(&mut buf, 10);  // sequence = 10
         let opus = vec![1, 2, 3];
@@ -394,7 +394,7 @@ mod tests {
     fn decode_tunnel_prefers_legacy_when_protobuf_fails() {
         // Craft a legacy packet - not valid protobuf.
         let mut buf = Vec::new();
-        buf.push((AUDIO_TYPE_OPUS << 5) | 0);
+        buf.push(AUDIO_TYPE_OPUS << 5);
         write_varint(&mut buf, 7);   // session
         write_varint(&mut buf, 99);  // sequence
         let opus = vec![0xAA, 0xBB];
@@ -421,7 +421,7 @@ mod tests {
             is_terminator: false,
         };
         let mut buf = Vec::new();
-        buf.push((AUDIO_TYPE_PROTO << 5) | 0); // type=0, target=0
+        buf.push(AUDIO_TYPE_PROTO << 5); // type=0, target=0
         buf.extend_from_slice(&audio.encode_to_vec());
 
         let decoded = decode_tunnel_audio(&buf).unwrap();

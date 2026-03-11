@@ -95,8 +95,8 @@ impl AudioFilter for NoiseGate {
                     let attack = self.config.attack_samples.min(n);
                     if attack > 0 {
                         let samples_mut = frame.as_f32_samples_mut();
-                        for i in 0..attack {
-                            samples_mut[i] *= i as f32 / attack as f32;
+                        for (i, sample) in samples_mut.iter_mut().enumerate().take(attack) {
+                            *sample *= i as f32 / attack as f32;
                         }
                     }
                 } else {
@@ -172,7 +172,7 @@ mod tests {
     }
 
     #[test]
-    fn silent_frame_is_gated() -> crate::error::Result<()> {
+    fn silent_frame_is_gated() -> Result<()> {
         let mut gate = NoiseGate::new(NoiseGateConfig::default());
         let mut frame = make_frame(&[0.0; 480]);
         gate.process(&mut frame)?;
@@ -181,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn loud_frame_passes_through() -> crate::error::Result<()> {
+    fn loud_frame_passes_through() -> Result<()> {
         let config = NoiseGateConfig::default();
         let attack = config.attack_samples;
         let mut gate = NoiseGate::new(config);
