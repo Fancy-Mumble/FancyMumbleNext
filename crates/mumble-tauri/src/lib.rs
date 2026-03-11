@@ -298,7 +298,7 @@ async fn toggle_deafen(state: tauri::State<'_, AppState>) -> Result<(), String> 
     state.toggle_deafen().await
 }
 
-/// Set the user comment on the connected server (FancyMumble profile + bio).
+/// Set the user comment on the connected server (`FancyMumble` profile + bio).
 #[tauri::command]
 async fn set_user_comment(
     state: tauri::State<'_, AppState>,

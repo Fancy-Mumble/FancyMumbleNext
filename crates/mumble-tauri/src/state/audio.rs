@@ -322,7 +322,7 @@ async fn outbound_audio_loop(mut pipeline: OutboundPipeline, handle: ClientHandl
             match pipeline.tick() {
                 Ok(OutboundTick::Audio(packet)) => {
                     packet_count += 1;
-                    if packet_count == 1 || packet_count % 500 == 0 {
+                    if packet_count == 1 || packet_count.is_multiple_of(500) {
                         info!(
                             "outbound_audio: sending packet #{} (opus {} bytes, seq {})",
                             packet_count,

@@ -125,7 +125,7 @@ pub struct AudioSettings {
     /// AGC maximum gain boost in dB (expert, default 15.0).
     #[serde(default = "AudioSettings::default_max_gain")]
     pub max_gain_db: f32,
-    /// Close-threshold ratio relative to vad_threshold (expert, default 0.8).
+    /// Close-threshold ratio relative to `vad_threshold` (expert, default 0.8).
     #[serde(default = "AudioSettings::default_close_ratio")]
     pub noise_gate_close_ratio: f32,
     /// Number of frames to hold the gate open after audio drops below threshold.

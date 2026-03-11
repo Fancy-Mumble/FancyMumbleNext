@@ -263,6 +263,8 @@ impl MumbleService for MumbleBackend {
                     server_host: host.clone(),
                     server_port: port,
                     accept_invalid_certs: true,
+                    client_cert_pem: None,
+                    client_key_pem: None,
                 },
                 udp: UdpConfig {
                     server_host: host,

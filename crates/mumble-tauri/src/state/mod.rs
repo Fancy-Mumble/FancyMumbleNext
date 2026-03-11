@@ -43,7 +43,7 @@ pub(super) struct SharedState {
     /// Used to detect stale `on_disconnected` callbacks from orphaned tasks.
     pub connection_epoch: u64,
     pub client_handle: Option<ClientHandle>,
-    /// JoinHandle for the event-loop task so we can await a clean shutdown.
+    /// `JoinHandle` for the event-loop task so we can await a clean shutdown.
     pub event_loop_handle: Option<tokio::task::JoinHandle<()>>,
     pub users: HashMap<u32, UserEntry>,
     pub channels: HashMap<u32, ChannelEntry>,
@@ -365,7 +365,7 @@ impl AppState {
     ///
     /// The comment is an `optional string` in protobuf - it must be valid
     /// UTF-8.  Binary payloads (e.g. banner images) are base64-encoded by
-    /// the frontend before being embedded in the FancyMumble JSON marker.
+    /// the frontend before being embedded in the `FancyMumble` JSON marker.
     pub async fn set_user_comment(&self, comment: String) -> Result<(), String> {
         let (handle, own_session) = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;

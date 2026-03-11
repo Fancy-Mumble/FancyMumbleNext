@@ -3,7 +3,9 @@
 
 use std::sync::{Arc, Mutex};
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
+#[cfg(target_os = "windows")]
+use tauri::Manager;
 use tracing::{info, warn};
 
 use mumble_protocol::audio::encoder::EncodedPacket;
@@ -32,10 +34,7 @@ impl EventHandler for TauriEventHandler {
                 let sessions: Vec<u32>;
                 let initial_channel: Option<u32>;
                 {
-                    let mut state = match self.shared.lock() {
-                        Ok(s) => s,
-                        Err(_) => return,
-                    };
+                    let Ok(mut state) = self.shared.lock() else { return };
                     state.status = ConnectionStatus::Connected;
                     state.own_session = sync.session;
                     state.synced = true;
@@ -383,7 +382,7 @@ impl EventHandler for TauriEventHandler {
                 info!(
                     sender = ?pd.sender_session,
                     data_id = ?pd.data_id,
-                    data_len = pd.data.as_ref().map(|d| d.len()).unwrap_or(0),
+                    data_len = pd.data.as_ref().map(Vec::len).unwrap_or(0),
                     "plugin data received"
                 );
                 let _ = self.app.emit(

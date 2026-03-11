@@ -126,7 +126,7 @@ fn fft(real: &mut [f32], imag: &mut [f32]) {
 
 /// Compute the magnitude spectrum from a slice of f32 samples.
 /// Applies a Hann window to reduce spectral leakage, then pads/truncates
-/// to the next power of two.  Returns (magnitudes, bin_width_hz).
+/// to the next power of two.  Returns (magnitudes, `bin_width_hz`).
 fn magnitude_spectrum(samples: &[f32]) -> (Vec<f32>, f32) {
     let n = samples.len().next_power_of_two();
     let mut real = vec![0.0f32; n];
@@ -174,8 +174,8 @@ fn thd_n(samples: &[f32], fundamental_hz: f32) -> f32 {
     let mut signal_power = 0.0f32;
     let mut noise_power = 0.0f32;
 
-    for i in 1..half {
-        let power = mags[i] * mags[i];
+    for (i, &mag) in mags.iter().enumerate().take(half).skip(1) {
+        let power = mag * mag;
         if i.abs_diff(fund_bin) <= margin {
             signal_power += power;
         } else {
@@ -276,8 +276,8 @@ fn opus_roundtrip_level_stability() {
     // Skip first 5 frames for warm-up.
     let steady = &frame_rms_values[5..];
     let mean_rms: f32 = steady.iter().sum::<f32>() / steady.len() as f32;
-    let max_rms = steady.iter().cloned().fold(0.0f32, f32::max);
-    let min_rms = steady.iter().cloned().fold(f32::MAX, f32::min);
+    let max_rms = steady.iter().copied().fold(0.0f32, f32::max);
+    let min_rms = steady.iter().copied().fold(f32::MAX, f32::min);
 
     // Level should be stable: max/min ratio should be < 2.0
     let ratio = if min_rms > 1e-6 {
@@ -406,8 +406,8 @@ fn agc_does_not_distort_steady_signal() {
     let skip_frames = 20; // let AGC settle
     let steady_rms = &frame_rms[skip_frames..];
     let mean_rms: f32 = steady_rms.iter().sum::<f32>() / steady_rms.len() as f32;
-    let max_rms = steady_rms.iter().cloned().fold(0.0f32, f32::max);
-    let min_rms = steady_rms.iter().cloned().fold(f32::MAX, f32::min);
+    let max_rms = steady_rms.iter().copied().fold(0.0f32, f32::max);
+    let min_rms = steady_rms.iter().copied().fold(f32::MAX, f32::min);
     let ratio = if min_rms > 1e-6 { max_rms / min_rms } else { f32::MAX };
 
     println!(
@@ -464,12 +464,12 @@ fn agc_level_stability_across_volume_change() {
     // Both should be somewhat close to the target level (0.25).
     // The quiet section will be limited by max_gain.
     // The important thing: there shouldn't be huge fluctuation within each segment.
-    let quiet_max = quiet_settled.iter().cloned().fold(0.0f32, f32::max);
-    let quiet_min = quiet_settled.iter().cloned().fold(f32::MAX, f32::min);
+    let quiet_max = quiet_settled.iter().copied().fold(0.0f32, f32::max);
+    let quiet_min = quiet_settled.iter().copied().fold(f32::MAX, f32::min);
     let quiet_ratio = if quiet_min > 1e-6 { quiet_max / quiet_min } else { f32::MAX };
 
-    let loud_max = loud_settled.iter().cloned().fold(0.0f32, f32::max);
-    let loud_min = loud_settled.iter().cloned().fold(f32::MAX, f32::min);
+    let loud_max = loud_settled.iter().copied().fold(0.0f32, f32::max);
+    let loud_min = loud_settled.iter().copied().fold(f32::MAX, f32::min);
     let loud_ratio = if loud_min > 1e-6 { loud_max / loud_min } else { f32::MAX };
 
     assert!(
@@ -547,8 +547,8 @@ fn full_pipeline_quality() {
 
     // 3) Level stability: should not have pumping > 3:1.
     let mean_rms: f32 = steady_rms.iter().sum::<f32>() / steady_rms.len() as f32;
-    let max_rms = steady_rms.iter().cloned().fold(0.0f32, f32::max);
-    let min_rms = steady_rms.iter().cloned().fold(f32::MAX, f32::min);
+    let max_rms = steady_rms.iter().copied().fold(0.0f32, f32::max);
+    let min_rms = steady_rms.iter().copied().fold(f32::MAX, f32::min);
     let ratio = if min_rms > 1e-6 { max_rms / min_rms } else { f32::MAX };
     println!(
         "Full pipeline level: mean={mean_rms:.4}, min={min_rms:.4}, max={max_rms:.4}, ratio={ratio:.2}"

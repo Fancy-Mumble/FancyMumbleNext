@@ -38,6 +38,7 @@ pub struct CpalCapture {
 // SAFETY: On Windows / WASAPI the underlying COM objects use the MTA
 // model and are safe to send between threads.  The `!Send` marker in
 // cpal is a conservative cross-platform guard that does not apply here.
+#[allow(unsafe_code)]
 unsafe impl Send for CpalCapture {}
 
 impl CpalCapture {
@@ -177,6 +178,7 @@ pub struct CpalPlayback {
 }
 
 // SAFETY: See `CpalCapture` - same justification applies.
+#[allow(unsafe_code)]
 unsafe impl Send for CpalPlayback {}
 
 impl CpalPlayback {
@@ -229,12 +231,9 @@ impl AudioPlayback for CpalPlayback {
             .build_output_stream(
                 &stream_config,
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                    let mut buf = match buffer.lock() {
-                        Ok(b) => b,
-                        Err(_) => {
-                            data.fill(0.0);
-                            return;
-                        }
+                    let Ok(mut buf) = buffer.lock() else {
+                        data.fill(0.0);
+                        return;
                     };
                     // Fill interleaved stereo: each mono sample → L + R.
                     for chunk in data.chunks_exact_mut(2) {
