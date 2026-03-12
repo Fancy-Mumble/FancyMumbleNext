@@ -6,8 +6,11 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 #[cfg(target_os = "windows")]
 use tauri::Manager;
-use tracing::{info, warn};
+use tracing::info;
+#[cfg(not(target_os = "android"))]
+use tracing::warn;
 
+#[cfg(not(target_os = "android"))]
 use mumble_protocol::audio::encoder::EncodedPacket;
 use mumble_protocol::command;
 use mumble_protocol::event::EventHandler;
@@ -171,11 +174,14 @@ impl EventHandler for TauriEventHandler {
                         state.unread_counts.clear();
                         state.server_config = ServerConfig::default();
                         state.voice_state = VoiceState::Inactive;
-                        // Stop audio pipelines.
-                        if let Some(handle) = state.outbound_task_handle.take() {
-                            handle.abort();
+                        // Stop audio pipelines (desktop only).
+                        #[cfg(not(target_os = "android"))]
+                        {
+                            if let Some(handle) = state.outbound_task_handle.take() {
+                                handle.abort();
+                            }
+                            state.inbound_pipeline = None;
                         }
-                        state.inbound_pipeline = None;
                     }
                     let _ = self.app.emit(
                         "connection-rejected",
@@ -408,15 +414,18 @@ impl EventHandler for TauriEventHandler {
             if audio.opus_data.is_empty() {
                 return;
             }
-            let packet = EncodedPacket {
-                data: audio.opus_data.clone(),
-                sequence: audio.frame_number,
-                frame_samples: 960, // 20 ms @ 48 kHz (Opus reports actual size)
-            };
-            if let Ok(mut state) = self.shared.lock() {
-                if let Some(ref mut pipeline) = state.inbound_pipeline {
-                    if let Err(e) = pipeline.tick(&packet) {
-                        warn!("inbound audio decode error: {e}");
+            #[cfg(not(target_os = "android"))]
+            {
+                let packet = EncodedPacket {
+                    data: audio.opus_data.clone(),
+                    sequence: audio.frame_number,
+                    frame_samples: 960, // 20 ms @ 48 kHz (Opus reports actual size)
+                };
+                if let Ok(mut state) = self.shared.lock() {
+                    if let Some(ref mut pipeline) = state.inbound_pipeline {
+                        if let Err(e) = pipeline.tick(&packet) {
+                            warn!("inbound audio decode error: {e}");
+                        }
                     }
                 }
             }
@@ -440,11 +449,14 @@ impl EventHandler for TauriEventHandler {
             state.status = ConnectionStatus::Disconnected;
             state.client_handle = None;
             state.event_loop_handle = None;
-            // Stop audio pipelines on disconnect.
-            if let Some(handle) = state.outbound_task_handle.take() {
-                handle.abort();
+            // Stop audio pipelines on disconnect (desktop only).
+            #[cfg(not(target_os = "android"))]
+            {
+                if let Some(handle) = state.outbound_task_handle.take() {
+                    handle.abort();
+                }
+                state.inbound_pipeline = None;
             }
-            state.inbound_pipeline = None;
             state.voice_state = VoiceState::Inactive;
         }
         let _ = self.app.emit("server-disconnected", ());

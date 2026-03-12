@@ -12,14 +12,18 @@ Licensed MIT.  Written in Rust + TypeScript/React.
 | Layer | Crate / package | Tech |
 |-------|-----------------|------|
 | Protocol library | `crates/mumble-protocol` | Rust, tokio, prost (protobuf), rustls, optional Opus codec |
-| Tauri backend | `crates/mumble-tauri` | Rust, Tauri 2, cpal (audio I/O), rcgen (self-signed certs) |
+| Tauri backend | `crates/mumble-tauri` | Rust, Tauri 2, cpal (audio I/O, desktop only), rcgen (self-signed certs) |
 | Tauri frontend | `crates/mumble-tauri/ui` | React 19, Vite 6, Zustand 5, react-router-dom 7, TypeScript 5 |
+| Tauri Android | `crates/mumble-tauri/gen/android` | Gradle/Kotlin, Android API 34, NDK 27 |
 | Dioxus GUI (alt) | `crates/mumble-gui` | Rust, Dioxus 0.7 desktop - older/parallel UI, same protocol lib |
 
 ## Workspace layout
 
 ```
 Cargo.toml                          # Rust workspace root (resolver = "2")
+ANDROID_DEV.md                      # Android development setup guide
+scripts/
+  android-dev.ps1                   # Android prerequisites checker & dev launcher (Windows)
 crates/
   mumble-protocol/                  # Pure async Mumble client library
     proto/Mumble.proto              # TCP protobuf definitions
@@ -71,6 +75,8 @@ crates/
         connection.rs               # connect() / disconnect() lifecycle
         audio.rs                    # Voice pipeline management (enable, mute, deafen, outbound audio loop)
         event_handler.rs            # TauriEventHandler - EventHandler impl bridging protocol events to Tauri
+    gen/
+      android/                      # Generated Tauri Android project (Gradle/Kotlin, API 34)
     ui/                             # React frontend
       package.json                  # npm deps: @tauri-apps/api 2, react 19, zustand 5, react-router-dom 7
       vite.config.ts                # Vite 6, target esnext, Tauri env prefix
@@ -114,6 +120,7 @@ crates/
             shortcutHelpers.ts      # Key combo helpers
         utils/
           media.ts                  # Media utility helpers
+          platform.ts               # Platform detection (isMobilePlatform, isDesktopPlatform)
 
   mumble-gui/                       # Dioxus desktop GUI (alternative frontend)
     Dioxus.toml
@@ -159,7 +166,20 @@ crates/
 
 8. **Audio pipeline** - trait-based: `AudioCapture` → `FilterChain` (noise
    gate, AGC) → `OpusEncoder` → network; inbound is the reverse.
-   OS audio I/O uses `cpal`.
+   OS audio I/O uses `cpal` (desktop only, gated with
+   `#[cfg(not(target_os = "android"))]`).
+
+9. **Android platform gating** - `cpal` and `tauri-plugin-global-shortcut`
+   are desktop-only dependencies.  Audio commands return stub errors on
+   Android.  The `mod audio` (cpal wrappers), audio pipeline fields
+   (`inbound_pipeline`, `outbound_task_handle`), and event handler audio
+   callbacks are all behind `#[cfg(not(target_os = "android"))]`.
+
+10. **Responsive UI** - CSS breakpoint at 768 px separates mobile from
+    desktop.  On mobile: sidebar becomes a slide-in drawer with hamburger
+    toggle, touch targets are 44 px minimum, TitleBar is hidden (Android
+    has its own status bar), and `UserProfileView` is hidden.  Platform
+    detection uses `isMobilePlatform()` from `utils/platform.ts`.
 
 ## Boy Scout Rule
 
@@ -216,10 +236,10 @@ When working in any file, apply this rule proactively:
 ### General
 - MIT license
 - CI: GitHub Actions (`.github/workflows/ci.yml`) - lint, test, build,
-  auto-release on `main`
+  Android APK build, auto-release on `main`
 - Workspace managed with `cargo` (Rust) and `npm` (frontend, in `crates/mumble-tauri/ui`)
 - **No non-ASCII characters in code comments** (Rust `//`/`/* */`, TypeScript `//`/`/* */`).
-  Box-drawing characters and other Unicode glyphs (e.g. `┌──┐`, `│`, `└──┘`, `▼`)
+  Box-drawing characters and other Unicode glyphs (e.g. `┌──┐`, `│`, `└──┘`, `▼`, `─`)
   are forbidden in source-code comments.  They are fine in Markdown documentation
   files (`.md`).
 
@@ -229,6 +249,16 @@ When working in any file, apply this rule proactively:
 # Run the Tauri dev server (auto-starts Vite + cargo build)
 cd crates/mumble-tauri
 cargo tauri dev
+
+# Run the Tauri Android dev server (requires emulator/device)
+# See ANDROID_DEV.md for prerequisites
+cd crates/mumble-tauri
+cargo tauri android dev
+
+# Check Android dev prerequisites (Windows)
+.\scripts\android-dev.ps1
+# Check and launch dev server
+.\scripts\android-dev.ps1 -Run
 
 # Run the Dioxus dev server
 cd crates/mumble-gui

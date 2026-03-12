@@ -9,8 +9,9 @@ export default defineConfig({
   clearScreen: false,
 
   server: {
-    port: 5173,
+    port: 1420,
     strictPort: true,
+    host: true,
   },
 
   // Expose TAURI_* env variables to client code.

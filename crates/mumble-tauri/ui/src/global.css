@@ -1,4 +1,4 @@
-/* ─── Reset & Base ─────────────────────────────────────────────── */
+/* --- Reset & Base ----------------------------------------------- */
 
 :root {
   /* Palette */
@@ -41,6 +41,9 @@
 
   /* Layout */
   --sidebar-width: 320px;
+
+  /* Touch targets (minimum recommended size for mobile) */
+  --touch-target-min: 44px;
 }
 
 *,
@@ -67,7 +70,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ─── App Shell ────────────────────────────────────────────────── */
+/* --- Safe Area (mobile notch / status bar) ---------------------- */
 
 .app {
   height: 100%;
@@ -80,9 +83,14 @@ body {
     radial-gradient(500px circle at -100px calc(100% + 150px), rgba(124, 58, 237, 0.15), transparent 70%),
     linear-gradient(135deg, #0e0e16 0%, #1a1a2e 50%, #16213e 100%);
   overflow: hidden;
+  /* Respect mobile safe area insets (notch, home indicator, status bar) */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
-/* ─── Custom Scrollbar ─────────────────────────────────────────── */
+/* --- Custom Scrollbar ------------------------------------------- */
 
 ::-webkit-scrollbar {
   width: 6px;
@@ -101,7 +109,7 @@ body {
   background: rgba(255, 255, 255, 0.2);
 }
 
-/* ─── Input Reset ──────────────────────────────────────────────── */
+/* --- Input Reset ------------------------------------------------ */
 
 input,
 textarea,
@@ -113,4 +121,30 @@ button {
 a {
   color: var(--color-accent);
   text-decoration: none;
+}
+
+/* --- Mobile Responsive ------------------------------------------ */
+
+@media (max-width: 768px) {
+  :root {
+    --sidebar-width: 100%;
+  }
+
+  /* On small screens, hide the custom scrollbar in favour of native
+     mobile momentum scrolling. */
+  ::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Ensure touch input fields are at least 44 px tall. */
+  input,
+  textarea {
+    min-height: var(--touch-target-min);
+    font-size: 16px; /* prevents iOS zoom-on-focus */
+  }
+
+  button {
+    min-height: var(--touch-target-min);
+    min-width: var(--touch-target-min);
+  }
 }

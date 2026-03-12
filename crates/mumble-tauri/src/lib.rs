@@ -4,6 +4,7 @@
 // required by the `#[tauri::command]` macro - suppress the lint crate-wide.
 #![allow(clippy::needless_pass_by_value)]
 
+#[cfg(not(target_os = "android"))]
 mod audio;
 mod state;
 
@@ -228,6 +229,8 @@ async fn ping_server(host: String, port: u16) -> PingResult {
 // ─── Audio device commands ────────────────────────────────────────
 
 /// List available audio input devices (microphones).
+/// Only available on desktop (cpal is not supported on Android).
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn get_audio_devices() -> Vec<AudioDevice> {
     use cpal::traits::{DeviceTrait, HostTrait};
@@ -257,6 +260,13 @@ fn get_audio_devices() -> Vec<AudioDevice> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Stub: on Android, return an empty device list.
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn get_audio_devices() -> Vec<AudioDevice> {
+    Vec::new()
 }
 
 /// Get current audio settings.
@@ -371,9 +381,14 @@ pub fn run() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     tracing_subscriber::fmt::init();
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_store::Builder::default().build());
+
+    // Global shortcuts (PTT) are only available on desktop.
+    #[cfg(not(target_os = "android"))]
+    let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+
+    builder
         .manage(AppState::new())
         .setup(|app| {
             let state = app.state::<AppState>();

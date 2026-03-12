@@ -169,6 +169,7 @@ impl Default for AudioSettings {
 /// Current voice state.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(target_os = "android", allow(dead_code))]
 pub enum VoiceState {
     /// User is deaf + muted (default on connect / before enabling voice).
     #[default]

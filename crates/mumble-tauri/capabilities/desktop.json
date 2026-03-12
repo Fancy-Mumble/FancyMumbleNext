@@ -1,0 +1,9 @@
+{
+  "identifier": "desktop",
+  "description": "Desktop-only permissions (not applicable on Android/iOS)",
+  "windows": ["main"],
+  "platforms": ["linux", "macOS", "windows"],
+  "permissions": [
+    "global-shortcut:default"
+  ]
+}
