@@ -60,7 +60,7 @@ async fn generate_certificate(
     let certified = generate_simple_self_signed(vec![label.clone()])
         .map_err(|e| e.to_string())?;
     let cert_pem = certified.cert.pem();
-    let key_pem = certified.key_pair.serialize_pem();
+    let key_pem = certified.signing_key.serialize_pem();
 
     std::fs::write(&cert_path, cert_pem).map_err(|e| e.to_string())?;
     std::fs::write(
@@ -235,13 +235,20 @@ fn get_audio_devices() -> Vec<AudioDevice> {
     let host = cpal::default_host();
     let default_name = host
         .default_input_device()
-        .and_then(|d| d.name().ok());
+        .and_then(|d| {
+            d.description()
+                .ok()
+                .map(|desc| desc.name().to_string())
+        });
 
     host.input_devices()
         .map(|devices| {
             devices
                 .filter_map(|d| {
-                    let name = d.name().ok()?;
+                    let name = d
+                        .description()
+                        .ok()
+                        .map(|desc| desc.name().to_string())?;
                     Some(AudioDevice {
                         name: name.clone(),
                         is_default: default_name.as_deref() == Some(&name),

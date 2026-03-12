@@ -13,6 +13,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
 
 jobs:
   # ────────────────────────────────────────────────────────────────
@@ -28,7 +29,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # ── Toolchain ───────────────────────────────────────────────
       - name: Install Rust toolchain
@@ -42,7 +43,7 @@ jobs:
           shared-key: ${{ matrix.os }}-test
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -124,7 +125,7 @@ jobs:
             bundle-ext: "msi,nsis"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -135,7 +136,7 @@ jobs:
           shared-key: ${{ matrix.target.os }}-build
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -193,7 +194,7 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Read version from tauri.conf.json
         id: version

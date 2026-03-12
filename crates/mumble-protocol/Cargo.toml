@@ -12,11 +12,11 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros",
 # TLS for Mumble TCP connection
 tokio-rustls = "0.26"
 rustls = { version = "0.23", features = ["ring"] }
-webpki-roots = "0.26"
+webpki-roots = "1.0.6"
 rustls-pemfile = "2"
 
 # Protobuf
-prost = "0.13"
+prost = "0.14.3"
 bytes = "1"
 
 # Logging
@@ -41,4 +41,4 @@ rustls = { version = "0.23", features = ["ring"] }
 workspace = true
 
 [build-dependencies]
-prost-build = "0.13"
+prost-build = "0.14.3"

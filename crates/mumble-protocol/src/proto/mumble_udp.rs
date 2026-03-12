@@ -18,7 +18,7 @@ pub struct Audio {
 }
 /// Nested message and enum types in `Audio`.
 pub mod audio {
-    #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Oneof)]
     pub enum Header {
         #[prost(uint32, tag = "1")]
         Target(u32),
@@ -26,7 +26,7 @@ pub mod audio {
         Context(u32),
     }
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Ping {
     #[prost(uint64, tag = "1")]
     pub timestamp: u64,

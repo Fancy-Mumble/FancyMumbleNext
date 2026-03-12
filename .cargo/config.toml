@@ -3,3 +3,8 @@
 # Clippy lints are configured in [workspace.lints.clippy] in the root Cargo.toml.
 # rust-analyzer is configured to use `cargo clippy` instead of `cargo check`
 # (see .vscode/settings.json) so lints surface automatically during development.
+
+[env]
+# audiopus_sys vendors an Opus CMake project with an old minimum CMake version.
+# CMake 4 rejects that by default unless a policy minimum is provided.
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"

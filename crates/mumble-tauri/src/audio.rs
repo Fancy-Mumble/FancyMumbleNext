@@ -52,7 +52,13 @@ impl CpalCapture {
         let device = if let Some(name) = device_name {
             host.input_devices()
                 .map_err(|e| Error::InvalidState(e.to_string()))?
-                .find(|d| d.name().ok().as_deref() == Some(name))
+                .find(|d| {
+                    d.description()
+                        .ok()
+                        .map(|desc| desc.name().to_string())
+                        .as_deref()
+                        == Some(name)
+                })
                 .ok_or_else(|| {
                     Error::InvalidState(format!("Input device '{name}' not found"))
                 })?
@@ -116,7 +122,7 @@ impl AudioCapture for CpalCapture {
 
         let stream_config = cpal::StreamConfig {
             channels: hw_channels,
-            sample_rate: cpal::SampleRate(48_000),
+            sample_rate: 48_000,
             buffer_size: cpal::BufferSize::Default,
         };
 
@@ -222,7 +228,7 @@ impl AudioPlayback for CpalPlayback {
         // Most output devices are stereo; duplicate mono to both channels.
         let stream_config = cpal::StreamConfig {
             channels: 2,
-            sample_rate: cpal::SampleRate(48_000),
+            sample_rate: 48_000,
             buffer_size: cpal::BufferSize::Default,
         };
 
