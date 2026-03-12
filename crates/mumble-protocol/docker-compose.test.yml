@@ -32,8 +32,8 @@ services:
       MUMBLE_CONFIG_registerName: "MumbleTestServer"
     restart: "no"
     healthcheck:
-      test: ["CMD-SHELL", "cat /proc/net/tcp 2>/dev/null | grep -qi ':FCC2' || ss -tlnp 2>/dev/null | grep -q 64738 || exit 1"]
-      interval: 2s
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/64738' 2>/dev/null"]
+      interval: 3s
       timeout: 5s
-      retries: 15
-      start_period: 10s
+      retries: 20
+      start_period: 15s

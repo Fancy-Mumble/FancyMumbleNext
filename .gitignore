@@ -1,1 +1,48 @@
-/target
+# ---- Rust / Cargo ----
+/target/
+**/target/
+**/*.rs.bk
+
+# Keep Cargo.lock for app crates (do not ignore by default)
+
+# ---- Environment / local config ----
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# ---- Node / frontend (crates/mumble-tauri/ui) ----
+crates/mumble-tauri/ui/node_modules/
+crates/mumble-tauri/ui/dist/
+crates/mumble-tauri/ui/.vite/
+crates/mumble-tauri/ui/coverage/
+crates/mumble-tauri/ui/.eslintcache
+crates/mumble-tauri/ui/*.tsbuildinfo
+crates/mumble-tauri/ui/npm-debug.log*
+crates/mumble-tauri/ui/yarn-debug.log*
+crates/mumble-tauri/ui/yarn-error.log*
+crates/mumble-tauri/ui/pnpm-debug.log*
+
+# ---- Tauri / desktop runtime artifacts ----
+**/*.pdb
+**/*.dSYM/
+**/*.ilk
+**/*.exe
+
+# ---- Dioxus ----
+crates/mumble-gui/.dioxus/
+crates/mumble-gui/dist/
+
+# ---- IDE / editor ----
+.vscode/
+.idea/
+*.code-workspace
+
+# ---- OS noise ----
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ---- Test / misc local artifacts ----
+coverage/
+*.log
