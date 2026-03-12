@@ -1,4 +1,4 @@
-*# Android Development Setup
+# Android Development Setup
 
 Quick guide for building and debugging Fancy Mumble on Android.
 
