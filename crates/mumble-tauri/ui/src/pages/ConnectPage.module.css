@@ -1,4 +1,4 @@
-/* ─── Connect Page ─────────────────────────────────────────────── */
+/* --- Connect Page ----------------------------------------------- */
 
 .page {
   display: flex;
@@ -25,7 +25,7 @@
   box-shadow: var(--shadow-lg);
 }
 
-/* ─── Logo ─────────────────────────────────────────────────────── */
+/* --- Logo ------------------------------------------------------- */
 
 .logo {
   text-align: center;
@@ -59,7 +59,7 @@
   margin-top: 4px;
 }
 
-/* ─── Error Banner ─────────────────────────────────────────────── */
+/* --- Error Banner ----------------------------------------------- */
 
 .error {
   display: flex;
@@ -89,7 +89,7 @@
   font-weight: 700;
 }
 
-/* ─── Form ─────────────────────────────────────────────────────── */
+/* --- Form ------------------------------------------------------- */
 
 .form {
   display: flex;
@@ -135,7 +135,7 @@
   cursor: not-allowed;
 }
 
-/* ─── Button ───────────────────────────────────────────────────── */
+/* --- Button ----------------------------------------------------- */
 
 .button {
   width: 100%;
@@ -175,7 +175,7 @@
   cursor: not-allowed;
 }
 
-/* ─── Spinner ──────────────────────────────────────────────────── */
+/* --- Spinner ---------------------------------------------------- */
 
 .spinner {
   width: 18px;
@@ -192,7 +192,7 @@
   }
 }
 
-/* ─── Back link ────────────────────────────────────────────────── */
+/* --- Back link -------------------------------------------------- */
 
 .backLink {
   display: inline-flex;
@@ -219,7 +219,7 @@
   cursor: not-allowed;
 }
 
-/* ─── Step Indicator ───────────────────────────────────────────── */
+/* --- Step Indicator --------------------------------------------- */
 
 .stepIndicator {
   display: flex;
@@ -252,7 +252,7 @@
   font-weight: 500;
 }
 
-/* ─── Hint Card ────────────────────────────────────────────────── */
+/* --- Hint Card -------------------------------------------------- */
 
 .hint {
   display: flex;
@@ -273,7 +273,7 @@
   line-height: 1.45;
 }
 
-/* ─── Button row (Quick Connect + Connect & Save) ─────────────── */
+/* --- Button row (Quick Connect + Connect & Save) --------------- */
 
 .buttonRow {
   display: flex;
@@ -309,7 +309,7 @@
   cursor: not-allowed;
 }
 
-/* ─── Username happy-path confirmation ─────────────────────────── */
+/* --- Username happy-path confirmation --------------------------- */
 
 .usernameSummary {
   display: flex;
@@ -368,7 +368,7 @@
   cursor: not-allowed;
 }
 
-/* ─── Mobile responsive overrides ──────────────────────────────── */
+/* --- Mobile responsive overrides -------------------------------- */
 
 @media (max-width: 768px) {
   .page {

@@ -1,4 +1,4 @@
-# Android Development Setup
+*# Android Development Setup
 
 Quick guide for building and debugging Fancy Mumble on Android.
 
@@ -124,8 +124,14 @@ architecture. Subsequent builds use the cargo cache and are much faster.
 
 ### Port conflicts
 
-The Vite dev server runs on port 5173. If it conflicts, update
-`devUrl` in `tauri.conf.json`.
+The Tauri/Vite dev server runs on port 1420 by default. If it conflicts,
+update `devUrl` in `tauri.conf.json` and use the same port in your Vite
+config (`server.port`).
+
+For Android, ensure the dev server is reachable from the emulator/device:
+
+- Bind Vite to all interfaces (`server.host: true` or `0.0.0.0`)
+- Or use `TAURI_DEV_HOST` when running `cargo tauri android dev`
 
 ### NDK not found
 

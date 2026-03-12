@@ -1,4 +1,4 @@
-/* ─── Chat Page Layout ─────────────────────────────────────────── */
+/* --- Chat Page Layout ------------------------------------------- */
 
 .page {
   display: flex;
@@ -8,7 +8,7 @@
   z-index: 1;
 }
 
-/* ─── Mobile Sidebar Drawer ────────────────────────────────────── */
+/* --- Mobile Sidebar Drawer -------------------------------------- */
 
 .sidebarContainer {
   display: contents;

@@ -45,7 +45,13 @@ export default function ChatPage() {
 
       {/* Backdrop overlay for mobile drawer */}
       {isMobile && sidebarOpen && (
-        <div className={styles.backdrop} onClick={closeSidebar} />
+        <button
+          className={styles.backdrop}
+          onClick={closeSidebar}
+          onKeyDown={(e) => e.key === "Escape" && closeSidebar()}
+          aria-label="Close channels"
+          type="button"
+        />
       )}
 
       {/* Sidebar: always visible on desktop, drawer on mobile */}

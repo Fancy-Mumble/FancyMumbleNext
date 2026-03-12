@@ -1,4 +1,4 @@
-/* ─── Reset & Base ─────────────────────────────────────────────── */
+/* --- Reset & Base ----------------------------------------------- */
 
 :root {
   /* Palette */
@@ -70,7 +70,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ─── Safe Area (mobile notch / status bar) ────────────────────── */
+/* --- Safe Area (mobile notch / status bar) ---------------------- */
 
 .app {
   height: 100%;
@@ -90,7 +90,7 @@ body {
   padding-right: env(safe-area-inset-right, 0px);
 }
 
-/* ─── Custom Scrollbar ─────────────────────────────────────────── */
+/* --- Custom Scrollbar ------------------------------------------- */
 
 ::-webkit-scrollbar {
   width: 6px;
@@ -109,7 +109,7 @@ body {
   background: rgba(255, 255, 255, 0.2);
 }
 
-/* ─── Input Reset ──────────────────────────────────────────────── */
+/* --- Input Reset ------------------------------------------------ */
 
 input,
 textarea,
@@ -123,7 +123,7 @@ a {
   text-decoration: none;
 }
 
-/* ─── Mobile Responsive ────────────────────────────────────────── */
+/* --- Mobile Responsive ------------------------------------------ */
 
 @media (max-width: 768px) {
   :root {

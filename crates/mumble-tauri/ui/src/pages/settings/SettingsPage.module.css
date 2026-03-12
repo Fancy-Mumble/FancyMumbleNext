@@ -1,4 +1,4 @@
-/* ─── Settings Page – Sidebar Layout ────────────────────────────── */
+/* --- Settings Page – Sidebar Layout ------------------------------ */
 
 .page {
   display: flex;
@@ -8,7 +8,7 @@
   overflow: hidden;
 }
 
-/* ─── Sidebar ──────────────────────────────────────────────────── */
+/* --- Sidebar ---------------------------------------------------- */
 
 .sidebar {
   width: 200px;
@@ -98,7 +98,7 @@
   text-align: center;
 }
 
-/* ─── Main area (scrolling container) ──────────────────────────── */
+/* --- Main area (scrolling container) ---------------------------- */
 
 .mainArea {
   flex: 1;
@@ -111,7 +111,7 @@
   grid-template-columns: minmax(0, 600px) 280px;
 }
 
-/* ─── Content area ─────────────────────────────────────────────── */
+/* --- Content area ----------------------------------------------- */
 
 .content {
   min-width: 0;
@@ -136,7 +136,7 @@
   border-radius: var(--radius-sm);
 }
 
-/* ─── Sections ─────────────────────────────────────────────────── */
+/* --- Sections --------------------------------------------------- */
 
 .section {
   margin-bottom: 24px;
@@ -156,7 +156,7 @@
   color: var(--color-text-primary);
 }
 
-/* ─── Fields ───────────────────────────────────────────────────── */
+/* --- Fields ----------------------------------------------------- */
 
 .field {
   margin-top: 8px;
@@ -181,7 +181,7 @@
   margin-bottom: 8px;
 }
 
-/* ─── Input ────────────────────────────────────────────────────── */
+/* --- Input ------------------------------------------------------ */
 
 .input {
   width: 100%;
@@ -205,7 +205,7 @@
   border-color: var(--color-accent);
 }
 
-/* ─── Select ───────────────────────────────────────────────────── */
+/* --- Select ----------------------------------------------------- */
 
 .select {
   width: 100%;
@@ -235,7 +235,7 @@
   color: var(--color-text-primary);
 }
 
-/* ─── Toggle switch ────────────────────────────────────────────── */
+/* --- Toggle switch ---------------------------------------------- */
 
 .toggleRow {
   display: flex;
@@ -285,7 +285,7 @@
   transform: translateX(22px);
 }
 
-/* ─── Slider ───────────────────────────────────────────────────── */
+/* --- Slider ----------------------------------------------------- */
 
 .slider {
   width: 100%;
@@ -329,7 +329,7 @@
   text-align: right;
 }
 
-/* ─── Shortcut recorder ───────────────────────────────────────── */
+/* --- Shortcut recorder ----------------------------------------- */
 
 .recorderRow {
   display: flex;
@@ -411,7 +411,7 @@
   border-color: rgba(239, 68, 68, 0.15);
 }
 
-/* ─── PTT key row ──────────────────────────────────────────────── */
+/* --- PTT key row ------------------------------------------------ */
 
 .pttKeyRow {
   margin-top: 14px;
@@ -419,7 +419,7 @@
   border-top: 1px solid var(--color-glass-border);
 }
 
-/* ─── Danger zone ──────────────────────────────────────────────── */
+/* --- Danger zone ------------------------------------------------ */
 
 .dangerBtn {
   padding: 10px 18px;
@@ -475,7 +475,7 @@
   background: var(--color-glass-hover);
 }
 
-/* ─── Avatar picker ────────────────────────────────────────────── */
+/* --- Avatar picker ---------------------------------------------- */
 
 .avatarRow {
   display: flex;
@@ -519,7 +519,7 @@
   gap: 6px;
 }
 
-/* ─── Textarea ─────────────────────────────────────────────────── */
+/* --- Textarea --------------------------------------------------- */
 
 .textarea {
   width: 100%;
@@ -544,7 +544,7 @@
   border-color: var(--color-accent);
 }
 
-/* ─── Option grid (decorations / effects) ──────────────────────── */
+/* --- Option grid (decorations / effects) ------------------------ */
 
 .optionGrid {
   display: flex;
@@ -591,7 +591,7 @@
   white-space: nowrap;
 }
 
-/* ─── Nameplate cards (gradient backgrounds) ───────────────────── */
+/* --- Nameplate cards (gradient backgrounds) --------------------- */
 
 .nameplateCard {
   display: flex;
@@ -615,7 +615,7 @@
   transform: translateY(-1px);
 }
 
-/* ─── Name preview ─────────────────────────────────────────────── */
+/* --- Name preview ----------------------------------------------- */
 
 .namePreview {
   font-size: 22px;
@@ -629,7 +629,7 @@
   user-select: none;
 }
 
-/* ─── Colour picker ────────────────────────────────────────────── */
+/* --- Colour picker ---------------------------------------------- */
 
 .colorInput {
   width: 36px;
@@ -651,7 +651,7 @@
   border: none;
 }
 
-/* ─── Gradient row ─────────────────────────────────────────────── */
+/* --- Gradient row ----------------------------------------------- */
 
 .gradientRow {
   display: flex;
@@ -664,7 +664,7 @@
   flex: 1;
 }
 
-/* ─── Banner thumbnail ─────────────────────────────────────────── */
+/* --- Banner thumbnail ------------------------------------------- */
 
 .bannerThumb {
   width: 100%;
@@ -675,7 +675,7 @@
   margin-bottom: 8px;
 }
 
-/* ─── Apply button ─────────────────────────────────────────────── */
+/* --- Apply button ----------------------------------------------- */
 
 .applyBtn {
   width: 100%;
@@ -701,7 +701,7 @@
   cursor: not-allowed;
 }
 
-/* ─── Preview pane (sticky right column) ───────────────────────── */
+/* --- Preview pane (sticky right column) ------------------------- */
 
 .previewPane {
   padding: 32px 20px 32px 0;
@@ -712,7 +712,7 @@
   top: 32px;
 }
 
-/* ─── Profile Preview Card ─────────────────────────────────────── */
+/* --- Profile Preview Card --------------------------------------- */
 
 .previewCard {
   position: relative;
@@ -820,7 +820,7 @@
   color: var(--color-text-secondary);
 }
 
-/* ─── Custom Status ────────────────────────────────────────────── */
+/* --- Custom Status ---------------------------------------------- */
 
 .previewStatus {
   font-size: 12px;
@@ -831,7 +831,7 @@
   text-overflow: ellipsis;
 }
 
-/* ─── Card Background option cards ─────────────────────────────── */
+/* --- Card Background option cards ------------------------------- */
 
 .cardBgCard {
   display: flex;
@@ -855,7 +855,7 @@
   transform: translateY(-1px);
 }
 
-/* ─── Avatar Border option cards ───────────────────────────────── */
+/* --- Avatar Border option cards --------------------------------- */
 
 .avatarBorderCard {
   display: flex;
@@ -889,7 +889,7 @@
   flex-shrink: 0;
 }
 
-/* ─── Effect overlay (animated layer over the whole card) ──────── */
+/* --- Effect overlay (animated layer over the whole card) -------- */
 
 .previewEffectOverlay {
   position: absolute;
@@ -1014,7 +1014,7 @@
   100% { background-position: 0% 50%; }
 }
 
-/* ─── Image Editor Modal ───────────────────────────────────────── */
+/* --- Image Editor Modal ----------------------------------------- */
 
 .editorOverlay {
   position: fixed;
@@ -1097,7 +1097,7 @@
   gap: 10px;
 }
 
-/* ─── Bio WYSIWYG editor ───────────────────────────────────────── */
+/* --- Bio WYSIWYG editor ----------------------------------------- */
 
 .bioEditor {
   border: 1px solid var(--color-glass-border);
@@ -1173,7 +1173,7 @@
   height: 0;
 }
 
-/* ── Colour picker ─────────────────────────────────────────────── */
+/* -- Colour picker ----------------------------------------------- */
 
 .bioColourWrap {
   position: relative;
@@ -1236,7 +1236,7 @@
   color: var(--color-text-primary);
 }
 
-/* ─── Responsive: hide preview on narrow windows ───────────────── */
+/* --- Responsive: hide preview on narrow windows ----------------- */
 
 @media (max-width: 900px) {
   .mainAreaWithPreview {
@@ -1247,7 +1247,7 @@
   }
 }
 
-/* ─── Mobile responsive overrides ──────────────────────────────── */
+/* --- Mobile responsive overrides -------------------------------- */
 
 @media (max-width: 768px) {
   .page {

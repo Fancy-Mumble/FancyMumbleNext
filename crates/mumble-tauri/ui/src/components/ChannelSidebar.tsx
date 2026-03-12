@@ -42,7 +42,7 @@ function avatarUrl(user: UserEntry): string | null {
   return url;
 }
 
-// ─── Stacked avatar component ─────────────────────────────────────
+// --- Stacked avatar component -------------------------------------
 
 function StackedAvatars({ users }: { users: UserEntry[] }) {
   const [showTooltip, setShowTooltip] = useState(false);
@@ -107,9 +107,9 @@ function StackedAvatars({ users }: { users: UserEntry[] }) {
   );
 }
 
-// ─── Build tree helpers ───────────────────────────────────────────
+// --- Build tree helpers -------------------------------------------
 
-// ─── User item with profile card on hover ─────────────────────────
+// --- User item with profile card on hover -------------------------
 
 function UserItem({ user, channelName: chName }: { user: UserEntry; channelName: string }) {
   const [showCard, setShowCard] = useState(false);
@@ -183,7 +183,7 @@ function UserItem({ user, channelName: chName }: { user: UserEntry; channelName:
   );
 }
 
-// ─── Build tree helpers (continued) ──────────────────────────────
+// --- Build tree helpers (continued) ------------------------------
 
 interface ChannelGroup {
   folder: ChannelEntry;
@@ -225,7 +225,7 @@ function buildGroups(channels: ChannelEntry[]): {
   return { root, groups };
 }
 
-// ─── Main component ───────────────────────────────────────────────
+// --- Main component -----------------------------------------------
 
 interface ChannelSidebarProps {
   /** Called after the user taps a channel (used by mobile drawer to close). */
@@ -250,7 +250,7 @@ export default function ChannelSidebar({ onChannelSelect }: ChannelSidebarProps)
 
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
-  // ── Context menu state ──────────────────────────────────────────
+  // -- Context menu state ------------------------------------------
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
@@ -372,7 +372,7 @@ export default function ChannelSidebar({ onChannelSelect }: ChannelSidebarProps)
     });
   };
 
-  // ── Channel item renderer ───────────────────────────────────────
+  // -- Channel item renderer ---------------------------------------
 
   function renderChannelItem(
     channel: ChannelEntry,
