@@ -8,3 +8,13 @@
 # audiopus_sys vendors an Opus CMake project with an old minimum CMake version.
 # CMake 4 rejects that by default unless a policy minimum is provided.
 CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+
+# On Windows, CMake defaults to the Visual Studio generator which cannot
+# cross-compile for Android. Force Ninja for every Android target triple so
+# the NDK toolchain is used correctly regardless of host OS.
+# Note: audiopus_sys (Opus) is not compiled for Android targets (no opus-codec
+# feature), but these settings are kept so other C dependencies build correctly.
+CMAKE_GENERATOR_aarch64_linux_android     = "Ninja"
+CMAKE_GENERATOR_armv7_linux_androideabi   = "Ninja"
+CMAKE_GENERATOR_x86_64_linux_android      = "Ninja"
+CMAKE_GENERATOR_i686_linux_android        = "Ninja"

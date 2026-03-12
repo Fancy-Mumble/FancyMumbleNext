@@ -13,10 +13,8 @@ name = "mumble-tauri"
 path = "src/main.rs"
 
 [dependencies]
-mumble-protocol = { path = "../mumble-protocol", features = ["opus-codec"] }
 tauri = { version = "2.10.1", features = [] }
 tauri-plugin-store = "2"
-tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time"] }
@@ -25,7 +23,16 @@ rustls-pemfile = "2"
 rcgen = "0.14.7"
 tracing = "0.1"
 tracing-subscriber = "0.3"
+
+# Desktop-only dependencies (cpal, global shortcuts, and Opus are not available on Android).
+[target.'cfg(not(target_os = "android"))'.dependencies]
+mumble-protocol = { path = "../mumble-protocol", features = ["opus-codec"] }
 cpal = "0.17.3"
+tauri-plugin-global-shortcut = "2"
+
+# Android: mumble-protocol without Opus (audio is not supported on Android).
+[target.'cfg(target_os = "android")'.dependencies]
+mumble-protocol = { path = "../mumble-protocol" }
 
 [lints]
 workspace = true

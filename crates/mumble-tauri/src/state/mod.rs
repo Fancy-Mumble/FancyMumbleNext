@@ -28,6 +28,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 use tracing::info;
 
+#[cfg(not(target_os = "android"))]
 use mumble_protocol::audio::pipeline::InboundPipeline;
 use mumble_protocol::client::ClientHandle;
 use mumble_protocol::command;
@@ -67,9 +68,11 @@ pub(super) struct SharedState {
     pub audio_settings: AudioSettings,
     /// Whether voice calling is active (inactive = deaf+muted).
     pub voice_state: VoiceState,
-    /// Inbound audio pipeline (network → speakers).
+    /// Inbound audio pipeline (network -> speakers).  Desktop only.
+    #[cfg(not(target_os = "android"))]
     pub inbound_pipeline: Option<InboundPipeline>,
-    /// Handle to the outbound audio capture task (mic → network).
+    /// Handle to the outbound audio capture task (mic -> network).  Desktop only.
+    #[cfg(not(target_os = "android"))]
     pub outbound_task_handle: Option<tokio::task::JoinHandle<()>>,
 }
 

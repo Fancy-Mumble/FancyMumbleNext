@@ -367,3 +367,43 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ─── Mobile responsive overrides ──────────────────────────────── */
+
+@media (max-width: 768px) {
+  .page {
+    padding: 16px;
+  }
+
+  .card {
+    padding: 28px 20px;
+    max-width: 100%;
+  }
+
+  .logoIcon {
+    width: 56px;
+    height: 56px;
+  }
+
+  .title {
+    font-size: 20px;
+  }
+
+  .input {
+    font-size: 16px; /* prevents iOS zoom-on-focus */
+  }
+
+  /* Stack button row vertically on small screens */
+  .buttonRow {
+    flex-direction: column;
+  }
+
+  .buttonRow .button {
+    width: 100%;
+  }
+
+  .buttonGhost {
+    width: 100%;
+    text-align: center;
+  }
+}

@@ -227,7 +227,12 @@ function buildGroups(channels: ChannelEntry[]): {
 
 // ─── Main component ───────────────────────────────────────────────
 
-export default function ChannelSidebar() {
+interface ChannelSidebarProps {
+  /** Called after the user taps a channel (used by mobile drawer to close). */
+  onChannelSelect?: () => void;
+}
+
+export default function ChannelSidebar({ onChannelSelect }: ChannelSidebarProps) {
   const channels = useAppStore((s) => s.channels);
   const users = useAppStore((s) => s.users);
   const selectedChannel = useAppStore((s) => s.selectedChannel);
@@ -383,8 +388,8 @@ export default function ChannelSidebar() {
         className={`${styles.channelItem} ${indent ? styles.indented : ""} ${
           selectedChannel === channel.id ? styles.active : ""
         } ${highlight ? styles.currentChannel : ""}`}
-        onClick={() => selectChannel(channel.id)}
-        onDoubleClick={() => joinChannel(channel.id)}
+        onClick={() => { selectChannel(channel.id); onChannelSelect?.(); }}
+        onDoubleClick={() => { joinChannel(channel.id); onChannelSelect?.(); }}
         onContextMenu={(e) => openCtxMenu(e, channel.id)}
       >
         <div className={styles.channelInfo}>

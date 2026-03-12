@@ -1246,3 +1246,46 @@
     display: none;
   }
 }
+
+/* ─── Mobile responsive overrides ──────────────────────────────── */
+
+@media (max-width: 768px) {
+  .page {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    flex-shrink: 0;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px;
+    border-right: none;
+    border-bottom: 1px solid var(--color-glass-border);
+  }
+
+  .sidebarHeading {
+    display: none;
+  }
+
+  .backBtn {
+    margin-bottom: 0;
+    white-space: nowrap;
+  }
+
+  .tabList {
+    flex-direction: row;
+    gap: 4px;
+  }
+
+  .tabBtn {
+    white-space: nowrap;
+    padding: 8px 14px;
+    min-height: var(--touch-target-min);
+  }
+
+  .content {
+    padding: 20px 16px;
+  }
+}

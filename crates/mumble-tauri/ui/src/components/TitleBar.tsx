@@ -1,7 +1,14 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isDesktopPlatform } from "../utils/platform";
 import styles from "./TitleBar.module.css";
 
 export default function TitleBar() {
+  // On mobile (Android/iOS) there is no custom title bar - the OS
+  // provides its own status bar and navigation.
+  if (!isDesktopPlatform()) {
+    return null;
+  }
+
   const appWindow = getCurrentWindow();
 
   const handleMinimize = async () => {

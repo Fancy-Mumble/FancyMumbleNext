@@ -265,3 +265,44 @@
 .composerDisabled {
   opacity: 0.5;
 }
+
+/* ─── Mobile responsive overrides ──────────────────────────────── */
+
+@media (max-width: 768px) {
+  /* Reserve space for the hamburger button */
+  .header {
+    padding: 12px 16px 12px 60px;
+  }
+
+  .messages {
+    padding: 12px 12px;
+  }
+
+  .messageRow {
+    max-width: 95%;
+  }
+
+  /* Composer: tighter padding, larger buttons for touch */
+  .composer {
+    padding: 8px 12px 12px;
+    gap: 6px;
+  }
+
+  .composerInput {
+    padding: 10px 14px;
+    font-size: 16px; /* prevent iOS zoom */
+  }
+
+  .sendBtn,
+  .attachBtn {
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
+  }
+
+  /* Join button in header: larger touch target */
+  .joinBtn {
+    padding: 10px 20px;
+    font-size: 14px;
+    min-height: var(--touch-target-min);
+  }
+}
