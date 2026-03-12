@@ -1,13 +1,15 @@
 //! Audio quality integration tests.
 //!
 //! These tests generate known signals (sine waves), push them through
-//! individual pipeline stages and the full encode→decode roundtrip,
+//! individual pipeline stages and the full encode->decode roundtrip,
 //! then analyse the output with FFT to verify spectral purity, level
 //! stability, and absence of artefacts.
 //!
 //! ```sh
 //! cargo test --package mumble-protocol --test audio_quality --features opus-codec
 //! ```
+
+#![cfg(feature = "opus-codec")]
 
 use mumble_protocol::audio::decoder::{AudioDecoder, OpusDecoder};
 use mumble_protocol::audio::encoder::{AudioEncoder, OpusEncoder, OpusEncoderConfig};

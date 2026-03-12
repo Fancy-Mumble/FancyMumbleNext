@@ -74,7 +74,7 @@ async fn ensure_server_available() -> bool {
     }
 }
 
-/// Helper: connect TLS + send Version + Authenticate, wait for ServerSync.
+/// Helper: connect TLS + send Version + Authenticate, wait for `ServerSync`.
 /// Returns the transport and collected state.
 async fn connect_and_authenticate(
     username: &str,
@@ -523,8 +523,8 @@ async fn test_server_config_has_large_limits() {
 
 // ── PluginDataTransmission tests ───────────────────────────────────
 
-/// Two clients connect; client A sends a PluginDataTransmission to client B.
-/// Client B must receive the message with the correct payload and data_id.
+/// Two clients connect; client A sends a `PluginDataTransmission` to client B.
+/// Client B must receive the message with the correct payload and `data_id`.
 #[tokio::test]
 async fn test_plugin_data_transmission_between_two_clients() {
     if !ensure_server_available().await {
@@ -591,7 +591,7 @@ async fn test_plugin_data_transmission_between_two_clients() {
     drop(transport_b);
 }
 
-/// Verify that sending PluginDataTransmission with an empty receiver list
+/// Verify that sending `PluginDataTransmission` with an empty receiver list
 /// does NOT deliver the message to other clients (the Mumble server only
 /// forwards to explicitly listed sessions).
 #[tokio::test]
@@ -646,7 +646,7 @@ async fn test_plugin_data_empty_receivers_not_delivered() {
     drop(transport_b);
 }
 
-/// Simulate the FancyMumble poll flow end-to-end: create a poll, send it,
+/// Simulate the `FancyMumble` poll flow end-to-end: create a poll, send it,
 /// receive it, then send a vote back.
 #[tokio::test]
 async fn test_poll_roundtrip_create_and_vote() {
@@ -673,8 +673,7 @@ async fn test_poll_roundtrip_create_and_vote() {
 
     // 1) Client A creates a poll and sends it to client B.
     let poll_json = format!(
-        r#"{{"type":"poll","id":"roundtrip-poll","question":"Best language?","options":["Rust","TypeScript"],"multiple":false,"creator":{},"creatorName":"PollCreator","createdAt":"2025-01-01T00:00:00Z","channelId":0}}"#,
-        session_a
+        r#"{{"type":"poll","id":"roundtrip-poll","question":"Best language?","options":["Rust","TypeScript"],"multiple":false,"creator":{session_a},"creatorName":"PollCreator","createdAt":"2025-01-01T00:00:00Z","channelId":0}}"#
     );
     let cmd = SendPluginData {
         receiver_sessions: vec![session_b],
@@ -704,8 +703,7 @@ async fn test_poll_roundtrip_create_and_vote() {
 
     // 3) Client B votes and sends the vote back to client A.
     let vote_json = format!(
-        r#"{{"type":"poll_vote","pollId":"roundtrip-poll","selected":[0],"voter":{},"voterName":"PollVoter"}}"#,
-        session_b
+        r#"{{"type":"poll_vote","pollId":"roundtrip-poll","selected":[0],"voter":{session_b},"voterName":"PollVoter"}}"#
     );
     let vote_cmd = SendPluginData {
         receiver_sessions: vec![session_a],
@@ -768,8 +766,7 @@ async fn test_poll_bidirectional_sending() {
 
     // ── A → B ─────────────────────────────────────────────────────
     let poll_a = format!(
-        r#"{{"type":"poll","id":"bidir-a","question":"From A?","options":["Yes","No"],"multiple":false,"creator":{},"creatorName":"BiDirA","createdAt":"2025-01-01T00:00:00Z","channelId":0}}"#,
-        session_a
+        r#"{{"type":"poll","id":"bidir-a","question":"From A?","options":["Yes","No"],"multiple":false,"creator":{session_a},"creatorName":"BiDirA","createdAt":"2025-01-01T00:00:00Z","channelId":0}}"#
     );
     let cmd = SendPluginData {
         receiver_sessions: vec![session_b],
@@ -799,8 +796,7 @@ async fn test_poll_bidirectional_sending() {
 
     // ── B → A ─────────────────────────────────────────────────────
     let poll_b = format!(
-        r#"{{"type":"poll","id":"bidir-b","question":"From B?","options":["Yes","No"],"multiple":false,"creator":{},"creatorName":"BiDirB","createdAt":"2025-01-01T00:00:00Z","channelId":0}}"#,
-        session_b
+        r#"{{"type":"poll","id":"bidir-b","question":"From B?","options":["Yes","No"],"multiple":false,"creator":{session_b},"creatorName":"BiDirB","createdAt":"2025-01-01T00:00:00Z","channelId":0}}"#
     );
     let cmd = SendPluginData {
         receiver_sessions: vec![session_a],
@@ -944,7 +940,7 @@ async fn test_poll_multiple_senders_same_channel() {
     drop(t_c);
 }
 
-/// Helper: connect as SuperUser (admin), authenticate with password,
+/// Helper: connect as `SuperUser` (admin), authenticate with password,
 /// create a temporary sub-channel under root, then disconnect.
 /// Returns the new channel's ID.
 async fn create_temp_channel(name: &str) -> Option<u32> {
@@ -1022,7 +1018,7 @@ async fn create_temp_channel(name: &str) -> Option<u32> {
     channel_id
 }
 
-/// Users in different channels CAN receive PluginDataTransmission.
+/// Users in different channels CAN receive `PluginDataTransmission`.
 /// The Mumble server delivers to all explicitly listed sessions
 /// regardless of channel membership.
 #[tokio::test]
@@ -1032,15 +1028,12 @@ async fn test_poll_cross_channel_is_delivered() {
     }
 
     // Create a temp channel using SuperUser privileges.
-    let new_ch = match create_temp_channel("CrossChannelTest").await {
-        Some(id) => id,
-        None => {
-            eprintln!(
-                "WARNING: could not create temp channel (no SuperUser access). \
-                 Skipping cross-channel test."
-            );
-            return;
-        }
+    let Some(new_ch) = create_temp_channel("CrossChannelTest").await else {
+        eprintln!(
+            "WARNING: could not create temp channel (no SuperUser access). \
+             Skipping cross-channel test."
+        );
+        return;
     };
 
     let (mut t_a, s_a) = connect_and_authenticate("CrossA").await;
@@ -1124,14 +1117,11 @@ async fn test_poll_mixed_channels_only_same_channel_receives() {
     }
 
     // Create a temp channel using SuperUser.
-    let new_ch = match create_temp_channel("MixedChannelTest").await {
-        Some(id) => id,
-        None => {
-            eprintln!(
-                "WARNING: could not create temp channel. Skipping mixed-channel test."
-            );
-            return;
-        }
+    let Some(new_ch) = create_temp_channel("MixedChannelTest").await else {
+        eprintln!(
+            "WARNING: could not create temp channel. Skipping mixed-channel test."
+        );
+        return;
     };
 
     let (mut t_a, s_a) = connect_and_authenticate("MixedA").await;
@@ -1232,7 +1222,7 @@ async fn test_poll_mixed_channels_only_same_channel_receives() {
 /// Minimal base64 encoder (avoids adding a `base64` dependency just for tests).
 fn base64_encode(data: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
 
     for chunk in data.chunks(3) {
         let b0 = chunk[0] as u32;

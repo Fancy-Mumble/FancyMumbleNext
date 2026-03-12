@@ -321,10 +321,14 @@ impl Default for InboundPipelineBuilder {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "opus-codec")]
     use super::*;
-    use crate::audio::decoder::OpusDecoder;
+
+    #[cfg(feature = "opus-codec")]
     use crate::audio::filter::volume::VolumeFilter;
+    #[cfg(feature = "opus-codec")]
     use crate::audio::playback::NullPlayback;
+    #[cfg(feature = "opus-codec")]
     use crate::audio::sample::{AudioFormat, AudioFrame};
 
     #[cfg(feature = "opus-codec")]
@@ -348,15 +352,19 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "opus-codec")]
     #[test]
     fn inbound_roundtrip() -> Result<()> {
+        use crate::audio::decoder::OpusDecoder;
+        use crate::audio::encoder::{OpusEncoder, OpusEncoderConfig};
+
         let fmt = AudioFormat::MONO_48KHZ_F32;
 
         // Produce a real Opus packet via the encoder so the decoder
         // receives valid compressed data.
-        let config = crate::audio::encoder::OpusEncoderConfig::default();
+        let config = OpusEncoderConfig::default();
         let frame_size = config.frame_size;
-        let mut encoder = crate::audio::encoder::OpusEncoder::new(config, fmt)?;
+        let mut encoder = OpusEncoder::new(config, fmt)?;
         let silent_frame = AudioFrame {
             data: vec![0u8; frame_size * fmt.channels as usize * fmt.sample_format.byte_width()],
             format: fmt,
