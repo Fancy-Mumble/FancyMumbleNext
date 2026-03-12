@@ -218,6 +218,10 @@ When working in any file, apply this rule proactively:
 - CI: GitHub Actions (`.github/workflows/ci.yml`) - lint, test, build,
   auto-release on `main`
 - Workspace managed with `cargo` (Rust) and `npm` (frontend, in `crates/mumble-tauri/ui`)
+- **No non-ASCII characters in code comments** (Rust `//`/`/* */`, TypeScript `//`/`/* */`).
+  Box-drawing characters and other Unicode glyphs (e.g. `┌──┐`, `│`, `└──┘`, `▼`)
+  are forbidden in source-code comments.  They are fine in Markdown documentation
+  files (`.md`).
 
 ## Common workflows
 

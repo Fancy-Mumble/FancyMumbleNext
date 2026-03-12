@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "crates/mumble-protocol",
-    "crates/mumble-gui",
     "crates/mumble-tauri",
 ]
 

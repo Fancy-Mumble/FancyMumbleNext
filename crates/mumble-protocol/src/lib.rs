@@ -9,21 +9,15 @@
 //! # Architecture overview
 //!
 //! ```text
-//!  ┌──────────────┐        ┌──────────────┐
-//!  │  TCP reader   │──┐    │  UDP reader   │──┐
-//!  └──────────────┘  │    └──────────────┘  │
-//!                     ▼                      ▼
-//!              ┌─────────────────────────────────┐
-//!              │  Priority Work Queue             │
-//!              │  (UDP > TCP > User commands)     │
-//!              └───────────────┬─────────────────┘
-//!                              │
-//!              ┌───────────────▼─────────────────┐
-//!              │  Client Event Loop               │
-//!              │  • updates ServerState            │
-//!              │  • invokes EventHandler           │
-//!              │  • executes CommandAction outputs  │
-//!              └─────────────────────────────────┘
+//!  [TCP reader] --+    [UDP reader] --+
+//!                  v                  v
+//!          [Priority Work Queue]
+//!          (UDP > TCP > User commands)
+//!                  |
+//!          [Client Event Loop]
+//!           - updates ServerState
+//!           - invokes EventHandler
+//!           - executes CommandAction outputs
 //! ```
 
 pub mod audio;
