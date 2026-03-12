@@ -23,8 +23,6 @@ pub enum WorkItem {
     ServerMessage(ServerMessage),
     /// Outbound user command (from the UI / API).
     UserCommand(BoxedCommand),
-    /// Internal: send a keep-alive ping.
-    Ping,
     /// Shutdown signal.
     Shutdown,
 }

@@ -330,10 +330,6 @@ async fn event_loop<H: EventHandler>(
                 }
             }
 
-            WorkItem::Ping => {
-                // Handled by the periodic ping task above
-            }
-
             WorkItem::Shutdown => {
                 info!("shutdown signal");
                 handler.on_disconnected();
