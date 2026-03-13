@@ -14,7 +14,8 @@ build
 .cxx
 local.properties
 key.properties
-upload-keystore*.jks
+*.jks
+*.keystore
 
 /.tauri
 /tauri.settings.gradle
