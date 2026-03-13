@@ -13,6 +13,34 @@ val tauriProperties = Properties().apply {
     }
 }
 
+val signingProperties = Properties().apply {
+    val propFile = rootProject.file("key.properties")
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+
+fun readSigningValue(propertyName: String, envName: String): String? {
+    return (signingProperties.getProperty(propertyName) ?: System.getenv(envName))
+        ?.takeIf { it.isNotBlank() }
+}
+
+val releaseKeystorePath = readSigningValue("storeFile", "ANDROID_KEYSTORE_PATH")
+val releaseKeystoreFile = releaseKeystorePath?.let(::file)?.takeIf { it.exists() }
+val releaseStorePassword = readSigningValue("storePassword", "ANDROID_KEYSTORE_PASSWORD")
+val releaseKeyAlias = readSigningValue("keyAlias", "ANDROID_KEY_ALIAS")
+val releaseKeyPassword = readSigningValue("keyPassword", "ANDROID_KEY_PASSWORD")
+val hasReleaseSigning = listOf(
+    releaseKeystoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { it != null }
+
+if (releaseKeystorePath != null && releaseKeystoreFile == null) {
+    logger.warn("Android release signing skipped because the keystore file does not exist: $releaseKeystorePath")
+}
+
 android {
     compileSdk = 34
     namespace = "com.fancymumble.app"
@@ -23,6 +51,16 @@ android {
         targetSdk = 34
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = releaseKeystoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -43,6 +81,9 @@ android {
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
                     .toList().toTypedArray()
             )
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
