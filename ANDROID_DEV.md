@@ -1,12 +1,12 @@
-*# Android Development Setup
+# Android Development Setup
 
 Quick guide for building and debugging Fancy Mumble on Android.
 
 ## Prerequisites
 
 | Tool | Version | Download |
-|------|---------|----------|
-| Android Studio | Latest | https://developer.android.com/studio |
+| --- | --- | --- |
+| Android Studio | Latest | <https://developer.android.com/studio> |
 | JDK | 17+ | Bundled with Android Studio |
 | Rust Android targets | stable | See below |
 | Tauri CLI | 2.x | `cargo install tauri-cli --version "^2"` |
@@ -37,6 +37,7 @@ Set these in your system environment (PowerShell example):
 ```
 
 Add to PATH:
+
 ```powershell
 # Add platform-tools (adb) and emulator to PATH
 $sdkPath = "$env:LOCALAPPDATA\Android\Sdk"
@@ -62,6 +63,7 @@ Open Android Studio > **Device Manager** > **Create Virtual Device**:
 - Storage: 2048 MB+
 
 Alternatively via command line:
+
 ```bash
 # List available system images
 sdkmanager --list | grep "system-images;android-34"
@@ -95,6 +97,7 @@ cargo tauri android dev
 ```
 
 This will:
+
 1. Start the Vite dev server (hot-reload for frontend)
 2. Compile Rust code for the connected device/emulator architecture
 3. Install and launch the app on the emulator
@@ -106,13 +109,60 @@ cd crates/mumble-tauri
 cargo tauri android build --apk
 ```
 
-APK output: `gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk`
+If release signing is configured, Gradle produces a signed release APK.
+Without signing credentials, the output remains unsigned.
+
+Typical output:
+
+- Signed: `gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk`
+- Unsigned fallback: `gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk`
+
+## Release signing
+
+Fancy Mumble now supports optional Android release signing from either a
+local `key.properties` file or CI environment variables.
+
+### Local signing setup
+
+Create `crates/mumble-tauri/gen/android/key.properties` with:
+
+```properties
+storeFile=/absolute/path/to/your/upload-keystore.jks
+storePassword=your-keystore-password
+keyAlias=your-key-alias
+keyPassword=your-key-password
+```
+
+Notes:
+
+- `key.properties` is already ignored by Git.
+- The keystore file itself should also stay out of the repository.
+- If `storeFile` is relative, it is resolved from `crates/mumble-tauri/gen/android/app`.
+
+### CI signing setup
+
+Add these GitHub Actions secrets to the repository:
+
+- `ANDROID_KEYSTORE_BASE64`: base64-encoded upload keystore file contents
+- `ANDROID_KEYSTORE_PASSWORD`: keystore password
+- `ANDROID_KEY_ALIAS`: signing key alias
+- `ANDROID_KEY_PASSWORD`: signing key password
+
+PowerShell example to create the base64 value:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\upload-keystore.jks"))
+```
+
+When all four secrets are present, the CI Android build decodes the
+keystore, signs the release APK, and uploads the signed artifact.
 
 ## Troubleshooting
 
 ### "No connected devices"
 
 Make sure the emulator is running or a device is connected:
+
 ```bash
 adb devices
 ```
@@ -136,6 +186,7 @@ For Android, ensure the dev server is reachable from the emulator/device:
 ### NDK not found
 
 Verify `NDK_HOME` points to the correct NDK installation:
+
 ```powershell
 ls $env:NDK_HOME
 # Should show: build, meta, ndk-build, prebuilt, ...
