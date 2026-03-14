@@ -33,6 +33,19 @@ pub(super) struct TauriEventHandler {
 impl EventHandler for TauriEventHandler {
     fn on_control_message(&mut self, msg: &ControlMessage) {
         match msg {
+            ControlMessage::Ping(ping) => {
+                if let Some(ts) = ping.timestamp {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    let rtt_ms = now.saturating_sub(ts) as f64;
+                    let _ = self
+                        .app
+                        .emit("ping-latency", LatencyPayload { rtt_ms });
+                }
+            }
+
             ControlMessage::Version(v) => {
                 if let Ok(mut state) = self.shared.lock() {
                     state.server_fancy_version = v.fancy_version;

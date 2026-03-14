@@ -230,6 +230,9 @@ mod desktop {
                 if let Some(handle) = state.mic_test_handle.take() {
                     handle.abort();
                 }
+                if let Some(handle) = state.latency_test_handle.take() {
+                    handle.abort();
+                }
                 state.inbound_pipeline = None;
                 state.input_volume_handle = None;
                 state.output_volume_handle = None;
@@ -546,6 +549,39 @@ mod desktop {
                 }
             }
         }
+
+        /// Start sending TCP pings at high frequency to measure round-trip latency.
+        ///
+        /// RTT is computed in the event handler when the server echoes the ping
+        /// back, and emitted as a `"ping-latency"` Tauri event.
+        pub fn start_latency_test(&self) -> Result<(), String> {
+            self.stop_latency_test();
+
+            let client_handle = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                state
+                    .client_handle
+                    .clone()
+                    .ok_or_else(|| "Not connected".to_string())?
+            };
+
+            let handle = tauri::async_runtime::spawn(async move {
+                latency_ping_loop(client_handle).await;
+            });
+
+            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.latency_test_handle = Some(handle);
+            Ok(())
+        }
+
+        /// Stop the latency test.
+        pub fn stop_latency_test(&self) {
+            if let Ok(mut state) = self.inner.lock() {
+                if let Some(handle) = state.latency_test_handle.take() {
+                    handle.abort();
+                }
+            }
+        }
     }
 
     /// Payload queued from the encoding loop to the network send task.
@@ -755,6 +791,28 @@ mod desktop {
             }
         }
     }
+
+    /// Background task that sends TCP pings at ~2 Hz so the event handler can
+    /// compute RTT and emit `"ping-latency"` events for the latency graph.
+    async fn latency_ping_loop(client_handle: ClientHandle) {
+        let mut interval = tokio::time::interval(Duration::from_millis(500));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            interval.tick().await;
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            if client_handle
+                .send(command::SendPing { timestamp: ts })
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    }
 }
 
 // ── Android: stub audio (no cpal) ─────────────────────────────────
@@ -797,4 +855,12 @@ impl AppState {
 
     /// No-op on Android.
     pub fn stop_mic_test(&self) {}
+
+    /// No-op on Android.
+    pub fn start_latency_test(&self) -> Result<(), String> {
+        Err("Not supported on Android".into())
+    }
+
+    /// No-op on Android.
+    pub fn stop_latency_test(&self) {}
 }

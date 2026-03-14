@@ -190,7 +190,7 @@ pub struct InboundPipeline {
     last_seq: Option<u64>,
     /// Auto-detected step between consecutive sequence numbers.
     /// Different Mumble clients use different numbering: some increment
-    /// by 1 per frame, others by frame_size (480, 960, etc.).
+    /// by 1 per frame, others by `frame_size` (480, 960, etc.).
     /// `None` until two consecutive packets establish the pattern.
     seq_step: Option<u64>,
     /// Last sample value from the end of the previous decoded frame,
@@ -225,7 +225,7 @@ impl InboundPipeline {
     ///
     /// The gap detection auto-learns the sequence step from the first
     /// two packets so it works regardless of whether the sender
-    /// increments by 1 (our encoder) or by frame_size (official Mumble
+    /// increments by 1 (our encoder) or by `frame_size` (official Mumble
     /// C++ client).  Crossfade correction is applied at every frame
     /// boundary to smooth discontinuities.
     pub fn tick(&mut self, packet: &EncodedPacket) -> Result<()> {

@@ -536,6 +536,18 @@ fn stop_mic_test(state: tauri::State<'_, AppState>) {
     state.stop_mic_test();
 }
 
+/// Start periodic TCP pings for live latency measurement.
+#[tauri::command]
+fn start_latency_test(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.start_latency_test()
+}
+
+/// Stop the latency test.
+#[tauri::command]
+fn stop_latency_test(state: tauri::State<'_, AppState>) {
+    state.stop_latency_test();
+}
+
 /// Set the user comment on the connected server (`FancyMumble` profile + bio).
 #[tauri::command]
 async fn set_user_comment(
@@ -833,6 +845,8 @@ pub fn run() {
             toggle_deafen,
             start_mic_test,
             stop_mic_test,
+            start_latency_test,
+            stop_latency_test,
             set_user_comment,
             set_user_texture,
             get_own_session,

@@ -9,8 +9,9 @@
  * from the backend.
  */
 
-import { useEffect, useState, useCallback, type ReactNode } from "react";
+import { useEffect, useState, useCallback, useRef, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { ServerInfo, DebugStats, AudioSettings } from "../types";
 import { getPreferences, getSavedAudioSettings } from "../preferencesStorage";
 import styles from "./ServerInfoPanel.module.css";
@@ -80,6 +81,105 @@ function DebugRow({ label, value }: { label: string; value: string | number | bo
       <span className={styles.debugLabel}>{label}</span>
       <span className={styles.debugValue}>{String(value)}</span>
     </>
+  );
+}
+
+// -- Latency graph ------------------------------------------------
+
+const LATENCY_WINDOW_SECS = 10;
+const GRAPH_W = 400;
+const GRAPH_H = 100;
+const PAD_L = 36;
+const PAD_R = 4;
+const PAD_T = 4;
+const PAD_B = 16;
+
+interface LatencyPoint {
+  time: number;
+  rtt: number;
+}
+
+function drawGraph(
+  buffer: LatencyPoint[],
+  svgRef: React.RefObject<SVGSVGElement | null>,
+) {
+  const svg = svgRef.current;
+  if (!svg) return;
+
+  const plotW = GRAPH_W - PAD_L - PAD_R;
+  const plotH = GRAPH_H - PAD_T - PAD_B;
+
+  const maxRtt = buffer.reduce((m, p) => Math.max(m, p.rtt), 0);
+  const yMax = Math.max(Math.ceil(maxRtt / 10) * 10, 20);
+
+  const now = buffer.length > 0 ? buffer[buffer.length - 1].time : performance.now();
+  const tMin = now - LATENCY_WINDOW_SECS * 1000;
+
+  let polyPoints = "";
+  for (const p of buffer) {
+    const x = PAD_L + ((p.time - tMin) / (LATENCY_WINDOW_SECS * 1000)) * plotW;
+    const y = PAD_T + plotH - (p.rtt / yMax) * plotH;
+    polyPoints += `${x},${y} `;
+  }
+
+  const gridSteps = 4;
+  let gridSvg = "";
+  for (let i = 0; i <= gridSteps; i++) {
+    const y = PAD_T + (i / gridSteps) * plotH;
+    const val = Math.round(yMax * (1 - i / gridSteps));
+    gridSvg += `<line x1="${PAD_L}" y1="${y}" x2="${GRAPH_W - PAD_R}" y2="${y}" stroke="rgba(255,255,255,0.08)" stroke-width="0.5"/>`;
+    gridSvg += `<text x="${PAD_L - 4}" y="${y + 3}" text-anchor="end" fill="rgba(255,255,255,0.35)" font-size="8">${val}</text>`;
+  }
+  gridSvg += `<text x="${PAD_L - 4}" y="${GRAPH_H - 1}" text-anchor="end" fill="rgba(255,255,255,0.25)" font-size="7">ms</text>`;
+
+  const latest = buffer.length > 0 ? buffer[buffer.length - 1].rtt : 0;
+  const latestColor =
+    latest < 50 ? "#22c55e" : latest < 120 ? "#eab308" : "#ef4444";
+
+  svg.innerHTML =
+    gridSvg +
+    `<polyline points="${polyPoints}" fill="none" stroke="${latestColor}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>` +
+    (buffer.length > 0
+      ? `<text x="${GRAPH_W - PAD_R}" y="${PAD_T + 10}" text-anchor="end" fill="${latestColor}" font-size="10" font-weight="600">${latest.toFixed(0)} ms</text>`
+      : "");
+}
+
+function LatencyAccordion() {
+  const bufferRef = useRef<LatencyPoint[]>([]);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const rafId = useRef(0);
+
+  useEffect(() => {
+    invoke("start_latency_test").catch(() => {});
+    return () => {
+      invoke("stop_latency_test").catch(() => {});
+    };
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen<{ rtt_ms: number }>("ping-latency", (ev) => {
+      const buf = bufferRef.current;
+      buf.push({ time: performance.now(), rtt: ev.payload.rtt_ms });
+      const cutoff = performance.now() - LATENCY_WINDOW_SECS * 1000;
+      while (buf.length > 0 && buf[0].time < cutoff) buf.shift();
+
+      cancelAnimationFrame(rafId.current);
+      rafId.current = requestAnimationFrame(() => drawGraph(buf, svgRef));
+    });
+
+    return () => {
+      cancelAnimationFrame(rafId.current);
+      unlisten.then((f) => f());
+    };
+  }, []);
+
+  return (
+    <svg
+      ref={svgRef}
+      className={styles.latencyGraph}
+      viewBox={`0 0 ${GRAPH_W} ${GRAPH_H}`}
+      preserveAspectRatio="none"
+    />
   );
 }
 
@@ -308,6 +408,10 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
                       <DebugRow label="Total Messages" value={debugStats.total_message_count} />
                       <DebugRow label="Offloaded" value={debugStats.offloaded_count} />
                     </div>
+                  </Accordion>
+
+                  <Accordion title="Network Latency">
+                    <LatencyAccordion />
                   </Accordion>
                 </>
               )}

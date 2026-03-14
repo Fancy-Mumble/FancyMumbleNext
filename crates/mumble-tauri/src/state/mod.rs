@@ -121,6 +121,9 @@ pub(super) struct SharedState {
     /// Handle to the background mic-test task (emits amplitude events). Desktop only.
     #[cfg(not(target_os = "android"))]
     pub mic_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
+    /// Handle to the background latency-test task (sends periodic pings). Desktop only.
+    #[cfg(not(target_os = "android"))]
+    pub latency_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
 }
 
 // ─── Tauri-managed application state ──────────────────────────────

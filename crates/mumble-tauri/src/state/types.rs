@@ -267,6 +267,13 @@ pub(crate) struct MicAmplitudePayload {
     pub peak: f32,
 }
 
+/// Latency measurement payload emitted during latency test.
+#[derive(Clone, Serialize)]
+pub(crate) struct LatencyPayload {
+    /// Round-trip time in milliseconds.
+    pub rtt_ms: f64,
+}
+
 // ─── Search types ─────────────────────────────────────────────────
 
 /// Category tag for a search result.
