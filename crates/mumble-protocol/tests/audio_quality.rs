@@ -840,7 +840,7 @@ fn decode_mp3_to_mono_48k(path: &str) -> Option<Vec<f32>> {
         match decoder.next_frame() {
             Ok(frame) => {
                 let sr = frame.sample_rate as u32;
-                let ch = frame.channels as usize;
+                let ch = frame.channels;
 
                 // Convert i16 to f32 and downmix to mono
                 let mono: Vec<f32> = if ch <= 1 {
@@ -934,12 +934,9 @@ impl mumble_protocol::audio::playback::AudioPlayback for RecordingPlayback {
 ///   - Mean frame-boundary jump < 0.15
 ///   - RMS-envelope correlation > 0.85
 fn run_mp3_roundtrip_analysis(path: &str) -> bool {
-    let samples = match decode_mp3_to_mono_48k(path) {
-        Some(s) => s,
-        None => {
-            println!("  Skipping {path}: could not decode");
-            return false;
-        }
+    let Some(samples) = decode_mp3_to_mono_48k(path) else {
+        println!("  Skipping {path}: could not decode");
+        return false;
     };
 
     let frame_size = 480; // 10 ms
@@ -1133,11 +1130,11 @@ fn mp3_roundtrip_boundary_analysis() {
 
     let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(samples_dir)
         .unwrap()
-        .filter_map(|e| e.ok())
+        .filter_map(Result::ok)
         .map(|e| e.path())
         .filter(|p| {
             p.extension()
-                .map_or(false, |ext| ext.eq_ignore_ascii_case("mp3"))
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("mp3"))
         })
         .collect();
 
@@ -1169,7 +1166,7 @@ fn mp3_roundtrip_boundary_analysis() {
 ///
 /// Generates a multi-harmonic signal with amplitude modulation to
 /// simulate realistic music dynamics, encodes through the full
-/// InboundPipeline (with crossfade), and verifies:
+/// `InboundPipeline` (with crossfade), and verifies:
 ///   - Boundary/internal jump ratio < 3.0  (no systematic discontinuity)
 ///   - Max boundary jump < 0.5              (no severe click)
 ///   - PSNR > 15 dB                         (codec fidelity)
@@ -1452,13 +1449,13 @@ fn decode_wav_to_mono_48k(path: &str) -> Option<Vec<f32>> {
             let max_val = (1u32 << (bits - 1)) as f32;
             reader
                 .into_samples::<i32>()
-                .filter_map(|s| s.ok())
+                .filter_map(Result::ok)
                 .map(|s| s as f32 / max_val)
                 .collect()
         }
         hound::SampleFormat::Float => reader
             .into_samples::<f32>()
-            .filter_map(|s| s.ok())
+            .filter_map(Result::ok)
             .collect(),
     };
 
@@ -1502,7 +1499,7 @@ fn decode_wav_to_mono_48k(path: &str) -> Option<Vec<f32>> {
 /// sample-to-sample jumps that exceed a threshold relative to
 /// the signal's local RMS.
 ///
-/// Returns (pop_count, pop_rate_pct, max_delta).
+/// Returns (`pop_count`, `pop_rate_pct`, `max_delta`).
 fn detect_pops(samples: &[f32], local_window: usize, threshold_mult: f32) -> (usize, f32, f32) {
     if samples.len() < local_window + 1 {
         return (0, 0.0, 0.0);
@@ -1648,12 +1645,9 @@ fn roundtrip_snr(samples: &[f32], config: &OpusEncoderConfig) -> (f32, usize) {
 #[test]
 fn wav_opus_config_diagnostic() {
     let path = "tests/samples/my_voice2.wav";
-    let samples = match decode_wav_to_mono_48k(path) {
-        Some(s) => s,
-        None => {
-            println!("Skipping wav_opus_config_diagnostic: {path} not found");
-            return;
-        }
+    let Some(samples) = decode_wav_to_mono_48k(path) else {
+        println!("Skipping wav_opus_config_diagnostic: {path} not found");
+        return;
     };
 
     println!("=== Opus Configuration Diagnostic ===");
@@ -1722,7 +1716,7 @@ fn wav_opus_config_diagnostic() {
 }
 
 /// Compare a "reference" direct Opus encode/decode against our full
-/// pipeline (OutboundPipeline -> InboundPipeline with crossfade).
+/// pipeline (`OutboundPipeline` -> `InboundPipeline` with crossfade).
 ///
 /// Both paths use the same encoder config. The reference path does
 /// bare `OpusEncoder::encode` -> `OpusDecoder::decode` with no
@@ -1735,12 +1729,9 @@ fn wav_reference_vs_pipeline_comparison() {
     use mumble_protocol::audio::pipeline::InboundPipeline;
 
     let path = "tests/samples/my_voice2.wav";
-    let samples = match decode_wav_to_mono_48k(path) {
-        Some(s) => s,
-        None => {
-            println!("Skipping wav_reference_vs_pipeline_comparison: {path} not found");
-            return;
-        }
+    let Some(samples) = decode_wav_to_mono_48k(path) else {
+        println!("Skipping wav_reference_vs_pipeline_comparison: {path} not found");
+        return;
     };
 
     let frame_size = 480; // 10 ms - user's setting
@@ -1911,12 +1902,9 @@ fn wav_reference_vs_pipeline_comparison() {
 #[test]
 fn wav_voice_crackling_detection() {
     let path = "tests/samples/my_voice2.wav";
-    let samples = match decode_wav_to_mono_48k(path) {
-        Some(s) => s,
-        None => {
-            println!("Skipping wav_voice_crackling_detection: {path} not found");
-            return;
-        }
+    let Some(samples) = decode_wav_to_mono_48k(path) else {
+        println!("Skipping wav_voice_crackling_detection: {path} not found");
+        return;
     };
 
     let frame_size = 480; // 10 ms
@@ -2131,8 +2119,8 @@ fn wav_voice_crackling_detection() {
     );
 }
 
-/// Full pipeline crackling test: encode through OutboundPipeline
-/// (with user's exact filter settings) → decode through InboundPipeline
+/// Full pipeline crackling test: encode through `OutboundPipeline`
+/// (with user's exact filter settings) -> decode through `InboundPipeline`
 /// (with crossfade).
 ///
 /// This tests the full codec path including pipeline crossfade to
@@ -2144,12 +2132,9 @@ fn wav_voice_full_pipeline_crackling() {
     use mumble_protocol::audio::pipeline::InboundPipeline;
 
     let path = "tests/samples/my_voice2.wav";
-    let samples = match decode_wav_to_mono_48k(path) {
-        Some(s) => s,
-        None => {
-            println!("Skipping wav_voice_full_pipeline_crackling: {path} not found");
-            return;
-        }
+    let Some(samples) = decode_wav_to_mono_48k(path) else {
+        println!("Skipping wav_voice_full_pipeline_crackling: {path} not found");
+        return;
     };
 
     let frame_size = 480; // 10 ms
@@ -2292,11 +2277,11 @@ fn wav_roundtrip_all_samples() {
 
     let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(samples_dir)
         .unwrap()
-        .filter_map(|e| e.ok())
+        .filter_map(Result::ok)
         .map(|e| e.path())
         .filter(|p| {
             p.extension()
-                .map_or(false, |ext| ext.eq_ignore_ascii_case("wav"))
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("wav"))
         })
         .collect();
 
@@ -2310,12 +2295,9 @@ fn wav_roundtrip_all_samples() {
 
     for path in &paths {
         let path_str = path.to_str().unwrap_or("<invalid>");
-        let samples = match decode_wav_to_mono_48k(path_str) {
-            Some(s) => s,
-            None => {
-                println!("  {path_str}: could not decode, skipping");
-                continue;
-            }
+        let Some(samples) = decode_wav_to_mono_48k(path_str) else {
+            println!("  {path_str}: could not decode, skipping");
+            continue;
         };
 
         let frame_size = 480;
