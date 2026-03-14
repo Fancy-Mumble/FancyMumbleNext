@@ -27,6 +27,10 @@ pub struct Channel {
     pub parent_id: Option<u32>,
     pub name: String,
     pub description: String,
+    /// SHA-256 hash of the description blob.  When the server sends
+    /// only the hash (no inline `description`), the client must
+    /// request the full blob via `RequestBlob::channel_description`.
+    pub description_hash: Option<Vec<u8>>,
     pub position: i32,
     pub temporary: bool,
     pub max_users: u32,
@@ -133,6 +137,7 @@ impl ServerState {
             parent_id: None,
             name: String::new(),
             description: String::new(),
+            description_hash: None,
             position: 0,
             temporary: false,
             max_users: 0,
@@ -149,6 +154,9 @@ impl ServerState {
         }
         if let Some(ref desc) = state.description {
             channel.description = desc.clone();
+        }
+        if let Some(ref hash) = state.description_hash {
+            channel.description_hash = Some(hash.clone());
         }
         if let Some(pos) = state.position {
             channel.position = pos;

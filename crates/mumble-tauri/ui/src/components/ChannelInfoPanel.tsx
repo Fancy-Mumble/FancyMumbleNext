@@ -9,6 +9,8 @@ import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../store";
 import type { ChannelEntry } from "../types";
+import { BioEditor } from "../pages/settings/BioEditor";
+import { SafeHtml } from "./SafeHtml";
 import styles from "./ChannelInfoPanel.module.css";
 
 /** Mumble permission bitmask: Write (bit 0). */
@@ -140,11 +142,10 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
             </label>
             <label className={styles.editLabel}>
               Description
-              <textarea
-                className={styles.editTextarea}
+              <BioEditor
                 value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
-                rows={5}
+                onChange={setEditDescription}
+                placeholder="Channel description..."
               />
             </label>
             <div className={styles.editActions}>
@@ -165,17 +166,20 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
             </div>
           </div>
         ) : (
-          <div className={styles.infoGrid}>
-            <span className={styles.infoLabel}>Name</span>
-            <span className={styles.infoValue}>{channel.name}</span>
-            <span className={styles.infoLabel}>Description</span>
-            <span
-              className={styles.infoValue}
-              dangerouslySetInnerHTML={{
-                __html: channel.description || "<em>No description</em>",
-              }}
-            />
-          </div>
+          <>
+            <div className={styles.infoGrid}>
+              <span className={styles.infoLabel}>Name</span>
+              <span className={styles.infoValue}>{channel.name}</span>
+            </div>
+            <div className={styles.descriptionSection}>
+              <span className={styles.infoLabel}>Description</span>
+              <SafeHtml
+                html={channel.description}
+                className={styles.descriptionContent}
+                fallback={<em>No description</em>}
+              />
+            </div>
+          </>
         )}
       </div>
     </div>

@@ -14,13 +14,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ServerInfo, DebugStats, AudioSettings } from "../types";
 import { getPreferences, getSavedAudioSettings } from "../preferencesStorage";
-import { ExternalLinkGuard } from "./ExternalLinkGuard";
+import { SafeHtml } from "./SafeHtml";
 import styles from "./ServerInfoPanel.module.css";
-
-/** Mark every anchor in a raw HTML string as external so ExternalLinkGuard intercepts it. */
-function markLinksExternal(html: string): string {
-  return html.replaceAll(/<a\s/gi, '<a data-external="true" ');
-}
 
 /** Format a bandwidth value (bits/s) into a human-readable string. */
 function formatBandwidth(bitsPerSec: number): string {
@@ -362,12 +357,7 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
           {welcomeText && (
             <section className={styles.section}>
               <Accordion title="Welcome">
-                <ExternalLinkGuard>
-                  <div
-                    className={styles.welcomeText}
-                    dangerouslySetInnerHTML={{ __html: markLinksExternal(welcomeText) }}
-                  />
-                </ExternalLinkGuard>
+                <SafeHtml html={welcomeText} className={styles.welcomeText} />
               </Accordion>
             </section>
           )}

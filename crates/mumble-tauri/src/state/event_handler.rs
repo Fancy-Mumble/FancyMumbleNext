@@ -108,10 +108,51 @@ impl EventHandler for TauriEventHandler {
                                 .send(command::RequestBlob {
                                     session_texture: sessions.clone(),
                                     session_comment: sessions,
+                                    channel_description: Vec::new(),
                                 })
                                 .await;
                         }
                     });
+                }
+
+                // Request full description blobs for channels that only
+                // have a description_hash (the server omits large
+                // descriptions during initial sync).
+                {
+                    let channel_ids_needing_desc: Vec<u32>;
+                    {
+                        let state = self.shared.lock().ok();
+                        channel_ids_needing_desc = state
+                            .map(|s| {
+                                s.channels
+                                    .values()
+                                    .filter(|ch| {
+                                        ch.description.is_empty()
+                                            && ch.description_hash.is_some()
+                                    })
+                                    .map(|ch| ch.id)
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                    }
+                    if !channel_ids_needing_desc.is_empty() {
+                        let shared = Arc::clone(&self.shared);
+                        tokio::spawn(async move {
+                            let handle = {
+                                let state = shared.lock().ok();
+                                state.and_then(|s| s.client_handle.clone())
+                            };
+                            if let Some(handle) = handle {
+                                let _ = handle
+                                    .send(command::RequestBlob {
+                                        session_texture: Vec::new(),
+                                        session_comment: Vec::new(),
+                                        channel_description: channel_ids_needing_desc,
+                                    })
+                                    .await;
+                            }
+                        });
+                    }
                 }
 
                 // Request permissions for all known channels so the UI
@@ -258,7 +299,7 @@ impl EventHandler for TauriEventHandler {
 
             ControlMessage::ChannelState(cs) => {
                 if let Some(id) = cs.channel_id {
-                    let is_synced = {
+                    let (is_synced, needs_description) = {
                         let mut state_guard = self.shared.lock().ok();
                         if let Some(ref mut state) = state_guard {
                             let ch =
@@ -267,6 +308,7 @@ impl EventHandler for TauriEventHandler {
                                     parent_id: None,
                                     name: String::new(),
                                     description: String::new(),
+                                    description_hash: None,
                                     user_count: 0,
                                     permissions: None,
                                 });
@@ -279,11 +321,38 @@ impl EventHandler for TauriEventHandler {
                             if let Some(ref desc) = cs.description {
                                 ch.description = desc.clone();
                             }
-                            state.synced
+                            if let Some(ref hash) = cs.description_hash {
+                                ch.description_hash = Some(hash.clone());
+                            }
+                            let needs_desc = ch.description.is_empty()
+                                && ch.description_hash.is_some()
+                                && state.synced;
+                            (state.synced, needs_desc)
                         } else {
-                            false
+                            (false, false)
                         }
                     };
+
+                    // Request the full description blob if only a hash
+                    // was provided (large descriptions are deferred).
+                    if needs_description {
+                        let shared = Arc::clone(&self.shared);
+                        tokio::spawn(async move {
+                            let handle = {
+                                let state = shared.lock().ok();
+                                state.and_then(|s| s.client_handle.clone())
+                            };
+                            if let Some(handle) = handle {
+                                let _ = handle
+                                    .send(command::RequestBlob {
+                                        session_texture: Vec::new(),
+                                        session_comment: Vec::new(),
+                                        channel_description: vec![id],
+                                    })
+                                    .await;
+                            }
+                        });
+                    }
 
                     // When a channel state changes, re-query its permissions
                     // so the cached bitmask stays up-to-date (ACL changes, etc.).

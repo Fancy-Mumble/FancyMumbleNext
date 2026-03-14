@@ -13,6 +13,10 @@ pub struct ChannelEntry {
     pub parent_id: Option<u32>,
     pub name: String,
     pub description: String,
+    /// SHA-256 hash of the description blob.  Internal tracking only;
+    /// not serialised to the frontend.
+    #[serde(skip)]
+    pub description_hash: Option<Vec<u8>>,
     pub user_count: u32,
     /// Server-reported permission bitmask for this channel.
     /// `None` until a `PermissionQuery` response is received.

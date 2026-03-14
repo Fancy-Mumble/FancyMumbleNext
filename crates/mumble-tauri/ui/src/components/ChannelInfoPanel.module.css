@@ -139,6 +139,52 @@
   word-break: break-word;
 }
 
+/* ── Description ───────────────────────────────────────────────── */
+
+.descriptionSection {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.descriptionContent {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+  word-break: break-word;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.descriptionContent p {
+  margin: 0 0 0.5em;
+}
+
+.descriptionContent p:last-child {
+  margin-bottom: 0;
+}
+
+.descriptionContent img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  display: block;
+  margin: 4px 0;
+}
+
+.descriptionContent a {
+  color: #60a5fa;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.descriptionContent a:hover {
+  color: #93c5fd;
+}
+
 /* ── Edit form ─────────────────────────────────────────────────── */
 
 .editForm {

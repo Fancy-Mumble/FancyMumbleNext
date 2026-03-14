@@ -15,6 +15,7 @@ import {
   type ReactNode,
 } from "react";
 import styles from "./MediaPreview.module.css";
+import { ExternalLinkGuard } from "./ExternalLinkGuard";
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -141,6 +142,7 @@ function sanitiseAttrs(child: Element, tag: string): void {
   if (tag === "a") {
     child.setAttribute("target", "_blank");
     child.setAttribute("rel", "noopener noreferrer");
+    (child as HTMLElement).dataset["external"] = "true";
   }
 }
 
@@ -398,7 +400,9 @@ export default function MediaPreview({ html, messageId, compact = false }: Reado
     <>
       {/* Render remaining text (if any) */}
       {cleaned && (
-        <span dangerouslySetInnerHTML={{ __html: cleaned }} />
+        <ExternalLinkGuard>
+          <span dangerouslySetInnerHTML={{ __html: cleaned }} />
+        </ExternalLinkGuard>
       )}
 
       {/* Media thumbnails */}

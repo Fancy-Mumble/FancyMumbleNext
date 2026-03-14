@@ -18,8 +18,8 @@
 use std::time::Duration;
 
 use mumble_protocol::command::{
-    Authenticate, CommandAction, JoinChannel, SendPluginData, SendTextMessage, SetComment,
-    SetSelfDeaf, SetSelfMute,
+    Authenticate, CommandAction, JoinChannel, RequestBlob, SendPluginData, SendTextMessage,
+    SetComment, SetSelfDeaf, SetSelfMute,
 };
 use mumble_protocol::message::ControlMessage;
 use mumble_protocol::proto::mumble_tcp;
@@ -1221,6 +1221,166 @@ async fn test_poll_mixed_channels_only_same_channel_receives() {
     drop(t_b);
     drop(t_c);
 }
+
+// -- Channel description blob request tests -------------------------
+
+/// When the server has a channel with a large description it sends only
+/// `description_hash` during the initial handshake.  A subsequent
+/// `RequestBlob` with the channel ID should cause the server to send
+/// a `ChannelState` containing the full `description`.
+#[tokio::test]
+async fn test_channel_description_blob_request() {
+    if !ensure_server_available().await {
+        return;
+    }
+
+    // Build a description large enough that the server will defer it
+    // and only send `description_hash`.  The threshold is typically
+    // around 128 bytes.
+    let large_description = format!(
+        "<p>{}</p><p><a href=\"https://example.com\">Link</a></p>",
+        "A".repeat(256),
+    );
+
+    // 1) SuperUser creates a channel with a large description.
+    let channel_name = "DescBlobTest";
+    let mut su = TcpTransport::connect(&tcp_config()).await.unwrap();
+    su.send(&ControlMessage::Version(mumble_tcp::Version {
+        version_v2: Some(0x0001_0005_0000_0000),
+        ..Default::default()
+    }))
+    .await
+    .unwrap();
+    let auth = Authenticate {
+        username: "SuperUser".into(),
+        password: Some("testpassword".into()),
+        tokens: vec![],
+    };
+    for msg in &auth.execute(&ServerState::new()).tcp_messages {
+        su.send(msg).await.unwrap();
+    }
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    let mut synced = false;
+    while !synced && tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_secs(3), su.recv()).await {
+            Ok(Ok(ControlMessage::ServerSync(_))) => synced = true,
+            Ok(Ok(ControlMessage::Reject(r))) => {
+                eprintln!("SuperUser rejected: {:?}", r.reason);
+                return;
+            }
+            Ok(Ok(_)) => continue,
+            _ => break,
+        }
+    }
+    if !synced {
+        eprintln!("WARNING: could not authenticate as SuperUser. Skipping.");
+        return;
+    }
+
+    su.send(&ControlMessage::ChannelState(mumble_tcp::ChannelState {
+        parent: Some(0),
+        name: Some(channel_name.into()),
+        description: Some(large_description.clone()),
+        temporary: Some(true),
+        ..Default::default()
+    }))
+    .await
+    .unwrap();
+
+    // Wait for the server to echo the ChannelState with the assigned ID.
+    let mut new_channel_id: Option<u32> = None;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_secs(3), su.recv()).await {
+            Ok(Ok(ControlMessage::ChannelState(cs))) => {
+                if cs.name.as_deref() == Some(channel_name) {
+                    new_channel_id = cs.channel_id;
+                    break;
+                }
+            }
+            Ok(Ok(_)) => continue,
+            _ => break,
+        }
+    }
+    let channel_id = match new_channel_id {
+        Some(id) => id,
+        None => {
+            eprintln!("WARNING: could not create temp channel. Skipping.");
+            return;
+        }
+    };
+
+    // 2) A regular client connects and collects channels.
+    let (mut transport, state) = connect_and_authenticate("DescBlobUser").await;
+
+    // Check whether the server deferred the description (sent hash only).
+    let ch = state.channels.get(&channel_id);
+    let description_was_deferred =
+        ch.is_some_and(|c| c.description.is_empty() && c.description_hash.is_some());
+
+    if !description_was_deferred {
+        // Some server versions inline all descriptions.  If the
+        // description is already present, there is nothing to test; just
+        // verify it matches and return.
+        if let Some(c) = ch {
+            assert_eq!(
+                c.description, large_description,
+                "description should match what was set"
+            );
+        }
+        eprintln!(
+            "Note: server inlined the description (no hash). \
+             RequestBlob path not exercised."
+        );
+        drop(transport);
+        drop(su);
+        return;
+    }
+
+    // 3) Send RequestBlob to fetch the full description.
+    let cmd = RequestBlob {
+        session_texture: Vec::new(),
+        session_comment: Vec::new(),
+        channel_description: vec![channel_id],
+    };
+    let output = cmd.execute(&state);
+    for msg in &output.tcp_messages {
+        transport.send(msg).await.unwrap();
+    }
+
+    // 4) The server responds with a ChannelState containing the full
+    //    description.
+    let mut got_description = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_secs(3), transport.recv()).await {
+            Ok(Ok(ControlMessage::ChannelState(cs))) => {
+                if cs.channel_id == Some(channel_id) {
+                    if let Some(ref desc) = cs.description {
+                        assert_eq!(
+                            desc, &large_description,
+                            "description blob should match the original"
+                        );
+                        got_description = true;
+                        break;
+                    }
+                }
+            }
+            Ok(Ok(_)) => continue,
+            Ok(Err(e)) => panic!("transport error: {e}"),
+            Err(_) => break,
+        }
+    }
+
+    assert!(
+        got_description,
+        "Server should respond with the full channel description after RequestBlob"
+    );
+
+    drop(transport);
+    drop(su);
+}
+
 // ── Helpers ────────────────────────────────────────────────────────
 
 /// Minimal base64 encoder (avoids adding a `base64` dependency just for tests).

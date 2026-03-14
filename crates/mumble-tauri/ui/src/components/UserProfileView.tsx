@@ -8,8 +8,7 @@
 
 import { useMemo } from "react";
 import { useAppStore } from "../store";
-import { sanitizeBio } from "../utils/bioSanitize";
-import { ExternalLinkGuard } from "./ExternalLinkGuard";
+import { SafeHtml } from "./SafeHtml";
 import type { UserEntry, FancyProfile } from "../types";
 import { textureToDataUrl, parseComment } from "../profileFormat";
 import {
@@ -93,7 +92,6 @@ function UserProfilePanel({
 
   const profile: FancyProfile = parsed?.profile ?? {};
   const bio = parsed?.bio ?? "";
-  const cleanBio = useMemo(() => sanitizeBio(bio), [bio]);
 
   const nameStyle = profile.nameStyle ?? {};
   const decoration = DECORATIONS.find(
@@ -226,12 +224,10 @@ function UserProfilePanel({
 
       {/* ── Expanded sections below the card ───────────────── */}
 
-      {cleanBio && (
+      {bio && (
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>About Me</h3>
-          <ExternalLinkGuard className={styles.bioContent}>
-            <div dangerouslySetInnerHTML={{ __html: cleanBio }} />
-          </ExternalLinkGuard>
+          <SafeHtml html={bio} className={styles.bioContent} />
         </section>
       )}
 

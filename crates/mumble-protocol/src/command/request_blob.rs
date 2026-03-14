@@ -15,6 +15,8 @@ pub struct RequestBlob {
     pub session_texture: Vec<u32>,
     /// Sessions whose **comment** should be fetched.
     pub session_comment: Vec<u32>,
+    /// Channels whose **description** should be fetched.
+    pub channel_description: Vec<u32>,
 }
 
 impl CommandAction for RequestBlob {
@@ -22,7 +24,7 @@ impl CommandAction for RequestBlob {
         let msg = mumble_tcp::RequestBlob {
             session_texture: self.session_texture.clone(),
             session_comment: self.session_comment.clone(),
-            channel_description: Vec::new(),
+            channel_description: self.channel_description.clone(),
         };
         CommandOutput {
             tcp_messages: vec![ControlMessage::RequestBlob(msg)],
