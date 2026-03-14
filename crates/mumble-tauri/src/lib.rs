@@ -10,7 +10,7 @@ mod state;
 
 use state::{
     AppState, AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus,
-    DebugStats, GroupChat, ServerConfig, ServerInfo, UserEntry, VoiceState,
+    DebugStats, GroupChat, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
 };
 use std::collections::HashMap;
 use tauri::Manager;
@@ -281,6 +281,11 @@ fn get_channels(state: tauri::State<'_, AppState>) -> Vec<ChannelEntry> {
 #[tauri::command]
 fn get_users(state: tauri::State<'_, AppState>) -> Vec<UserEntry> {
     state.users()
+}
+
+#[tauri::command]
+fn super_search(state: tauri::State<'_, AppState>, query: String) -> Vec<SearchResult> {
+    state.super_search(&query)
 }
 
 #[tauri::command]
@@ -838,6 +843,7 @@ pub fn run() {
             load_offloaded_messages_batch,
             clear_offloaded_messages,
             get_debug_stats,
+            super_search,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

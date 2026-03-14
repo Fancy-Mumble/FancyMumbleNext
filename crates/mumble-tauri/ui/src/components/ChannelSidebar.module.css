@@ -29,6 +29,52 @@
   letter-spacing: -0.01em;
 }
 
+/* ─── Search Fake (header trigger) ─────────────────────────────── */
+
+.searchFake {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  padding: 6px 12px;
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-glass);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  min-width: 0;
+  user-select: none;
+  appearance: none;
+  -webkit-appearance: none;
+  margin-right: 8px;
+}
+
+.searchFake:hover {
+  border-color: var(--color-accent, #2aabee);
+  background: var(--color-glass-hover);
+}
+
+.searchFakeIcon {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.searchFakeText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.searchShortcut {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+
 .disconnectBtn {
   width: 36px;
   height: 36px;

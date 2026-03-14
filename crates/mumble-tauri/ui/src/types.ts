@@ -168,6 +168,19 @@ export interface AudioSettings {
 
 export type VoiceState = "inactive" | "active" | "muted";
 
+// ─── Super Search ─────────────────────────────────────────────────
+
+export type SearchCategory = "channel" | "user" | "group" | "message";
+
+export interface SearchResult {
+  category: SearchCategory;
+  score: number;
+  title: string;
+  subtitle: string | null;
+  id: number | null;
+  string_id: string | null;
+}
+
 // ─── FancyMumble Profile ──────────────────────────────────────────
 
 /**

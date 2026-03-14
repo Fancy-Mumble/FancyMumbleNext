@@ -1,0 +1,234 @@
+/* ─── Search Fake (header trigger) ─────────────────────────────── */
+
+.searchFake {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  padding: 6px 12px;
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-glass);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  min-width: 0;
+  user-select: none;
+}
+
+.searchFake:hover {
+  border-color: var(--color-accent, #2aabee);
+  background: var(--color-glass-hover);
+}
+
+.searchFakeIcon {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.searchFakeText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.searchShortcut {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+
+/* ─── Overlay ──────────────────────────────────────────────────── */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10002;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 10vh;
+}
+
+.panel {
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-lg, 12px);
+  width: 480px;
+  max-width: 92vw;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+  animation: searchSlideIn 0.15s ease-out;
+}
+
+@keyframes searchSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ─── Input ────────────────────────────────────────────────────── */
+
+.inputRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--color-glass-border);
+}
+
+.inputIcon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  min-width: 0;
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* ─── Results ──────────────────────────────────────────────────── */
+
+.results {
+  overflow-y: auto;
+  flex: 1;
+  padding: 8px 0;
+}
+
+.empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  padding: 32px 16px;
+}
+
+.categoryLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  padding: 10px 18px 4px;
+}
+
+.resultItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 18px;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+  outline: none;
+}
+
+.resultItem:hover,
+.resultItem:focus-visible,
+.resultItemActive {
+  background: var(--color-glass-hover);
+}
+
+.resultIcon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.resultIconChannel {
+  background: rgba(42, 171, 238, 0.12);
+  color: var(--color-accent, #2aabee);
+}
+
+.resultIconUser {
+  background: rgba(76, 175, 80, 0.12);
+  color: #4caf50;
+}
+
+.resultIconGroup {
+  background: rgba(171, 71, 188, 0.12);
+  color: #ab47bc;
+}
+
+.resultIconMessage {
+  background: rgba(255, 167, 38, 0.12);
+  color: #ffa726;
+}
+
+.resultText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.resultTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultSubtitle {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 8px 18px;
+  border-top: 1px solid var(--color-glass-border);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.footerKey {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--color-glass-border);
+  border-radius: 3px;
+  font-size: 10px;
+  margin-right: 4px;
+  background: var(--color-glass);
+}

@@ -5,6 +5,7 @@ import { useAppStore } from "../store";
 import type { ChannelEntry, UserEntry, VoiceState } from "../types";
 import { textureToDataUrl, parseComment } from "../profileFormat";
 import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
+import { SuperSearch } from "./SuperSearch";
 import styles from "./ChannelSidebar.module.css";
 
 /** Mumble permission bitmask: Listen to channel (bit 11). */
@@ -432,7 +433,22 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
   const createGroup = useAppStore((s) => s.createGroup);
   const ownSession = useAppStore((s) => s.ownSession);
 
+  const selectDmUser = useAppStore((s) => s.selectDmUser);
+
   const [showGroupModal, setShowGroupModal] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+
+  // Global Ctrl+K / Cmd+K shortcut to open super search.
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, []);
 
   // Section collapse state (all expanded by default).
   const [channelsOpen, setChannelsOpen] = useState(true);
@@ -616,7 +632,29 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
     <aside className={styles.sidebar}>
       {/* Header */}
       <div className={styles.header}>
-        <h2 className={styles.headerTitle}>Channels</h2>
+        <button
+          type="button"
+          className={styles.searchFake}
+          onClick={() => setShowSearch(true)}
+          title="Search (Ctrl+K)"
+        >
+          <svg
+            className={styles.searchFakeIcon}
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <span className={styles.searchFakeText}>Search...</span>
+          <span className={styles.searchShortcut}>Ctrl+K</span>
+        </button>
         <button
           className={styles.disconnectBtn}
           onClick={disconnect}
@@ -992,6 +1030,15 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
           </div>
         );
       })()}
+
+      {/* Super search overlay */}
+      <SuperSearch
+        open={showSearch}
+        onClose={() => setShowSearch(false)}
+        onSelectChannel={(id) => selectChannel(id)}
+        onSelectUser={(session) => selectDmUser(session)}
+        onSelectGroup={(id) => selectGroup(id)}
+      />
 
       {/* Group creation modal */}
       {showGroupModal && (

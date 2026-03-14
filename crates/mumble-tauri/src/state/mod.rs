@@ -15,12 +15,13 @@ mod audio;
 mod connection;
 mod event_handler;
 pub mod offload;
+mod search;
 pub mod types;
 
 // Re-export everything that lib.rs needs.
 pub use types::{
     AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus, DebugStats,
-    GroupChat, ServerConfig, ServerInfo, UserEntry, VoiceState,
+    GroupChat, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
 };
 
 use std::collections::{HashMap, HashSet};

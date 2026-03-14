@@ -258,6 +258,40 @@ pub(crate) struct CurrentChannelPayload {
 
 // ─── Audio types ──────────────────────────────────────────────────
 
+// ─── Search types ─────────────────────────────────────────────────
+
+/// Category tag for a search result.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchCategory {
+    Channel,
+    User,
+    Group,
+    Message,
+}
+
+/// A single search result returned by the super-search command.
+#[derive(Debug, Clone, Serialize)]
+pub struct SearchResult {
+    /// What kind of item this is.
+    pub category: SearchCategory,
+    /// Fuzzy match score (lower = better match, 0 = exact).
+    pub score: u32,
+    /// Primary display text (channel name, username, group name, or message snippet).
+    pub title: String,
+    /// Secondary context (e.g. channel name for a user, sender for a message).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+    /// Numeric ID for channels (channel_id) or users (session).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
+    /// String ID for groups (group UUID).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub string_id: Option<String>,
+}
+
+// ─── Audio device type ────────────────────────────────────────────
+
 /// An available audio input device.
 #[derive(Debug, Clone, Serialize)]
 pub struct AudioDevice {
