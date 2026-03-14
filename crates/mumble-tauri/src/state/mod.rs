@@ -14,6 +14,7 @@
 mod audio;
 mod connection;
 mod event_handler;
+mod handler;
 pub mod offload;
 mod search;
 pub mod types;
