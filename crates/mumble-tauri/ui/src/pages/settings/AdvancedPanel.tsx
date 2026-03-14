@@ -1,19 +1,35 @@
 import { useState } from "react";
-import type { UserMode } from "../../types";
+import type { UserMode, TimeFormat } from "../../types";
 import { Toggle } from "./SharedControls";
 import styles from "./SettingsPage.module.css";
+
+const TIME_FORMAT_OPTIONS: { value: TimeFormat; label: string }[] = [
+  { value: "auto", label: "Auto (follow system)" },
+  { value: "12h", label: "12-hour (AM/PM)" },
+  { value: "24h", label: "24-hour" },
+];
 
 export function AdvancedPanel({
   userMode,
   klipyApiKey,
+  timeFormat,
+  convertToLocalTime,
   onToggleMode,
   onKlipyApiKeyChange,
+  onTimeFormatChange,
+  onConvertToLocalTimeChange,
+  onToggleDeveloperMode,
   onReset,
 }: {
   userMode: UserMode;
   klipyApiKey: string;
+  timeFormat: TimeFormat;
+  convertToLocalTime: boolean;
   onToggleMode: () => void;
   onKlipyApiKeyChange: (key: string) => void;
+  onTimeFormatChange: (fmt: TimeFormat) => void;
+  onConvertToLocalTimeChange: () => void;
+  onToggleDeveloperMode: () => void;
   onReset: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -27,16 +43,16 @@ export function AdvancedPanel({
           <div className={styles.toggleInfo}>
             <h3 className={styles.sectionTitle}>Expert Mode</h3>
             <p className={styles.fieldHint}>
-              {userMode === "expert"
-                ? "Full control - advanced audio options, custom ports and labels are visible."
-                : "Streamlined - we handle the technical details for you."}
+              {userMode === "normal"
+                ? "Streamlined - we handle the technical details for you."
+                : "Full control - advanced audio options, custom ports and labels are visible."}
             </p>
           </div>
-          <Toggle checked={userMode === "expert"} onChange={onToggleMode} />
+          <Toggle checked={userMode !== "normal"} onChange={onToggleMode} />
         </div>
       </section>
 
-      {userMode === "expert" && (
+      {userMode !== "normal" && (
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>Klipy API Key</h3>
           <p className={styles.fieldHint}>
@@ -62,6 +78,58 @@ export function AdvancedPanel({
           />
         </section>
       )}
+
+      {userMode !== "normal" && (
+        <section className={styles.section}>
+          <div className={styles.toggleRow}>
+            <div className={styles.toggleInfo}>
+              <h3 className={styles.sectionTitle}>Developer Mode</h3>
+              <p className={styles.fieldHint}>
+                Show debug statistics (message counts, offloaded content, memory
+                usage) in the server info panel.
+              </p>
+            </div>
+            <Toggle
+              checked={userMode === "developer"}
+              onChange={onToggleDeveloperMode}
+            />
+          </div>
+        </section>
+      )}
+
+      <section className={styles.section}>
+        <h3 className={styles.sectionTitle}>Time Display</h3>
+        <p className={styles.fieldHint}>
+          Choose how timestamps are formatted in chat messages.
+        </p>
+
+        <label className={styles.fieldLabel}>Time Format</label>
+        <select
+          className={styles.input}
+          value={timeFormat}
+          onChange={(e) => onTimeFormatChange(e.target.value as TimeFormat)}
+        >
+          {TIME_FORMAT_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+
+        <div className={styles.toggleRow} style={{ marginTop: 12 }}>
+          <div className={styles.toggleInfo}>
+            <label className={styles.fieldLabel}>Convert to local time</label>
+            <p className={styles.fieldHint}>
+              When enabled, timestamps are displayed in your local timezone.
+              When disabled, times are shown in UTC.
+            </p>
+          </div>
+          <Toggle
+            checked={convertToLocalTime}
+            onChange={onConvertToLocalTimeChange}
+          />
+        </div>
+      </section>
 
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Danger Zone</h3>

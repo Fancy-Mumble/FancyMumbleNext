@@ -10,6 +10,12 @@ pub struct SendTextMessage {
     pub user_sessions: Vec<u32>,
     pub tree_ids: Vec<u32>,
     pub message: String,
+    /// Unique identifier for this message (Fancy Mumble extension).
+    /// Ignored by legacy servers that don't recognise the field.
+    pub message_id: Option<String>,
+    /// Message timestamp as Unix epoch milliseconds (Fancy Mumble extension).
+    /// Ignored by legacy servers that don't recognise the field.
+    pub timestamp: Option<u64>,
 }
 
 impl CommandAction for SendTextMessage {
@@ -19,6 +25,8 @@ impl CommandAction for SendTextMessage {
             channel_id: self.channel_ids.clone(),
             tree_id: self.tree_ids.clone(),
             message: self.message.clone(),
+            message_id: self.message_id.clone(),
+            timestamp: self.timestamp,
             ..Default::default()
         };
         CommandOutput {

@@ -219,6 +219,8 @@ async fn test_send_text_message() {
         user_sessions: vec![],
         tree_ids: vec![],
         message: "Hello from integration test!".into(),
+        message_id: None,
+        timestamp: None,
     };
     let output = cmd.execute(&state);
     for msg in &output.tcp_messages {
@@ -272,6 +274,8 @@ async fn test_send_large_image_message() {
         user_sessions: vec![],
         tree_ids: vec![],
         message: html_message.clone(),
+        message_id: None,
+        timestamp: None,
     };
     let output = cmd.execute(&state);
     for msg in &output.tcp_messages {

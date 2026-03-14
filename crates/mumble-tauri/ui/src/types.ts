@@ -26,6 +26,26 @@ export interface ChatMessage {
   body: string;
   channel_id: number;
   is_own: boolean;
+  /** When set, this message is a DM. Value is the other user's session ID. */
+  dm_session?: number | null;
+  /** When set, this message belongs to a group chat. Value is the group UUID. */
+  group_id?: string | null;
+  /** Unique message identifier (Fancy Mumble extension). Absent on legacy servers. */
+  message_id?: string | null;
+  /** Unix epoch milliseconds (Fancy Mumble extension). Absent on legacy servers. */
+  timestamp?: number | null;
+}
+
+/** A multi-member group chat, identified by a UUID. */
+export interface GroupChat {
+  /** Unique group identifier (UUID v4). */
+  id: string;
+  /** Human-readable group name chosen by the creator. */
+  name: string;
+  /** Session IDs of all members (including the creator). */
+  members: number[];
+  /** Session ID of the user who created the group. */
+  creator: number;
 }
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
@@ -34,6 +54,20 @@ export interface MumbleServerConfig {
   max_message_length: number;
   max_image_message_length: number;
   allow_html: boolean;
+}
+
+/** Aggregated server info from the backend (version, host, codec, etc.). */
+export interface ServerInfo {
+  host: string;
+  port: number;
+  user_count: number;
+  max_users: number | null;
+  protocol_version: string | null;
+  fancy_version: number | null;
+  release: string | null;
+  os: string | null;
+  max_bandwidth: number | null;
+  opus: boolean;
 }
 
 /** A saved server connection stored persistently. */
@@ -59,7 +93,10 @@ export interface ServerPingResult {
 // ─── User Preferences ─────────────────────────────────────────────
 
 /** Whether the user prefers a simplified or full-featured UI. */
-export type UserMode = "normal" | "expert";
+export type UserMode = "normal" | "expert" | "developer";
+
+/** Preferred time display format. */
+export type TimeFormat = "12h" | "24h" | "auto";
 
 /** App-wide user preferences stored persistently. */
 export interface UserPreferences {
@@ -71,6 +108,25 @@ export interface UserPreferences {
   defaultUsername: string;
   /** Custom Klipy API key (expert mode). When empty/undefined, the built-in key is used. */
   klipyApiKey?: string;
+  /** Preferred time format for message timestamps. */
+  timeFormat: TimeFormat;
+  /** Convert UTC timestamps to the local timezone before displaying. */
+  convertToLocalTime: boolean;
+}
+
+/** Debug statistics returned by the backend for the developer info panel. */
+export interface DebugStats {
+  channel_message_count: number;
+  dm_message_count: number;
+  group_message_count: number;
+  total_message_count: number;
+  offloaded_count: number;
+  channel_count: number;
+  user_count: number;
+  group_count: number;
+  connection_epoch: number;
+  voice_state: string;
+  uptime_seconds: number;
 }
 
 // ─── Audio / Voice ────────────────────────────────────────────────

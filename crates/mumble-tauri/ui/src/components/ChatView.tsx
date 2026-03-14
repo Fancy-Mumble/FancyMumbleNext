@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer, type ClipboardEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../store";
+import type { TimeFormat } from "../types";
+import { getPreferences } from "../preferencesStorage";
 import ChatHeader from "./ChatHeader";
 import MessageItem from "./MessageItem";
 import ChatComposer from "./ChatComposer";
@@ -8,6 +11,11 @@ import { registerVote, registerLocalVote, getPoll } from "./PollCard";
 import { mediaKind, fileToDataUrl, fitImage, fitVideo, mediaToHtml } from "../utils/media";
 import { textureToDataUrl } from "../profileFormat";
 import { markdownToHtml } from "./MarkdownInput";
+import {
+  isHeavyContent,
+  offloadManager,
+  type MessageScope,
+} from "../messageOffload";
 import styles from "./ChatView.module.css";
 
 // ─── Scroll helpers ──────────────────────────────────────────────
@@ -30,7 +38,25 @@ function isWithinHalfViewport(el: HTMLElement): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
 }
 
-export default function ChatView() {
+interface ChatViewProps {
+  readonly onServerInfoToggle?: () => void;
+}
+
+/** Compute chat header label and member count based on the active mode. */
+function computeHeader(
+  isGroupMode: boolean,
+  activeGroup: { name: string; members: number[] } | undefined,
+  isDmMode: boolean,
+  dmPartner: { name: string } | undefined,
+  channel: { name: string } | undefined,
+  memberCount: number,
+): [string, number] {
+  if (isGroupMode) return [activeGroup?.name ?? "Group Chat", activeGroup?.members.length ?? 0];
+  if (isDmMode) return [dmPartner?.name ?? "Direct Message", 0];
+  return [channel?.name ?? "Unknown", memberCount];
+}
+
+export default function ChatView({ onServerInfoToggle }: ChatViewProps) {
   const channels = useAppStore((s) => s.channels);
   const users = useAppStore((s) => s.users);
   const selectedChannel = useAppStore((s) => s.selectedChannel);
@@ -46,9 +72,59 @@ export default function ChatView() {
   const pollMessages = useAppStore((s) => s.pollMessages);
   const selectUser = useAppStore((s) => s.selectUser);
 
+  // DM state
+  const selectedDmUser = useAppStore((s) => s.selectedDmUser);
+  const dmMessages = useAppStore((s) => s.dmMessages);
+  const sendDm = useAppStore((s) => s.sendDm);
+
+  // Group chat state
+  const selectedGroup = useAppStore((s) => s.selectedGroup);
+  const groupMessages = useAppStore((s) => s.groupMessages);
+  const sendGroupMessage = useAppStore((s) => s.sendGroupMessage);
+  const groupChats = useAppStore((s) => s.groupChats);
+
+  const isDmMode = selectedDmUser !== null;
+  const isGroupMode = selectedGroup !== null;
+  const dmPartner = isDmMode ? users.find((u) => u.session === selectedDmUser) : undefined;
+  const activeGroup = isGroupMode ? groupChats.find((g) => g.id === selectedGroup) : undefined;
+
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [, forceRender] = useReducer((c: number) => c + 1, 0);
+
+  // Time display preferences (loaded once from persistent storage).
+  const [timeFormat, setTimeFormat] = useState<TimeFormat>("auto");
+  const [convertToLocalTime, setConvertToLocalTime] = useState(true);
+  // System clock format resolved from OS (not from WebView Intl, which ignores
+  // the Windows Region setting and always uses the language-tag default).
+  const [systemUses24h, setSystemUses24h] = useState<boolean | undefined>(undefined);
+
+  useEffect(() => {
+    getPreferences().then((prefs) => {
+      setTimeFormat(prefs.timeFormat);
+      setConvertToLocalTime(prefs.convertToLocalTime);
+    });
+    invoke<"12h" | "24h" | null>("get_system_clock_format")
+      .then((fmt) => {
+        // null means non-Windows: leave systemUses24h as undefined so the
+        // Intl probe in formatTimestamp is used instead.
+        if (fmt !== null) setSystemUses24h(fmt === "24h");
+      })
+      .catch(() => { /* leave undefined - fall back to Intl */ });
+  }, []);
+
+  // ─── Content offloading ──────────────────────────────────────────
+
+  /** Set of message IDs currently being restored from offload storage. */
+  const [restoringKeys, setRestoringKeys] = useState<Set<string>>(new Set());
+
+  /** Build the `MessageScope` for the current chat mode. */
+  const currentScope = useCallback((): MessageScope | null => {
+    if (isGroupMode && selectedGroup) return { scope: "group", scopeId: selectedGroup };
+    if (isDmMode && selectedDmUser !== null) return { scope: "dm", scopeId: String(selectedDmUser) };
+    if (selectedChannel !== null) return { scope: "channel", scopeId: String(selectedChannel) };
+    return null;
+  }, [isGroupMode, selectedGroup, isDmMode, selectedDmUser, selectedChannel]);
 
   /** The scroll container (<div.messages>). */
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -145,11 +221,17 @@ export default function ChatView() {
 
   /** Merge real messages with local-only poll messages for rendering. */
   const allMessages = useMemo(() => {
+    if (isGroupMode) {
+      return groupMessages;
+    }
+    if (isDmMode) {
+      return dmMessages;
+    }
     const channelPolls = pollMessages.filter(
       (m) => m.channel_id === selectedChannel,
     );
     return [...messages, ...channelPolls];
-  }, [messages, pollMessages, selectedChannel]);
+  }, [isGroupMode, groupMessages, isDmMode, dmMessages, messages, pollMessages, selectedChannel]);
 
   // ─── Smart scroll behaviour ──────────────────────────────────────
   //
@@ -342,7 +424,7 @@ export default function ChatView() {
     };
   }, []);
 
-  // On channel switch, reset scroll state and jump to bottom instantly.
+  // On channel / DM switch, reset scroll state and jump to bottom instantly.
   useEffect(() => {
     setNewMsgCount(0);
     setLastReadIdx(null);
@@ -352,9 +434,108 @@ export default function ChatView() {
       const el = messagesContainerRef.current;
       if (el) scrollToBottom(el);
     });
-    // Only run when the selected channel changes, not allMessages.
+    // Only run when the selected channel, DM user, or group changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedChannel]);
+  }, [selectedChannel, selectedDmUser, selectedGroup]);
+
+  // ─── Offload IntersectionObserver ─────────────────────────────────
+  //
+  // Watches message elements for visibility changes.  Heavy messages
+  // that scroll out of view are offloaded (encrypted → temp file) after
+  // a delay; offloaded messages approaching the viewport are restored.
+
+  const scopeRef = useRef(currentScope);
+  scopeRef.current = currentScope;
+
+  useEffect(() => {
+    const inner = messagesInnerRef.current;
+    const container = messagesContainerRef.current;
+    if (!inner || !container) return;
+
+    const refreshForScope = (scope: MessageScope) => {
+      const state = useAppStore.getState();
+      if (scope.scope === "channel") {
+        state.refreshMessages(Number(scope.scopeId));
+      } else if (scope.scope === "dm") {
+        state.refreshDmMessages(Number(scope.scopeId));
+      } else if (scope.scope === "group") {
+        state.refreshGroupMessages(scope.scopeId);
+      }
+    };
+
+    const handleRestored = (scope: MessageScope, restoredIds: string[]) => {
+      setRestoringKeys((prev) => {
+        const next = new Set(prev);
+        for (const id of restoredIds) next.delete(id);
+        return next;
+      });
+      if (restoredIds.length > 0) refreshForScope(scope);
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const scope = scopeRef.current();
+        if (!scope) return;
+
+        // Collect all offloaded messages that just entered the viewport
+        // so we can restore them in a single batch IPC call.
+        const toRestore: string[] = [];
+
+        for (const entry of entries) {
+          const el = entry.target as HTMLElement;
+          const msgId = el.dataset.msgId;
+          if (!msgId) continue;
+
+          if (entry.isIntersecting) {
+            offloadManager.cancelOffload(msgId);
+
+            if (offloadManager.isOffloaded(msgId)) {
+              toRestore.push(msgId);
+            }
+          } else if (el.dataset.msgHeavy !== undefined) {
+            offloadManager.scheduleOffload(msgId, scope, () => {
+              refreshForScope(scope);
+            });
+          }
+        }
+
+        if (toRestore.length > 0) {
+          setRestoringKeys((prev) => {
+            const next = new Set(prev);
+            for (const id of toRestore) next.add(id);
+            return next;
+          });
+
+          offloadManager.restoreMany(toRestore, scope).then((results) => {
+            handleRestored(scope, Object.keys(results));
+          });
+        }
+      },
+      {
+        root: container,
+        // Load content 800px before it enters the viewport to avoid
+        // visible skeleton flicker; offload 200px after it leaves.
+        rootMargin: "800px 0px 800px 0px",
+      },
+    );
+
+    // Observe all message elements with a data-msg-id attribute.
+    const observeAll = () => {
+      for (const el of inner.querySelectorAll<HTMLElement>("[data-msg-id]")) {
+        observer.observe(el);
+      }
+    };
+    observeAll();
+
+    // Re-observe when new message elements are added.
+    const mutObs = new MutationObserver(observeAll);
+    mutObs.observe(inner, { childList: true, subtree: true });
+
+    return () => {
+      observer.disconnect();
+      mutObs.disconnect();
+    };
+  }, [selectedChannel, selectedDmUser, selectedGroup]);
 
   /** Jump-to-bottom handler used by the "new messages" pill. */
   const handleScrollToBottom = useCallback(() => {
@@ -366,16 +547,26 @@ export default function ChatView() {
 
   const handleSend = async () => {
     const text = draft.trim();
-    if (!text || selectedChannel === null) return;
-    setDraft("");
-    const html = markdownToHtml(text);
-    await sendMessage(selectedChannel, html);
+    if (!text) return;
+    if (isGroupMode && selectedGroup !== null) {
+      setDraft("");
+      const html = markdownToHtml(text);
+      await sendGroupMessage(selectedGroup, html);
+    } else if (isDmMode && selectedDmUser !== null) {
+      setDraft("");
+      const html = markdownToHtml(text);
+      await sendDm(selectedDmUser, html);
+    } else if (selectedChannel !== null) {
+      setDraft("");
+      const html = markdownToHtml(text);
+      await sendMessage(selectedChannel, html);
+    }
   };
 
   /** Encode a File and send it as a media message. */
   const sendMediaFile = useCallback(
     async (file: File) => {
-      if (selectedChannel === null) return;
+      if (!isGroupMode && !isDmMode && selectedChannel === null) return;
 
       const kind = mediaKind(file.type);
       if (!kind) {
@@ -383,7 +574,7 @@ export default function ChatView() {
         return;
       }
 
-      // 0 means "no special image limit" → fall back to message_length.
+      // 0 means "no special image limit" -> fall back to message_length.
       const maxBytes =
         serverConfig.max_image_message_length > 0
           ? serverConfig.max_image_message_length
@@ -410,7 +601,13 @@ export default function ChatView() {
         }
 
         const html = mediaToHtml(dataUrl, sendKind, file.name || "clipboard.png");
-        await sendMessage(selectedChannel, html);
+        if (isGroupMode && selectedGroup !== null) {
+          await sendGroupMessage(selectedGroup, html);
+        } else if (isDmMode && selectedDmUser !== null) {
+          await sendDm(selectedDmUser, html);
+        } else if (selectedChannel !== null) {
+          await sendMessage(selectedChannel, html);
+        }
       } catch (err) {
         console.error("media send error:", err);
         alert(String(err));
@@ -418,7 +615,7 @@ export default function ChatView() {
         setSending(false);
       }
     },
-    [selectedChannel, serverConfig, sendMessage],
+    [isGroupMode, selectedGroup, sendGroupMessage, isDmMode, selectedDmUser, selectedChannel, serverConfig, sendMessage, sendDm],
   );
 
   /** Handle Ctrl+V / Cmd+V with image data on the clipboard. */
@@ -444,11 +641,16 @@ export default function ChatView() {
 
   const handleGifSelect = useCallback(
     async (url: string, alt: string) => {
-      if (selectedChannel === null) return;
       const html = `<img src="${url}" alt="${alt}" />`;
-      await sendMessage(selectedChannel, html);
+      if (isGroupMode && selectedGroup !== null) {
+        await sendGroupMessage(selectedGroup, html);
+      } else if (isDmMode && selectedDmUser !== null) {
+        await sendDm(selectedDmUser, html);
+      } else if (selectedChannel !== null) {
+        await sendMessage(selectedChannel, html);
+      }
     },
-    [selectedChannel, sendMessage],
+    [isGroupMode, selectedGroup, sendGroupMessage, isDmMode, selectedDmUser, selectedChannel, sendMessage, sendDm],
   );
 
   // ─── Poll handlers ─────────────────────────────────────────────
@@ -518,8 +720,14 @@ export default function ChatView() {
 
   // ─── End poll handlers ───────────────────────────────────────────
 
-  // Empty state - no channel selected.
-  if (selectedChannel === null) {
+  // Compute header values before any early returns (hooks can't be conditional).
+  const [headerName, headerMemberCount] = computeHeader(
+    isGroupMode, activeGroup, isDmMode, dmPartner, channel, memberCount,
+  );
+  const showJoinButton = !isDmMode && !isGroupMode && !isInChannel;
+
+  // Empty state - no channel, DM, or group selected.
+  if (selectedChannel === null && !isDmMode && !isGroupMode) {
     return (
       <main className={styles.main}>
         <div className={styles.empty}>
@@ -533,10 +741,13 @@ export default function ChatView() {
   return (
     <main className={styles.main}>
       <ChatHeader
-        channelName={channel?.name ?? "Unknown"}
-        memberCount={memberCount}
-        isInChannel={isInChannel}
-        onJoin={() => joinChannel(selectedChannel)}
+        channelName={headerName}
+        memberCount={headerMemberCount}
+        isInChannel={isDmMode || isGroupMode || isInChannel}
+        isDm={isDmMode}
+        isGroup={isGroupMode}
+        onJoin={showJoinButton ? () => joinChannel(selectedChannel!) : undefined}
+        onServerInfoToggle={onServerInfoToggle}
       />
 
       {/* Messages */}
@@ -549,31 +760,40 @@ export default function ChatView() {
             </div>
           ) : (
             allMessages.map((msg, i) => (
-              <React.Fragment key={`${msg.channel_id}-${msg.sender_session ?? "s"}-${msg.body.slice(0, 32)}-${i}`}>
+              <React.Fragment key={msg.message_id ?? `${msg.channel_id}-${msg.sender_session ?? "s"}-${msg.body.slice(0, 32)}-${i}`}>
                 {/* Last-read divider */}
                 {lastReadIdx !== null && i === lastReadIdx && (
                   <div className={styles.unreadDivider} aria-label="New messages">
                     <span className={styles.unreadDividerLabel}>New messages</span>
                   </div>
                 )}
-                <MessageItem
-                  msg={msg}
-                  index={i}
-                  avatarUrl={
-                    msg.sender_session === null
-                      ? undefined
-                      : avatarBySession.get(msg.sender_session)
-                  }
-                  user={
-                    msg.sender_session === null
-                      ? undefined
-                      : userBySession.get(msg.sender_session)
-                  }
-                  polls={polls}
-                  ownSession={ownSession}
-                  onVote={handlePollVote}
-                  onAvatarClick={selectUser}
-                />
+                <div
+                  data-msg-id={msg.message_id ?? undefined}
+                  data-msg-heavy={msg.message_id && isHeavyContent(msg.body) ? "" : undefined}
+                >
+                  <MessageItem
+                    msg={msg}
+                    index={i}
+                    avatarUrl={
+                      msg.sender_session === null
+                        ? undefined
+                        : avatarBySession.get(msg.sender_session)
+                    }
+                    user={
+                      msg.sender_session === null
+                        ? undefined
+                        : userBySession.get(msg.sender_session)
+                    }
+                    polls={polls}
+                    ownSession={ownSession}
+                    onVote={handlePollVote}
+                    onAvatarClick={selectUser}
+                    timeFormat={timeFormat}
+                    convertToLocalTime={convertToLocalTime}
+                    systemUses24h={systemUses24h}
+                    isRestoring={msg.message_id ? restoringKeys.has(msg.message_id) : false}
+                  />
+                </div>
               </React.Fragment>
             ))
           )}

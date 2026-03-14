@@ -15,6 +15,9 @@ message Version {
 	optional string release = 2;
 	optional string os = 3;
 	optional string os_version = 4;
+	// Fancy Mumble version identifier. When present, both sides
+	// understand extensions (message_id, timestamp, etc.).
+	optional uint64 fancy_version = 6;
 }
 
 message UDPTunnel {
@@ -148,6 +151,10 @@ message TextMessage {
 	repeated uint32 channel_id = 3;
 	repeated uint32 tree_id = 4;
 	required string message = 5;
+	// Unique identifier for this message (Fancy Mumble extension).
+	optional string message_id = 6;
+	// Message timestamp as Unix epoch millis (Fancy Mumble extension).
+	optional uint64 timestamp = 7;
 }
 
 message PermissionDenied {

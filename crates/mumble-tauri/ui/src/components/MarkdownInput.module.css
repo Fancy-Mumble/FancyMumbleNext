@@ -4,11 +4,11 @@
   position: relative;
   flex: 1;
   min-height: 40px;
-  max-height: 120px;
+  max-height: 200px;
   border-radius: var(--radius-lg);
   background: var(--color-glass);
   border: 1px solid var(--color-glass-border);
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, height 0.1s ease;
   overflow: hidden;
 }
 

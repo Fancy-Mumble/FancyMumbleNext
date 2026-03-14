@@ -130,7 +130,10 @@ function UserItem({ user, channelName: chName }: Readonly<{ user: UserEntry; cha
   const [showCard, setShowCard] = useState(false);
   const [cardPos, setCardPos] = useState<{ top: number; left: number } | null>(null);
   const itemRef = useRef<HTMLButtonElement>(null);
-  const selectUser = useAppStore((s) => s.selectUser);
+  const selectDmUser = useAppStore((s) => s.selectDmUser);
+  const ownSession = useAppStore((s) => s.ownSession);
+  const dmUnread = useAppStore((s) => s.dmUnreadCounts[user.session] ?? 0);
+  const selectedDmUser = useAppStore((s) => s.selectedDmUser);
   const url = useMemo(() => avatarUrl(user), [user.texture]);
   const parsed = useMemo(
     () => (user.comment ? parseComment(user.comment) : null),
@@ -156,14 +159,18 @@ function UserItem({ user, channelName: chName }: Readonly<{ user: UserEntry; cha
   }, []);
 
   const handleClick = useCallback(() => {
-    selectUser(user.session);
-  }, [user.session, selectUser]);
+    // Don't open a DM with yourself.
+    if (user.session === ownSession) return;
+    selectDmUser(user.session);
+  }, [user.session, ownSession, selectDmUser]);
+
+  const isActiveDm = selectedDmUser === user.session;
 
   return (
     <button
       ref={itemRef}
       type="button"
-      className={styles.userItem}
+      className={`${styles.userItem} ${isActiveDm ? styles.userItemActive : ""}`}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
       onClick={handleClick}
@@ -182,6 +189,11 @@ function UserItem({ user, channelName: chName }: Readonly<{ user: UserEntry; cha
         <span className={styles.onlineDot} />
       </div>
       <span className={styles.userName}>{user.name}</span>
+      {dmUnread > 0 && (
+        <span className={styles.unreadBadge}>
+          {dmUnread > 99 ? "99+" : dmUnread}
+        </span>
+      )}
       <span className={styles.userChannelChip}>{chName}</span>
       {showCard && cardPos && createPortal(
         <div
@@ -242,6 +254,138 @@ function buildGroups(channels: ChannelEntry[]): {
   return { root, groups };
 }
 
+// --- Group creation modal -----------------------------------------
+
+interface GroupCreateModalProps {
+  readonly users: UserEntry[];
+  readonly ownSession: number | null;
+  readonly onClose: () => void;
+  readonly onCreate: (name: string, members: number[]) => Promise<void>;
+}
+
+function GroupCreateModal({ users, ownSession, onClose, onCreate }: GroupCreateModalProps) {
+  const [name, setName] = useState("");
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [creating, setCreating] = useState(false);
+  const backdropRef = useRef<HTMLDivElement>(null);
+
+  const otherUsers = useMemo(
+    () => users.filter((u) => u.session !== ownSession),
+    [users, ownSession],
+  );
+
+  // Close on Escape key.
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  const toggleMember = useCallback((session: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(session)) next.delete(session);
+      else next.add(session);
+      return next;
+    });
+  }, []);
+
+  const handleCreate = useCallback(async () => {
+    if (selected.size === 0 || !name.trim()) return;
+    setCreating(true);
+    try {
+      await onCreate(name.trim(), Array.from(selected));
+    } finally {
+      setCreating(false);
+    }
+  }, [name, selected, onCreate]);
+
+  const handleBackdropClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.target === backdropRef.current) onClose();
+    },
+    [onClose],
+  );
+
+  return createPortal(
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
+    <div
+      ref={backdropRef}
+      className={styles.modalBackdrop}
+      onClick={handleBackdropClick}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
+    >
+      <div className={styles.modalContent}>
+        <h3 className={styles.modalTitle}>New Group Chat</h3>
+
+        <input
+          className={styles.modalInput}
+          type="text"
+          placeholder="Group name..."
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+        />
+
+        <p className={styles.modalSubtitle}>Select members:</p>
+
+        <div className={styles.modalUserList}>
+          {otherUsers.map((u) => {
+            const isSelected = selected.has(u.session);
+            const url = avatarUrl(u);
+            return (
+              <button
+                key={u.session}
+                type="button"
+                className={`${styles.modalUserItem} ${isSelected ? styles.modalUserSelected : ""}`}
+                onClick={() => toggleMember(u.session)}
+              >
+                <div className={styles.modalCheckbox}>
+                  {isSelected && (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                </div>
+                {url ? (
+                  <img src={url} alt={u.name} className={styles.userAvatarImg} style={{ width: 24, height: 24 }} />
+                ) : (
+                  <div
+                    className={styles.userAvatar}
+                    style={{ background: colorFor(u.name), width: 24, height: 24, fontSize: 11 }}
+                  >
+                    {u.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <span className={styles.userName}>{u.name}</span>
+              </button>
+            );
+          })}
+          {otherUsers.length === 0 && (
+            <p className={styles.modalEmpty}>No other users online</p>
+          )}
+        </div>
+
+        <div className={styles.modalActions}>
+          <button className={styles.modalCancelBtn} onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className={styles.modalCreateBtn}
+            onClick={handleCreate}
+            disabled={creating || selected.size === 0 || !name.trim()}
+          >
+            {creating ? "Creating..." : `Create (${selected.size} selected)`}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // --- Main component -----------------------------------------------
 
 interface ChannelSidebarProps {
@@ -264,6 +408,21 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
   const toggleMute = useAppStore((s) => s.toggleMute);
   const toggleDeafen = useAppStore((s) => s.toggleDeafen);
   const navigate = useNavigate();
+
+  // Group chat state
+  const groupChats = useAppStore((s) => s.groupChats);
+  const selectedGroup = useAppStore((s) => s.selectedGroup);
+  const selectGroup = useAppStore((s) => s.selectGroup);
+  const groupUnreadCounts = useAppStore((s) => s.groupUnreadCounts);
+  const createGroup = useAppStore((s) => s.createGroup);
+  const ownSession = useAppStore((s) => s.ownSession);
+
+  const [showGroupModal, setShowGroupModal] = useState(false);
+
+  // Section collapse state (all expanded by default).
+  const [channelsOpen, setChannelsOpen] = useState(true);
+  const [groupsOpen, setGroupsOpen] = useState(true);
+  const [onlineOpen, setOnlineOpen] = useState(true);
 
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
@@ -478,8 +637,34 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
         </div>
       )}
 
+      {/* Channel list header (always visible) */}
+      <div className={styles.sectionHeaderBar}>
+        <button
+          className={styles.collapsibleHeader}
+          onClick={() => setChannelsOpen((o) => !o)}
+          type="button"
+        >
+          <svg
+            className={`${styles.collapseChevron} ${channelsOpen ? styles.collapseChevronOpen : ""}`}
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+          <span>Channels</span>
+        </button>
+      </div>
+
       {/* Channel list */}
-      <div className={styles.channelList}>
+      <div className={`${styles.channelList} ${channelsOpen ? "" : styles.sectionCollapsed}`}>
+
+        {channelsOpen && (<>
         {/* Root channel */}
         {root && root.id !== currentChannel && renderChannelItem(root)}
 
@@ -562,14 +747,116 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
             </div>
           );
         })}
+        </>)}
+      </div>
+
+      <div className={styles.divider} />
+
+      {/* Group chats */}
+      <div className={`${styles.userSection} ${groupsOpen ? "" : styles.sectionCollapsed}`}>
+        <div className={styles.groupSectionHeader}>
+          <button
+            className={styles.collapsibleHeader}
+            onClick={() => setGroupsOpen((o) => !o)}
+            type="button"
+          >
+            <svg
+              className={`${styles.collapseChevron} ${groupsOpen ? styles.collapseChevronOpen : ""}`}
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+            <span>
+              Group Chats{groupChats.length > 0 ? ` - ${groupChats.length}` : ""}
+            </span>
+          </button>
+          <button
+            className={styles.newGroupBtn}
+            onClick={() => setShowGroupModal(true)}
+            title="New group chat"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
+        </div>
+        {groupsOpen && <div className={styles.userList}>
+          {groupChats.map((group) => {
+            const unread = groupUnreadCounts[group.id] ?? 0;
+            const isActive = selectedGroup === group.id;
+            const memberNames = group.members
+              .map((s) => users.find((u) => u.session === s)?.name)
+              .filter(Boolean)
+              .join(", ");
+            return (
+              <button
+                key={group.id}
+                type="button"
+                className={`${styles.userItem} ${isActive ? styles.userItemActive : ""}`}
+                onClick={() => { selectGroup(group.id); onChannelSelect?.(); }}
+                title={memberNames || group.name}
+              >
+                <div className={styles.userAvatarWrap}>
+                  <div
+                    className={styles.userAvatar}
+                    style={{ background: colorFor(group.name) }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                    </svg>
+                  </div>
+                </div>
+                <span className={styles.userName}>{group.name}</span>
+                {unread > 0 && (
+                  <span className={styles.unreadBadge}>
+                    {unread > 99 ? "99+" : unread}
+                  </span>
+                )}
+                <span className={styles.userChannelChip}>
+                  {group.members.length} {group.members.length === 1 ? "member" : "members"}
+                </span>
+              </button>
+            );
+          })}
+        </div>}
       </div>
 
       <div className={styles.divider} />
 
       {/* Online users */}
-      <div className={styles.userSection}>
-        <h3 className={styles.sectionTitle}>Online - {users.length}</h3>
-        <div className={styles.userList}>
+      <div className={`${styles.userSection} ${onlineOpen ? "" : styles.sectionCollapsed}`}>
+        <button
+          className={styles.collapsibleHeader}
+          onClick={() => setOnlineOpen((o) => !o)}
+          type="button"
+        >
+          <svg
+            className={`${styles.collapseChevron} ${onlineOpen ? styles.collapseChevronOpen : ""}`}
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+          <span>Online - {users.length}</span>
+        </button>
+        {onlineOpen && <div className={styles.userList}>
           {users.map((user) => (
             <UserItem
               key={user.session}
@@ -577,7 +864,7 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
               channelName={channelName(user.channel_id)}
             />
           ))}
-        </div>
+        </div>}
       </div>
 
       {/* Voice panel */}
@@ -696,6 +983,19 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
           </div>
         );
       })()}
+
+      {/* Group creation modal */}
+      {showGroupModal && (
+        <GroupCreateModal
+          users={users}
+          ownSession={ownSession}
+          onClose={() => setShowGroupModal(false)}
+          onCreate={async (name, members) => {
+            await createGroup(name, members);
+            setShowGroupModal(false);
+          }}
+        />
+      )}
     </aside>
   );
 }
