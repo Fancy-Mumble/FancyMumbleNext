@@ -38,6 +38,34 @@
   color: var(--color-text-secondary);
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.serverInfoBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--color-glass-border);
+  background: var(--color-glass);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  flex-shrink: 0;
+}
+
+.serverInfoBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
 .joinBtn {
   padding: 8px 18px;
   border-radius: 8px;
@@ -242,7 +270,8 @@
   border: 1px solid var(--color-glass-border);
   border-radius: var(--radius-md) var(--radius-md) var(--radius-md) 4px;
   word-wrap: break-word;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .bubble.ownBubble {
@@ -277,6 +306,22 @@
 .messageBody {
   font-size: 14px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.messageTime {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+  opacity: 0.6;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+/* Own-bubble sender name and timestamp need contrast against the accent gradient */
+.ownBubble .messageTime {
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .ownBubble .messageBody {

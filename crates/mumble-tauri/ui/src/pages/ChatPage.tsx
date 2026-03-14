@@ -5,6 +5,7 @@ import { isMobilePlatform } from "../utils/platform";
 import { useSwipeDrawer } from "../hooks/useSwipeDrawer";
 import ChannelSidebar from "../components/ChannelSidebar";
 import ChatView from "../components/ChatView";
+import ServerInfoPanel from "../components/ServerInfoPanel";
 import UserProfileView from "../components/UserProfileView";
 import MobileProfileSheet from "../components/MobileProfileSheet";
 import styles from "./ChatPage.module.css";
@@ -20,7 +21,10 @@ export default function ChatPage() {
   const pageRef = useRef<HTMLDivElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
 
+  const [showServerInfo, setShowServerInfo] = useState(false);
+
   const toggleSidebar = useCallback(() => setSidebarOpen((v) => !v), []);
+  const toggleServerInfo = useCallback(() => setShowServerInfo((v) => !v), []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
   const closeSidebar = useCallback(() => {
     if (isMobile) setSidebarOpen(false);
@@ -73,8 +77,9 @@ export default function ChatPage() {
         <ChannelSidebar onChannelSelect={closeSidebar} />
       </div>
 
-      <ChatView />
-      {selectedUser !== null && !isMobile && <UserProfileView />}
+      <ChatView onServerInfoToggle={toggleServerInfo} />
+      {showServerInfo && !isMobile && <ServerInfoPanel onClose={() => setShowServerInfo(false)} />}
+      {selectedUser !== null && !showServerInfo && !isMobile && <UserProfileView />}
       {isMobile && <MobileProfileSheet />}
     </div>
   );

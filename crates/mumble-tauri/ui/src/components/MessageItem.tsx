@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
-import type { ChatMessage, UserEntry } from "../types";
+import type { ChatMessage, UserEntry, TimeFormat } from "../types";
 import type { PollPayload } from "./PollCreator";
 import { parseComment } from "../profileFormat";
 import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
@@ -17,6 +17,49 @@ const AVATAR_COLORS = [
   "#ef4444",
   "#ec4899",
 ];
+
+/**
+ * Format a Unix-epoch-millis timestamp into a short time string.
+ *
+ * @param epochMs       - Timestamp value (always epoch milliseconds).
+ * @param timeFormat    - "12h", "24h", or "auto" (follow OS setting).
+ * @param localTime     - When true, display in local timezone (default).
+ *                        When false, display in UTC.
+ * @param systemUses24h - OS-reported clock format for "auto" mode. When
+ *   provided, bypasses the unreliable WebView2 Intl probe on Windows.
+ */
+function formatTimestamp(
+  epochMs: number,
+  timeFormat: TimeFormat = "auto",
+  localTime = true,
+  systemUses24h?: boolean,
+): string {
+  const d = new Date(epochMs);
+  const opts: Intl.DateTimeFormatOptions = {
+    hour: "2-digit",
+    minute: "2-digit",
+  };
+
+  if (timeFormat === "12h") {
+    opts.hour12 = true;
+  } else if (timeFormat === "24h") {
+    opts.hour12 = false;
+  } else if (systemUses24h !== undefined) {
+    // "auto" with a reliable OS-reported value (avoids the WebView2 bug
+    // where Intl always uses the language-tag default, not the Windows
+    // Region setting).
+    opts.hour12 = !systemUses24h;
+  } else {
+    // "auto" fallback: probe via Intl. Unreliable on Windows/WebView2 but
+    // acceptable as a momentary placeholder before the invoke resolves.
+    const resolved = new Intl.DateTimeFormat([], { hour: "numeric" }).resolvedOptions();
+    opts.hour12 = resolved.hour12 ?? (resolved.hourCycle !== "h23" && resolved.hourCycle !== "h24");
+  }
+
+  if (!localTime) opts.timeZone = "UTC";
+
+  return d.toLocaleTimeString(undefined, opts);
+}
 
 /** Approximate height of the profile hover card, used for viewport clamping. */
 const HOVER_CARD_H = 340;
@@ -57,6 +100,12 @@ interface MessageItemProps {
   readonly ownSession: number | null;
   readonly onVote: (pollId: string, selected: number[]) => Promise<void>;
   readonly onAvatarClick?: (session: number) => void;
+  /** Preferred time display format (default "auto"). */
+  readonly timeFormat?: TimeFormat;
+  /** Display timestamps in local timezone (default true). */
+  readonly convertToLocalTime?: boolean;
+  /** OS-reported clock format for "auto" mode (true = 24h). */
+  readonly systemUses24h?: boolean;
 }
 
 export default function MessageItem({
@@ -68,6 +117,9 @@ export default function MessageItem({
   ownSession,
   onVote,
   onAvatarClick,
+  timeFormat = "auto",
+  convertToLocalTime = true,
+  systemUses24h,
 }: MessageItemProps) {
   const pureMedia = isPureMedia(msg.body);
   const isMobile = isMobilePlatform();
@@ -171,6 +223,9 @@ export default function MessageItem({
     );
   };
 
+  // Always resolve a displayable timestamp: prefer server-side, fall back to local time.
+  const displayTimestamp = msg.timestamp ?? Date.now();
+
   return (
     <div
       className={`${styles.messageRow} ${msg.is_own ? styles.own : ""}`}
@@ -179,12 +234,15 @@ export default function MessageItem({
       <div
         className={`${styles.bubble} ${msg.is_own ? styles.ownBubble : ""} ${pureMedia ? styles.bubbleMedia : ""}`}
       >
-        {!msg.is_own && !pureMedia && (
+        {!pureMedia && (
           <span
             className={styles.senderName}
-            style={{ color: colorFor(msg.sender_name) }}
+            style={{ color: msg.is_own ? "rgba(255,255,255,0.85)" : colorFor(msg.sender_name) }}
           >
             {msg.sender_name}
+            <time className={styles.messageTime} dateTime={new Date(displayTimestamp).toISOString()}>
+              {formatTimestamp(displayTimestamp, timeFormat, convertToLocalTime, systemUses24h)}
+            </time>
           </span>
         )}
         <div className={styles.messageBody}>{renderBody()}</div>

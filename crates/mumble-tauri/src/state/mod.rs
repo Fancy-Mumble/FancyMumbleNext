@@ -18,8 +18,8 @@ pub mod types;
 
 // Re-export everything that lib.rs needs.
 pub use types::{
-    AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus, ServerConfig,
-    UserEntry, VoiceState,
+    AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus, GroupChat,
+    ServerConfig, ServerInfo, UserEntry, VoiceState,
 };
 
 use std::collections::{HashMap, HashSet};
@@ -50,10 +50,27 @@ pub(super) struct SharedState {
     pub channels: HashMap<u32, ChannelEntry>,
     /// `channel_id` → messages
     pub messages: HashMap<u32, Vec<ChatMessage>>,
+    /// Direct message storage: `other_session` → messages (conversation thread).
+    pub dm_messages: HashMap<u32, Vec<ChatMessage>>,
     pub own_session: Option<u32>,
     pub own_name: String,
     /// Whether we've received `ServerSync` (initial state is complete).
     pub synced: bool,
+    /// The Fancy Mumble protocol version announced by the server.
+    /// `None` for standard Mumble servers (no extensions).
+    pub server_fancy_version: Option<u64>,
+    /// Server version/identity information from the `Version` message.
+    pub server_version_info: ServerVersionInfo,
+    /// Host the client connected to (for display in server info panel).
+    pub connected_host: String,
+    /// Port the client connected to.
+    pub connected_port: u16,
+    /// Maximum allowed users (from `ServerConfig`).
+    pub max_users: Option<u32>,
+    /// Maximum bandwidth from `ServerSync`.
+    pub max_bandwidth: Option<u32>,
+    /// Whether the server supports Opus.
+    pub opus: bool,
     /// Channels the user has permanently opted to listen to (via context menu).
     pub permanently_listened: HashSet<u32>,
     /// The channel currently selected in the UI (viewing chat).
@@ -62,6 +79,18 @@ pub(super) struct SharedState {
     pub current_channel: Option<u32>,
     /// Unread message counts per channel.
     pub unread_counts: HashMap<u32, u32>,
+    /// Unread DM counts per user session.
+    pub dm_unread_counts: HashMap<u32, u32>,
+    /// The user session whose DM chat is currently viewed (mutually exclusive with `selected_channel`).
+    pub selected_dm_user: Option<u32>,
+    /// Group chats keyed by group UUID.
+    pub group_chats: HashMap<String, GroupChat>,
+    /// Group message storage: `group_id` -> messages.
+    pub group_messages: HashMap<String, Vec<ChatMessage>>,
+    /// Unread message counts per group.
+    pub group_unread_counts: HashMap<String, u32>,
+    /// The group currently viewed (mutually exclusive with `selected_channel` / `selected_dm_user`).
+    pub selected_group: Option<String>,
     /// Server-reported configuration limits.
     pub server_config: ServerConfig,
     /// Audio settings (device, gain, VAD threshold).
@@ -148,6 +177,14 @@ impl AppState {
             .unwrap_or_default()
     }
 
+    /// Direct messages with a specific user, keyed by their session ID.
+    pub fn dm_messages(&self, session: u32) -> Vec<ChatMessage> {
+        self.inner
+            .lock()
+            .map(|s| s.dm_messages.get(&session).cloned().unwrap_or_default())
+            .unwrap_or_default()
+    }
+
     /// Return our own session ID (assigned by the server after connect).
     pub fn get_own_session(&self) -> Option<u32> {
         self.inner.lock().ok().and_then(|s| s.own_session)
@@ -156,16 +193,30 @@ impl AppState {
     // ── Messaging ─────────────────────────────────────────────────
 
     pub async fn send_message(&self, channel_id: u32, body: String) -> Result<(), String> {
-        let (handle, own_session, own_name) = {
+        let (handle, own_session, own_name, is_fancy) = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;
             (
                 state.client_handle.clone(),
                 state.own_session,
                 state.own_name.clone(),
+                state.server_fancy_version.is_some(),
             )
         };
 
         let handle = handle.ok_or("Not connected")?;
+
+        // Generate message_id and timestamp only when the server supports
+        // Fancy Mumble extensions.  Legacy servers ignore unknown fields.
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let message_id = if is_fancy {
+            Some(uuid::Uuid::new_v4().to_string())
+        } else {
+            None
+        };
+        let timestamp = if is_fancy { Some(now_ms) } else { None };
 
         handle
             .send(command::SendTextMessage {
@@ -173,6 +224,8 @@ impl AppState {
                 user_sessions: vec![],
                 tree_ids: vec![],
                 message: body.clone(),
+                message_id: message_id.clone(),
+                timestamp,
             })
             .await
             .map_err(|e| format!("Failed to send message: {e}"))?;
@@ -189,6 +242,69 @@ impl AppState {
                     body,
                     channel_id,
                     is_own: true,
+                    dm_session: None,
+                    group_id: None,
+                    message_id,
+                    timestamp,
+                });
+        }
+
+        Ok(())
+    }
+
+    /// Send a direct message (DM) to a specific user by session ID.
+    pub async fn send_dm(&self, target_session: u32, body: String) -> Result<(), String> {
+        let (handle, own_session, own_name, is_fancy) = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            (
+                state.client_handle.clone(),
+                state.own_session,
+                state.own_name.clone(),
+                state.server_fancy_version.is_some(),
+            )
+        };
+
+        let handle = handle.ok_or("Not connected")?;
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let message_id = if is_fancy {
+            Some(uuid::Uuid::new_v4().to_string())
+        } else {
+            None
+        };
+        let timestamp = if is_fancy { Some(now_ms) } else { None };
+
+        handle
+            .send(command::SendTextMessage {
+                channel_ids: vec![],
+                user_sessions: vec![target_session],
+                tree_ids: vec![],
+                message: body.clone(),
+                message_id: message_id.clone(),
+                timestamp,
+            })
+            .await
+            .map_err(|e| format!("Failed to send DM: {e}"))?;
+
+        // Store locally keyed by the target user's session.
+        if let Ok(mut state) = self.inner.lock() {
+            state
+                .dm_messages
+                .entry(target_session)
+                .or_default()
+                .push(ChatMessage {
+                    sender_session: own_session,
+                    sender_name: own_name,
+                    body,
+                    channel_id: 0,
+                    is_own: true,
+                    dm_session: Some(target_session),
+                    group_id: None,
+                    message_id,
+                    timestamp,
                 });
         }
 
@@ -226,10 +342,13 @@ impl AppState {
     // ── Channel browse / join / listen ──────────────────────────────
 
     /// Select a channel in the UI for viewing (does NOT join it).
+    /// Clears any active DM or group view.
     pub fn select_channel(&self, channel_id: u32) -> Result<(), String> {
         {
             let mut state = self.inner.lock().map_err(|e| e.to_string())?;
             state.selected_channel = Some(channel_id);
+            state.selected_dm_user = None;
+            state.selected_group = None;
             // Mark the channel as read.
             state.unread_counts.remove(&channel_id);
         }
@@ -373,12 +492,298 @@ impl AppState {
         }
     }
 
+    // ── Direct message helpers ─────────────────────────────────────
+
+    /// Select a DM conversation for viewing. Clears the channel and group selection.
+    pub fn select_dm_user(&self, session: u32) -> Result<(), String> {
+        {
+            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.selected_dm_user = Some(session);
+            state.selected_channel = None;
+            state.selected_group = None;
+            // Mark DMs with this user as read.
+            state.dm_unread_counts.remove(&session);
+        }
+        self.emit_dm_unreads();
+        Ok(())
+    }
+
+    /// Get DM unread counts per user session.
+    pub fn dm_unread_counts(&self) -> HashMap<u32, u32> {
+        self.inner
+            .lock()
+            .map(|s| s.dm_unread_counts.clone())
+            .unwrap_or_default()
+    }
+
+    /// Mark DMs with a specific user as read.
+    pub fn mark_dm_read(&self, session: u32) {
+        if let Ok(mut state) = self.inner.lock() {
+            state.dm_unread_counts.remove(&session);
+        }
+        self.emit_dm_unreads();
+    }
+
+    /// Emit DM unread counts to the frontend.
+    fn emit_dm_unreads(&self) {
+        if let Some(handle) = self.app_handle() {
+            let unreads = self.dm_unread_counts();
+            let _ = handle.emit("dm-unread-changed", DmUnreadPayload { unreads });
+        }
+    }
+
+    // -- Group chat helpers -----------------------------------------
+
+    /// Create a new group chat and announce it to all members via plugin data.
+    pub async fn create_group(
+        &self,
+        name: String,
+        member_sessions: Vec<u32>,
+    ) -> Result<GroupChat, String> {
+        let (own_session, full_members) = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let own = state.own_session.ok_or("Not connected")?;
+            // Ensure creator is in the member list.
+            let mut members = member_sessions;
+            if !members.contains(&own) {
+                members.insert(0, own);
+            }
+            (own, members)
+        };
+
+        let group = GroupChat {
+            id: uuid::Uuid::new_v4().to_string(),
+            name,
+            members: full_members.clone(),
+            creator: own_session,
+        };
+
+        // Store locally.
+        if let Ok(mut state) = self.inner.lock() {
+            state.group_chats.insert(group.id.clone(), group.clone());
+        }
+
+        // Announce to other members via plugin data.
+        let other_members: Vec<u32> = full_members
+            .iter()
+            .copied()
+            .filter(|&s| s != own_session)
+            .collect();
+
+        if !other_members.is_empty() {
+            let payload = serde_json::json!({
+                "action": "create",
+                "group": group,
+            });
+            let data = payload.to_string().into_bytes();
+            self.send_plugin_data(other_members, data, "fancy-group".into())
+                .await?;
+        }
+
+        // Emit to frontend.
+        if let Some(app) = self.app_handle() {
+            let _ = app.emit("group-created", GroupCreatedPayload { group: group.clone() });
+        }
+
+        Ok(group)
+    }
+
+    /// Get all known group chats.
+    pub fn groups(&self) -> Vec<GroupChat> {
+        self.inner
+            .lock()
+            .map(|s| s.group_chats.values().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Get messages for a specific group chat.
+    pub fn group_messages(&self, group_id: &str) -> Vec<ChatMessage> {
+        self.inner
+            .lock()
+            .map(|s| s.group_messages.get(group_id).cloned().unwrap_or_default())
+            .unwrap_or_default()
+    }
+
+    /// Select a group chat for viewing. Clears channel and DM selection.
+    pub fn select_group(&self, group_id: String) -> Result<(), String> {
+        {
+            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.selected_group = Some(group_id.clone());
+            state.selected_channel = None;
+            state.selected_dm_user = None;
+            state.group_unread_counts.remove(&group_id);
+        }
+        self.emit_group_unreads();
+        Ok(())
+    }
+
+    /// Get group unread counts.
+    pub fn group_unread_counts(&self) -> HashMap<String, u32> {
+        self.inner
+            .lock()
+            .map(|s| s.group_unread_counts.clone())
+            .unwrap_or_default()
+    }
+
+    /// Mark a group chat as read.
+    pub fn mark_group_read(&self, group_id: &str) {
+        if let Ok(mut state) = self.inner.lock() {
+            state.group_unread_counts.remove(group_id);
+        }
+        self.emit_group_unreads();
+    }
+
+    /// Emit group unread counts to the frontend.
+    fn emit_group_unreads(&self) {
+        if let Some(handle) = self.app_handle() {
+            let unreads = self.group_unread_counts();
+            let _ = handle.emit("group-unread-changed", GroupUnreadPayload { unreads });
+        }
+    }
+
+    /// Send a message to a group chat.
+    ///
+    /// The message is sent as a `TextMessage` with `user_sessions` targeting
+    /// all other group members.  The body is prefixed with a
+    /// `<!-- FANCY_GROUP:group_id -->` marker so recipients can route it
+    /// to the correct group conversation.
+    pub async fn send_group_message(
+        &self,
+        group_id: String,
+        body: String,
+    ) -> Result<(), String> {
+        let (handle, own_session, own_name, is_fancy, targets) = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let group = state
+                .group_chats
+                .get(&group_id)
+                .ok_or("Group not found")?;
+            let own = state.own_session.ok_or("Not connected")?;
+            let targets: Vec<u32> = group
+                .members
+                .iter()
+                .copied()
+                .filter(|&s| s != own)
+                .collect();
+            (
+                state.client_handle.clone(),
+                Some(own),
+                state.own_name.clone(),
+                state.server_fancy_version.is_some(),
+                targets,
+            )
+        };
+
+        let handle = handle.ok_or("Not connected")?;
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let message_id = if is_fancy {
+            Some(uuid::Uuid::new_v4().to_string())
+        } else {
+            None
+        };
+        let timestamp = if is_fancy { Some(now_ms) } else { None };
+
+        // Prefix the body with the group marker.
+        let wire_body = format!("<!-- FANCY_GROUP:{group_id} -->{body}");
+
+        handle
+            .send(command::SendTextMessage {
+                channel_ids: vec![],
+                user_sessions: targets,
+                tree_ids: vec![],
+                message: wire_body,
+                message_id: message_id.clone(),
+                timestamp,
+            })
+            .await
+            .map_err(|e| format!("Failed to send group message: {e}"))?;
+
+        // Store locally (without the marker prefix).
+        if let Ok(mut state) = self.inner.lock() {
+            state
+                .group_messages
+                .entry(group_id.clone())
+                .or_default()
+                .push(ChatMessage {
+                    sender_session: own_session,
+                    sender_name: own_name,
+                    body,
+                    channel_id: 0,
+                    is_own: true,
+                    dm_session: None,
+                    group_id: Some(group_id),
+                    message_id,
+                    timestamp,
+                });
+        }
+
+        Ok(())
+    }
+
     /// Get the server-reported config limits.
     pub fn server_config(&self) -> ServerConfig {
         self.inner
             .lock()
             .map(|s| s.server_config.clone())
             .unwrap_or_default()
+    }
+
+    /// Assemble a full server info snapshot for the frontend.
+    pub fn server_info(&self) -> ServerInfo {
+        self.inner
+            .lock()
+            .map(|s| {
+                let vi = &s.server_version_info;
+                // Format protocol version from the v2 or v1 encoding.
+                let protocol_version = vi.version_v2.map(|v| {
+                    let major = (v >> 48) & 0xFFFF;
+                    let minor = (v >> 32) & 0xFFFF;
+                    let patch = (v >> 16) & 0xFFFF;
+                    format!("{major}.{minor}.{patch}")
+                }).or_else(|| vi.version_v1.map(|v| {
+                    let major = (v >> 16) & 0xFF;
+                    let minor = (v >> 8) & 0xFF;
+                    let patch = v & 0xFF;
+                    format!("{major}.{minor}.{patch}")
+                }));
+
+                // Combine os + os_version into a single readable string:
+                // "Linux" + "Ubuntu 24.04.1 LTS [arm64]" -> "Linux (Ubuntu 24.04.1 LTS [arm64])"
+                let os = match (vi.os.as_deref(), vi.os_version.as_deref()) {
+                    (Some(name), Some(ver)) if !ver.is_empty() => Some(format!("{name} ({ver})")),
+                    (Some(name), _) => Some(name.to_owned()),
+                    _ => None,
+                };
+
+                ServerInfo {
+                    host: s.connected_host.clone(),
+                    port: s.connected_port,
+                    user_count: s.users.len() as u32,
+                    max_users: s.max_users,
+                    protocol_version,
+                    fancy_version: s.server_fancy_version,
+                    release: vi.release.clone(),
+                    os,
+                    max_bandwidth: s.max_bandwidth,
+                    opus: s.opus,
+                }
+            })
+            .unwrap_or_else(|_| ServerInfo {
+                host: String::new(),
+                port: 0,
+                user_count: 0,
+                max_users: None,
+                protocol_version: None,
+                fancy_version: None,
+                release: None,
+                os: None,
+                max_bandwidth: None,
+                opus: false,
+            })
     }
 
     // ── Profile (comment / texture) ──────────────────────────────

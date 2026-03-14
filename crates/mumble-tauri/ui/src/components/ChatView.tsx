@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer, type ClipboardEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../store";
+import type { TimeFormat } from "../types";
+import { getPreferences } from "../preferencesStorage";
 import ChatHeader from "./ChatHeader";
 import MessageItem from "./MessageItem";
 import ChatComposer from "./ChatComposer";
@@ -30,7 +33,25 @@ function isWithinHalfViewport(el: HTMLElement): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
 }
 
-export default function ChatView() {
+interface ChatViewProps {
+  readonly onServerInfoToggle?: () => void;
+}
+
+/** Compute chat header label and member count based on the active mode. */
+function computeHeader(
+  isGroupMode: boolean,
+  activeGroup: { name: string; members: number[] } | undefined,
+  isDmMode: boolean,
+  dmPartner: { name: string } | undefined,
+  channel: { name: string } | undefined,
+  memberCount: number,
+): [string, number] {
+  if (isGroupMode) return [activeGroup?.name ?? "Group Chat", activeGroup?.members.length ?? 0];
+  if (isDmMode) return [dmPartner?.name ?? "Direct Message", 0];
+  return [channel?.name ?? "Unknown", memberCount];
+}
+
+export default function ChatView({ onServerInfoToggle }: ChatViewProps) {
   const channels = useAppStore((s) => s.channels);
   const users = useAppStore((s) => s.users);
   const selectedChannel = useAppStore((s) => s.selectedChannel);
@@ -46,9 +67,46 @@ export default function ChatView() {
   const pollMessages = useAppStore((s) => s.pollMessages);
   const selectUser = useAppStore((s) => s.selectUser);
 
+  // DM state
+  const selectedDmUser = useAppStore((s) => s.selectedDmUser);
+  const dmMessages = useAppStore((s) => s.dmMessages);
+  const sendDm = useAppStore((s) => s.sendDm);
+
+  // Group chat state
+  const selectedGroup = useAppStore((s) => s.selectedGroup);
+  const groupMessages = useAppStore((s) => s.groupMessages);
+  const sendGroupMessage = useAppStore((s) => s.sendGroupMessage);
+  const groupChats = useAppStore((s) => s.groupChats);
+
+  const isDmMode = selectedDmUser !== null;
+  const isGroupMode = selectedGroup !== null;
+  const dmPartner = isDmMode ? users.find((u) => u.session === selectedDmUser) : undefined;
+  const activeGroup = isGroupMode ? groupChats.find((g) => g.id === selectedGroup) : undefined;
+
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [, forceRender] = useReducer((c: number) => c + 1, 0);
+
+  // Time display preferences (loaded once from persistent storage).
+  const [timeFormat, setTimeFormat] = useState<TimeFormat>("auto");
+  const [convertToLocalTime, setConvertToLocalTime] = useState(true);
+  // System clock format resolved from OS (not from WebView Intl, which ignores
+  // the Windows Region setting and always uses the language-tag default).
+  const [systemUses24h, setSystemUses24h] = useState<boolean | undefined>(undefined);
+
+  useEffect(() => {
+    getPreferences().then((prefs) => {
+      setTimeFormat(prefs.timeFormat);
+      setConvertToLocalTime(prefs.convertToLocalTime);
+    });
+    invoke<"12h" | "24h" | null>("get_system_clock_format")
+      .then((fmt) => {
+        // null means non-Windows: leave systemUses24h as undefined so the
+        // Intl probe in formatTimestamp is used instead.
+        if (fmt !== null) setSystemUses24h(fmt === "24h");
+      })
+      .catch(() => { /* leave undefined - fall back to Intl */ });
+  }, []);
 
   /** The scroll container (<div.messages>). */
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -145,11 +203,17 @@ export default function ChatView() {
 
   /** Merge real messages with local-only poll messages for rendering. */
   const allMessages = useMemo(() => {
+    if (isGroupMode) {
+      return groupMessages;
+    }
+    if (isDmMode) {
+      return dmMessages;
+    }
     const channelPolls = pollMessages.filter(
       (m) => m.channel_id === selectedChannel,
     );
     return [...messages, ...channelPolls];
-  }, [messages, pollMessages, selectedChannel]);
+  }, [isGroupMode, groupMessages, isDmMode, dmMessages, messages, pollMessages, selectedChannel]);
 
   // ─── Smart scroll behaviour ──────────────────────────────────────
   //
@@ -342,7 +406,7 @@ export default function ChatView() {
     };
   }, []);
 
-  // On channel switch, reset scroll state and jump to bottom instantly.
+  // On channel / DM switch, reset scroll state and jump to bottom instantly.
   useEffect(() => {
     setNewMsgCount(0);
     setLastReadIdx(null);
@@ -352,9 +416,9 @@ export default function ChatView() {
       const el = messagesContainerRef.current;
       if (el) scrollToBottom(el);
     });
-    // Only run when the selected channel changes, not allMessages.
+    // Only run when the selected channel, DM user, or group changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedChannel]);
+  }, [selectedChannel, selectedDmUser, selectedGroup]);
 
   /** Jump-to-bottom handler used by the "new messages" pill. */
   const handleScrollToBottom = useCallback(() => {
@@ -366,16 +430,26 @@ export default function ChatView() {
 
   const handleSend = async () => {
     const text = draft.trim();
-    if (!text || selectedChannel === null) return;
-    setDraft("");
-    const html = markdownToHtml(text);
-    await sendMessage(selectedChannel, html);
+    if (!text) return;
+    if (isGroupMode && selectedGroup !== null) {
+      setDraft("");
+      const html = markdownToHtml(text);
+      await sendGroupMessage(selectedGroup, html);
+    } else if (isDmMode && selectedDmUser !== null) {
+      setDraft("");
+      const html = markdownToHtml(text);
+      await sendDm(selectedDmUser, html);
+    } else if (selectedChannel !== null) {
+      setDraft("");
+      const html = markdownToHtml(text);
+      await sendMessage(selectedChannel, html);
+    }
   };
 
   /** Encode a File and send it as a media message. */
   const sendMediaFile = useCallback(
     async (file: File) => {
-      if (selectedChannel === null) return;
+      if (!isGroupMode && !isDmMode && selectedChannel === null) return;
 
       const kind = mediaKind(file.type);
       if (!kind) {
@@ -383,7 +457,7 @@ export default function ChatView() {
         return;
       }
 
-      // 0 means "no special image limit" → fall back to message_length.
+      // 0 means "no special image limit" -> fall back to message_length.
       const maxBytes =
         serverConfig.max_image_message_length > 0
           ? serverConfig.max_image_message_length
@@ -410,7 +484,13 @@ export default function ChatView() {
         }
 
         const html = mediaToHtml(dataUrl, sendKind, file.name || "clipboard.png");
-        await sendMessage(selectedChannel, html);
+        if (isGroupMode && selectedGroup !== null) {
+          await sendGroupMessage(selectedGroup, html);
+        } else if (isDmMode && selectedDmUser !== null) {
+          await sendDm(selectedDmUser, html);
+        } else if (selectedChannel !== null) {
+          await sendMessage(selectedChannel, html);
+        }
       } catch (err) {
         console.error("media send error:", err);
         alert(String(err));
@@ -418,7 +498,7 @@ export default function ChatView() {
         setSending(false);
       }
     },
-    [selectedChannel, serverConfig, sendMessage],
+    [isGroupMode, selectedGroup, sendGroupMessage, isDmMode, selectedDmUser, selectedChannel, serverConfig, sendMessage, sendDm],
   );
 
   /** Handle Ctrl+V / Cmd+V with image data on the clipboard. */
@@ -444,11 +524,16 @@ export default function ChatView() {
 
   const handleGifSelect = useCallback(
     async (url: string, alt: string) => {
-      if (selectedChannel === null) return;
       const html = `<img src="${url}" alt="${alt}" />`;
-      await sendMessage(selectedChannel, html);
+      if (isGroupMode && selectedGroup !== null) {
+        await sendGroupMessage(selectedGroup, html);
+      } else if (isDmMode && selectedDmUser !== null) {
+        await sendDm(selectedDmUser, html);
+      } else if (selectedChannel !== null) {
+        await sendMessage(selectedChannel, html);
+      }
     },
-    [selectedChannel, sendMessage],
+    [isGroupMode, selectedGroup, sendGroupMessage, isDmMode, selectedDmUser, selectedChannel, sendMessage, sendDm],
   );
 
   // ─── Poll handlers ─────────────────────────────────────────────
@@ -518,8 +603,14 @@ export default function ChatView() {
 
   // ─── End poll handlers ───────────────────────────────────────────
 
-  // Empty state - no channel selected.
-  if (selectedChannel === null) {
+  // Compute header values before any early returns (hooks can't be conditional).
+  const [headerName, headerMemberCount] = computeHeader(
+    isGroupMode, activeGroup, isDmMode, dmPartner, channel, memberCount,
+  );
+  const showJoinButton = !isDmMode && !isGroupMode && !isInChannel;
+
+  // Empty state - no channel, DM, or group selected.
+  if (selectedChannel === null && !isDmMode && !isGroupMode) {
     return (
       <main className={styles.main}>
         <div className={styles.empty}>
@@ -533,10 +624,13 @@ export default function ChatView() {
   return (
     <main className={styles.main}>
       <ChatHeader
-        channelName={channel?.name ?? "Unknown"}
-        memberCount={memberCount}
-        isInChannel={isInChannel}
-        onJoin={() => joinChannel(selectedChannel)}
+        channelName={headerName}
+        memberCount={headerMemberCount}
+        isInChannel={isDmMode || isGroupMode || isInChannel}
+        isDm={isDmMode}
+        isGroup={isGroupMode}
+        onJoin={showJoinButton ? () => joinChannel(selectedChannel!) : undefined}
+        onServerInfoToggle={onServerInfoToggle}
       />
 
       {/* Messages */}
@@ -549,7 +643,7 @@ export default function ChatView() {
             </div>
           ) : (
             allMessages.map((msg, i) => (
-              <React.Fragment key={`${msg.channel_id}-${msg.sender_session ?? "s"}-${msg.body.slice(0, 32)}-${i}`}>
+              <React.Fragment key={msg.message_id ?? `${msg.channel_id}-${msg.sender_session ?? "s"}-${msg.body.slice(0, 32)}-${i}`}>
                 {/* Last-read divider */}
                 {lastReadIdx !== null && i === lastReadIdx && (
                   <div className={styles.unreadDivider} aria-label="New messages">
@@ -573,6 +667,9 @@ export default function ChatView() {
                   ownSession={ownSession}
                   onVote={handlePollVote}
                   onAvatarClick={selectUser}
+                  timeFormat={timeFormat}
+                  convertToLocalTime={convertToLocalTime}
+                  systemUses24h={systemUses24h}
                 />
               </React.Fragment>
             ))

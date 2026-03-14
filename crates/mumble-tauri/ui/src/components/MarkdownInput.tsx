@@ -298,12 +298,19 @@ export default function MarkdownInput({
     }
   }, []);
 
-  // Auto-resize textarea to content.
+  // Auto-resize textarea and wrapper to content (up to max-height).
   useEffect(() => {
     const el = textareaRef.current;
-    if (!el) return;
+    const wrapper = el?.parentElement;
+    if (!el || !wrapper) return;
+    // Reset both heights before measuring so scrollHeight reflects actual content,
+    // not the previous explicit height (wrapper falls back to CSS min-height).
+    wrapper.style.height = "auto";
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+    const maxHeight = 200;
+    const clamped = Math.min(el.scrollHeight, maxHeight);
+    el.style.height = `${clamped}px`;
+    wrapper.style.height = `${clamped}px`;
   }, [value]);
 
   /** Wrap selection / insert at cursor with markdown markers. */

@@ -11,6 +11,10 @@ pub struct Version {
     pub os: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag = "4")]
     pub os_version: ::core::option::Option<::prost::alloc::string::String>,
+    /// Fancy Mumble version identifier. When present, both sides
+    /// understand extensions (message_id, timestamp, etc.).
+    #[prost(uint64, optional, tag = "6")]
+    pub fancy_version: ::core::option::Option<u64>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct UdpTunnel {
@@ -289,6 +293,12 @@ pub struct TextMessage {
     pub tree_id: ::prost::alloc::vec::Vec<u32>,
     #[prost(string, required, tag = "5")]
     pub message: ::prost::alloc::string::String,
+    /// Unique identifier for this message (Fancy Mumble extension).
+    #[prost(string, optional, tag = "6")]
+    pub message_id: ::core::option::Option<::prost::alloc::string::String>,
+    /// Message timestamp as Unix epoch millis (Fancy Mumble extension).
+    #[prost(uint64, optional, tag = "7")]
+    pub timestamp: ::core::option::Option<u64>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct PermissionDenied {

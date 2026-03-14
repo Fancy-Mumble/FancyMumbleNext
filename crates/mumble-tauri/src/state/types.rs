@@ -35,6 +35,22 @@ pub struct ChatMessage {
     pub body: String,
     pub channel_id: u32,
     pub is_own: bool,
+    /// When set, this message is a direct message (DM) to/from a specific user.
+    /// The value is the *other* user's session ID (the conversation partner).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dm_session: Option<u32>,
+    /// When set, this message belongs to a group chat.
+    /// The value is the group's unique ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    /// Unique message identifier (Fancy Mumble extension).
+    /// `None` when the server/sender does not support extensions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+    /// Unix epoch milliseconds (Fancy Mumble extension).
+    /// `None` when the server/sender does not support extensions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<u64>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -66,11 +82,79 @@ impl Default for ServerConfig {
     }
 }
 
+/// Version and configuration metadata announced by the server during handshake.
+/// Assembled from `Version`, `ServerSync`, and `ServerConfig` messages.
+#[derive(Debug, Default, Clone, Serialize)]
+pub struct ServerVersionInfo {
+    /// Server release string (e.g. "Mumble 1.5.517").
+    pub release: Option<String>,
+    /// Server operating system (e.g. "Linux", "Windows").
+    pub os: Option<String>,
+    /// Server OS version string.
+    pub os_version: Option<String>,
+    /// Legacy protocol version v1 encoding: (major << 16) | (minor << 8) | patch.
+    pub version_v1: Option<u32>,
+    /// Protocol version v2 encoding.
+    pub version_v2: Option<u64>,
+    /// Fancy Mumble extension version (None = standard server).
+    pub fancy_version: Option<u64>,
+}
+
+/// Full server info payload sent to the frontend.
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerInfo {
+    /// Host the client connected to.
+    pub host: String,
+    /// Port the client connected to.
+    pub port: u16,
+    /// Number of users currently on the server.
+    pub user_count: u32,
+    /// Maximum users allowed by the server (from `ServerConfig`).
+    pub max_users: Option<u32>,
+    /// Human-readable protocol version string.
+    pub protocol_version: Option<String>,
+    /// Fancy Mumble extension version.
+    pub fancy_version: Option<u64>,
+    /// Server release string.
+    pub release: Option<String>,
+    /// Server operating system.
+    pub os: Option<String>,
+    /// Maximum bandwidth allowed by the server (bits/s).
+    pub max_bandwidth: Option<u32>,
+    /// Whether Opus codec is supported.
+    pub opus: bool,
+}
+
+// ─── Group chat ────────────────────────────────────────────────────
+
+/// A multi-member group chat, identified by a UUID.
+///
+/// Groups are ephemeral (lifetime of the connection).  Membership is
+/// propagated via `PluginDataTransmission` with `data_id = "fancy-group"`.
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
+pub struct GroupChat {
+    /// Unique group identifier (UUID v4).
+    pub id: String,
+    /// Human-readable group name chosen by the creator.
+    pub name: String,
+    /// Session IDs of all members (including the creator).
+    pub members: Vec<u32>,
+    /// Session ID of the user who created the group.
+    pub creator: u32,
+}
+
 // ─── Event payloads emitted to the frontend ───────────────────────
 
 #[derive(Clone, Serialize)]
 pub(crate) struct NewMessagePayload {
     pub channel_id: u32,
+}
+
+/// Emitted when a new direct message arrives.
+#[derive(Clone, Serialize)]
+pub(crate) struct NewDmPayload {
+    /// Session ID of the conversation partner (the sender for incoming DMs).
+    pub session: u32,
 }
 
 #[derive(Clone, Serialize)]
@@ -82,6 +166,32 @@ pub(crate) struct RejectedPayload {
 pub(crate) struct UnreadPayload {
     /// `channel_id` → unread count
     pub unreads: HashMap<u32, u32>,
+}
+
+#[derive(Clone, Serialize)]
+pub(crate) struct DmUnreadPayload {
+    /// `session_id` → unread DM count
+    pub unreads: HashMap<u32, u32>,
+}
+
+/// Emitted when a new group message arrives.
+#[derive(Clone, Serialize)]
+pub(crate) struct NewGroupMessagePayload {
+    /// The group's unique ID.
+    pub group_id: String,
+}
+
+/// Emitted when group unread counts change.
+#[derive(Clone, Serialize)]
+pub(crate) struct GroupUnreadPayload {
+    /// `group_id` → unread count.
+    pub unreads: HashMap<String, u32>,
+}
+
+/// Emitted when a group chat is created or updated.
+#[derive(Clone, Serialize)]
+pub(crate) struct GroupCreatedPayload {
+    pub group: GroupChat,
 }
 
 #[derive(Clone, Serialize)]

@@ -50,6 +50,10 @@ pub struct ConnectionInfo {
     pub max_bandwidth: Option<u32>,
     /// Server welcome text.
     pub welcome_text: Option<String>,
+    /// The Fancy Mumble version announced by the server (if any).
+    /// `None` means the server is a standard Mumble server without
+    /// Fancy Mumble extensions.
+    pub server_fancy_version: Option<u64>,
 }
 
 /// Aggregated server state maintained by the client.
@@ -183,6 +187,14 @@ impl ServerState {
     /// Remove a channel from state.
     pub fn remove_channel(&mut self, channel_id: u32) {
         self.channels.remove(&channel_id);
+    }
+
+    /// Apply an incoming `Version` message from the server.
+    ///
+    /// If the server sends `fancy_version`, it supports Fancy Mumble
+    /// extensions (`message_id`, `timestamp`, etc.).
+    pub fn apply_version(&mut self, version: &crate::proto::mumble_tcp::Version) {
+        self.connection.server_fancy_version = version.fancy_version;
     }
 
     /// Apply `ServerSync` to record our session and connection metadata.

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { load } from "@tauri-apps/plugin-store";
-import type { AudioDevice, AudioSettings, FancyProfile, UserMode } from "../../types";
+import type { AudioDevice, AudioSettings, FancyProfile, UserMode, TimeFormat } from "../../types";
 import { getPreferences, updatePreferences } from "../../preferencesStorage";
 import { serializeProfile, dataUrlToBytes } from "../../profileFormat";
 import { setKlipyApiKey } from "../../components/GifPicker";
@@ -64,6 +64,8 @@ export default function SettingsPage() {
   const [userMode, setUserMode] = useState<UserMode>("normal");
   const [defaultUsername, setDefaultUsername] = useState("");
   const [klipyApiKey, setKlipyApiKeyState] = useState("");
+  const [timeFormat, setTimeFormat] = useState<TimeFormat>("auto");
+  const [convertToLocalTime, setConvertToLocalTime] = useState(true);
 
   // Shortcuts
   const [shortcuts, setShortcuts] = useState<ShortcutBindings>({
@@ -100,6 +102,8 @@ export default function SettingsPage() {
         setDefaultUsername(prefs.defaultUsername);
         setKlipyApiKeyState(prefs.klipyApiKey ?? "");
         setKlipyApiKey(prefs.klipyApiKey);
+        setTimeFormat(prefs.timeFormat);
+        setConvertToLocalTime(prefs.convertToLocalTime);
       } catch {
         /* keep defaults */
       }
@@ -239,6 +243,19 @@ export default function SettingsPage() {
     [],
   );
 
+  const handleTimeFormatChange = useCallback(async (fmt: TimeFormat) => {
+    setTimeFormat(fmt);
+    await updatePreferences({ timeFormat: fmt });
+  }, []);
+
+  const handleConvertToLocalTimeChange = useCallback(async () => {
+    setConvertToLocalTime((prev) => {
+      const next = !prev;
+      updatePreferences({ convertToLocalTime: next });
+      return next;
+    });
+  }, []);
+
   const handleReset = useCallback(async () => {
     try {
       // Clear all tauri-plugin-store caches so the in-memory data is gone.
@@ -361,8 +378,12 @@ export default function SettingsPage() {
             <AdvancedPanel
               userMode={userMode}
               klipyApiKey={klipyApiKey}
+              timeFormat={timeFormat}
+              convertToLocalTime={convertToLocalTime}
               onToggleMode={handleToggleMode}
               onKlipyApiKeyChange={handleKlipyApiKeyChange}
+              onTimeFormatChange={handleTimeFormatChange}
+              onConvertToLocalTimeChange={handleConvertToLocalTimeChange}
               onReset={handleReset}
             />
           )}

@@ -14,6 +14,8 @@ const DEFAULTS: UserPreferences = {
   hasCompletedSetup: false,
   defaultUsername: "",
   klipyApiKey: "",
+  timeFormat: "auto",
+  convertToLocalTime: true,
 };
 
 async function getStore() {

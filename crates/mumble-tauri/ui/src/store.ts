@@ -15,6 +15,7 @@ import type {
   ConnectionStatus,
   MumbleServerConfig,
   VoiceState,
+  GroupChat,
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/PollCreator";
 import { registerPoll, registerVote } from "./components/PollCard";
@@ -39,6 +40,24 @@ interface AppState {
   unreadCounts: Record<number, number>;
   serverConfig: MumbleServerConfig;
   voiceState: VoiceState;
+
+  // ── DM state ──────────────────────────────────────────────────
+  /** Session ID of the user whose DM chat is currently viewed. */
+  selectedDmUser: number | null;
+  /** DM messages for the currently viewed conversation. */
+  dmMessages: ChatMessage[];
+  /** DM unread counts keyed by user session. */
+  dmUnreadCounts: Record<number, number>;
+
+  // ── Group chat state ──────────────────────────────────────────
+  /** All known group chats. */
+  groupChats: GroupChat[];
+  /** ID of the group chat currently being viewed (mutually exclusive with channel/DM). */
+  selectedGroup: string | null;
+  /** Messages for the currently viewed group chat. */
+  groupMessages: ChatMessage[];
+  /** Group unread counts keyed by group ID. */
+  groupUnreadCounts: Record<string, number>;
 
   // ── Poll state (in-memory, not persisted) ─────────────────────
   /** All known polls keyed by poll ID. */
@@ -65,6 +84,17 @@ interface AppState {
   addPoll: (poll: PollPayload, isOwn: boolean) => void;
   setError: (error: string | null) => void;
   reset: () => void;
+
+  // DM actions
+  selectDmUser: (session: number) => Promise<void>;
+  sendDm: (targetSession: number, body: string) => Promise<void>;
+  refreshDmMessages: (session: number) => Promise<void>;
+
+  // Group chat actions
+  createGroup: (name: string, memberSessions: number[]) => Promise<void>;
+  selectGroup: (groupId: string) => Promise<void>;
+  sendGroupMessage: (groupId: string, body: string) => Promise<void>;
+  refreshGroupMessages: (groupId: string) => Promise<void>;
 }
 
 const INITIAL: Pick<
@@ -82,6 +112,13 @@ const INITIAL: Pick<
   | "unreadCounts"
   | "serverConfig"
   | "voiceState"
+  | "selectedDmUser"
+  | "dmMessages"
+  | "dmUnreadCounts"
+  | "groupChats"
+  | "selectedGroup"
+  | "groupMessages"
+  | "groupUnreadCounts"
   | "polls"
   | "pollMessages"
 > = {
@@ -102,11 +139,30 @@ const INITIAL: Pick<
     allow_html: true,
   },
   voiceState: "inactive" as VoiceState,
+  selectedDmUser: null,
+  dmMessages: [],
+  dmUnreadCounts: {},
+  groupChats: [],
+  selectedGroup: null,
+  groupMessages: [],
+  groupUnreadCounts: {},
   polls: new Map(),
   pollMessages: [],
 };
 
 // ─── Store ────────────────────────────────────────────────────────
+
+/** Update the taskbar badge with the total unread count (channels + DMs + groups). */
+function updateBadgeCount(): void {
+  const { unreadCounts, dmUnreadCounts, groupUnreadCounts } = useAppStore.getState();
+  const channelSum = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
+  const dmSum = Object.values(dmUnreadCounts).reduce((a, b) => a + b, 0);
+  const groupSum = Object.values(groupUnreadCounts).reduce((a, b) => a + b, 0);
+  const total = channelSum + dmSum + groupSum;
+  invoke("update_badge_count", { count: total > 0 ? total : null }).catch(() => {
+    // Badge API may not be available on all platforms.
+  });
+}
 
 export const useAppStore = create<AppState>((set) => ({
   ...INITIAL,
@@ -127,12 +183,13 @@ export const useAppStore = create<AppState>((set) => ({
       console.error("disconnect error:", e);
     }
     set({ ...INITIAL });
+    invoke("update_badge_count", { count: null }).catch(() => {});
   },
 
   selectChannel: async (id) => {
-    set({ selectedChannel: id });
+    set({ selectedChannel: id, selectedDmUser: null, dmMessages: [], selectedGroup: null, groupMessages: [] });
     try {
-      // Notify backend - marks channel as read.
+      // Notify backend - marks channel as read and clears DM selection.
       await invoke("select_channel", { channelId: id });
       const messages = await invoke<ChatMessage[]>("get_messages", {
         channelId: id,
@@ -238,6 +295,79 @@ export const useAppStore = create<AppState>((set) => ({
   },
 
   selectUser: (session) => set({ selectedUser: session }),
+
+  selectDmUser: async (session) => {
+    set({ selectedDmUser: session, selectedChannel: null, messages: [], selectedUser: session, selectedGroup: null, groupMessages: [] });
+    try {
+      await invoke("select_dm_user", { session });
+      const dmMessages = await invoke<ChatMessage[]>("get_dm_messages", { session });
+      set({ dmMessages });
+    } catch (e) {
+      console.error("select_dm_user error:", e);
+    }
+  },
+
+  sendDm: async (targetSession, body) => {
+    try {
+      await invoke("send_dm", { targetSession, body });
+      const dmMessages = await invoke<ChatMessage[]>("get_dm_messages", { session: targetSession });
+      set({ dmMessages });
+    } catch (e) {
+      console.error("send_dm error:", e);
+    }
+  },
+
+  refreshDmMessages: async (session) => {
+    try {
+      const dmMessages = await invoke<ChatMessage[]>("get_dm_messages", { session });
+      set({ dmMessages });
+    } catch (e) {
+      console.error("refresh dm messages error:", e);
+    }
+  },
+
+  // ── Group chat actions ─────────────────────────────────────────
+
+  createGroup: async (name, memberSessions) => {
+    try {
+      // The backend emits a "group-created" event that the listener below
+      // will pick up, so we do not append here to avoid duplicates.
+      await invoke<GroupChat>("create_group", { name, memberSessions });
+    } catch (e) {
+      console.error("create_group error:", e);
+    }
+  },
+
+  selectGroup: async (groupId) => {
+    set({ selectedGroup: groupId, selectedChannel: null, messages: [], selectedDmUser: null, dmMessages: [] });
+    try {
+      await invoke("select_group", { groupId });
+      const groupMessages = await invoke<ChatMessage[]>("get_group_messages", { groupId });
+      set({ groupMessages });
+    } catch (e) {
+      console.error("select_group error:", e);
+    }
+  },
+
+  sendGroupMessage: async (groupId, body) => {
+    try {
+      await invoke("send_group_message", { groupId, body });
+      const groupMessages = await invoke<ChatMessage[]>("get_group_messages", { groupId });
+      set({ groupMessages });
+    } catch (e) {
+      console.error("send_group_message error:", e);
+    }
+  },
+
+  refreshGroupMessages: async (groupId) => {
+    try {
+      const groupMessages = await invoke<ChatMessage[]>("get_group_messages", { groupId });
+      set({ groupMessages });
+    } catch (e) {
+      console.error("refresh group messages error:", e);
+    }
+  },
+
   sendPluginData: async (receiverSessions, data, dataId) => {
     try {
       await invoke("send_plugin_data", {
@@ -337,6 +467,7 @@ export async function initEventListeners(
       // Preserve any error that was set by connection-rejected.
       const currentError = useAppStore.getState().error;
       useAppStore.setState({ ...INITIAL, error: currentError });
+      invoke("update_badge_count", { count: null }).catch(() => {});
       navigate("/");
     }),
   );
@@ -364,12 +495,73 @@ export async function initEventListeners(
     }),
   );
 
+  // New direct message arrived.
+  unlisteners.push(
+    await listen<{ session: number }>("new-dm", async (event) => {
+      const { selectedDmUser } = useAppStore.getState();
+      if (selectedDmUser === event.payload.session) {
+        await useAppStore
+          .getState()
+          .refreshDmMessages(event.payload.session);
+      }
+    }),
+  );
+
   // Unread counts changed.
   unlisteners.push(
     await listen<{ unreads: Record<number, number> }>(
       "unread-changed",
       (event) => {
         useAppStore.setState({ unreadCounts: event.payload.unreads });
+        updateBadgeCount();
+      },
+    ),
+  );
+
+  // DM unread counts changed.
+  unlisteners.push(
+    await listen<{ unreads: Record<number, number> }>(
+      "dm-unread-changed",
+      (event) => {
+        useAppStore.setState({ dmUnreadCounts: event.payload.unreads });
+        updateBadgeCount();
+      },
+    ),
+  );
+
+  // ── Group chat events ──────────────────────────────────────────
+
+  // A new group chat was created (locally or by another member).
+  unlisteners.push(
+    await listen<{ group: GroupChat }>("group-created", (event) => {
+      const group = event.payload.group;
+      useAppStore.setState((prev) => {
+        // Avoid duplicates.
+        if (prev.groupChats.some((g) => g.id === group.id)) return {};
+        return { groupChats: [...prev.groupChats, group] };
+      });
+    }),
+  );
+
+  // New group message arrived.
+  unlisteners.push(
+    await listen<{ group_id: string }>("new-group-message", async (event) => {
+      const { selectedGroup } = useAppStore.getState();
+      if (selectedGroup === event.payload.group_id) {
+        await useAppStore
+          .getState()
+          .refreshGroupMessages(event.payload.group_id);
+      }
+    }),
+  );
+
+  // Group unread counts changed.
+  unlisteners.push(
+    await listen<{ unreads: Record<string, number> }>(
+      "group-unread-changed",
+      (event) => {
+        useAppStore.setState({ groupUnreadCounts: event.payload.unreads });
+        updateBadgeCount();
       },
     ),
   );

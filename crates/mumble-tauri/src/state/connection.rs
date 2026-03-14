@@ -40,6 +40,8 @@ impl AppState {
             state.connection_epoch += 1;
             state.status = ConnectionStatus::Connecting;
             state.own_name = username.clone();
+            state.connected_host = host.clone();
+            state.connected_port = port;
             state.users.clear();
             state.channels.clear();
             state.messages.clear();

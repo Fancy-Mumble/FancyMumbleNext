@@ -116,6 +116,9 @@ pub async fn run<H: EventHandler>(
         release: Some("FancyMumble 0.1.0".into()),
         os: Some(std::env::consts::OS.into()),
         os_version: None,
+        // Announce Fancy Mumble extension support (version 1).
+        // The server responds with its own fancy_version if it supports them.
+        fancy_version: Some(1),
     });
     tcp.send(&version_msg).await?;
     info!("Version 1.5.0 sent");
@@ -360,6 +363,12 @@ fn handle_control_message<H: EventHandler>(
 ) {
     // Update internal state
     match msg {
+        ControlMessage::Version(v) => {
+            state.apply_version(v);
+            if let Some(fv) = v.fancy_version {
+                info!(fancy_version = fv, "server supports Fancy Mumble extensions");
+            }
+        }
         ControlMessage::ServerSync(sync) => {
             state.apply_server_sync(sync);
             info!(

@@ -1,19 +1,33 @@
 import { useState } from "react";
-import type { UserMode } from "../../types";
+import type { UserMode, TimeFormat } from "../../types";
 import { Toggle } from "./SharedControls";
 import styles from "./SettingsPage.module.css";
+
+const TIME_FORMAT_OPTIONS: { value: TimeFormat; label: string }[] = [
+  { value: "auto", label: "Auto (follow system)" },
+  { value: "12h", label: "12-hour (AM/PM)" },
+  { value: "24h", label: "24-hour" },
+];
 
 export function AdvancedPanel({
   userMode,
   klipyApiKey,
+  timeFormat,
+  convertToLocalTime,
   onToggleMode,
   onKlipyApiKeyChange,
+  onTimeFormatChange,
+  onConvertToLocalTimeChange,
   onReset,
 }: {
   userMode: UserMode;
   klipyApiKey: string;
+  timeFormat: TimeFormat;
+  convertToLocalTime: boolean;
   onToggleMode: () => void;
   onKlipyApiKeyChange: (key: string) => void;
+  onTimeFormatChange: (fmt: TimeFormat) => void;
+  onConvertToLocalTimeChange: () => void;
   onReset: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -62,6 +76,40 @@ export function AdvancedPanel({
           />
         </section>
       )}
+
+      <section className={styles.section}>
+        <h3 className={styles.sectionTitle}>Time Display</h3>
+        <p className={styles.fieldHint}>
+          Choose how timestamps are formatted in chat messages.
+        </p>
+
+        <label className={styles.fieldLabel}>Time Format</label>
+        <select
+          className={styles.input}
+          value={timeFormat}
+          onChange={(e) => onTimeFormatChange(e.target.value as TimeFormat)}
+        >
+          {TIME_FORMAT_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+
+        <div className={styles.toggleRow} style={{ marginTop: 12 }}>
+          <div className={styles.toggleInfo}>
+            <label className={styles.fieldLabel}>Convert to local time</label>
+            <p className={styles.fieldHint}>
+              When enabled, timestamps are displayed in your local timezone.
+              When disabled, times are shown in UTC.
+            </p>
+          </div>
+          <Toggle
+            checked={convertToLocalTime}
+            onChange={onConvertToLocalTimeChange}
+          />
+        </div>
+      </section>
 
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Danger Zone</h3>

@@ -12,6 +12,8 @@
     "core:window:allow-unmaximize",
     "core:window:allow-start-dragging",
     "store:default",
-    "core:window:allow-request-user-attention"
+    "core:window:allow-request-user-attention",
+    "core:webview:allow-set-webview-focus",
+    "core:window:allow-set-badge-count"
   ]
 }

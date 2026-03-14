@@ -52,9 +52,59 @@
 /* ─── Channel List ─────────────────────────────────────────────── */
 
 .channelList {
-  flex: 1;
+  flex: 3;
+  min-height: 0;
   overflow-y: auto;
   padding: 8px;
+}
+
+.channelList.sectionCollapsed {
+  flex: 0;
+  min-height: auto;
+  overflow: hidden;
+}
+
+.sectionHeaderBar {
+  padding: 4px 12px 0;
+  flex-shrink: 0;
+}
+
+/* ─── Collapsible section header ───────────────────────────────── */
+
+.collapsibleHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  padding: 2px 0;
+  margin: 0;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  width: 100%;
+  text-align: left;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+
+.collapsibleHeader:hover {
+  color: var(--color-text-secondary);
+}
+
+.collapseChevron {
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+  transform: rotate(0deg);
+}
+
+.collapseChevronOpen {
+  transform: rotate(90deg);
 }
 
 /* ─── Sticky current channel ───────────────────────────────────── */
@@ -322,10 +372,18 @@
 /* ─── User Section ─────────────────────────────────────────────── */
 
 .userSection {
-  padding: 12px 16px 16px;
-  max-height: 200px;
+  padding: 8px 16px 8px;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+.userSection.sectionCollapsed {
+  flex: 0;
+  min-height: auto;
+  overflow: visible;
 }
 
 .sectionTitle {
@@ -371,6 +429,10 @@
 
 .userItem:hover {
   background: var(--color-glass-hover);
+}
+
+.userItemActive {
+  background: var(--color-glass-active, rgba(99, 102, 241, 0.15));
 }
 
 .userAvatarWrap {
@@ -475,6 +537,7 @@
   border-top: 1px solid var(--color-glass-border);
   background: rgba(0, 0, 0, 0.15);
   flex-shrink: 0;
+  margin-top: auto;
 }
 
 .voiceInfo {
@@ -681,4 +744,203 @@
   .profilePopover {
     display: none;
   }
+}
+
+/* ─── Group Chat Section ──────────────────────────────────────── */
+
+.groupSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  padding-right: 4px;
+}
+
+.newGroupBtn {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  padding: 0;
+}
+
+.newGroupBtn:hover {
+  background: var(--color-glass-hover);
+  color: var(--color-accent, #2AABEE);
+}
+
+/* ─── Group Create Modal ─────────────────────────────────────── */
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modalContent {
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-lg, 12px);
+  padding: 24px;
+  width: 360px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+}
+
+.modalTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 16px;
+}
+
+.modalInput {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-secondary, rgba(255, 255, 255, 0.05));
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.modalInput:focus {
+  border-color: var(--color-accent, #2AABEE);
+}
+
+.modalSubtitle {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  margin: 12px 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.modalUserList {
+  overflow-y: auto;
+  max-height: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.modalUserItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  outline: none;
+  transition: background 0.15s;
+}
+
+.modalUserItem:hover {
+  background: var(--color-glass-hover);
+}
+
+.modalUserSelected {
+  background: rgba(42, 171, 238, 0.1);
+}
+
+.modalCheckbox {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--color-glass-border);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.modalUserSelected .modalCheckbox {
+  border-color: var(--color-accent, #2AABEE);
+  background: var(--color-accent, #2AABEE);
+  color: #fff;
+}
+
+.modalEmpty {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  text-align: center;
+  padding: 16px 0;
+}
+
+.modalActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.modalCancelBtn {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-glass-border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.modalCancelBtn:hover {
+  background: var(--color-glass-hover);
+}
+
+.modalCreateBtn {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--color-accent, #2AABEE);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.modalCreateBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modalCreateBtn:not(:disabled):hover {
+  opacity: 0.9;
 }

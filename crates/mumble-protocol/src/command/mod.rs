@@ -153,6 +153,8 @@ mod tests {
             user_sessions: vec![],
             tree_ids: vec![],
             message: "Hello world".into(),
+            message_id: None,
+            timestamp: None,
         };
         let state = ServerState::new();
         let output = cmd.execute(&state);
@@ -175,6 +177,8 @@ mod tests {
             user_sessions: vec![10, 20],
             tree_ids: vec![],
             message: "DM".into(),
+            message_id: None,
+            timestamp: None,
         };
         let output = cmd.execute(&ServerState::new());
         match &output.tcp_messages[0] {
