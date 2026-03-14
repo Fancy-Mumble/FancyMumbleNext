@@ -529,7 +529,7 @@ mod desktop {
             let auto_sensitivity = audio_settings.auto_input_sensitivity;
             let inner = self.inner.clone();
 
-            let handle = tokio::spawn(async move {
+            let handle = tauri::async_runtime::spawn(async move {
                 mic_test_loop(capture, app, auto_sensitivity, inner).await;
             });
 
@@ -679,8 +679,7 @@ mod desktop {
         use mumble_protocol::audio::capture::AudioCapture;
         use tauri::Emitter;
 
-        // Emit at ~30 Hz (every ~33 ms). Two 20 ms frames = 40 ms,
-        // close enough without burning CPU.
+        // Emit at ~30 Hz (every ~33 ms).
         let mut interval = tokio::time::interval(Duration::from_millis(33));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -692,7 +691,15 @@ mod desktop {
         loop {
             interval.tick().await;
 
-            let Ok(frame) = capture.read_frame() else {
+            // Drain ALL buffered frames so we always measure the most
+            // recent audio.  Without this the ring buffer fills up
+            // (cpal produces ~50 fps, we read at ~30 fps) causing
+            // ever-growing latency and eventual overflow warnings.
+            let mut latest = None;
+            while let Ok(frame) = capture.read_frame() {
+                latest = Some(frame);
+            }
+            let Some(frame) = latest else {
                 continue;
             };
 

@@ -12,15 +12,45 @@ const FRAME_SIZE_OPTIONS = [
   { value: 60, label: "60 ms" },
 ];
 
+/** Peak-hold decay: percentage-points per second. */
+const PEAK_DECAY_PER_SEC = 80;
+
 function VuMeter({ rms, peak }: Readonly<{ rms: number; peak: number }>) {
-  const rmsPercent = Math.min(rms * 100 * 5, 100); // scale up for visibility
-  const peakPercent = Math.min(peak * 100 * 5, 100);
+  const fillRef = useRef<HTMLDivElement>(null);
+  const peakRef = useRef<HTMLDivElement>(null);
+  const heldPeak = useRef(0);
+  const lastTime = useRef(performance.now());
+  const rafId = useRef(0);
+
+  useEffect(() => {
+    const now = performance.now();
+    const dt = (now - lastTime.current) / 1000; // seconds since last update
+    lastTime.current = now;
+
+    const scaledPeak = Math.min(peak * 500, 100);
+
+    // Decay held peak by time elapsed, then snap up if new peak is higher.
+    heldPeak.current = Math.max(0, heldPeak.current - PEAK_DECAY_PER_SEC * dt);
+    if (scaledPeak > heldPeak.current) {
+      heldPeak.current = scaledPeak;
+    }
+
+    // Write directly to the DOM to avoid extra React re-renders.
+    cancelAnimationFrame(rafId.current);
+    rafId.current = requestAnimationFrame(() => {
+      const rmsPercent = Math.min(rms * 500, 100);
+      if (fillRef.current) fillRef.current.style.width = `${rmsPercent}%`;
+      if (peakRef.current) peakRef.current.style.left = `${heldPeak.current}%`;
+    });
+
+    return () => cancelAnimationFrame(rafId.current);
+  }, [rms, peak]);
 
   return (
     <div className={styles.vuMeter}>
       <div className={styles.vuTrack}>
-        <div className={styles.vuFill} style={{ width: `${rmsPercent}%` }} />
-        <div className={styles.vuPeak} style={{ left: `${peakPercent}%` }} />
+        <div className={styles.vuFill} ref={fillRef} />
+        <div className={styles.vuPeak} ref={peakRef} />
       </div>
       <div className={styles.vuLabels}>
         <span>-60</span>
@@ -46,15 +76,20 @@ export function AudioPanel({
   isExpert: boolean;
 }>) {
   const [micTesting, setMicTesting] = useState(false);
-  const [amplitude, setAmplitude] = useState({ rms: 0, peak: 0 });
   const micTestingRef = useRef(false);
+  // Store latest amplitude in a ref to avoid re-rendering on every event.
+  const amplitudeRef = useRef({ rms: 0, peak: 0 });
+  // A state counter bumped at display-rate to trigger VuMeter updates.
+  const [ampTick, setAmpTick] = useState(0);
+  const rafHandle = useRef(0);
 
   const toggleMicTest = useCallback(async () => {
     if (micTestingRef.current) {
       await invoke("stop_mic_test").catch(() => {});
       setMicTesting(false);
       micTestingRef.current = false;
-      setAmplitude({ rms: 0, peak: 0 });
+      amplitudeRef.current = { rms: 0, peak: 0 };
+      setAmpTick((t) => t + 1);
     } else {
       try {
         await invoke("start_mic_test");
@@ -67,13 +102,21 @@ export function AudioPanel({
   }, []);
 
   // Listen for amplitude events while mic test is active.
+  // Buffer into a ref and flush to React at display rate.
   useEffect(() => {
     if (!micTesting) return;
     const unlisten = listen<{ rms: number; peak: number }>(
       "mic-amplitude",
-      (event) => setAmplitude(event.payload),
+      (event) => {
+        amplitudeRef.current = event.payload;
+        cancelAnimationFrame(rafHandle.current);
+        rafHandle.current = requestAnimationFrame(() =>
+          setAmpTick((t) => t + 1),
+        );
+      },
     );
     return () => {
+      cancelAnimationFrame(rafHandle.current);
       unlisten.then((f) => f());
     };
   }, [micTesting]);
@@ -86,6 +129,10 @@ export function AudioPanel({
       }
     };
   }, []);
+
+  // Read amplitude from ref (the ampTick dependency triggers re-reads).
+  void ampTick; // used only to trigger re-render
+  const amplitude = amplitudeRef.current;
 
   return (
     <>
@@ -107,8 +154,8 @@ export function AudioPanel({
               }
             >
               <option value="">System default</option>
-              {devices.map((d) => (
-                <option key={d.name} value={d.name}>
+              {devices.map((d, i) => (
+                <option key={`in-${i}-${d.name}`} value={d.name}>
                   {d.name}
                   {d.is_default ? " (default)" : ""}
                 </option>
@@ -139,8 +186,8 @@ export function AudioPanel({
               }
             >
               <option value="">System default</option>
-              {outputDevices.map((d) => (
-                <option key={d.name} value={d.name}>
+              {outputDevices.map((d, i) => (
+                <option key={`out-${i}-${d.name}`} value={d.name}>
                   {d.name}
                   {d.is_default ? " (default)" : ""}
                 </option>

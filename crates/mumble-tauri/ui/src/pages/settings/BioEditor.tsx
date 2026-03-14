@@ -8,7 +8,6 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Underline from "@tiptap/extension-underline";
 import { TextStyle } from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -70,7 +69,6 @@ export function BioEditor({
         orderedList: false,
         listItem: false,
       }),
-      Underline,
       TextStyle,
       Color,
       Placeholder.configure({ placeholder }),

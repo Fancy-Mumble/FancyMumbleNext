@@ -120,7 +120,7 @@ pub(super) struct SharedState {
     pub output_volume_handle: Option<Arc<AtomicU32>>,
     /// Handle to the background mic-test task (emits amplitude events). Desktop only.
     #[cfg(not(target_os = "android"))]
-    pub mic_test_handle: Option<tokio::task::JoinHandle<()>>,
+    pub mic_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
 }
 
 // ─── Tauri-managed application state ──────────────────────────────
