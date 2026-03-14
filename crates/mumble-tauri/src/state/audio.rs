@@ -838,6 +838,11 @@ impl AppState {
         Ok(())
     }
 
+    /// No-op on Android (no audio pipelines to restart).
+    pub fn restart_inbound(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Audio is not yet supported on Android.
     pub async fn toggle_mute(&self) -> Result<(), String> {
         Err("Audio is not yet supported on Android".into())

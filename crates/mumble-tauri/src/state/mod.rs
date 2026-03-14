@@ -25,6 +25,7 @@ pub use types::{
 };
 
 use std::collections::{HashMap, HashSet};
+#[cfg(not(target_os = "android"))]
 use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -99,6 +100,8 @@ pub(super) struct SharedState {
     pub selected_group: Option<String>,
     /// Server-reported configuration limits.
     pub server_config: ServerConfig,
+    /// Server welcome text (HTML) from `ServerSync`.
+    pub welcome_text: Option<String>,
     /// Audio settings (device, gain, VAD threshold).
     pub audio_settings: AudioSettings,
     /// Whether voice calling is active (inactive = deaf+muted).
@@ -1040,6 +1043,41 @@ impl AppState {
                 voice_state: "Unknown".into(),
                 uptime_seconds: self.start_time.elapsed().as_secs(),
             })
+    }
+
+    // ── Channel info ──────────────────────────────────────────────
+
+    /// Return the server welcome text (from `ServerSync`), if any.
+    pub fn welcome_text(&self) -> Option<String> {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|s| s.welcome_text.clone())
+    }
+
+    /// Update a channel's name and/or description on the server.
+    pub async fn update_channel(
+        &self,
+        channel_id: u32,
+        name: Option<String>,
+        description: Option<String>,
+    ) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => {
+                h.send(command::SetChannelState {
+                    channel_id,
+                    name,
+                    description,
+                })
+                .await
+                .map_err(|e| e.to_string())
+            }
+            None => Err("Not connected".into()),
+        }
     }
 
     // ── Profile (comment / texture) ──────────────────────────────

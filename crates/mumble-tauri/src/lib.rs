@@ -357,6 +357,23 @@ fn get_server_info(state: tauri::State<'_, AppState>) -> ServerInfo {
     state.server_info()
 }
 
+/// Get the server welcome text (HTML) received during handshake.
+#[tauri::command]
+fn get_welcome_text(state: tauri::State<'_, AppState>) -> Option<String> {
+    state.welcome_text()
+}
+
+/// Update a channel's name and/or description on the server.
+#[tauri::command]
+async fn update_channel(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    name: Option<String>,
+    description: Option<String>,
+) -> Result<(), String> {
+    state.update_channel(channel_id, name, description).await
+}
+
 /// Ping a Mumble server by attempting a TCP connection and measuring
 /// how long it takes. Times out after 4 seconds.
 #[tauri::command]
@@ -795,8 +812,11 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_window_state::Builder::new().build());
+        .plugin(tauri_plugin_opener::init());
+
+    // Window state persistence is desktop-only.
+    #[cfg(not(target_os = "android"))]
+    let builder = builder.plugin(tauri_plugin_window_state::Builder::new().build());
 
     // Global shortcuts (PTT) are only available on desktop.
     #[cfg(not(target_os = "android"))]
@@ -834,6 +854,8 @@ pub fn run() {
             mark_channel_read,
             get_server_config,
             get_server_info,
+            get_welcome_text,
+            update_channel,
             ping_server,
             get_audio_devices,
             get_output_devices,

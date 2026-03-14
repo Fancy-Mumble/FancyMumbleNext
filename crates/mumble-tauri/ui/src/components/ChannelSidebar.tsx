@@ -408,9 +408,11 @@ function voiceInfoLabel(voiceState: VoiceState, s: typeof styles): React.ReactNo
 interface ChannelSidebarProps {
   /** Called after the user taps a channel (used by mobile drawer to close). */
   onChannelSelect?: () => void;
+  /** Toggle the server info panel. */
+  onServerInfoToggle?: () => void;
 }
 
-export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSidebarProps>) {
+export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: Readonly<ChannelSidebarProps>) {
   const channels = useAppStore((s) => s.channels);
   const users = useAppStore((s) => s.users);
   const selectedChannel = useAppStore((s) => s.selectedChannel);
@@ -658,6 +660,29 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
     <aside className={styles.sidebar}>
       {/* Header */}
       <div className={styles.header}>
+        {onServerInfoToggle && (
+          <button
+            className={styles.serverInfoBtn}
+            onClick={onServerInfoToggle}
+            title="Server info"
+            aria-label="Server info"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           className={styles.searchFake}

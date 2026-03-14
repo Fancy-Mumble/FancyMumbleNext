@@ -14,7 +14,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ServerInfo, DebugStats, AudioSettings } from "../types";
 import { getPreferences, getSavedAudioSettings } from "../preferencesStorage";
+import { ExternalLinkGuard } from "./ExternalLinkGuard";
 import styles from "./ServerInfoPanel.module.css";
+
+/** Mark every anchor in a raw HTML string as external so ExternalLinkGuard intercepts it. */
+function markLinksExternal(html: string): string {
+  return html.replaceAll(/<a\s/gi, '<a data-external="true" ');
+}
 
 /** Format a bandwidth value (bits/s) into a human-readable string. */
 function formatBandwidth(bitsPerSec: number): string {
@@ -192,12 +198,17 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
   const [devMode, setDevMode] = useState(false);
   const [debugStats, setDebugStats] = useState<DebugStats | null>(null);
   const [audioSettings, setAudioSettings] = useState<AudioSettings | null>(null);
+  const [welcomeText, setWelcomeText] = useState<string | null>(null);
 
   // Load server info and developer-mode preference on mount.
   useEffect(() => {
     invoke<ServerInfo>("get_server_info")
       .then(setInfo)
       .catch((e) => console.error("get_server_info error:", e));
+
+    invoke<string | null>("get_welcome_text")
+      .then(setWelcomeText)
+      .catch(() => {});
 
     getPreferences()
       .then((prefs) => {
@@ -346,6 +357,20 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
               </span>
             </div>
           </section>
+
+          {/* Server welcome text */}
+          {welcomeText && (
+            <section className={styles.section}>
+              <Accordion title="Welcome">
+                <ExternalLinkGuard>
+                  <div
+                    className={styles.welcomeText}
+                    dangerouslySetInnerHTML={{ __html: markLinksExternal(welcomeText) }}
+                  />
+                </ExternalLinkGuard>
+              </Accordion>
+            </section>
+          )}
 
           {/* Developer section (developer mode only) */}
           {devMode && (

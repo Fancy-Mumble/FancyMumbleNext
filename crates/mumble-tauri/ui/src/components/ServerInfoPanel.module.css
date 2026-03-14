@@ -185,6 +185,26 @@
   border-top: 1px solid var(--color-glass-border);
 }
 
+/* ── Welcome text ──────────────────────────────────────────────── */
+
+.welcomeText {
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.welcomeText a {
+  color: var(--color-accent, #2aabee);
+  text-decoration: none;
+}
+
+.welcomeText a:hover {
+  text-decoration: underline;
+}
+
 /* ── Debug grid ────────────────────────────────────────────────── */
 
 .debugGrid {

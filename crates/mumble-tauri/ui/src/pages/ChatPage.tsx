@@ -6,6 +6,7 @@ import { useSwipeDrawer } from "../hooks/useSwipeDrawer";
 import ChannelSidebar from "../components/ChannelSidebar";
 import ChatView from "../components/ChatView";
 import ServerInfoPanel from "../components/ServerInfoPanel";
+import ChannelInfoPanel from "../components/ChannelInfoPanel";
 import UserProfileView from "../components/UserProfileView";
 import MobileProfileSheet from "../components/MobileProfileSheet";
 import styles from "./ChatPage.module.css";
@@ -22,9 +23,17 @@ export default function ChatPage() {
   const drawerRef = useRef<HTMLDivElement>(null);
 
   const [showServerInfo, setShowServerInfo] = useState(false);
+  const [showChannelInfo, setShowChannelInfo] = useState(false);
 
   const toggleSidebar = useCallback(() => setSidebarOpen((v) => !v), []);
-  const toggleServerInfo = useCallback(() => setShowServerInfo((v) => !v), []);
+  const toggleServerInfo = useCallback(() => {
+    setShowServerInfo((v) => !v);
+    setShowChannelInfo(false);
+  }, []);
+  const toggleChannelInfo = useCallback(() => {
+    setShowChannelInfo((v) => !v);
+    setShowServerInfo(false);
+  }, []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
   const closeSidebar = useCallback(() => {
     if (isMobile) setSidebarOpen(false);
@@ -74,12 +83,13 @@ export default function ChatPage() {
         ref={drawerRef}
         className={`${styles.sidebarContainer} ${sidebarOpen ? styles.sidebarOpen : ""}`}
       >
-        <ChannelSidebar onChannelSelect={closeSidebar} />
+        <ChannelSidebar onChannelSelect={closeSidebar} onServerInfoToggle={toggleServerInfo} />
       </div>
 
-      <ChatView onServerInfoToggle={toggleServerInfo} />
+      <ChatView onChannelInfoToggle={toggleChannelInfo} />
       {showServerInfo && !isMobile && <ServerInfoPanel onClose={() => setShowServerInfo(false)} />}
-      {selectedUser !== null && !showServerInfo && !isMobile && <UserProfileView />}
+      {showChannelInfo && !isMobile && <ChannelInfoPanel onClose={() => setShowChannelInfo(false)} />}
+      {selectedUser !== null && !showServerInfo && !showChannelInfo && !isMobile && <UserProfileView />}
       {isMobile && <MobileProfileSheet />}
     </div>
   );

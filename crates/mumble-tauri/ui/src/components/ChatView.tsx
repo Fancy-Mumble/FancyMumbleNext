@@ -39,7 +39,7 @@ function isWithinHalfViewport(el: HTMLElement): boolean {
 }
 
 interface ChatViewProps {
-  readonly onServerInfoToggle?: () => void;
+  readonly onChannelInfoToggle?: () => void;
 }
 
 /** Compute chat header label and member count based on the active mode. */
@@ -56,7 +56,7 @@ function computeHeader(
   return [channel?.name ?? "Unknown", memberCount];
 }
 
-export default function ChatView({ onServerInfoToggle }: ChatViewProps) {
+export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
   const channels = useAppStore((s) => s.channels);
   const users = useAppStore((s) => s.users);
   const selectedChannel = useAppStore((s) => s.selectedChannel);
@@ -747,7 +747,7 @@ export default function ChatView({ onServerInfoToggle }: ChatViewProps) {
         isDm={isDmMode}
         isGroup={isGroupMode}
         onJoin={showJoinButton ? () => joinChannel(selectedChannel!) : undefined}
-        onServerInfoToggle={onServerInfoToggle}
+        onChannelInfoToggle={onChannelInfoToggle}
       />
 
       {/* Messages */}

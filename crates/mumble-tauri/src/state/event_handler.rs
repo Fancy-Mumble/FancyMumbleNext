@@ -69,6 +69,7 @@ impl EventHandler for TauriEventHandler {
                     state.own_session = sync.session;
                     state.synced = true;
                     state.max_bandwidth = sync.max_bandwidth;
+                    state.welcome_text = sync.welcome_text.clone();
 
                     // Now that we know our session, look up the channel
                     // from UserState messages that arrived before ServerSync.

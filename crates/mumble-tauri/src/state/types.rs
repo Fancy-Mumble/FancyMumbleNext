@@ -259,6 +259,7 @@ pub(crate) struct CurrentChannelPayload {
 // ─── Audio types ──────────────────────────────────────────────────
 
 /// Microphone amplitude payload emitted during mic test.
+#[cfg(not(target_os = "android"))]
 #[derive(Clone, Serialize)]
 pub(crate) struct MicAmplitudePayload {
     /// RMS amplitude (0.0 - 1.0).
@@ -386,6 +387,7 @@ impl AudioSettings {
     /// Convert `frame_size_ms` to samples-per-channel at 48 kHz.
     ///
     /// Clamps to valid Opus frame sizes (10, 20, 40, 60 ms).
+    #[cfg(not(target_os = "android"))]
     pub fn frame_size_samples(&self) -> usize {
         match self.frame_size_ms {
             10 => 480,

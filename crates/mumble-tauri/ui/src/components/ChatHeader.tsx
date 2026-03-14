@@ -7,7 +7,7 @@ interface ChatHeaderProps {
   readonly isDm?: boolean;
   readonly isGroup?: boolean;
   readonly onJoin?: () => void;
-  readonly onServerInfoToggle?: () => void;
+  readonly onChannelInfoToggle?: () => void;
 }
 
 export default function ChatHeader({
@@ -17,7 +17,7 @@ export default function ChatHeader({
   isDm,
   isGroup,
   onJoin,
-  onServerInfoToggle,
+  onChannelInfoToggle,
 }: ChatHeaderProps) {
   let prefix: string;
   if (isGroup) prefix = "";
@@ -48,17 +48,15 @@ export default function ChatHeader({
         <span className={styles.memberCount}>{subtitle}</span>
       </div>
       <div className={styles.headerActions}>
-        {onServerInfoToggle && !privateBadge && (
+        {onChannelInfoToggle && !privateBadge && (
           <button
             className={styles.serverInfoBtn}
-            onClick={onServerInfoToggle}
-            aria-label="Server info"
-            title="Server info"
+            onClick={onChannelInfoToggle}
+            aria-label="Channel info"
+            title="Channel info"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="16" x2="12" y2="12" />
-              <line x1="12" y1="8" x2="12.01" y2="8" />
+              <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
             </svg>
           </button>
         )}
