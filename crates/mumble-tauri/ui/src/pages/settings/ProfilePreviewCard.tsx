@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import DOMPurify from "dompurify";
 import type { FancyProfile } from "../../types";
+import { sanitizeBio } from "../../utils/bioSanitize";
+import { ExternalLinkGuard } from "../../components/ExternalLinkGuard";
 import {
   DECORATIONS,
   NAMEPLATES,
@@ -11,17 +12,14 @@ import {
 } from "./profileData";
 import styles from "./SettingsPage.module.css";
 
-/** Allowed tags & attributes for bio HTML (matches tiptap output). */
-const BIO_SANITIZE_CONFIG = {
-  ALLOWED_TAGS: ["p", "br", "strong", "em", "u", "span"],
-  ALLOWED_ATTR: ["style"],
-  ALLOW_DATA_ATTR: false,
-} satisfies DOMPurify.Config;
-
-/** Renders sanitised HTML - memoised so DOMPurify only runs when content changes. */
-function SafeBio({ html, className }: { html: string; className?: string }) {
-  const clean = useMemo(() => DOMPurify.sanitize(html, BIO_SANITIZE_CONFIG), [html]);
-  return <div className={className} dangerouslySetInnerHTML={{ __html: clean }} />;
+/** Renders sanitised HTML - memoised so sanitizeBio only runs when content changes. */
+function SafeBio({ html, className }: Readonly<{ html: string; className?: string }>) {
+  const clean = useMemo(() => sanitizeBio(html), [html]);
+  return (
+    <ExternalLinkGuard className={className}>
+      <div dangerouslySetInnerHTML={{ __html: clean }} />
+    </ExternalLinkGuard>
+  );
 }
 
 interface ProfilePreviewCardProps {
@@ -68,7 +66,7 @@ export function ProfilePreviewCard({
   bio,
   avatar,
   displayName,
-}: ProfilePreviewCardProps) {
+}: Readonly<ProfilePreviewCardProps>) {
   const nameStyle = profile.nameStyle ?? {};
   const decoration = DECORATIONS.find((d) => d.id === (profile.decoration ?? "none"));
   const nameplate = NAMEPLATES.find((n) => n.id === (profile.nameplate ?? "none"));
@@ -110,7 +108,7 @@ export function ProfilePreviewCard({
       {/* Banner */}
       <div className={styles.previewBanner} style={bannerStyle} />
 
-      {/* Avatar area */}
+      {/* Avatar area - flex row: avatar on left, name on right centred to avatar midpoint */}
       <div className={styles.previewAvatarArea}>
         <div className={styles.previewAvatarWrapper} style={avatarBorderStyle}>
           {avatar ? (
@@ -128,43 +126,45 @@ export function ProfilePreviewCard({
             </span>
           )}
         </div>
+
+        {/* Name sits to the right of the avatar, vertically centred */}
+        <div className={styles.previewNameInline}>
+          <div className={styles.previewNameRow}>
+            {nameplate && nameplate.id !== "none" && (
+              <span
+                className={styles.previewNameplate}
+                style={{ background: nameplate.bg }}
+              />
+            )}
+            <span
+              className={styles.previewName}
+              style={{
+                fontFamily: fontCss,
+                color: nameStyle.gradient
+                  ? "transparent"
+                  : nameStyle.color || "var(--color-text-primary)",
+                fontWeight: nameStyle.bold ? "bold" : 600,
+                fontStyle: nameStyle.italic ? "italic" : "normal",
+                textShadow: nameStyle.glow
+                  ? `0 0 ${nameStyle.glow.size}px ${nameStyle.glow.color}`
+                  : "none",
+                background: nameStyle.gradient
+                  ? `linear-gradient(135deg,${nameStyle.gradient[0]},${nameStyle.gradient[1]})`
+                  : "transparent",
+                WebkitBackgroundClip: nameStyle.gradient ? "text" : undefined,
+                WebkitTextFillColor: nameStyle.gradient
+                  ? "transparent"
+                  : undefined,
+              }}
+            >
+              {displayName || "Your Name"}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Body */}
       <div className={styles.previewBody}>
-        {/* Username */}
-        <div className={styles.previewNameRow}>
-          {nameplate && nameplate.id !== "none" && (
-            <span
-              className={styles.previewNameplate}
-              style={{ background: nameplate.bg }}
-            />
-          )}
-          <span
-            className={styles.previewName}
-            style={{
-              fontFamily: fontCss,
-              color: nameStyle.gradient
-                ? "transparent"
-                : nameStyle.color || "var(--color-text-primary)",
-              fontWeight: nameStyle.bold ? "bold" : 600,
-              fontStyle: nameStyle.italic ? "italic" : "normal",
-              textShadow: nameStyle.glow
-                ? `0 0 ${nameStyle.glow.size}px ${nameStyle.glow.color}`
-                : "none",
-              background: nameStyle.gradient
-                ? `linear-gradient(135deg,${nameStyle.gradient[0]},${nameStyle.gradient[1]})`
-                : "transparent",
-              WebkitBackgroundClip: nameStyle.gradient ? "text" : undefined,
-              WebkitTextFillColor: nameStyle.gradient
-                ? "transparent"
-                : undefined,
-            }}
-          >
-            {displayName || "Your Name"}
-          </span>
-        </div>
-
         {/* Custom status */}
         {profile.status && (
           <p className={styles.previewStatus}>{profile.status}</p>

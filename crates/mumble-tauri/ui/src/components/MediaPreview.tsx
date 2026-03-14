@@ -29,6 +29,11 @@ interface Props {
   html: string;
   /** Unique key for this message (e.g. index) used to track GIF play state. */
   messageId: string;
+  /**
+   * When true the top margin on the media grid is suppressed.
+   * Used when the bubble has zero padding (pure-media messages).
+   */
+  compact?: boolean;
 }
 
 // ─── Global GIF-played tracker ────────────────────────────────────
@@ -78,62 +83,64 @@ const SAFE_CSS_PROPS = new Set([
  * not on the whitelist.  Mutates `root` in place.
  */
 function sanitiseTree(root: Element): void {
-  // Iterate in reverse so removals don't shift indices.
-  const children = Array.from(root.children);
-  for (const child of children) {
+  for (const child of Array.from(root.children)) {
     const tag = child.tagName.toLowerCase();
-
     if (!ALLOWED_TAGS.has(tag)) {
-      // Unsafe tag → replace with its text content (preserves text, kills markup).
-      const text = document.createTextNode(child.textContent ?? "");
-      child.replaceWith(text);
+      child.replaceWith(document.createTextNode(child.textContent ?? ""));
       continue;
     }
-
-    // Strip disallowed attributes.
-    const globalAllowed = ALLOWED_ATTRS["*"] ?? new Set();
-    const tagAllowed = ALLOWED_ATTRS[tag] ?? new Set();
-    for (const attr of Array.from(child.attributes)) {
-      const name = attr.name.toLowerCase();
-      // Always kill event handlers.
-      if (name.startsWith("on")) {
-        child.removeAttribute(attr.name);
-        continue;
-      }
-      if (!globalAllowed.has(name) && !tagAllowed.has(name)) {
-        child.removeAttribute(attr.name);
-        continue;
-      }
-      // Validate href URLs.
-      if (name === "href" && !SAFE_URL_RE.test(attr.value.trim())) {
-        child.removeAttribute(attr.name);
-        continue;
-      }
-      // Sanitise inline styles.
-      if (name === "style") {
-        const safe = attr.value
-          .split(";")
-          .filter((decl) => {
-            const prop = decl.split(":")[0]?.trim().toLowerCase() ?? "";
-            return SAFE_CSS_PROPS.has(prop);
-          })
-          .join(";");
-        if (safe) {
-          child.setAttribute("style", safe);
-        } else {
-          child.removeAttribute("style");
-        }
-      }
-    }
-
-    // Force safe link behaviour.
-    if (tag === "a") {
-      child.setAttribute("target", "_blank");
-      child.setAttribute("rel", "noopener noreferrer");
-    }
-
-    // Recurse into children.
+    sanitiseAttrs(child, tag);
     sanitiseTree(child);
+  }
+}
+
+/** Filter an inline `style` attribute value to allowed CSS properties only. */
+function sanitiseStyle(value: string): string {
+  return value
+    .split(";")
+    .filter((decl) => {
+      const prop = decl.split(":")[0]?.trim().toLowerCase() ?? "";
+      return SAFE_CSS_PROPS.has(prop);
+    })
+    .join(";");
+}
+
+/** Process one attribute: remove it if disallowed, sanitise href/style otherwise. */
+function handleAttr(
+  child: Element,
+  attr: Attr,
+  globalAllowed: Set<string>,
+  tagAllowed: Set<string>,
+): void {
+  const name = attr.name.toLowerCase();
+  if (name.startsWith("on") || (!globalAllowed.has(name) && !tagAllowed.has(name))) {
+    child.removeAttribute(attr.name);
+    return;
+  }
+  if (name === "href" && !SAFE_URL_RE.test(attr.value.trim())) {
+    child.removeAttribute(attr.name);
+    return;
+  }
+  if (name === "style") {
+    const safe = sanitiseStyle(attr.value);
+    if (safe) {
+      child.setAttribute("style", safe);
+    } else {
+      child.removeAttribute("style");
+    }
+  }
+}
+
+/** Strip or normalise all attributes on a single element. */
+function sanitiseAttrs(child: Element, tag: string): void {
+  const globalAllowed = ALLOWED_ATTRS["*"] ?? new Set<string>();
+  const tagAllowed = ALLOWED_ATTRS[tag] ?? new Set<string>();
+  for (const attr of Array.from(child.attributes)) {
+    handleAttr(child, attr, globalAllowed, tagAllowed);
+  }
+  if (tag === "a") {
+    child.setAttribute("target", "_blank");
+    child.setAttribute("rel", "noopener noreferrer");
   }
 }
 
@@ -177,11 +184,11 @@ function GifThumb({
   item,
   id,
   onOpen,
-}: {
+}: Readonly<{
   item: MediaItem;
   id: string;
   onOpen: () => void;
-}) {
+}>) {
   const imgRef = useRef<HTMLImageElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [frozen, setFrozen] = useState(() => playedGifs.has(id));
@@ -271,7 +278,7 @@ function GifThumb({
 
   if (frozen) {
     return (
-      <div className={styles.thumbWrap} onClick={onOpen}>
+      <button type="button" className={styles.thumbWrap} onClick={onOpen}>
         {posterSrc ? (
           <img className={styles.thumb} src={posterSrc} alt={item.alt} />
         ) : (
@@ -281,12 +288,12 @@ function GifThumb({
           <span className={styles.replayIcon}>▶</span>
         </button>
         <span className={styles.gifBadge}>GIF</span>
-      </div>
+      </button>
     );
   }
 
   return (
-    <div className={styles.thumbWrap} onClick={onOpen}>
+    <button type="button" className={styles.thumbWrap} onClick={onOpen}>
       <img
         ref={imgRef}
         className={styles.thumb}
@@ -295,36 +302,36 @@ function GifThumb({
         onLoad={handleImgLoad}
       />
       <span className={styles.gifBadge}>GIF</span>
-    </div>
+    </button>
   );
 }
 
 function ImageThumb({
   item,
   onOpen,
-}: {
+}: Readonly<{
   item: MediaItem;
   onOpen: () => void;
-}) {
+}>) {
   return (
-    <div className={styles.thumbWrap} onClick={onOpen}>
+    <button type="button" className={styles.thumbWrap} onClick={onOpen}>
       <img className={styles.thumb} src={item.src} alt={item.alt} />
-    </div>
+    </button>
   );
 }
 
 function VideoThumb({
   item,
   onOpen,
-}: {
+}: Readonly<{
   item: MediaItem;
   onOpen: () => void;
-}) {
+}>) {
   return (
-    <div className={styles.thumbWrap} onClick={onOpen}>
+    <button type="button" className={styles.thumbWrap} onClick={onOpen}>
       <video className={styles.thumb} src={item.src} muted preload="metadata" />
       <span className={styles.playBadge}>▶</span>
-    </div>
+    </button>
   );
 }
 
@@ -333,32 +340,36 @@ function VideoThumb({
 function Lightbox({
   item,
   onClose,
-}: {
+}: Readonly<{
   item: MediaItem;
   onClose: () => void;
-}) {
+}>) {
   // Close on Escape.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    globalThis.addEventListener("keydown", handler);
+    return () => globalThis.removeEventListener("keydown", handler);
   }, [onClose]);
 
   return (
-    <div className={styles.lightboxOverlay} onClick={onClose}>
-      <div
-        className={styles.lightboxContent}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <button
+      type="button"
+      className={styles.lightboxOverlay}
+      aria-label="Close lightbox"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className={styles.lightboxContent}>
         {item.kind === "video" ? (
           <video
             className={styles.lightboxMedia}
             src={item.src}
             controls
             autoPlay
-          />
+          >
+            <track kind="captions" />
+          </video>
         ) : (
           <img
             className={styles.lightboxMedia}
@@ -370,13 +381,13 @@ function Lightbox({
           ✕
         </button>
       </div>
-    </div>
+    </button>
   );
 }
 
 // ─── Main component ───────────────────────────────────────────────
 
-export default function MediaPreview({ html, messageId }: Props): ReactNode {
+export default function MediaPreview({ html, messageId, compact = false }: Readonly<Props>): ReactNode {
   const { cleaned, media } = extractMedia(html);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
 
@@ -392,7 +403,7 @@ export default function MediaPreview({ html, messageId }: Props): ReactNode {
 
       {/* Media thumbnails */}
       {media.length > 0 && (
-        <div className={styles.mediaGrid}>
+        <div className={compact ? styles.mediaGridCompact : styles.mediaGrid}>
           {media.map((item, i) => {
             const key = `${messageId}-${i}`;
             switch (item.kind) {

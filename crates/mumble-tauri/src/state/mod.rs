@@ -268,11 +268,30 @@ impl AppState {
     }
 
     /// Toggle permanent listening on a channel.
+    ///
+    /// Returns `Err` if the user lacks the Listen permission (`0x800`)
+    /// on the target channel.
     pub async fn toggle_listen(&self, channel_id: u32) -> Result<bool, String> {
         info!(channel_id, "toggle_listen called");
         let (handle, is_now_listened, add, remove) = {
             let mut state = self.inner.lock().map_err(|e| e.to_string())?;
             let handle = state.client_handle.clone();
+
+            // Check cached permissions before attempting to listen.
+            // If permissions have been fetched and the Listen bit (0x800)
+            // is NOT set, reject the request immediately.
+            if !state.permanently_listened.contains(&channel_id) {
+                if let Some(ch) = state.channels.get(&channel_id) {
+                    if let Some(perms) = ch.permissions {
+                        const LISTEN_BIT: u32 = 0x800;
+                        if perms & LISTEN_BIT == 0 {
+                            return Err(
+                                "You do not have permission to listen to this channel".into(),
+                            );
+                        }
+                    }
+                }
+            }
 
             if state.permanently_listened.contains(&channel_id) {
                 // Unlisten - but keep listening if it's the selected channel.

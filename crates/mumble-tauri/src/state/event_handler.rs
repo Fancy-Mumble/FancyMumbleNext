@@ -84,6 +84,32 @@ impl EventHandler for TauriEventHandler {
                         }
                     });
                 }
+
+                // Request permissions for all known channels so the UI
+                // can grey out actions the user is not allowed to perform.
+                {
+                    let channel_ids: Vec<u32>;
+                    {
+                        let state = self.shared.lock().ok();
+                        channel_ids = state
+                            .map(|s| s.channels.keys().copied().collect())
+                            .unwrap_or_default();
+                    }
+                    let shared = Arc::clone(&self.shared);
+                    tokio::spawn(async move {
+                        let handle = {
+                            let state = shared.lock().ok();
+                            state.and_then(|s| s.client_handle.clone())
+                        };
+                        if let Some(handle) = handle {
+                            for ch_id in channel_ids {
+                                let _ = handle
+                                    .send(command::PermissionQuery { channel_id: ch_id })
+                                    .await;
+                            }
+                        }
+                    });
+                }
             }
 
             ControlMessage::UserState(us) => {
@@ -208,6 +234,7 @@ impl EventHandler for TauriEventHandler {
                                     name: String::new(),
                                     description: String::new(),
                                     user_count: 0,
+                                    permissions: None,
                                 });
                             if let Some(parent) = cs.parent {
                                 ch.parent_id = Some(parent);
@@ -223,8 +250,22 @@ impl EventHandler for TauriEventHandler {
                             false
                         }
                     };
-                    // Only notify frontend after initial sync is done.
+
+                    // When a channel state changes, re-query its permissions
+                    // so the cached bitmask stays up-to-date (ACL changes, etc.).
                     if is_synced {
+                        let shared = Arc::clone(&self.shared);
+                        tokio::spawn(async move {
+                            let handle = {
+                                let state = shared.lock().ok();
+                                state.and_then(|s| s.client_handle.clone())
+                            };
+                            if let Some(handle) = handle {
+                                let _ = handle
+                                    .send(command::PermissionQuery { channel_id: id })
+                                    .await;
+                            }
+                        });
                         let _ = self.app.emit("state-changed", ());
                     }
                 }
@@ -399,6 +440,35 @@ impl EventHandler for TauriEventHandler {
                         data_id: pd.data_id.clone().unwrap_or_default(),
                     },
                 );
+            }
+
+            ControlMessage::PermissionQuery(pq) => {
+                info!(
+                    channel_id = ?pq.channel_id,
+                    permissions = ?pq.permissions,
+                    flush = pq.flush(),
+                    "permission query response received"
+                );
+
+                // If flush is set, clear all cached permissions first.
+                if pq.flush() {
+                    if let Ok(mut state) = self.shared.lock() {
+                        for ch in state.channels.values_mut() {
+                            ch.permissions = None;
+                        }
+                    }
+                }
+
+                // Store the permission bitmask on the channel entry.
+                if let (Some(channel_id), Some(perms)) = (pq.channel_id, pq.permissions) {
+                    if let Ok(mut state) = self.shared.lock() {
+                        if let Some(ch) = state.channels.get_mut(&channel_id) {
+                            ch.permissions = Some(perms);
+                        }
+                    }
+                    // Notify the frontend that channel data changed.
+                    let _ = self.app.emit("state-changed", ());
+                }
             }
 
             _ => {}

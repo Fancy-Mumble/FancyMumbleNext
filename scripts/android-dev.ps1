@@ -4,16 +4,28 @@
 .DESCRIPTION
     Validates that all required tools (JDK, Android SDK, NDK, Rust targets,
     Tauri CLI, emulator) are properly configured for Fancy Mumble Android
-    development. Pass -Run to also start the dev server.
+    development. Pass -Run to also start the dev server. Pass -Inspect to
+    refresh WebView DevTools forwarding for chrome://inspect.
 .EXAMPLE
     .\android-dev.ps1          # Check prerequisites only
+.EXAMPLE
     .\android-dev.ps1 -Run     # Check prerequisites and start dev server
+.EXAMPLE
+    .\android-dev.ps1 -Inspect # Set up WebView debugging for all devices
+.EXAMPLE
+    .\android-dev.ps1 -Inspect -Serial emulator-5554 # Target a specific device
 #>
 param(
-    [switch]$Run
+    [switch]$Run,
+    [switch]$Inspect,
+    [string]$Serial  # Target a specific ADB device serial (used with -Inspect)
 )
 
 $ErrorActionPreference = "Continue"
+# Prevent PowerShell 7+ from treating non-zero native exit codes as errors
+if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
 $script:hasErrors = $false
 
 function Write-Check {
@@ -26,6 +38,177 @@ function Write-Check {
         if ($Detail) { Write-Host "       $Detail" -ForegroundColor Yellow }
         $script:hasErrors = $true
     }
+}
+
+function Start-WebViewInspect {
+    param(
+        [string]$PackageName = "com.fancymumble.app",
+        [int]$BasePort = 9222,
+        [string]$Serial  # optional: target a specific device serial
+    )
+
+    # Helper: run adb and ignore non-zero exit codes
+    function Invoke-Adb {
+        param([string[]]$Arguments)
+        $output = & adb @Arguments 2>$null
+        $global:LASTEXITCODE = 0
+        return $output
+    }
+
+    $adbCmd = Get-Command adb -ErrorAction SilentlyContinue
+    if (-not $adbCmd) {
+        Write-Host "  [!!] adb not found in PATH." -ForegroundColor Red
+        return $false
+    }
+
+    # Enumerate all connected devices
+    $deviceRows = @(Invoke-Adb -Arguments @('devices', '-l') |
+        Select-Object -Skip 1 |
+        Where-Object { $_ -match "\S" })
+    $allDevices = [System.Collections.ArrayList]::new()
+    foreach ($row in $deviceRows) {
+        if ($row -match "^(\S+)\s+device\b") {
+            $devSerial = $Matches[1].Trim()
+            $devModel = if ($row -match "model:(\S+)") { $Matches[1] } else { "unknown" }
+            $devKind = if ($devSerial -like "emulator-*") { "emulator" } else { "usb" }
+            [void]$allDevices.Add([PSCustomObject]@{
+                Serial = $devSerial
+                Model  = $devModel
+                Kind   = $devKind
+            })
+        } elseif ($row -match "^(\S+)\s+unauthorized") {
+            Write-Host "  [!!] $($Matches[1]) is unauthorized - accept the USB debugging prompt on the device" -ForegroundColor Yellow
+        } elseif ($row -match "^(\S+)\s+offline") {
+            Write-Host "  [!!] $($Matches[1]) is offline - reconnect cable or restart ADB" -ForegroundColor Yellow
+        }
+    }
+
+    if ($allDevices.Count -eq 0) {
+        Write-Host "  [!!] No authorized ADB device or emulator found." -ForegroundColor Red
+        Write-Host "       - For emulators: start one from Android Studio Device Manager" -ForegroundColor Yellow
+        Write-Host "       - For USB devices: enable USB debugging in Developer Options" -ForegroundColor Yellow
+        return $false
+    }
+
+    # Filter to a specific serial if requested
+    $targets = $allDevices
+    if ($Serial) {
+        $targets = @($allDevices | Where-Object { $_.Serial -eq $Serial })
+        if ($targets.Count -eq 0) {
+            Write-Host "  [!!] Device '$Serial' not found. Available:" -ForegroundColor Red
+            foreach ($d in $allDevices) {
+                Write-Host "       $($d.Serial) ($($d.Kind), $($d.Model))" -ForegroundColor Yellow
+            }
+            return $false
+        }
+    }
+
+    Write-Host "  Found $($targets.Count) device(s):" -ForegroundColor Cyan
+    foreach ($d in $targets) {
+        Write-Host "    - $($d.Serial) [$($d.Kind)] $($d.Model)" -ForegroundColor DarkGray
+    }
+    Write-Host ""
+
+    # Process each device: check app, find sockets, set up forwarding
+    $port = $BasePort
+    $anyForwarded = $false
+    $forwardedDevices = [System.Collections.ArrayList]::new()
+
+    foreach ($device in $targets) {
+        $s = $device.Serial
+        Write-Host "  --- $s ($($device.Kind), $($device.Model)) ---" -ForegroundColor Cyan
+
+        # Check if the app is running
+        $pidLine = Invoke-Adb -Arguments @('-s', $s, 'shell', 'pidof', $PackageName) |
+            Select-Object -First 1
+        $appPid = if ($null -ne $pidLine) { "$pidLine".Trim() } else { "" }
+
+        if ([string]::IsNullOrWhiteSpace($appPid)) {
+            Write-Host "  [--] App not running. Start it first, then re-run -Inspect." -ForegroundColor DarkGray
+            Write-Host ""
+            continue
+        }
+
+        Write-Host "  [OK] App running (PID $appPid)" -ForegroundColor Green
+
+        # Check for WebView DevTools sockets
+        $unixOutput = Invoke-Adb -Arguments @('-s', $s, 'shell', 'cat /proc/net/unix')
+        $socketLines = @($unixOutput | Select-String "webview_devtools_remote")
+
+        if ($socketLines.Count -eq 0) {
+            Write-Host "  [!!] No WebView DevTools socket found." -ForegroundColor Yellow
+            Write-Host "       The WebView may not have loaded yet, or debugging is disabled." -ForegroundColor Yellow
+            Write-Host "       - Ensure you are running a debug build (cargo tauri android dev)" -ForegroundColor Yellow
+            Write-Host "       - Wait for the WebView to fully load, then re-run -Inspect" -ForegroundColor Yellow
+            Write-Host ""
+            continue
+        }
+
+        # Extract the socket name matching this PID
+        $socketName = "webview_devtools_remote_$appPid"
+        $matchedSocket = $socketLines | Where-Object { $_.Line -match $socketName }
+
+        if (-not $matchedSocket) {
+            # Fall back to any devtools socket found
+            $fallbackMatch = $socketLines | Select-Object -First 1
+            if ($fallbackMatch -and $fallbackMatch.Line -match "@(webview_devtools_remote_\d+)") {
+                $socketName = $Matches[1]
+                Write-Host "  [!!] PID mismatch - using discovered socket: $socketName" -ForegroundColor Yellow
+            } else {
+                Write-Host "  [!!] Could not match DevTools socket to app PID." -ForegroundColor Yellow
+                Write-Host ""
+                continue
+            }
+        }
+
+        Write-Host "  [OK] DevTools socket: $socketName" -ForegroundColor Green
+
+        # Set up port forwarding
+        Invoke-Adb -Arguments @('-s', $s, 'forward', '--remove', "tcp:$port") | Out-Null
+        Invoke-Adb -Arguments @('-s', $s, 'forward', "tcp:$port", "localabstract:$socketName") | Out-Null
+        Start-Sleep -Milliseconds 300
+
+        # Verify the forwarding works
+        try {
+            $null = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$port/json/version" -TimeoutSec 3
+            Write-Host "  [OK] Forwarded tcp:$port -> $socketName" -ForegroundColor Green
+            Write-Host "       Direct URL: http://127.0.0.1:$port/json/list" -ForegroundColor DarkGray
+            $anyForwarded = $true
+            $forwardedDevices += [PSCustomObject]@{ Serial = $s; Port = $port }
+        } catch {
+            Write-Host "  [!!] Forwarding on port $port failed. Try: adb kill-server; adb start-server" -ForegroundColor Yellow
+        }
+
+        Write-Host ""
+        $port++
+    }
+
+    # Summary and chrome://inspect guidance
+    Write-Host "  === How to inspect ===" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Option 1 - chrome://inspect (recommended):" -ForegroundColor White
+    Write-Host "    1. Open Chrome and navigate to chrome://inspect/#devices" -ForegroundColor DarkGray
+    Write-Host "    2. Ensure 'Discover USB devices' is checked" -ForegroundColor DarkGray
+    Write-Host "    3. Your device(s) and WebView(s) should appear automatically" -ForegroundColor DarkGray
+    Write-Host ""
+
+    if ($anyForwarded) {
+        Write-Host "  Option 2 - Direct DevTools (port-forwarded above):" -ForegroundColor White
+        foreach ($fd in $forwardedDevices) {
+            Write-Host "    $($fd.Serial) -> http://127.0.0.1:$($fd.Port)/json/list" -ForegroundColor DarkGray
+        }
+        Write-Host ""
+    }
+
+    # Troubleshooting hints
+    Write-Host "  Troubleshooting:" -ForegroundColor Yellow
+    Write-Host "    - Device not visible? Run: adb kill-server; adb start-server" -ForegroundColor DarkGray
+    Write-Host "    - USB device unauthorized? Accept the debugging prompt on the device" -ForegroundColor DarkGray
+    Write-Host "    - No WebView socket? Ensure you run a debug build (cargo tauri android dev)" -ForegroundColor DarkGray
+    Write-Host "    - Target a specific device: .\android-dev.ps1 -Inspect -Serial emulator-5554" -ForegroundColor DarkGray
+    Write-Host ""
+
+    return $anyForwarded -or ($targets.Count -gt 0)
 }
 
 Write-Host "`nFancy Mumble - Android Dev Environment Check" -ForegroundColor Cyan
@@ -68,7 +251,7 @@ if (-not ($javaHome -and (Test-Path "$javaHome\bin\java.exe"))) {
 }
 
 if ($javaHome -and (Test-Path "$javaHome\bin\java.exe")) {
-    $javaVer = & "$javaHome\bin\java.exe" -version 2>&1 | Select-Object -First 1
+    $null = & "$javaHome\bin\java.exe" -version 2>&1 | Select-Object -First 1
     $autoNote = if ($env:JAVA_HOME -eq $javaHome -and -not [System.Environment]::GetEnvironmentVariable('JAVA_HOME', 'User')) { " (auto-detected for this session)" } else { "" }
     Write-Check "JAVA_HOME" $true "$javaHome$autoNote"
 } else {
@@ -90,15 +273,8 @@ if ($androidHome -and (Test-Path $androidHome)) {
 # -- NDK_HOME --
 $ndkHome = $env:NDK_HOME
 if ($ndkHome -and (Test-Path $ndkHome)) {
-    # CMake's Android platform module looks for ANDROID_NDK_HOME, not NDK_HOME.
-    # Set it for this session so CMake can locate the NDK toolchain.
     if (-not $env:ANDROID_NDK_HOME) { $env:ANDROID_NDK_HOME = $ndkHome }
 
-    # On Windows, CMake cannot discover the NDK or ninja automatically.
-    # Set CMAKE_TOOLCHAIN_FILE_<target> to the NDK's bundled toolchain file
-    # and CMAKE_MAKE_PROGRAM_<target> to the NDK's bundled ninja for every
-    # Android target triple (hyphens replaced with underscores as the cmake
-    # crate requires).
     $androidToolchain = "$ndkHome\build\cmake\android.toolchain.cmake"
     $ndkNinjaExe      = "$ndkHome\prebuilt\windows-x86_64\bin\ninja.exe"
     foreach ($triple in @(
@@ -115,7 +291,6 @@ if ($ndkHome -and (Test-Path $ndkHome)) {
         }
     }
 
-    # Also add NDK-bundled ninja dir to PATH as a fallback.
     $ndkNinjaDir = "$ndkHome\prebuilt\windows-x86_64\bin"
     $pathParts = $env:PATH -split ';'
     if ((Test-Path $ndkNinjaDir) -and ($pathParts -notcontains $ndkNinjaDir)) {
@@ -156,7 +331,6 @@ if ($tauriCli) {
 }
 
 # -- ADB / Emulator --
-# Auto-add platform-tools and emulator to PATH for this session when ANDROID_HOME is known
 if ($androidHome) {
     $platformTools = "$androidHome\platform-tools"
     $emulatorDir   = "$androidHome\emulator"
@@ -199,10 +373,13 @@ if ($script:hasErrors) {
         Write-Host "Fix the issues above before running the dev server." -ForegroundColor Red
         exit 1
     }
-    exit 0
+    if (-not $Inspect) {
+        exit 0
+    }
+    Write-Host "Continuing inspect mode despite prerequisite warnings..." -ForegroundColor Yellow
+} else {
+    Write-Host "All prerequisites satisfied!" -ForegroundColor Green
 }
-
-Write-Host "All prerequisites satisfied!" -ForegroundColor Green
 
 if ($Run) {
     Write-Host "`nStarting Tauri Android dev server..." -ForegroundColor Cyan
@@ -212,8 +389,16 @@ if ($Run) {
     } finally {
         Pop-Location
     }
+} elseif ($Inspect) {
+    Write-Host "`nWebView DevTools Inspect" -ForegroundColor Cyan
+    Write-Host ("-" * 48)
+    $inspectArgs = @{ PackageName = "com.fancymumble.app" }
+    if ($Serial) { $inspectArgs.Serial = $Serial }
+    [void](Start-WebViewInspect @inspectArgs)
 } else {
     Write-Host "Run with -Run to start the dev server, or manually:" -ForegroundColor DarkGray
     Write-Host "  cd crates\mumble-tauri" -ForegroundColor DarkGray
     Write-Host "  cargo tauri android dev" -ForegroundColor DarkGray
+    Write-Host "Run with -Inspect to refresh chrome://inspect forwarding:" -ForegroundColor DarkGray
+    Write-Host "  .\scripts\android-dev.ps1 -Inspect" -ForegroundColor DarkGray
 }

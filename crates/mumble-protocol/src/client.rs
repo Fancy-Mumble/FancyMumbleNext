@@ -378,6 +378,9 @@ fn handle_control_message<H: EventHandler>(
         ControlMessage::PermissionDenied(pd) => {
             warn!(reason = ?pd.reason, r#type = ?pd.r#type, "permission denied");
         }
+        ControlMessage::PermissionQuery(pq) => {
+            state.apply_permission_query(pq);
+        }
         _ => {}
     }
 

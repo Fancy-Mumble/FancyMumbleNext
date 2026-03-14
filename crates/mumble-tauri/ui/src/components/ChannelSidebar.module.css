@@ -101,7 +101,6 @@
   padding: 8px 12px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
   color: var(--color-text-primary);
   cursor: pointer;
   text-align: left;
@@ -205,6 +204,13 @@
   cursor: pointer;
   text-align: left;
   padding: 2px 0;
+}
+
+/* When there is no expandBtn, folderSelect is the first child.
+   Reserve the same 28px (24px button + 4px gap) so all channel
+   names stay left-aligned regardless of whether a chevron is shown. */
+.folderHeader > .folderSelect:first-child {
+  padding-left: 28px;
 }
 
 .folderChildren {
@@ -346,6 +352,21 @@
   border-radius: var(--radius-sm);
   transition: background 0.15s;
   cursor: pointer;
+  /* Reset native <button> chrome */
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  outline: none;
+}
+
+.userItem:focus-visible {
+  outline: 2px solid var(--color-accent, #6366f1);
+  outline-offset: -2px;
 }
 
 .userItem:hover {
@@ -554,6 +575,8 @@
   transform: translateY(-50%);
   z-index: 10000;
   pointer-events: none;
+  /* Prevent the card from touching the viewport edge */
+  padding-bottom: 12px;
 }
 
 /* ─── Context Menu ─────────────────────────────────────────────── */
@@ -587,6 +610,15 @@
 
 .contextMenuItem:hover {
   background: var(--color-glass-hover);
+}
+
+.contextMenuItem:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.contextMenuItem:disabled:hover {
+  background: none;
 }
 
 /* ─── Mobile responsive overrides ──────────────────────────────── */

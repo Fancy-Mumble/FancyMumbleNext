@@ -48,6 +48,7 @@
     inset: 0;
     z-index: 199;
     background: rgba(0, 0, 0, 0.5);
+    border: none;
   }
 
   .menuToggle {

@@ -73,7 +73,12 @@ body {
 /* --- Safe Area (mobile notch / status bar) ---------------------- */
 
 .app {
-  height: 100%;
+  /*
+   * On mobile --app-height is set by useVisualViewport to the actual
+   * visible area (excluding the on-screen keyboard).  On desktop the
+   * custom property is not set so we fall back to 100%.
+   */
+  height: var(--app-height, 100%);
   width: 100%;
   position: relative;
   display: flex;

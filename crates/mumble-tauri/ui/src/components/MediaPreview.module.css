@@ -7,6 +7,13 @@
   margin-top: 6px;
 }
 
+/* Variant used inside pure-media bubbles (no padding) - no top margin */
+.mediaGridCompact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .thumbWrap {
   position: relative;
   cursor: pointer;
@@ -17,6 +24,12 @@
   border: 1px solid var(--color-glass-border);
   transition: transform 0.15s, box-shadow 0.15s;
   flex-shrink: 0;
+  /* reset <button> defaults */
+  padding: 0;
+  background: none;
+  display: inline-block;
+  line-height: 0;
+  font: inherit;
 }
 
 .thumbWrap:hover {
@@ -102,6 +115,11 @@
   align-items: center;
   justify-content: center;
   animation: fadeIn 0.15s ease;
+  /* reset <button> defaults */
+  border: none;
+  padding: 0;
+  cursor: default;
+  width: 100%;
 }
 
 @keyframes fadeIn {

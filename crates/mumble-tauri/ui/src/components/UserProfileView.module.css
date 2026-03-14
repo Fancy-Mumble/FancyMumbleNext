@@ -55,6 +55,15 @@
 .avatarArea {
   padding: 0 20px;
   margin-top: -40px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Name sits to the right of the avatar, vertically centred on it */
+.nameInline {
+  flex: 1;
+  min-width: 0;
 }
 
 .avatarWrapper {
@@ -63,7 +72,7 @@
   height: 80px;
   border-radius: 50%;
   overflow: visible;
-  border: 4px solid var(--color-glass);
+  border: 4px solid var(--color-bg-secondary, #1a1a2e);
   background: var(--color-bg-secondary, #1a1a2e);
 }
 
@@ -101,12 +110,14 @@
   position: relative;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
   margin-bottom: 6px;
 }
 
 .nameplate {
   position: absolute;
-  inset: -3px -8px;
+  inset: 0;
   border-radius: 4px;
   z-index: 0;
 }
@@ -172,6 +183,26 @@
 
 .bioContent p:last-child {
   margin-bottom: 0;
+}
+
+.bioContent img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  display: block;
+  margin: 4px 0;
+}
+
+.bioContent a {
+  color: #60a5fa;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.bioContent a:hover {
+  color: #93c5fd;
 }
 
 /* ── Info grid ─────────────────────────────────────────────────── */
