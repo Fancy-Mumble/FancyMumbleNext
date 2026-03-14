@@ -9,9 +9,10 @@ import {
 import { getPreferences } from "../preferencesStorage";
 import type { SavedServer, ServerPingResult, UserMode } from "../types";
 import ServerList from "../components/ServerList";
+import PublicServerList from "../components/PublicServerList";
 import styles from "./ConnectPage.module.css";
 
-type View = "loading" | "servers" | "wizard";
+type View = "loading" | "servers" | "wizard" | "public";
 
 /** Module-level cache: "host:port" → epoch-ms of last ping invocation. */
 const pingCache = new Map<string, number>();
@@ -205,11 +206,22 @@ export default function ConnectPage() {
     setView("wizard");
   };
 
+  const handleShowPublic = () => {
+    setView("public");
+  };
+
+  const handlePublicConnect = (pubHost: string, pubPort: number) => {
+    // Pre-fill the wizard with the public server's address
+    resetWizard();
+    setHost(pubHost);
+    setPort(String(pubPort));
+    setStep(1); // skip to username step
+    setView("wizard");
+  };
+
   const handleBackToServers = () => {
-    if (savedServers.length > 0) {
-      setView("servers");
-      resetWizard();
-    }
+    setView(savedServers.length > 0 ? "servers" : "wizard");
+    resetWizard();
   };
 
   /* ── render helpers ──────────────────────────────────────────── */
@@ -218,15 +230,17 @@ export default function ConnectPage() {
 
   if (view === "loading") return null;
 
+  const cardClass = [styles.card, view === "public" && styles.cardWide].filter(Boolean).join(" ");
+
   return (
     <div className={styles.page}>
-      <div className={styles.card}>
+      <div className={cardClass}>
         {/* Logo - always visible */}
         <div className={styles.logo}>
           <div className={styles.logoIcon}>M</div>
           <h1 className={styles.title}>Fancy Mumble</h1>
           <p className={styles.subtitle}>
-            {view === "servers"
+            {view === "servers" || view === "public"
               ? "Choose a server to connect"
               : currentStep.subtitle}
           </p>
@@ -242,12 +256,31 @@ export default function ConnectPage() {
 
         {/* ──────── Server list view (happy path) ──────── */}
         {view === "servers" && (
-          <ServerList
-            servers={savedServers}
-            pings={pings}
-            onConnect={handleQuickConnect}
-            onDelete={handleDelete}
-            onAddNew={handleShowWizard}
+          <>
+            <ServerList
+              servers={savedServers}
+              pings={pings}
+              onConnect={handleQuickConnect}
+              onDelete={handleDelete}
+              onAddNew={handleShowWizard}
+              disabled={isConnecting}
+            />
+            <button
+              className={styles.publicLink}
+              onClick={handleShowPublic}
+              disabled={isConnecting}
+              type="button"
+            >
+              Browse public servers
+            </button>
+          </>
+        )}
+
+        {/* ──────── Public server list ─────────────────── */}
+        {view === "public" && (
+          <PublicServerList
+            onConnect={handlePublicConnect}
+            onBack={handleBackToServers}
             disabled={isConnecting}
           />
         )}

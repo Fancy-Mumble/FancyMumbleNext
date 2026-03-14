@@ -102,6 +102,19 @@ export interface ServerPingResult {
   latency_ms: number | null;
 }
 
+// ─── Public Server List ───────────────────────────────────────────
+
+/** A public Mumble server from the official directory. */
+export interface PublicServer {
+  name: string;
+  country: string;
+  country_code: string;
+  ip: string;
+  port: number;
+  region: string;
+  url: string;
+}
+
 // ─── User Preferences ─────────────────────────────────────────────
 
 /** Whether the user prefers a simplified or full-featured UI. */

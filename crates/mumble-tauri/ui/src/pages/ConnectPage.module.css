@@ -17,12 +17,17 @@
   width: 100%;
   max-width: 400px;
   padding: 40px 32px;
+  transition: max-width 0.25s ease;
   background: var(--color-glass);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--color-glass-border);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
+}
+
+.cardWide {
+  max-width: 640px;
 }
 
 /* --- Logo ------------------------------------------------------- */
@@ -365,6 +370,32 @@
 
 .usernameOtherLink:disabled {
   opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* --- Public servers link ---------------------------------------- */
+
+.publicLink {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 8px 0;
+  text-align: center;
+  transition: color 0.15s;
+}
+
+.publicLink:hover:not(:disabled) {
+  color: var(--color-accent);
+}
+
+.publicLink:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
