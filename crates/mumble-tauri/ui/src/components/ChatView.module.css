@@ -68,7 +68,96 @@
   padding: 16px 24px;
   display: flex;
   flex-direction: column;
+  position: relative;
+  margin-bottom: 12px;
+}
+
+/* Inner wrapper that grows with content.  ResizeObserver watches this
+   element to detect height changes from images loading, etc. */
+.messagesInner {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
+  /* Fill at least the full scroll viewport so the empty-state can centre,
+     but grow beyond it when messages overflow. */
+  min-height: 100%;
+  /* Push content to the bottom when there are few messages */
+  margin-top: auto;
+  /* Breathing room below the last message.  Applied here (not on the outer
+     scroll container) because padding-bottom on overflow:auto containers is
+     ignored by some browsers when content overflows. */
+  padding-bottom: 16px;
+}
+
+/* --- Unread divider --------------------------------------------- */
+
+.unreadDivider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+  user-select: none;
+}
+
+.unreadDivider::before,
+.unreadDivider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #ef4444;
+  opacity: 0.55;
+}
+
+.unreadDividerLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: #ef4444;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* --- "New messages" pill ---------------------------------------- */
+
+.newMessagesPill {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(42, 171, 238, 0.35);
+  background: var(--color-bg-secondary, #1a1a2e);
+  color: var(--color-accent, #2aabee);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  transition: background 0.15s, transform 0.1s;
+  animation: pillSlideUp 0.2s ease;
+}
+
+.newMessagesPill:hover {
+  background: var(--color-glass-hover, rgba(255, 255, 255, 0.08));
+}
+
+.newMessagesPill:active {
+  transform: translateX(-50%) scale(0.96);
+}
+
+@keyframes pillSlideUp {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 /* --- Empty State ------------------------------------------------ */
@@ -95,7 +184,7 @@
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  max-width: 90%;
+  width: 90%;
 }
 
 .messageRow.own {
@@ -124,6 +213,27 @@
   flex-shrink: 0;
 }
 
+/* Clickable avatar wrapper (resets button chrome) */
+.avatarBtn {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 50%;
+  line-height: 0;
+}
+
+/* Desktop hover popover for message avatars */
+.avatarPopover {
+  position: fixed;
+  transform: translateY(-50%);
+  z-index: 10000;
+  pointer-events: none;
+  /* Prevent the card from touching the viewport edge */
+  padding-bottom: 12px;
+}
+
 /* --- Bubbles ---------------------------------------------------- */
 
 .bubble {
@@ -131,8 +241,8 @@
   background: var(--color-glass-hover);
   border: 1px solid var(--color-glass-border);
   border-radius: var(--radius-md) var(--radius-md) var(--radius-md) 4px;
-  max-width: 100%;
   word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .bubble.ownBubble {
@@ -140,6 +250,21 @@
   border-color: transparent;
   border-radius: var(--radius-md) var(--radius-md) 4px var(--radius-md);
   box-shadow: 0 2px 12px var(--color-accent-glow);
+}
+
+/* Pure-media messages (image, video, GIF, sticker) - no bubble chrome */
+.bubble.bubbleMedia {
+  padding: 0;
+  border: none;
+  background: transparent;
+  overflow: hidden;
+  box-shadow: none;
+}
+
+/* Own pure-media: override the accent gradient */
+.bubble.ownBubble.bubbleMedia {
+  background: transparent;
+  box-shadow: none;
 }
 
 .senderName {
@@ -279,7 +404,7 @@
   }
 
   .messageRow {
-    max-width: 95%;
+    width: 98%;
   }
 
   /* Composer: tighter padding, larger buttons for touch */
@@ -304,5 +429,10 @@
     padding: 10px 20px;
     font-size: 14px;
     min-height: var(--touch-target-min);
+  }
+
+  /* Hide desktop hover popover on mobile */
+  .avatarPopover {
+    display: none;
   }
 }

@@ -14,6 +14,9 @@ pub struct ChannelEntry {
     pub name: String,
     pub description: String,
     pub user_count: u32,
+    /// Server-reported permission bitmask for this channel.
+    /// `None` until a `PermissionQuery` response is received.
+    pub permissions: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

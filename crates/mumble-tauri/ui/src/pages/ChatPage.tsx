@@ -1,10 +1,12 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store";
 import { isMobilePlatform } from "../utils/platform";
+import { useSwipeDrawer } from "../hooks/useSwipeDrawer";
 import ChannelSidebar from "../components/ChannelSidebar";
 import ChatView from "../components/ChatView";
 import UserProfileView from "../components/UserProfileView";
+import MobileProfileSheet from "../components/MobileProfileSheet";
 import styles from "./ChatPage.module.css";
 
 export default function ChatPage() {
@@ -15,11 +17,20 @@ export default function ChatPage() {
 
   // On mobile, the sidebar is a slide-out drawer.
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
 
   const toggleSidebar = useCallback(() => setSidebarOpen((v) => !v), []);
+  const openSidebar = useCallback(() => setSidebarOpen(true), []);
   const closeSidebar = useCallback(() => {
     if (isMobile) setSidebarOpen(false);
   }, [isMobile]);
+
+  // Swipe right from left edge => open, swipe left => close.
+  useSwipeDrawer(sidebarOpen, openSidebar, closeSidebar, {
+    containerRef: pageRef,
+    drawerRef,
+  });
 
   // Redirect to connect page if not connected.
   useEffect(() => {
@@ -29,7 +40,7 @@ export default function ChatPage() {
   }, [status, navigate]);
 
   return (
-    <div className={styles.page}>
+    <div ref={pageRef} className={styles.page}>
       {/* Mobile hamburger toggle */}
       {isMobile && !sidebarOpen && (
         <button
@@ -56,6 +67,7 @@ export default function ChatPage() {
 
       {/* Sidebar: always visible on desktop, drawer on mobile */}
       <div
+        ref={drawerRef}
         className={`${styles.sidebarContainer} ${sidebarOpen ? styles.sidebarOpen : ""}`}
       >
         <ChannelSidebar onChannelSelect={closeSidebar} />
@@ -63,6 +75,7 @@ export default function ChatPage() {
 
       <ChatView />
       {selectedUser !== null && !isMobile && <UserProfileView />}
+      {isMobile && <MobileProfileSheet />}
     </div>
   );
 }

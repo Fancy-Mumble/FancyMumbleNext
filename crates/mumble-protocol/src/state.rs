@@ -30,6 +30,15 @@ pub struct Channel {
     pub position: i32,
     pub temporary: bool,
     pub max_users: u32,
+    /// Server-reported permission bitmask for this channel.
+    /// `None` until a `PermissionQuery` response is received.
+    pub permissions: Option<u32>,
+    /// Whether the server reports the channel requires special
+    /// permissions to enter (`ChannelState.is_enter_restricted`).
+    pub is_enter_restricted: bool,
+    /// Whether the server reports the current user can enter
+    /// this channel (`ChannelState.can_enter`).
+    pub can_enter: bool,
 }
 
 /// Connection-level metadata received during handshake.
@@ -123,6 +132,9 @@ impl ServerState {
             position: 0,
             temporary: false,
             max_users: 0,
+            permissions: None,
+            is_enter_restricted: false,
+            can_enter: true,
         });
 
         if let Some(parent) = state.parent {
@@ -143,6 +155,29 @@ impl ServerState {
         if let Some(max) = state.max_users {
             channel.max_users = max;
         }
+        if let Some(restricted) = state.is_enter_restricted {
+            channel.is_enter_restricted = restricted;
+        }
+        if let Some(can) = state.can_enter {
+            channel.can_enter = can;
+        }
+    }
+
+    /// Apply a `PermissionQuery` response from the server.
+    ///
+    /// If `flush` is set, all cached permissions are cleared first.
+    pub fn apply_permission_query(&mut self, pq: &crate::proto::mumble_tcp::PermissionQuery) {
+        if pq.flush() {
+            for ch in self.channels.values_mut() {
+                ch.permissions = None;
+            }
+        }
+
+        if let (Some(channel_id), Some(perms)) = (pq.channel_id, pq.permissions) {
+            if let Some(ch) = self.channels.get_mut(&channel_id) {
+                ch.permissions = Some(perms);
+            }
+        }
     }
 
     /// Remove a channel from state.
@@ -155,6 +190,14 @@ impl ServerState {
         self.connection.session_id = sync.session;
         self.connection.max_bandwidth = sync.max_bandwidth;
         self.connection.welcome_text = sync.welcome_text.clone();
+
+        // `ServerSync.permissions` contains the permission bitmask for the
+        // root channel (channel 0).  Store it on the channel if known.
+        if let Some(perms) = sync.permissions {
+            if let Some(ch) = self.channels.get_mut(&0) {
+                ch.permissions = Some(perms as u32);
+            }
+        }
     }
 
     /// Get our own session ID.

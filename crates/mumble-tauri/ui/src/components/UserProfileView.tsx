@@ -7,8 +7,9 @@
  */
 
 import { useMemo } from "react";
-import DOMPurify from "dompurify";
 import { useAppStore } from "../store";
+import { sanitizeBio } from "../utils/bioSanitize";
+import { ExternalLinkGuard } from "./ExternalLinkGuard";
 import type { UserEntry, FancyProfile } from "../types";
 import { textureToDataUrl, parseComment } from "../profileFormat";
 import {
@@ -20,14 +21,6 @@ import {
   AVATAR_BORDERS,
 } from "../pages/settings/profileData";
 import styles from "./UserProfileView.module.css";
-
-// ─── Sanitisation config (same as ProfilePreviewCard) ─────────────
-
-const BIO_SANITIZE_CONFIG = {
-  ALLOWED_TAGS: ["p", "br", "strong", "em", "u", "span"],
-  ALLOWED_ATTR: ["style"],
-  ALLOW_DATA_ATTR: false,
-} satisfies DOMPurify.Config;
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -81,10 +74,10 @@ export default function UserProfileView() {
 function UserProfilePanel({
   user,
   onClose,
-}: {
+}: Readonly<{
   user: UserEntry;
   onClose: () => void;
-}) {
+}>) {
   const avatarDataUrl = useMemo(
     () =>
       user.texture && user.texture.length > 0
@@ -100,10 +93,7 @@ function UserProfilePanel({
 
   const profile: FancyProfile = parsed?.profile ?? {};
   const bio = parsed?.bio ?? "";
-  const cleanBio = useMemo(
-    () => (bio ? DOMPurify.sanitize(bio, BIO_SANITIZE_CONFIG) : ""),
-    [bio],
-  );
+  const cleanBio = useMemo(() => sanitizeBio(bio), [bio]);
 
   const nameStyle = profile.nameStyle ?? {};
   const decoration = DECORATIONS.find(
@@ -172,7 +162,7 @@ function UserProfilePanel({
         {/* Banner */}
         <div className={styles.banner} style={bannerStyle} />
 
-        {/* Avatar */}
+        {/* Avatar + name row - flex row so name centre aligns with avatar centre */}
         <div className={styles.avatarArea}>
           <div className={styles.avatarWrapper} style={avatarBorderStyle}>
             {avatarDataUrl ? (
@@ -188,43 +178,45 @@ function UserProfilePanel({
               <span className={styles.decoration}>{decoration.preview}</span>
             )}
           </div>
+
+          {/* Name sits to the right, text centre == avatar centre */}
+          <div className={styles.nameInline}>
+            <div className={styles.nameRow}>
+              {nameplate && nameplate.id !== "none" && (
+                <span
+                  className={styles.nameplate}
+                  style={{ background: nameplate.bg }}
+                />
+              )}
+              <span
+                className={styles.name}
+                style={{
+                  fontFamily: fontCss,
+                  color: nameStyle.gradient
+                    ? "transparent"
+                    : nameStyle.color || "var(--color-text-primary)",
+                  fontWeight: nameStyle.bold ? "bold" : 600,
+                  fontStyle: nameStyle.italic ? "italic" : "normal",
+                  textShadow: nameStyle.glow
+                    ? `0 0 ${nameStyle.glow.size}px ${nameStyle.glow.color}`
+                    : "none",
+                  background: nameStyle.gradient
+                    ? `linear-gradient(135deg,${nameStyle.gradient[0]},${nameStyle.gradient[1]})`
+                    : "transparent",
+                  WebkitBackgroundClip: nameStyle.gradient ? "text" : undefined,
+                  WebkitTextFillColor: nameStyle.gradient
+                    ? "transparent"
+                    : undefined,
+                }}
+              >
+                {user.name}
+              </span>
+            </div>
+          </div>
         </div>
 
         {/* Body */}
         <div className={styles.body}>
-          {/* Username */}
-          <div className={styles.nameRow}>
-            {nameplate && nameplate.id !== "none" && (
-              <span
-                className={styles.nameplate}
-                style={{ background: nameplate.bg }}
-              />
-            )}
-            <span
-              className={styles.name}
-              style={{
-                fontFamily: fontCss,
-                color: nameStyle.gradient
-                  ? "transparent"
-                  : nameStyle.color || "var(--color-text-primary)",
-                fontWeight: nameStyle.bold ? "bold" : 600,
-                fontStyle: nameStyle.italic ? "italic" : "normal",
-                textShadow: nameStyle.glow
-                  ? `0 0 ${nameStyle.glow.size}px ${nameStyle.glow.color}`
-                  : "none",
-                background: nameStyle.gradient
-                  ? `linear-gradient(135deg,${nameStyle.gradient[0]},${nameStyle.gradient[1]})`
-                  : "transparent",
-                WebkitBackgroundClip: nameStyle.gradient ? "text" : undefined,
-                WebkitTextFillColor: nameStyle.gradient
-                  ? "transparent"
-                  : undefined,
-              }}
-            >
-              {user.name}
-            </span>
-          </div>
-
           {/* Status */}
           {profile.status && (
             <p className={styles.status}>{profile.status}</p>
@@ -237,10 +229,9 @@ function UserProfilePanel({
       {cleanBio && (
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>About Me</h3>
-          <div
-            className={styles.bioContent}
-            dangerouslySetInnerHTML={{ __html: cleanBio }}
-          />
+          <ExternalLinkGuard className={styles.bioContent}>
+            <div dangerouslySetInnerHTML={{ __html: cleanBio }} />
+          </ExternalLinkGuard>
         </section>
       )}
 

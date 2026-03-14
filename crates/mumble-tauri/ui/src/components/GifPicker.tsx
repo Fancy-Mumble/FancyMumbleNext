@@ -163,21 +163,28 @@ function mapMediaItems(items: KlipyMediaItem[]): KlipyGif[] {
     .filter(Boolean) as KlipyGif[];
 }
 
-async function searchGifs(query: string, tab: TabId): Promise<KlipyGif[]> {
+interface PagedResult {
+  items: KlipyGif[];
+  hasNext: boolean;
+}
+
+async function searchGifs(query: string, tab: TabId, page = 1): Promise<PagedResult> {
   const contentType = tab === "stickers" ? "/stickers" : "/gifs";
   const data = await klipyFetch<KlipyPaginatedResponse>(`${contentType}/search`, {
     q: query,
     per_page: "30",
+    page: String(page),
   });
-  return mapMediaItems(data.data.data);
+  return { items: mapMediaItems(data.data.data), hasNext: data.data.has_next };
 }
 
-async function trendingGifs(tab: TabId): Promise<KlipyGif[]> {
+async function trendingGifs(tab: TabId, page = 1): Promise<PagedResult> {
   const contentType = tab === "stickers" ? "/stickers" : "/gifs";
   const data = await klipyFetch<KlipyPaginatedResponse>(`${contentType}/trending`, {
     per_page: "30",
+    page: String(page),
   });
-  return mapMediaItems(data.data.data);
+  return { items: mapMediaItems(data.data.data), hasNext: data.data.has_next };
 }
 
 async function fetchCategories(tab: TabId): Promise<KlipyCategory[]> {
@@ -204,9 +211,42 @@ export default function GifPicker({ onSelect, onClose }: Readonly<GifPickerProps
   const [results, setResults] = useState<KlipyGif[]>([]);
   const [categories, setCategories] = useState<KlipyCategory[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [showCategories, setShowCategories] = useState(true);
+  const [page, setPage] = useState(1);
+  const [hasNext, setHasNext] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const panelRef = useRef<HTMLDivElement>(null);
+  /** Holds the active IntersectionObserver so we can disconnect on unmount. */
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  /**
+   * Stable ref to the "load next page" callback so the IntersectionObserver
+   * closure never captures stale state.
+   */
+  const loadMoreRef = useRef<() => void>(() => {});
+
+  /**
+   * Callback ref for the sentinel div.  Called with the element when it mounts
+   * (after the first results arrive) and with null when it unmounts.  Using a
+   * callback ref instead of useRef + useEffect means the observer is only
+   * created after the element actually exists in the DOM.
+   */
+  const sentinelCallbackRef = useCallback((node: HTMLDivElement | null) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+    if (!node) return;
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadMoreRef.current();
+        }
+      },
+      { threshold: 0.1 },
+    );
+    observerRef.current.observe(node);
+  }, []);
 
   // Close when clicking outside.
   useEffect(() => {
@@ -235,10 +275,14 @@ export default function GifPicker({ onSelect, onClose }: Readonly<GifPickerProps
         if (!cancelled) setLoading(false);
       });
 
-    // Also load trending as initial results.
-    trendingGifs(tab)
-      .then((gifs) => {
-        if (!cancelled) setResults(gifs);
+    // Also load trending as initial results (page 1).
+    trendingGifs(tab, 1)
+      .then(({ items, hasNext: hn }) => {
+        if (!cancelled) {
+          setResults(items);
+          setHasNext(hn);
+          setPage(1);
+        }
       })
       .catch(console.error);
 
@@ -247,24 +291,55 @@ export default function GifPicker({ onSelect, onClose }: Readonly<GifPickerProps
     };
   }, [tab]);
 
-  // Debounced search.
+  // Debounced search - resets to page 1.
   useEffect(() => {
     if (!query.trim()) {
       setShowCategories(true);
-      trendingGifs(tab).then(setResults).catch(console.error);
+      trendingGifs(tab, 1)
+        .then(({ items, hasNext: hn }) => {
+          setResults(items);
+          setHasNext(hn);
+          setPage(1);
+        })
+        .catch(console.error);
       return;
     }
     setShowCategories(false);
     clearTimeout(searchTimerRef.current);
     searchTimerRef.current = setTimeout(() => {
       setLoading(true);
-      searchGifs(query, tab)
-        .then(setResults)
+      searchGifs(query, tab, 1)
+        .then(({ items, hasNext: hn }) => {
+          setResults(items);
+          setHasNext(hn);
+          setPage(1);
+        })
         .catch(console.error)
         .finally(() => setLoading(false));
     }, 350);
     return () => clearTimeout(searchTimerRef.current);
   }, [query, tab]);
+
+  // Keep loadMoreRef up to date with the latest state without re-creating the observer.
+  useEffect(() => {
+    async function fetchNextPage(nextPage: number) {
+      const result = query.trim()
+        ? await searchGifs(query, tab, nextPage)
+        : await trendingGifs(tab, nextPage);
+      setResults((prev) => [...prev, ...result.items]);
+      setHasNext(result.hasNext);
+      setPage(nextPage);
+    }
+
+    loadMoreRef.current = () => {
+      if (!hasNext || loadingMore) return;
+      const nextPage = page + 1;
+      setLoadingMore(true);
+      fetchNextPage(nextPage)
+        .catch(console.error)
+        .finally(() => setLoadingMore(false));
+    };
+  });
 
   const handleCategoryClick = useCallback((cat: KlipyCategory) => {
     setQuery(cat.id);
@@ -356,7 +431,15 @@ export default function GifPicker({ onSelect, onClose }: Readonly<GifPickerProps
                 />
               </button>
             ))}
+            {/* Infinite scroll sentinel - uses a callback ref so the
+                IntersectionObserver is created only after this element mounts. */}
+            <div ref={sentinelCallbackRef} className={styles.sentinel} />
           </div>
+        )}
+
+        {/* Spinner shown while loading subsequent pages */}
+        {loadingMore && (
+          <div className={styles.loadingMore}>Loading…</div>
         )}
 
         {!loading && results.length === 0 && query && (

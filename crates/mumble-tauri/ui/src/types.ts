@@ -6,6 +6,8 @@ export interface ChannelEntry {
   name: string;
   description: string;
   user_count: number;
+  /** Server-reported permission bitmask, or null if not yet queried. */
+  permissions: number | null;
 }
 
 export interface UserEntry {

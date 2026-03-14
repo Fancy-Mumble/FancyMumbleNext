@@ -7,6 +7,16 @@ import { textureToDataUrl, parseComment } from "../profileFormat";
 import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
 import styles from "./ChannelSidebar.module.css";
 
+/** Mumble permission bitmask: Listen to channel (bit 11). */
+const PERM_LISTEN = 0x800;
+
+/** Check whether a channel's cached permissions include the Listen bit. */
+function canListen(channel: ChannelEntry | undefined): boolean {
+  if (!channel) return true; // channel not found - allow optimistically
+  if (channel.permissions == null) return true; // not yet queried - allow optimistically
+  return (channel.permissions & PERM_LISTEN) !== 0;
+}
+
 const AVATAR_COLORS = [
   "#2AABEE",
   "#7c3aed",
@@ -19,12 +29,16 @@ const AVATAR_COLORS = [
 function colorFor(name: string): string {
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    hash = (name.codePointAt(i) ?? 0) + ((hash << 5) - hash);
   }
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
 const MAX_STACKED = 3;
+
+/** Approximate height of the profile hover card, used for viewport clamping. */
+const HOVER_CARD_H = 340;
+const HOVER_CARD_MARGIN = 10;
 
 /**
  * Cache texture→dataURL conversions keyed by session ID.
@@ -36,7 +50,7 @@ const textureCache = new Map<number, { len: number; url: string }>();
 function avatarUrl(user: UserEntry): string | null {
   if (!user.texture || user.texture.length === 0) return null;
   const cached = textureCache.get(user.session);
-  if (cached && cached.len === user.texture.length) return cached.url;
+  if (cached?.len === user.texture.length) return cached.url;
   const url = textureToDataUrl(user.texture);
   textureCache.set(user.session, { len: user.texture.length, url });
   return url;
@@ -44,7 +58,7 @@ function avatarUrl(user: UserEntry): string | null {
 
 // --- Stacked avatar component -------------------------------------
 
-function StackedAvatars({ users }: { users: UserEntry[] }) {
+function StackedAvatars({ users }: Readonly<{ users: UserEntry[] }>) {
   const [showTooltip, setShowTooltip] = useState(false);
   if (users.length === 0) return null;
 
@@ -53,6 +67,7 @@ function StackedAvatars({ users }: { users: UserEntry[] }) {
 
   return (
     <div
+      aria-hidden="true"
       className={styles.stackedAvatars}
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
@@ -111,10 +126,10 @@ function StackedAvatars({ users }: { users: UserEntry[] }) {
 
 // --- User item with profile card on hover -------------------------
 
-function UserItem({ user, channelName: chName }: { user: UserEntry; channelName: string }) {
+function UserItem({ user, channelName: chName }: Readonly<{ user: UserEntry; channelName: string }>) {
   const [showCard, setShowCard] = useState(false);
   const [cardPos, setCardPos] = useState<{ top: number; left: number } | null>(null);
-  const itemRef = useRef<HTMLDivElement>(null);
+  const itemRef = useRef<HTMLButtonElement>(null);
   const selectUser = useAppStore((s) => s.selectUser);
   const url = useMemo(() => avatarUrl(user), [user.texture]);
   const parsed = useMemo(
@@ -125,11 +140,13 @@ function UserItem({ user, channelName: chName }: { user: UserEntry; channelName:
   const handleEnter = useCallback(() => {
     if (itemRef.current) {
       const rect = itemRef.current.getBoundingClientRect();
-      // Position the card to the right of the sidebar, vertically centred on the row.
-      setCardPos({
-        top: rect.top + rect.height / 2,
-        left: rect.right + 8,
-      });
+      const rawTop = rect.top + rect.height / 2;
+      // Clamp so the card never clips above or below the viewport.
+      const top = Math.max(
+        HOVER_CARD_H / 2 + HOVER_CARD_MARGIN,
+        Math.min(rawTop, window.innerHeight - HOVER_CARD_H / 2 - HOVER_CARD_MARGIN),
+      );
+      setCardPos({ top, left: rect.right + 8 });
     }
     setShowCard(true);
   }, []);
@@ -143,8 +160,9 @@ function UserItem({ user, channelName: chName }: { user: UserEntry; channelName:
   }, [user.session, selectUser]);
 
   return (
-    <div
+    <button
       ref={itemRef}
+      type="button"
       className={styles.userItem}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
@@ -179,7 +197,7 @@ function UserItem({ user, channelName: chName }: { user: UserEntry; channelName:
         </div>,
         document.body,
       )}
-    </div>
+    </button>
   );
 }
 
@@ -210,8 +228,7 @@ function buildGroups(channels: ChannelEntry[]): {
     const result: ChannelEntry[] = [];
     for (const ch of channels) {
       if (ch.parent_id === parentId && ch.id !== parentId) {
-        result.push(ch);
-        result.push(...collectDescendants(ch.id));
+        result.push(ch, ...collectDescendants(ch.id));
       }
     }
     return result;
@@ -232,7 +249,7 @@ interface ChannelSidebarProps {
   onChannelSelect?: () => void;
 }
 
-export default function ChannelSidebar({ onChannelSelect }: ChannelSidebarProps) {
+export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSidebarProps>) {
   const channels = useAppStore((s) => s.channels);
   const users = useAppStore((s) => s.users);
   const selectedChannel = useAppStore((s) => s.selectedChannel);
@@ -414,6 +431,19 @@ export default function ChannelSidebar({ onChannelSelect }: ChannelSidebarProps)
     );
   }
 
+  // Computed display values to avoid nested ternaries in JSX.
+  const voiceStatusText = voiceState === "muted" ? "Muted" : "Deaf & Muted";
+  const voiceInfoContent =
+    voiceState === "active" ? (
+      <>
+        <span className={styles.voiceDot} />
+        <span className={styles.voiceLabel}>Voice Connected</span>
+      </>
+    ) : (
+      <span className={styles.voiceLabelMuted}>{voiceStatusText}</span>
+    );
+  const muteTitle = voiceState === "muted" ? "Unmute" : "Mute";
+
   return (
     <aside className={styles.sidebar}>
       {/* Header */}
@@ -470,25 +500,27 @@ export default function ChannelSidebar({ onChannelSelect }: ChannelSidebarProps)
                 } ${isCurrent ? styles.currentChannel : ""}`}
                 onContextMenu={(e) => openCtxMenu(e, group.folder.id)}
               >
-                <button
-                  className={styles.expandBtn}
-                  onClick={() => toggleExpand(group.folder.id)}
-                  aria-label={isOpen ? "Collapse" : "Expand"}
-                >
-                  <svg
-                    className={`${styles.chevron} ${isOpen ? styles.chevronOpen : ""}`}
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+                {group.children.length > 0 && (
+                  <button
+                    className={styles.expandBtn}
+                    onClick={() => toggleExpand(group.folder.id)}
+                    aria-label={isOpen ? "Collapse" : "Expand"}
                   >
-                    <polyline points="9 18 15 12 9 6" />
-                  </svg>
-                </button>
+                    <svg
+                      className={`${styles.chevron} ${isOpen ? styles.chevronOpen : ""}`}
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <polyline points="9 18 15 12 9 6" />
+                    </svg>
+                  </button>
+                )}
                 <button
                   className={styles.folderSelect}
                   onClick={() => selectChannel(group.folder.id)}
@@ -551,16 +583,7 @@ export default function ChannelSidebar({ onChannelSelect }: ChannelSidebarProps)
       {/* Voice panel */}
       <div className={styles.voicePanel}>
         <div className={styles.voiceInfo}>
-          {voiceState === "active" ? (
-            <>
-              <span className={styles.voiceDot} />
-              <span className={styles.voiceLabel}>Voice Connected</span>
-            </>
-          ) : voiceState === "muted" ? (
-            <span className={styles.voiceLabelMuted}>Muted</span>
-          ) : (
-            <span className={styles.voiceLabelMuted}>Deaf &amp; Muted</span>
-          )}
+          {voiceInfoContent}
         </div>
 
         <div className={styles.voiceActions}>
@@ -570,22 +593,22 @@ export default function ChannelSidebar({ onChannelSelect }: ChannelSidebarProps)
               <button
                 className={`${styles.voiceToggle} ${voiceState === "active" ? styles.voiceActive : ""}`}
                 onClick={toggleMute}
-                title={voiceState === "active" ? "Mute" : voiceState === "muted" ? "Unmute" : "Mute"}
+                title={muteTitle}
               >
-                {voiceState !== "muted" ? (
-                  /* Mic on icon */
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="12" y1="19" x2="12" y2="23" />
-                    <line x1="8" y1="23" x2="16" y2="23" />
-                  </svg>
-                ) : (
+                {voiceState === "muted" ? (
                   /* Mic off icon */
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="1" y1="1" x2="23" y2="23" />
                     <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
                     <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.5-.35 2.18" />
+                    <line x1="12" y1="19" x2="12" y2="23" />
+                    <line x1="8" y1="23" x2="16" y2="23" />
+                  </svg>
+                ) : (
+                  /* Mic on icon */
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                     <line x1="12" y1="19" x2="12" y2="23" />
                     <line x1="8" y1="23" x2="16" y2="23" />
                   </svg>
@@ -632,39 +655,47 @@ export default function ChannelSidebar({ onChannelSelect }: ChannelSidebarProps)
       </div>
 
       {/* Context menu */}
-      {ctxMenu && (
-        <div
-          ref={ctxRef}
-          className={styles.contextMenu}
-          style={{ top: ctxMenu.y, left: ctxMenu.x }}
-        >
-          <button
-            className={styles.contextMenuItem}
-            onClick={() => {
-              toggleListen(ctxMenu.channelId);
-              setCtxMenu(null);
-            }}
+      {ctxMenu && (() => {
+        const ctxChannel = channels.find((c) => c.id === ctxMenu.channelId);
+        const hasListenPerm = canListen(ctxChannel);
+        const isListened = listenedChannels.has(ctxMenu.channelId);
+
+        return (
+          <div
+            ref={ctxRef}
+            className={styles.contextMenu}
+            style={{ top: ctxMenu.y, left: ctxMenu.x }}
           >
-            {listenedChannels.has(ctxMenu.channelId) ? (
-              <>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="1" y1="1" x2="23" y2="23" />
-                  <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
-                  <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.5-.35 2.18" />
-                </svg>
-                Stop listening
-              </>
-            ) : (
-              <>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 3a9 9 0 0 0-9 9v7c0 1.1.9 2 2 2h4v-8H5v-1a7 7 0 0 1 14 0v1h-4v8h4c1.1 0 2-.9 2-2v-7a9 9 0 0 0-9-9z"/>
-                </svg>
-                Listen to channel
-              </>
-            )}
-          </button>
-        </div>
-      )}
+            <button
+              className={styles.contextMenuItem}
+              disabled={!isListened && !hasListenPerm}
+              title={!isListened && !hasListenPerm ? "You do not have permission to listen to this channel" : undefined}
+              onClick={() => {
+                toggleListen(ctxMenu.channelId);
+                setCtxMenu(null);
+              }}
+            >
+              {isListened ? (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                    <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+                    <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.5-.35 2.18" />
+                  </svg>
+                  Stop listening
+                </>
+              ) : (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" opacity={hasListenPerm ? 1 : 0.4}>
+                    <path d="M12 3a9 9 0 0 0-9 9v7c0 1.1.9 2 2 2h4v-8H5v-1a7 7 0 0 1 14 0v1h-4v8h4c1.1 0 2-.9 2-2v-7a9 9 0 0 0-9-9z"/>
+                  </svg>
+                  Listen to channel
+                </>
+              )}
+            </button>
+          </div>
+        );
+      })()}
     </aside>
   );
 }

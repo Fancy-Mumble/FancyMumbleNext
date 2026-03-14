@@ -1,0 +1,194 @@
+import { useState, useCallback, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
+import type { ChatMessage, UserEntry } from "../types";
+import type { PollPayload } from "./PollCreator";
+import { parseComment } from "../profileFormat";
+import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
+import { isMobilePlatform } from "../utils/platform";
+import PollCard, { getPoll } from "./PollCard";
+import MediaPreview from "./MediaPreview";
+import styles from "./ChatView.module.css";
+
+const AVATAR_COLORS = [
+  "#2AABEE",
+  "#7c3aed",
+  "#22c55e",
+  "#f59e0b",
+  "#ef4444",
+  "#ec4899",
+];
+
+/** Approximate height of the profile hover card, used for viewport clamping. */
+const HOVER_CARD_H = 340;
+const HOVER_CARD_MARGIN = 10;
+
+function colorFor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (name.codePointAt(i) ?? 0) + ((hash << 5) - hash);
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+/**
+ * Returns true when the message body contains only media elements
+ * (<img> / <video>) and no visible text.  Used to strip bubble chrome
+ * (padding, border, background) so images/GIFs render edge-to-edge.
+ */
+function isPureMedia(body: string): boolean {
+  if (/<!-- FANCY_POLL:/.test(body)) return false;
+  const hasMedia = /<img|<video/i.test(body);
+  if (!hasMedia) return false;
+  const textOnly = body
+    .replaceAll(/<img[^>]*\/?>/gi, "")
+    .replaceAll(/<video[\s\S]*?<\/video>/gi, "")
+    .replaceAll(/<!--[\s\S]*?-->/g, "")
+    .replaceAll(/<[^>]+>/g, "")
+    .trim();
+  return textOnly.length === 0;
+}
+
+interface MessageItemProps {
+  readonly msg: ChatMessage;
+  readonly index: number;
+  readonly avatarUrl: string | undefined;
+  readonly user: UserEntry | undefined;
+  readonly polls: Map<string, PollPayload>;
+  readonly ownSession: number | null;
+  readonly onVote: (pollId: string, selected: number[]) => Promise<void>;
+  readonly onAvatarClick?: (session: number) => void;
+}
+
+export default function MessageItem({
+  msg,
+  index,
+  avatarUrl,
+  user,
+  polls,
+  ownSession,
+  onVote,
+  onAvatarClick,
+}: MessageItemProps) {
+  const pureMedia = isPureMedia(msg.body);
+  const isMobile = isMobilePlatform();
+
+  // Desktop hover-card state
+  const [showCard, setShowCard] = useState(false);
+  const [cardPos, setCardPos] = useState<{ top: number; left: number } | null>(null);
+  const avatarRef = useRef<HTMLButtonElement>(null);
+
+  const parsed = useMemo(
+    () => (user?.comment ? parseComment(user.comment) : null),
+    [user?.comment],
+  );
+
+  const handleAvatarEnter = useCallback(() => {
+    if (isMobile || !avatarRef.current) return;
+    const rect = avatarRef.current.getBoundingClientRect();
+    const rawTop = rect.top + rect.height / 2;
+    // Clamp so the card never clips above or below the viewport.
+    const top = Math.max(
+      HOVER_CARD_H / 2 + HOVER_CARD_MARGIN,
+      Math.min(rawTop, window.innerHeight - HOVER_CARD_H / 2 - HOVER_CARD_MARGIN),
+    );
+    setCardPos({ top, left: rect.right + 8 });
+    setShowCard(true);
+  }, [isMobile]);
+
+  const handleAvatarLeave = useCallback(() => {
+    setShowCard(false);
+  }, []);
+
+  const handleAvatarClick = useCallback(() => {
+    if (msg.sender_session !== null) {
+      onAvatarClick?.(msg.sender_session);
+    }
+  }, [msg.sender_session, onAvatarClick]);
+
+  const renderBody = () => {
+    const pollMatch = /<!-- FANCY_POLL:(.+?) -->/.exec(msg.body);
+    if (pollMatch) {
+      const pollId = pollMatch[1];
+      const poll = polls.get(pollId) ?? getPoll(pollId);
+      if (poll) {
+        return (
+          <PollCard
+            poll={poll}
+            ownSession={ownSession}
+            isOwn={msg.is_own}
+            onVote={onVote}
+          />
+        );
+      }
+    }
+    return <MediaPreview html={msg.body} messageId={`${index}`} compact={pureMedia} />;
+  };
+
+  const renderAvatar = () => {
+    const inner = avatarUrl ? (
+      <img
+        src={avatarUrl}
+        alt={msg.sender_name}
+        className={styles.messageAvatarImg}
+      />
+    ) : (
+      <div
+        className={styles.messageAvatar}
+        style={{ background: colorFor(msg.sender_name) }}
+      >
+        {msg.sender_name.charAt(0).toUpperCase()}
+      </div>
+    );
+
+    return (
+      <>
+        <button
+          ref={avatarRef}
+          type="button"
+          className={styles.avatarBtn}
+          onClick={handleAvatarClick}
+          onMouseEnter={handleAvatarEnter}
+          onMouseLeave={handleAvatarLeave}
+          aria-label={`View ${msg.sender_name}'s profile`}
+        >
+          {inner}
+        </button>
+        {showCard && cardPos && user && createPortal(
+          <div
+            className={styles.avatarPopover}
+            style={{ top: cardPos.top, left: cardPos.left }}
+          >
+            <ProfilePreviewCard
+              profile={parsed?.profile ?? {}}
+              bio={parsed?.bio ?? ""}
+              avatar={avatarUrl ?? null}
+              displayName={user.name}
+            />
+          </div>,
+          document.body,
+        )}
+      </>
+    );
+  };
+
+  return (
+    <div
+      className={`${styles.messageRow} ${msg.is_own ? styles.own : ""}`}
+    >
+      {!msg.is_own && renderAvatar()}
+      <div
+        className={`${styles.bubble} ${msg.is_own ? styles.ownBubble : ""} ${pureMedia ? styles.bubbleMedia : ""}`}
+      >
+        {!msg.is_own && !pureMedia && (
+          <span
+            className={styles.senderName}
+            style={{ color: colorFor(msg.sender_name) }}
+          >
+            {msg.sender_name}
+          </span>
+        )}
+        <div className={styles.messageBody}>{renderBody()}</div>
+      </div>
+    </div>
+  );
+}

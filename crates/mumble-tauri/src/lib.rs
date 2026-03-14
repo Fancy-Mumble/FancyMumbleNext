@@ -382,7 +382,8 @@ pub fn run() {
     tracing_subscriber::fmt::init();
 
     let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_store::Builder::default().build());
+        .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_opener::init());
 
     // Global shortcuts (PTT) are only available on desktop.
     #[cfg(not(target_os = "android"))]

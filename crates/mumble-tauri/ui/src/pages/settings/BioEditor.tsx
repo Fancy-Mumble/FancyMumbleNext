@@ -12,6 +12,8 @@ import Underline from "@tiptap/extension-underline";
 import { TextStyle } from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
 import Placeholder from "@tiptap/extension-placeholder";
+import TiptapImage from "@tiptap/extension-image";
+import { resizeImage } from "./imageUtils";
 import styles from "./SettingsPage.module.css";
 
 // ── Colour palette for the quick-pick colour grid ─────────────────
@@ -34,10 +36,10 @@ const COLOUR_PALETTE = [
 // ── Component ─────────────────────────────────────────────────────
 
 interface BioEditorProps {
-  value: string;
-  onChange: (html: string) => void;
-  maxLength?: number;
-  placeholder?: string;
+  readonly value: string;
+  readonly onChange: (html: string) => void;
+  readonly maxLength?: number;
+  readonly placeholder?: string;
 }
 
 export function BioEditor({
@@ -49,6 +51,7 @@ export function BioEditor({
   const [showColourPicker, setShowColourPicker] = useState(false);
   const colourPickerRef = useRef<HTMLDivElement>(null);
   const colourBtnRef = useRef<HTMLButtonElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Track whether we should suppress the next onUpdate to avoid
   // feedback loops when the parent pushes a new `value`.
@@ -71,6 +74,7 @@ export function BioEditor({
       TextStyle,
       Color,
       Placeholder.configure({ placeholder }),
+      TiptapImage.configure({ inline: true, allowBase64: true }),
     ],
     content: value,
     onUpdate: ({ editor: ed }) => {
@@ -81,7 +85,10 @@ export function BioEditor({
       const html = ed.getHTML();
       // tiptap produces `<p></p>` for empty - normalise to empty string.
       const normalised = html === "<p></p>" ? "" : html;
-      if (normalised.length <= maxLength) {
+      // Exclude embedded image data from the length check so large
+      // base64 payloads do not prevent the user from saving text.
+      const htmlForCount = normalised.replaceAll(/src="data:[^"]+"/g, 'src=""');
+      if (htmlForCount.length <= maxLength) {
         onChange(normalised);
       }
     },
@@ -134,6 +141,22 @@ export function BioEditor({
     setShowColourPicker(false);
   }, [editor]);
 
+  const handleInsertImage = useCallback(
+    async (file: File) => {
+      if (!editor) return;
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const raw = e.target?.result as string | undefined;
+        if (!raw) return;
+        // Resize/compress to keep comment size manageable (max 80 KB raw bytes).
+        const dataUrl = await resizeImage(raw, 400, 400, 80_000);
+        editor.chain().focus().setImage({ src: dataUrl }).run();
+      };
+      reader.readAsDataURL(file);
+    },
+    [editor],
+  );
+
   if (!editor) return null;
 
   return (
@@ -166,6 +189,34 @@ export function BioEditor({
           aria-label="Underline"
         >
           <u>U</u>
+        </button>
+
+        {/* Hidden file input - image source is always converted to a data: URL
+            so no external requests are ever made. */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void handleInsertImage(file);
+            e.target.value = "";
+          }}
+        />
+        {/* Image insert button */}
+        <button
+          type="button"
+          className={styles.bioToolBtn}
+          onClick={() => fileInputRef.current?.click()}
+          title="Insert image"
+          aria-label="Insert image"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <polyline points="21 15 16 10 5 21" />
+          </svg>
         </button>
 
         {/* Colour picker toggle */}
