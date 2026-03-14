@@ -802,6 +802,76 @@ fn get_debug_stats(state: tauri::State<'_, AppState>) -> DebugStats {
     state.debug_stats()
 }
 
+// ── Admin commands ──────────────────────────────────────────────
+
+/// Kick a user from the server.
+#[tauri::command]
+async fn kick_user(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+    reason: Option<String>,
+) -> Result<(), String> {
+    state.kick_user(session, reason).await
+}
+
+/// Ban a user from the server.
+#[tauri::command]
+async fn ban_user(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+    reason: Option<String>,
+) -> Result<(), String> {
+    state.ban_user(session, reason).await
+}
+
+/// Admin-mute or unmute another user.
+#[tauri::command]
+async fn mute_user(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+    muted: bool,
+) -> Result<(), String> {
+    state.mute_user(session, muted).await
+}
+
+/// Admin-deafen or undeafen another user.
+#[tauri::command]
+async fn deafen_user(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+    deafened: bool,
+) -> Result<(), String> {
+    state.deafen_user(session, deafened).await
+}
+
+/// Set or clear priority speaker for another user.
+#[tauri::command]
+async fn set_priority_speaker(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+    priority: bool,
+) -> Result<(), String> {
+    state.set_priority_speaker(session, priority).await
+}
+
+/// Reset another user's comment (admin action).
+#[tauri::command]
+async fn reset_user_comment(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+) -> Result<(), String> {
+    state.reset_user_comment(session).await
+}
+
+/// Remove another user's avatar (admin action).
+#[tauri::command]
+async fn remove_user_avatar(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+) -> Result<(), String> {
+    state.remove_user_avatar(session).await
+}
+
 // --- Application bootstrap ---------------------------------------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -895,6 +965,13 @@ pub fn run() {
             clear_offloaded_messages,
             get_debug_stats,
             super_search,
+            kick_user,
+            ban_user,
+            mute_user,
+            deafen_user,
+            set_priority_speaker,
+            reset_user_comment,
+            remove_user_avatar,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

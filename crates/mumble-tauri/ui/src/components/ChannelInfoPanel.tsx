@@ -5,12 +5,15 @@
  * appears to allow inline editing of the channel description and name.
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../store";
 import type { ChannelEntry } from "../types";
 import { BioEditor } from "../pages/settings/BioEditor";
 import { SafeHtml } from "./SafeHtml";
+import { UserListItem } from "./UserListItem";
+import { UserContextMenu } from "./UserContextMenu";
+import type { UserContextMenuState } from "./UserContextMenu";
 import styles from "./ChannelInfoPanel.module.css";
 
 /** Mumble permission bitmask: Write (bit 0). */
@@ -32,6 +35,28 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const users = useAppStore((s) => s.users);
+  const selectDmUser = useAppStore((s) => s.selectDmUser);
+
+  const channelUsers = useMemo(
+    () => users.filter((u) => u.channel_id === selectedChannel),
+    [users, selectedChannel],
+  );
+
+  const [userCtxMenu, setUserCtxMenu] = useState<UserContextMenuState | null>(
+    null,
+  );
+
+  const openUserCtxMenu = useCallback(
+    (e: React.MouseEvent, session: number) => {
+      e.preventDefault();
+      const u = users.find((u) => u.session === session);
+      if (!u) return;
+      setUserCtxMenu({ x: e.clientX, y: e.clientY, user: u });
+    },
+    [users],
+  );
 
   const canWrite =
     channel?.permissions != null && (channel.permissions & PERM_WRITE) !== 0;
@@ -182,6 +207,35 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
           </>
         )}
       </div>
+
+      {/* Members section */}
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <h3 className={styles.sectionTitle}>
+            Members ({channelUsers.length})
+          </h3>
+        </div>
+        <div className={styles.membersList}>
+          {channelUsers.map((u) => (
+            <UserListItem
+              key={u.session}
+              user={u}
+              onClick={() => selectDmUser(u.session)}
+              onContextMenu={(e) => openUserCtxMenu(e, u.session)}
+            />
+          ))}
+          {channelUsers.length === 0 && (
+            <span className={styles.emptyMembers}>No users in this channel</span>
+          )}
+        </div>
+      </div>
+
+      {userCtxMenu && (
+        <UserContextMenu
+          menu={userCtxMenu}
+          onClose={() => setUserCtxMenu(null)}
+        />
+      )}
     </div>
   );
 }

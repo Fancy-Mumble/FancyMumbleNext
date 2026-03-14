@@ -154,7 +154,7 @@ describe("simulated plugin-data event processing", () => {
     // Pre-populate users in the store.
     useAppStore.setState({
       users: [
-        { session: 92, name: "Alice", channel_id: 0, texture: null, comment: null },
+        { session: 92, name: "Alice", channel_id: 0, texture: null, comment: null, mute: false, deaf: false, suppress: false, self_mute: false, self_deaf: false, priority_speaker: false },
       ],
     });
 

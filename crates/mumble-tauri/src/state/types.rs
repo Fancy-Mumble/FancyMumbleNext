@@ -30,6 +30,18 @@ pub struct UserEntry {
     pub channel_id: u32,
     pub texture: Option<Vec<u8>>,
     pub comment: Option<String>,
+    /// Server-side admin mute.
+    pub mute: bool,
+    /// Server-side admin deafen.
+    pub deaf: bool,
+    /// Suppressed by the server (e.g. moved to AFK channel).
+    pub suppress: bool,
+    /// User has self-muted.
+    pub self_mute: bool,
+    /// User has self-deafened.
+    pub self_deaf: bool,
+    /// Priority speaker status.
+    pub priority_speaker: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

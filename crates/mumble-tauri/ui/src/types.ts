@@ -18,6 +18,18 @@ export interface UserEntry {
   texture: number[] | null;
   /** Mumble comment - may contain FancyMumble profile JSON marker. */
   comment: string | null;
+  /** Server-side admin mute. */
+  mute: boolean;
+  /** Server-side admin deafen. */
+  deaf: boolean;
+  /** Suppressed by the server. */
+  suppress: boolean;
+  /** User has self-muted. */
+  self_mute: boolean;
+  /** User has self-deafened. */
+  self_deaf: boolean;
+  /** Priority speaker status. */
+  priority_speaker: boolean;
 }
 
 export interface ChatMessage {

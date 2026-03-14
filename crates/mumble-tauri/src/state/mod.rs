@@ -1161,4 +1161,118 @@ impl AppState {
             None => Err("Not connected".into()),
         }
     }
+
+    // ── Admin actions ────────────────────────────────────────────
+
+    /// Kick a user from the server.
+    pub async fn kick_user(&self, session: u32, reason: Option<String>) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::KickUser { session, reason })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Ban a user from the server.
+    pub async fn ban_user(&self, session: u32, reason: Option<String>) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::BanUser { session, reason })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Admin-mute or unmute another user.
+    pub async fn mute_user(&self, session: u32, muted: bool) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::SetUserMute { session, muted })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Admin-deafen or undeafen another user.
+    pub async fn deafen_user(&self, session: u32, deafened: bool) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::SetUserDeaf {
+                    session,
+                    deafened,
+                })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Set or clear priority speaker for a user.
+    pub async fn set_priority_speaker(
+        &self,
+        session: u32,
+        priority: bool,
+    ) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::SetPrioritySpeaker { session, priority })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Reset another user's comment (admin action).
+    pub async fn reset_user_comment(&self, session: u32) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::ResetUserComment { session })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Remove another user's avatar (admin action).
+    pub async fn remove_user_avatar(&self, session: u32) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::RemoveUserAvatar { session })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
 }

@@ -300,3 +300,17 @@
 .welcomeText a:hover {
   text-decoration: underline;
 }
+
+/* ── Members list ──────────────────────────────────────────────── */
+
+.membersList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.emptyMembers {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  font-style: italic;
+}

@@ -194,6 +194,12 @@ impl EventHandler for TauriEventHandler {
                                     channel_id: 0,
                                     texture: None,
                                     comment: None,
+                                    mute: false,
+                                    deaf: false,
+                                    suppress: false,
+                                    self_mute: false,
+                                    self_deaf: false,
+                                    priority_speaker: false,
                                 });
                             if let Some(ref name) = us.name {
                                 user.name = name.clone();
@@ -211,6 +217,24 @@ impl EventHandler for TauriEventHandler {
                                 } else {
                                     Some(comment.clone())
                                 };
+                            }
+                            if let Some(mute) = us.mute {
+                                user.mute = mute;
+                            }
+                            if let Some(deaf) = us.deaf {
+                                user.deaf = deaf;
+                            }
+                            if let Some(suppress) = us.suppress {
+                                user.suppress = suppress;
+                            }
+                            if let Some(self_mute) = us.self_mute {
+                                user.self_mute = self_mute;
+                            }
+                            if let Some(self_deaf) = us.self_deaf {
+                                user.self_deaf = self_deaf;
+                            }
+                            if let Some(priority) = us.priority_speaker {
+                                user.priority_speaker = priority;
                             }
                             let mut own_ch = false;
                             if let Some(ch) = us.channel_id {

@@ -1,0 +1,171 @@
+/* ─── Shared User List Item ─────────────────────────────────────── */
+
+.userItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  outline: none;
+}
+
+.userItem:focus-visible {
+  outline: 2px solid var(--color-accent, #6366f1);
+  outline-offset: -2px;
+}
+
+.userItem:hover {
+  background: var(--color-glass-hover);
+}
+
+.userItemActive {
+  background: var(--color-glass-active, rgba(99, 102, 241, 0.15));
+}
+
+/* ─── Avatar ───────────────────────────────────────────────────── */
+
+.avatarWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+}
+
+.avatarImg {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.onlineDot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 10px;
+  height: 10px;
+  background: var(--color-online);
+  border: 2px solid var(--color-bg-primary);
+  border-radius: 50%;
+}
+
+/* ─── Name & Badges ────────────────────────────────────────────── */
+
+.userName {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.statusIcons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.statusIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+.statusIcon.muted {
+  color: var(--color-danger, #ef4444);
+}
+
+.statusIcon.deafened {
+  color: var(--color-danger, #ef4444);
+}
+
+.statusIcon.prioritySpeaker {
+  color: var(--color-warning, #f59e0b);
+}
+
+/* ─── Channel Chip ─────────────────────────────────────────────── */
+
+.channelChip {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-accent);
+  background: rgba(42, 171, 238, 0.1);
+  border: 1px solid rgba(42, 171, 238, 0.15);
+  border-radius: 99px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── Unread Badge ─────────────────────────────────────────────── */
+
+.unreadBadge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: var(--color-accent, #2AABEE);
+  box-shadow: 0 0 6px rgba(42, 171, 238, 0.4);
+}
+
+/* ─── Profile Popover ──────────────────────────────────────────── */
+
+.profilePopover {
+  position: fixed;
+  transform: translateY(-50%);
+  z-index: 10000;
+  pointer-events: none;
+  padding-bottom: 12px;
+}
+
+/* ─── Mobile ───────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .userItem {
+    padding: 10px 12px;
+    min-height: 44px;
+  }
+
+  .avatar,
+  .avatarImg {
+    width: 32px;
+    height: 32px;
+  }
+}
