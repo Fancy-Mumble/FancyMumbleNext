@@ -22,10 +22,39 @@ impl AppState {
     }
 
     /// Update audio settings.
-    pub fn set_audio_settings(&self, settings: super::types::AudioSettings) {
+    ///
+    /// If any pipeline-relevant setting changed while voice is active,
+    /// the outbound pipeline is automatically restarted.
+    /// Volume changes are applied live via atomic handles (no restart).
+    pub fn set_audio_settings(&self, settings: super::types::AudioSettings) -> Option<(bool, bool)> {
+        let (old_settings, voice_active) = {
+            let state = self.inner.lock().ok()?;
+            (
+                state.audio_settings.clone(),
+                state.voice_state == VoiceState::Active,
+            )
+        };
+
+        let restart_outbound = voice_active && old_settings.needs_pipeline_restart(&settings);
+        let restart_inbound = voice_active && old_settings.needs_inbound_restart(&settings);
+
+        // Update live volume handles (no pipeline restart needed).
+        #[cfg(not(target_os = "android"))]
+        if let Ok(state) = self.inner.lock() {
+            use std::sync::atomic::Ordering;
+            if let Some(ref h) = state.input_volume_handle {
+                h.store(settings.input_volume.to_bits(), Ordering::Relaxed);
+            }
+            if let Some(ref h) = state.output_volume_handle {
+                h.store(settings.output_volume.to_bits(), Ordering::Relaxed);
+            }
+        }
+
         if let Ok(mut state) = self.inner.lock() {
             state.audio_settings = settings;
         }
+
+        Some((restart_outbound, restart_inbound))
     }
 
     /// Get current voice state.
@@ -50,13 +79,15 @@ impl AppState {
 
 #[cfg(not(target_os = "android"))]
 mod desktop {
+    use std::sync::atomic::AtomicU32;
+    use std::sync::Arc;
     use std::time::Duration;
 
     use tracing::{info, warn};
 
     use mumble_protocol::audio::decoder::OpusDecoder;
     use mumble_protocol::audio::encoder::{OpusEncoder, OpusEncoderConfig};
-    use mumble_protocol::audio::filter::automatic_gain::AutomaticGainControl;
+    use mumble_protocol::audio::filter::automatic_gain::{AgcConfig, AutomaticGainControl};
     use mumble_protocol::audio::filter::noise_gate::{NoiseGate, NoiseGateConfig};
     use mumble_protocol::audio::filter::FilterChain;
     use mumble_protocol::audio::pipeline::{InboundPipeline, OutboundPipeline, OutboundTick};
@@ -65,8 +96,8 @@ mod desktop {
     use mumble_protocol::command;
 
     use crate::audio::{CpalCapture, CpalPlayback};
-    use crate::state::types::{AudioSettings, VoiceState};
-    use crate::state::AppState;
+    use crate::state::types::{AudioSettings, MicAmplitudePayload, VoiceState};
+    use crate::state::{AppState, SharedState};
 
     impl AppState {
         /// Enable voice calling: unmute + undeaf, start audio pipelines.
@@ -78,8 +109,16 @@ mod desktop {
 
             info!("enable_voice: starting audio pipelines");
 
+            // Create shared volume handles for live updates.
+            let input_vol = Arc::new(AtomicU32::new(audio_settings.input_volume.to_bits()));
+            let output_vol = Arc::new(AtomicU32::new(audio_settings.output_volume.to_bits()));
+
             // Inbound: network -> decoder -> playback.
-            let playback = CpalPlayback::new().map_err(|e| format!("Playback init: {e}"))?;
+            let playback = CpalPlayback::new(
+                audio_settings.selected_output_device.as_deref(),
+                output_vol.clone(),
+            )
+            .map_err(|e| format!("Playback init: {e}"))?;
             let decoder = OpusDecoder::new(AudioFormat::MONO_48KHZ_F32)
                 .map_err(|e| format!("Decoder init: {e}"))?;
             let mut inbound = InboundPipeline::new(
@@ -92,25 +131,35 @@ mod desktop {
             // Outbound: capture -> filters -> encoder -> network.
             let capture = CpalCapture::new(
                 audio_settings.selected_device.as_deref(),
-                960, // 20 ms @ 48 kHz (matches encoder frame size)
+                audio_settings.frame_size_samples(),
+                input_vol.clone(),
             )
             .map_err(|e| format!("Capture init: {e}"))?;
 
-            let encoder_config = OpusEncoderConfig::default();
+            let encoder_config = OpusEncoderConfig {
+                bitrate: audio_settings.bitrate_bps,
+                frame_size: audio_settings.frame_size_samples(),
+                ..OpusEncoderConfig::default()
+            };
             let encoder = OpusEncoder::new(encoder_config, AudioFormat::MONO_48KHZ_F32)
                 .map_err(|e| format!("Encoder init: {e}"))?;
 
             let mut outbound_filters = FilterChain::new();
-            let noise_gate = NoiseGate::new(NoiseGateConfig {
-                open_threshold: audio_settings.vad_threshold,
-                close_threshold: audio_settings.vad_threshold * audio_settings.noise_gate_close_ratio,
-                hold_frames: audio_settings.hold_frames,
-                ..NoiseGateConfig::default()
-            });
-            outbound_filters.push(Box::new(noise_gate));
+            if audio_settings.noise_suppression {
+                let noise_gate = NoiseGate::new(NoiseGateConfig {
+                    open_threshold: audio_settings.vad_threshold,
+                    close_threshold: audio_settings.vad_threshold * audio_settings.noise_gate_close_ratio,
+                    hold_frames: audio_settings.hold_frames,
+                    ..NoiseGateConfig::default()
+                });
+                outbound_filters.push(Box::new(noise_gate));
+            }
             if audio_settings.auto_gain {
-                outbound_filters
-                    .push(Box::new(AutomaticGainControl::new(Default::default())));
+                let max_gain_linear = 10.0_f32.powf(audio_settings.max_gain_db / 20.0);
+                outbound_filters.push(Box::new(AutomaticGainControl::new(AgcConfig {
+                    max_gain: max_gain_linear,
+                    ..AgcConfig::default()
+                })));
             }
 
             let mut outbound = OutboundPipeline::new(
@@ -134,6 +183,8 @@ mod desktop {
                 state.voice_state = VoiceState::Active;
                 state.inbound_pipeline = Some(inbound);
                 state.outbound_task_handle = outbound_handle;
+                state.input_volume_handle = Some(input_vol);
+                state.output_volume_handle = Some(output_vol);
             }
 
             info!("enable_voice: pipelines started, sending unmute");
@@ -176,7 +227,15 @@ mod desktop {
                 if let Some(handle) = state.outbound_task_handle.take() {
                     handle.abort();
                 }
+                if let Some(handle) = state.mic_test_handle.take() {
+                    handle.abort();
+                }
+                if let Some(handle) = state.latency_test_handle.take() {
+                    handle.abort();
+                }
                 state.inbound_pipeline = None;
+                state.input_volume_handle = None;
+                state.output_volume_handle = None;
             }
         }
 
@@ -189,30 +248,103 @@ mod desktop {
             }
         }
 
+        /// Restart the outbound pipeline with the current audio settings.
+        ///
+        /// Called when the input device (or other capture-relevant settings)
+        /// change while voice is active.
+        pub fn restart_outbound(&self) -> Result<(), String> {
+            info!("restart_outbound: restarting capture pipeline with new settings");
+            self.stop_outbound();
+
+            let (audio_settings, client_handle) = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                (state.audio_settings.clone(), state.client_handle.clone())
+            };
+
+            self.start_outbound_pipeline(&audio_settings, &client_handle)
+        }
+
+        /// Restart the inbound pipeline with the current audio settings.
+        ///
+        /// Called when the output device changes while voice is active.
+        pub fn restart_inbound(&self) -> Result<(), String> {
+            info!("restart_inbound: restarting playback pipeline with new settings");
+
+            // Stop the old inbound pipeline.
+            if let Ok(mut state) = self.inner.lock() {
+                state.inbound_pipeline = None;
+            }
+
+            let audio_settings = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                state.audio_settings.clone()
+            };
+
+            let output_vol = Arc::new(AtomicU32::new(audio_settings.output_volume.to_bits()));
+
+            let playback = CpalPlayback::new(
+                audio_settings.selected_output_device.as_deref(),
+                output_vol.clone(),
+            )
+            .map_err(|e| format!("Playback init: {e}"))?;
+            let decoder = OpusDecoder::new(AudioFormat::MONO_48KHZ_F32)
+                .map_err(|e| format!("Decoder init: {e}"))?;
+            let mut inbound = InboundPipeline::new(
+                Box::new(decoder),
+                FilterChain::new(),
+                Box::new(playback),
+            );
+            inbound.start().map_err(|e| format!("Playback start: {e}"))?;
+
+            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.inbound_pipeline = Some(inbound);
+            state.output_volume_handle = Some(output_vol);
+            Ok(())
+        }
+
         /// Create and start a fresh outbound audio pipeline (mic -> encoder -> network).
         fn start_outbound_pipeline(
             &self,
             audio_settings: &AudioSettings,
             client_handle: &Option<ClientHandle>,
         ) -> Result<(), String> {
+            // Re-use existing input volume handle or create a new one.
+            let input_vol = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                state.input_volume_handle.clone()
+            }
+            .unwrap_or_else(|| Arc::new(AtomicU32::new(audio_settings.input_volume.to_bits())));
+
             let capture = CpalCapture::new(
                 audio_settings.selected_device.as_deref(),
-                960,
+                audio_settings.frame_size_samples(),
+                input_vol.clone(),
             )
             .map_err(|e| format!("Capture init: {e}"))?;
 
-            let encoder = OpusEncoder::new(OpusEncoderConfig::default(), AudioFormat::MONO_48KHZ_F32)
+            let encoder_config = OpusEncoderConfig {
+                bitrate: audio_settings.bitrate_bps,
+                frame_size: audio_settings.frame_size_samples(),
+                ..OpusEncoderConfig::default()
+            };
+            let encoder = OpusEncoder::new(encoder_config, AudioFormat::MONO_48KHZ_F32)
                 .map_err(|e| format!("Encoder init: {e}"))?;
 
             let mut outbound_filters = FilterChain::new();
-            outbound_filters.push(Box::new(NoiseGate::new(NoiseGateConfig {
-                open_threshold: audio_settings.vad_threshold,
-                close_threshold: audio_settings.vad_threshold * audio_settings.noise_gate_close_ratio,
-                hold_frames: audio_settings.hold_frames,
-                ..NoiseGateConfig::default()
-            })));
+            if audio_settings.noise_suppression {
+                outbound_filters.push(Box::new(NoiseGate::new(NoiseGateConfig {
+                    open_threshold: audio_settings.vad_threshold,
+                    close_threshold: audio_settings.vad_threshold * audio_settings.noise_gate_close_ratio,
+                    hold_frames: audio_settings.hold_frames,
+                    ..NoiseGateConfig::default()
+                })));
+            }
             if audio_settings.auto_gain {
-                outbound_filters.push(Box::new(AutomaticGainControl::new(Default::default())));
+                let max_gain_linear = 10.0_f32.powf(audio_settings.max_gain_db / 20.0);
+                outbound_filters.push(Box::new(AutomaticGainControl::new(AgcConfig {
+                    max_gain: max_gain_linear,
+                    ..AgcConfig::default()
+                })));
             }
 
             let mut outbound = OutboundPipeline::new(
@@ -233,10 +365,69 @@ mod desktop {
 
             let mut state = self.inner.lock().map_err(|e| e.to_string())?;
             state.outbound_task_handle = outbound_handle;
+            state.input_volume_handle = Some(input_vol);
             Ok(())
         }
 
-        /// Toggle mute: Active <-> Muted.
+        /// Enable voice in muted state: start inbound pipeline (hearing)
+        /// but keep outbound stopped (mic off).
+        ///
+        /// Used when undeafening from Inactive to land in Muted state.
+        pub async fn enable_voice_muted(&self) -> Result<(), String> {
+            let (handle, audio_settings) = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                (state.client_handle.clone(), state.audio_settings.clone())
+            };
+
+            info!("enable_voice_muted: starting inbound pipeline only");
+
+            let output_vol = Arc::new(AtomicU32::new(audio_settings.output_volume.to_bits()));
+
+            let playback = CpalPlayback::new(
+                audio_settings.selected_output_device.as_deref(),
+                output_vol.clone(),
+            )
+            .map_err(|e| format!("Playback init: {e}"))?;
+            let decoder = OpusDecoder::new(AudioFormat::MONO_48KHZ_F32)
+                .map_err(|e| format!("Decoder init: {e}"))?;
+            let mut inbound = InboundPipeline::new(
+                Box::new(decoder),
+                FilterChain::new(),
+                Box::new(playback),
+            );
+            inbound.start().map_err(|e| format!("Playback start: {e}"))?;
+
+            {
+                let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+                state.voice_state = VoiceState::Muted;
+                state.inbound_pipeline = Some(inbound);
+                state.output_volume_handle = Some(output_vol);
+            }
+
+            info!("enable_voice_muted: inbound started, sending undeafen");
+
+            if let Some(handle) = handle {
+                handle
+                    .send(command::SetSelfDeaf { deafened: false })
+                    .await
+                    .map_err(|e| format!("Failed to undeafen: {e}"))?;
+                handle
+                    .send(command::SetSelfMute { muted: true })
+                    .await
+                    .map_err(|e| format!("Failed to mute: {e}"))?;
+            }
+
+            self.emit_voice_state();
+            Ok(())
+        }
+
+        /// Toggle mute.
+        ///
+        /// | Current   | Result  |
+        /// |-----------|---------|
+        /// | Inactive  | Active  | (full unmute + undeaf)
+        /// | Active    | Muted   |
+        /// | Muted     | Active  |
         pub async fn toggle_mute(&self) -> Result<(), String> {
             let (voice_state, handle, audio_settings) = {
                 let state = self.inner.lock().map_err(|e| e.to_string())?;
@@ -277,6 +468,8 @@ mod desktop {
                     }
                 }
                 VoiceState::Inactive => {
+                    info!("toggle_mute: enabling voice from inactive");
+                    self.enable_voice().await?;
                     return Ok(());
                 }
             }
@@ -285,7 +478,13 @@ mod desktop {
             Ok(())
         }
 
-        /// Toggle deafen: Active/Muted -> Inactive, Inactive -> Active.
+        /// Toggle deafen.
+        ///
+        /// | Current   | Result   |
+        /// |-----------|----------|
+        /// | Inactive  | Muted    | (undeaf, stay muted)
+        /// | Active    | Inactive | (deaf + muted)
+        /// | Muted     | Inactive | (deaf + muted)
         pub async fn toggle_deafen(&self) -> Result<(), String> {
             let voice_state = {
                 let state = self.inner.lock().map_err(|e| e.to_string())?;
@@ -297,23 +496,140 @@ mod desktop {
                     self.disable_voice().await?;
                 }
                 VoiceState::Inactive => {
-                    self.enable_voice().await?;
+                    self.enable_voice_muted().await?;
                 }
             }
             Ok(())
         }
+
+        /// Start the mic test: opens a capture stream and emits
+        /// `mic-amplitude` events to the frontend at ~30 Hz.
+        ///
+        /// When `auto_input_sensitivity` is enabled, the measured
+        /// noise floor is used to auto-adjust `vad_threshold`.
+        pub fn start_mic_test(&self) -> Result<(), String> {
+            // Stop any already-running mic test.
+            self.stop_mic_test();
+
+            let audio_settings = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                state.audio_settings.clone()
+            };
+
+            let input_vol = Arc::new(AtomicU32::new(audio_settings.input_volume.to_bits()));
+
+            let mut capture = CpalCapture::new(
+                audio_settings.selected_device.as_deref(),
+                960, // 20ms @ 48kHz
+                input_vol,
+            )
+            .map_err(|e| format!("Mic test capture init: {e}"))?;
+
+            use mumble_protocol::audio::capture::AudioCapture;
+            capture.start().map_err(|e| format!("Mic test capture start: {e}"))?;
+
+            let app = self.app_handle().ok_or("No app handle")?;
+            let auto_sensitivity = audio_settings.auto_input_sensitivity;
+            let inner = self.inner.clone();
+
+            let handle = tauri::async_runtime::spawn(async move {
+                mic_test_loop(capture, app, auto_sensitivity, inner).await;
+            });
+
+            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.mic_test_handle = Some(handle);
+            Ok(())
+        }
+
+        /// Stop the mic test.
+        pub fn stop_mic_test(&self) {
+            if let Ok(mut state) = self.inner.lock() {
+                if let Some(handle) = state.mic_test_handle.take() {
+                    handle.abort();
+                }
+            }
+        }
+
+        /// Start sending TCP pings at high frequency to measure round-trip latency.
+        ///
+        /// RTT is computed in the event handler when the server echoes the ping
+        /// back, and emitted as a `"ping-latency"` Tauri event.
+        pub fn start_latency_test(&self) -> Result<(), String> {
+            self.stop_latency_test();
+
+            let client_handle = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                state
+                    .client_handle
+                    .clone()
+                    .ok_or_else(|| "Not connected".to_string())?
+            };
+
+            let handle = tauri::async_runtime::spawn(async move {
+                latency_ping_loop(client_handle).await;
+            });
+
+            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.latency_test_handle = Some(handle);
+            Ok(())
+        }
+
+        /// Stop the latency test.
+        pub fn stop_latency_test(&self) {
+            if let Ok(mut state) = self.inner.lock() {
+                if let Some(handle) = state.latency_test_handle.take() {
+                    handle.abort();
+                }
+            }
+        }
     }
 
-    /// Background task that reads from the microphone, encodes, and sends
-    /// Opus packets to the server via the client handle.
+    /// Payload queued from the encoding loop to the network send task.
+    struct AudioPacketOut {
+        data: Vec<u8>,
+        sequence: u64,
+        is_terminator: bool,
+    }
+
+    /// Background task that reads from the microphone, encodes, and queues
+    /// Opus packets for network transmission.
+    ///
+    /// Encoding and network I/O are decoupled via a bounded channel so
+    /// that slow network sends never stall the audio processing loop.
     async fn outbound_audio_loop(mut pipeline: OutboundPipeline, handle: ClientHandle) {
-        let mut interval = tokio::time::interval(Duration::from_millis(20));
+        // Bounded channel: 50 packets ~ 1 second of audio at 20ms/frame.
+        // If the network can't keep up, packets are dropped (preferable
+        // to blocking the encoder and causing dropouts).
+        let (tx, rx) = tokio::sync::mpsc::channel::<AudioPacketOut>(50);
+
+        // Dedicated task for network sends - runs independently so
+        // network latency never blocks encoding.
+        tokio::spawn(outbound_send_task(rx, handle));
+
+        // Let the capture buffer fill before we start encoding.
+        // Without this, the first few ticks return NoData (dropout at t=0).
+        tokio::time::sleep(Duration::from_millis(60)).await;
+
+        // Poll at 5 ms instead of 20 ms.  Each frame is still 960 samples
+        // (20 ms @ 48 kHz), but the shorter interval reduces the chance of
+        // missing the moment when enough samples become available.
+        // On Windows the default timer resolution is ~15.6 ms, so a 20 ms
+        // interval can fire anywhere from 15.6-31.2 ms -- easily before
+        // cpal has delivered a full frame, causing a dropout.  5 ms keeps
+        // us well inside a single timer period and lets us catch frames
+        // as soon as they appear.
+        let mut interval = tokio::time::interval(Duration::from_millis(5));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut packet_count: u64 = 0;
 
         loop {
             interval.tick().await;
 
-            loop {
+            // Process a bounded number of frames per tick. Under normal
+            // conditions there is exactly 1 frame available (20ms of
+            // captured audio). The bound prevents scheduler starvation
+            // when catching up after a brief delay.
+            for _ in 0..5 {
                 match pipeline.tick() {
                     Ok(OutboundTick::Audio(packet)) => {
                         packet_count += 1;
@@ -325,17 +641,15 @@ mod desktop {
                                 packet.sequence
                             );
                         }
-                        if let Err(e) = handle
-                            .send(command::SendAudio {
-                                opus_data: packet.data,
-                                target: 0,
-                                frame_number: packet.sequence,
-                                positional_data: None,
+                        if tx
+                            .try_send(AudioPacketOut {
+                                data: packet.data,
+                                sequence: packet.sequence,
                                 is_terminator: false,
                             })
-                            .await
+                            .is_err()
                         {
-                            warn!("outbound_audio: send failed: {e}");
+                            warn!("outbound_audio: send channel full, dropping packet");
                         }
                     }
                     Ok(OutboundTick::Terminator(packet)) => {
@@ -343,18 +657,11 @@ mod desktop {
                             "outbound_audio: sending terminator (opus {} bytes)",
                             packet.data.len()
                         );
-                        if let Err(e) = handle
-                            .send(command::SendAudio {
-                                opus_data: packet.data,
-                                target: 0,
-                                frame_number: packet.sequence,
-                                positional_data: None,
-                                is_terminator: true,
-                            })
-                            .await
-                        {
-                            warn!("outbound_audio: terminator send failed: {e}");
-                        }
+                        let _ = tx.try_send(AudioPacketOut {
+                            data: packet.data,
+                            sequence: packet.sequence,
+                            is_terminator: true,
+                        });
                     }
                     Ok(OutboundTick::Silence) => {
                         continue;
@@ -365,6 +672,144 @@ mod desktop {
                         break;
                     }
                 }
+            }
+        }
+    }
+
+    /// Drains encoded audio packets from the channel and sends them to
+    /// the server. Runs in its own tokio task so network latency never
+    /// blocks the audio encoding loop.
+    async fn outbound_send_task(
+        mut rx: tokio::sync::mpsc::Receiver<AudioPacketOut>,
+        handle: ClientHandle,
+    ) {
+        while let Some(pkt) = rx.recv().await {
+            if let Err(e) = handle
+                .send(command::SendAudio {
+                    opus_data: pkt.data,
+                    target: 0,
+                    frame_number: pkt.sequence,
+                    positional_data: None,
+                    is_terminator: pkt.is_terminator,
+                })
+                .await
+            {
+                warn!("outbound_audio: network send failed: {e}");
+            }
+        }
+    }
+
+    /// Background loop for the mic test.
+    ///
+    /// Reads frames from the capture device, computes RMS/peak, and
+    /// emits `mic-amplitude` events to the frontend.  When
+    /// `auto_sensitivity` is enabled, measures the noise floor over a
+    /// sliding window and writes the auto-computed `vad_threshold`
+    /// back into `AudioSettings`.
+    async fn mic_test_loop(
+        mut capture: CpalCapture,
+        app: tauri::AppHandle,
+        auto_sensitivity: bool,
+        inner: Arc<std::sync::Mutex<SharedState>>,
+    ) {
+        use mumble_protocol::audio::capture::AudioCapture;
+        use tauri::Emitter;
+
+        // Emit at ~30 Hz (every ~33 ms).
+        let mut interval = tokio::time::interval(Duration::from_millis(33));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        // Exponential moving average of the noise floor for auto-sensitivity.
+        let mut noise_floor_ema: f32 = 0.0;
+        let ema_alpha: f32 = 0.05; // slow adaptation
+        let mut frame_count: u64 = 0;
+
+        loop {
+            interval.tick().await;
+
+            // Drain ALL buffered frames so we always measure the most
+            // recent audio.  Without this the ring buffer fills up
+            // (cpal produces ~50 fps, we read at ~30 fps) causing
+            // ever-growing latency and eventual overflow warnings.
+            let mut latest = None;
+            while let Ok(frame) = capture.read_frame() {
+                latest = Some(frame);
+            }
+            let Some(frame) = latest else {
+                continue;
+            };
+
+            // Parse f32 samples from the raw byte data.
+            let samples: Vec<f32> = frame
+                .data
+                .chunks_exact(4)
+                .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+                .collect();
+
+            if samples.is_empty() {
+                continue;
+            }
+
+            let sum_sq: f32 = samples.iter().map(|s| s * s).sum();
+            let rms = (sum_sq / samples.len() as f32).sqrt();
+            let peak = samples.iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
+
+            // Clamp to [0, 1].
+            let rms = rms.min(1.0);
+            let peak = peak.min(1.0);
+
+            let _ = app.emit("mic-amplitude", MicAmplitudePayload { rms, peak });
+
+            // Auto-sensitivity: adapt noise floor and set threshold.
+            if auto_sensitivity {
+                frame_count += 1;
+
+                // Only update noise floor from quiet frames (likely ambient noise).
+                // A frame is considered "quiet" if its RMS < 3x the current noise floor
+                // estimate, or during the initial calibration period.
+                let is_calibrating = frame_count < 30; // ~1 second warmup
+                let is_quiet = rms < noise_floor_ema * 3.0 || noise_floor_ema < 0.0001;
+
+                if is_calibrating || is_quiet {
+                    if noise_floor_ema < 0.0001 {
+                        noise_floor_ema = rms;
+                    } else {
+                        noise_floor_ema = ema_alpha * rms + (1.0 - ema_alpha) * noise_floor_ema;
+                    }
+                }
+
+                // Set threshold at 2x the noise floor, with a minimum.
+                // This gives headroom above ambient noise but catches speech.
+                if frame_count > 15 && frame_count.is_multiple_of(10) {
+                    let threshold = (noise_floor_ema * 2.0).clamp(0.005, 0.5);
+                    if let Ok(mut state) = inner.lock() {
+                        if (state.audio_settings.vad_threshold - threshold).abs() > 0.002 {
+                            state.audio_settings.vad_threshold = threshold;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Background task that sends TCP pings at ~2 Hz so the event handler can
+    /// compute RTT and emit `"ping-latency"` events for the latency graph.
+    async fn latency_ping_loop(client_handle: ClientHandle) {
+        let mut interval = tokio::time::interval(Duration::from_millis(500));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            interval.tick().await;
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            if client_handle
+                .send(command::SendPing { timestamp: ts })
+                .await
+                .is_err()
+            {
+                break;
             }
         }
     }
@@ -388,6 +833,16 @@ impl AppState {
     /// No-op on Android (no audio pipelines to stop).
     pub(super) fn stop_audio(&self) {}
 
+    /// No-op on Android (no audio pipelines to restart).
+    pub fn restart_outbound(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// No-op on Android (no audio pipelines to restart).
+    pub fn restart_inbound(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Audio is not yet supported on Android.
     pub async fn toggle_mute(&self) -> Result<(), String> {
         Err("Audio is not yet supported on Android".into())
@@ -397,4 +852,20 @@ impl AppState {
     pub async fn toggle_deafen(&self) -> Result<(), String> {
         Err("Audio is not yet supported on Android".into())
     }
+
+    /// No-op on Android.
+    pub fn start_mic_test(&self) -> Result<(), String> {
+        Err("Audio is not yet supported on Android".into())
+    }
+
+    /// No-op on Android.
+    pub fn stop_mic_test(&self) {}
+
+    /// No-op on Android.
+    pub fn start_latency_test(&self) -> Result<(), String> {
+        Err("Not supported on Android".into())
+    }
+
+    /// No-op on Android.
+    pub fn stop_latency_test(&self) {}
 }

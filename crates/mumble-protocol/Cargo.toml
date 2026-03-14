@@ -1,6 +1,6 @@
 [package]
 name = "mumble-protocol"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Async Mumble protocol client library with priority-based work queue"
 license = "MIT"
@@ -36,6 +36,8 @@ opus-codec = ["opus"]
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "time", "io-util", "test-util"] }
 tokio-rustls = "0.26"
 rustls = { version = "0.23", features = ["ring"] }
+minimp3 = "0.5"
+hound = "3.5"
 
 [lints]
 workspace = true

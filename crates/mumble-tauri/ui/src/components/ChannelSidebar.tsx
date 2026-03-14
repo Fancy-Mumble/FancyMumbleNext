@@ -2,9 +2,11 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store";
-import type { ChannelEntry, UserEntry } from "../types";
+import type { ChannelEntry, UserEntry, VoiceState, SidebarSections } from "../types";
 import { textureToDataUrl, parseComment } from "../profileFormat";
+import { getPreferences, updatePreferences } from "../preferencesStorage";
 import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
+import { SuperSearch } from "./SuperSearch";
 import styles from "./ChannelSidebar.module.css";
 
 /** Mumble permission bitmask: Listen to channel (bit 11). */
@@ -386,14 +388,31 @@ function GroupCreateModal({ users, ownSession, onClose, onCreate }: GroupCreateM
   );
 }
 
+// --- Voice panel helpers -------------------------------------------
+
+function voiceInfoLabel(voiceState: VoiceState, s: typeof styles): React.ReactNode {
+  if (voiceState === "active") {
+    return (
+      <>
+        <span className={s.voiceDot} />
+        <span className={s.voiceLabel}>Voice Connected</span>
+      </>
+    );
+  }
+  const label = voiceState === "muted" ? "Muted" : "Voice Inactive";
+  return <span className={s.voiceLabelMuted}>{label}</span>;
+}
+
 // --- Main component -----------------------------------------------
 
 interface ChannelSidebarProps {
   /** Called after the user taps a channel (used by mobile drawer to close). */
   onChannelSelect?: () => void;
+  /** Toggle the server info panel. */
+  onServerInfoToggle?: () => void;
 }
 
-export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSidebarProps>) {
+export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: Readonly<ChannelSidebarProps>) {
   const channels = useAppStore((s) => s.channels);
   const users = useAppStore((s) => s.users);
   const selectedChannel = useAppStore((s) => s.selectedChannel);
@@ -417,12 +436,52 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
   const createGroup = useAppStore((s) => s.createGroup);
   const ownSession = useAppStore((s) => s.ownSession);
 
-  const [showGroupModal, setShowGroupModal] = useState(false);
+  const selectDmUser = useAppStore((s) => s.selectDmUser);
 
-  // Section collapse state (all expanded by default).
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+
+  // Global Ctrl+K / Cmd+K shortcut to open super search.
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, []);
+
+  // Section collapse state (all expanded by default, restored from prefs).
   const [channelsOpen, setChannelsOpen] = useState(true);
   const [groupsOpen, setGroupsOpen] = useState(true);
   const [onlineOpen, setOnlineOpen] = useState(true);
+
+  // Load persisted section states on mount.
+  useEffect(() => {
+    getPreferences().then((prefs) => {
+      const s = prefs.sidebarSections;
+      if (s) {
+        setChannelsOpen(s.channels);
+        setGroupsOpen(s.groups);
+        setOnlineOpen(s.online);
+      }
+    });
+  }, []);
+
+  // Persist section states when they change.
+  const toggleSection = useCallback(
+    (section: keyof SidebarSections, current: boolean, setter: (v: boolean) => void) => {
+      const next = !current;
+      setter(next);
+      getPreferences().then((prefs) => {
+        const sections = prefs.sidebarSections ?? { channels: true, groups: true, online: true };
+        updatePreferences({ sidebarSections: { ...sections, [section]: next } });
+      });
+    },
+    [],
+  );
 
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
@@ -591,23 +650,62 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
   }
 
   // Computed display values to avoid nested ternaries in JSX.
-  const voiceStatusText = voiceState === "muted" ? "Muted" : "Deaf & Muted";
-  const voiceInfoContent =
-    voiceState === "active" ? (
-      <>
-        <span className={styles.voiceDot} />
-        <span className={styles.voiceLabel}>Voice Connected</span>
-      </>
-    ) : (
-      <span className={styles.voiceLabelMuted}>{voiceStatusText}</span>
-    );
-  const muteTitle = voiceState === "muted" ? "Unmute" : "Mute";
+  const isVoiceActive = voiceState === "active";
+  const isVoiceInactive = voiceState === "inactive";
+
+  const voiceInfoContent = voiceInfoLabel(voiceState, styles);
+  const muteTitle = isVoiceActive ? "Mute" : "Unmute";
 
   return (
     <aside className={styles.sidebar}>
       {/* Header */}
       <div className={styles.header}>
-        <h2 className={styles.headerTitle}>Channels</h2>
+        {onServerInfoToggle && (
+          <button
+            className={styles.serverInfoBtn}
+            onClick={onServerInfoToggle}
+            title="Server info"
+            aria-label="Server info"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
+          </button>
+        )}
+        <button
+          type="button"
+          className={styles.searchFake}
+          onClick={() => setShowSearch(true)}
+          title="Search (Ctrl+K)"
+        >
+          <svg
+            className={styles.searchFakeIcon}
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <span className={styles.searchFakeText}>Search...</span>
+          <span className={styles.searchShortcut}>Ctrl+K</span>
+        </button>
         <button
           className={styles.disconnectBtn}
           onClick={disconnect}
@@ -641,7 +739,7 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
       <div className={styles.sectionHeaderBar}>
         <button
           className={styles.collapsibleHeader}
-          onClick={() => setChannelsOpen((o) => !o)}
+          onClick={() => toggleSection("channels", channelsOpen, setChannelsOpen)}
           type="button"
         >
           <svg
@@ -757,7 +855,7 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
         <div className={styles.groupSectionHeader}>
           <button
             className={styles.collapsibleHeader}
-            onClick={() => setGroupsOpen((o) => !o)}
+            onClick={() => toggleSection("groups", groupsOpen, setGroupsOpen)}
             type="button"
           >
             <svg
@@ -838,7 +936,7 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
       <div className={`${styles.userSection} ${onlineOpen ? "" : styles.sectionCollapsed}`}>
         <button
           className={styles.collapsibleHeader}
-          onClick={() => setOnlineOpen((o) => !o)}
+          onClick={() => toggleSection("online", onlineOpen, setOnlineOpen)}
           type="button"
         >
           <svg
@@ -878,11 +976,19 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
             <>
               {/* Mute toggle */}
               <button
-                className={`${styles.voiceToggle} ${voiceState === "active" ? styles.voiceActive : ""}`}
+                className={`${styles.voiceToggle} ${isVoiceActive ? styles.voiceActive : ""}`}
                 onClick={toggleMute}
                 title={muteTitle}
               >
-                {voiceState === "muted" ? (
+                {isVoiceActive ? (
+                  /* Mic on icon */
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" y1="19" x2="12" y2="23" />
+                    <line x1="8" y1="23" x2="16" y2="23" />
+                  </svg>
+                ) : (
                   /* Mic off icon */
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="1" y1="1" x2="23" y2="23" />
@@ -891,24 +997,16 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
                     <line x1="12" y1="19" x2="12" y2="23" />
                     <line x1="8" y1="23" x2="16" y2="23" />
                   </svg>
-                ) : (
-                  /* Mic on icon */
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="12" y1="19" x2="12" y2="23" />
-                    <line x1="8" y1="23" x2="16" y2="23" />
-                  </svg>
                 )}
               </button>
 
               {/* Deafen toggle */}
               <button
-                className={`${styles.voiceToggle} ${voiceState === "inactive" ? "" : styles.voiceActive}`}
+                className={`${styles.voiceToggle} ${isVoiceInactive ? "" : styles.voiceActive}`}
                 onClick={toggleDeafen}
-                title={voiceState === "inactive" ? "Undeafen" : "Deafen"}
+                title={isVoiceInactive ? "Enable Voice" : "Disable Voice"}
               >
-                {voiceState === "inactive" ? (
+                {isVoiceInactive ? (
                   /* Headphone off icon */
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="1" y1="1" x2="23" y2="23" />
@@ -983,6 +1081,15 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
           </div>
         );
       })()}
+
+      {/* Super search overlay */}
+      <SuperSearch
+        open={showSearch}
+        onClose={() => setShowSearch(false)}
+        onSelectChannel={(id) => selectChannel(id)}
+        onSelectUser={(session) => selectDmUser(session)}
+        onSelectGroup={(id) => selectGroup(id)}
+      />
 
       {/* Group creation modal */}
       {showGroupModal && (

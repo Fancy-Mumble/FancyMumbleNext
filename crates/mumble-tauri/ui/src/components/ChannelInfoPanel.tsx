@@ -1,0 +1,183 @@
+/**
+ * Right-side panel showing channel details (description, name).
+ *
+ * When the user has Write permission on the channel, an edit button
+ * appears to allow inline editing of the channel description and name.
+ */
+
+import { useEffect, useState, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { useAppStore } from "../store";
+import type { ChannelEntry } from "../types";
+import styles from "./ChannelInfoPanel.module.css";
+
+/** Mumble permission bitmask: Write (bit 0). */
+const PERM_WRITE = 0x01;
+
+interface ChannelInfoPanelProps {
+  readonly onClose: () => void;
+}
+
+export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
+  const selectedChannel = useAppStore((s) => s.selectedChannel);
+  const channels = useAppStore((s) => s.channels);
+
+  const channel: ChannelEntry | undefined = channels.find(
+    (c) => c.id === selectedChannel,
+  );
+
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const canWrite =
+    channel?.permissions != null && (channel.permissions & PERM_WRITE) !== 0;
+
+  // Sync edit fields when channel changes or editing starts.
+  useEffect(() => {
+    if (channel) {
+      setEditName(channel.name);
+      setEditDescription(channel.description);
+    }
+  }, [channel, editing]);
+
+  const startEditing = useCallback(() => setEditing(true), []);
+  const cancelEditing = useCallback(() => setEditing(false), []);
+
+  const saveChanges = useCallback(async () => {
+    if (!channel) return;
+    setSaving(true);
+    try {
+      const nameChanged = editName !== channel.name ? editName : undefined;
+      const descChanged =
+        editDescription !== channel.description ? editDescription : undefined;
+      if (nameChanged !== undefined || descChanged !== undefined) {
+        await invoke("update_channel", {
+          channelId: channel.id,
+          name: nameChanged ?? null,
+          description: descChanged ?? null,
+        });
+      }
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }, [channel, editName, editDescription]);
+
+  if (!channel) {
+    return (
+      <div className={styles.panel}>
+        <button className={styles.closeBtn} onClick={onClose} aria-label="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+        <div className={styles.header}>
+          <div className={styles.channelIcon}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+            </svg>
+          </div>
+          <h2 className={styles.title}>No channel</h2>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.panel}>
+      <button className={styles.closeBtn} onClick={onClose} aria-label="Close">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+
+      {/* Header */}
+      <div className={styles.header}>
+        <div className={styles.channelIcon}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+          </svg>
+        </div>
+        <div>
+          <h2 className={styles.title}># {channel.name}</h2>
+          <span className={styles.subtitle}>
+            {channel.user_count} {channel.user_count === 1 ? "member" : "members"}
+          </span>
+        </div>
+      </div>
+
+      {/* Channel info section */}
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <h3 className={styles.sectionTitle}>Channel</h3>
+          {canWrite && !editing && (
+            <button
+              className={styles.editBtn}
+              onClick={startEditing}
+              title="Edit channel"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {editing ? (
+          <div className={styles.editForm}>
+            <label className={styles.editLabel}>
+              Name
+              <input
+                className={styles.editInput}
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+              />
+            </label>
+            <label className={styles.editLabel}>
+              Description
+              <textarea
+                className={styles.editTextarea}
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                rows={5}
+              />
+            </label>
+            <div className={styles.editActions}>
+              <button
+                className={styles.cancelBtn}
+                onClick={cancelEditing}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                className={styles.saveBtn}
+                onClick={saveChanges}
+                disabled={saving}
+              >
+                {saving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className={styles.infoGrid}>
+            <span className={styles.infoLabel}>Name</span>
+            <span className={styles.infoValue}>{channel.name}</span>
+            <span className={styles.infoLabel}>Description</span>
+            <span
+              className={styles.infoValue}
+              dangerouslySetInnerHTML={{
+                __html: channel.description || "<em>No description</em>",
+              }}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

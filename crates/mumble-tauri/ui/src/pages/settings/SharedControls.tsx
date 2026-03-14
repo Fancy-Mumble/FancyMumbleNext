@@ -1,6 +1,44 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, type ReactNode } from "react";
 import { eventToShortcut } from "./shortcutHelpers";
 import styles from "./SettingsPage.module.css";
+
+export function Accordion({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={styles.accordion}>
+      <button
+        type="button"
+        className={styles.accordionHeader}
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        <svg
+          className={`${styles.accordionChevron} ${open ? styles.accordionChevronOpen : ""}`}
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+        <span>{title}</span>
+      </button>
+      {open && <div className={styles.accordionBody}>{children}</div>}
+    </div>
+  );
+}
 
 export function Toggle({
   checked,

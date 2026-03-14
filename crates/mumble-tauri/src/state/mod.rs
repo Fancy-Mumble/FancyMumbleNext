@@ -15,15 +15,18 @@ mod audio;
 mod connection;
 mod event_handler;
 pub mod offload;
+mod search;
 pub mod types;
 
 // Re-export everything that lib.rs needs.
 pub use types::{
     AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus, DebugStats,
-    GroupChat, ServerConfig, ServerInfo, UserEntry, VoiceState,
+    GroupChat, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
 };
 
 use std::collections::{HashMap, HashSet};
+#[cfg(not(target_os = "android"))]
+use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -97,6 +100,8 @@ pub(super) struct SharedState {
     pub selected_group: Option<String>,
     /// Server-reported configuration limits.
     pub server_config: ServerConfig,
+    /// Server welcome text (HTML) from `ServerSync`.
+    pub welcome_text: Option<String>,
     /// Audio settings (device, gain, VAD threshold).
     pub audio_settings: AudioSettings,
     /// Whether voice calling is active (inactive = deaf+muted).
@@ -109,6 +114,19 @@ pub(super) struct SharedState {
     /// Handle to the outbound audio capture task (mic -> network).  Desktop only.
     #[cfg(not(target_os = "android"))]
     pub outbound_task_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Live input volume multiplier (f32 stored as u32 bits). Updated atomically
+    /// so volume slider changes take effect without pipeline restart.
+    #[cfg(not(target_os = "android"))]
+    pub input_volume_handle: Option<Arc<AtomicU32>>,
+    /// Live output volume multiplier (f32 stored as u32 bits).
+    #[cfg(not(target_os = "android"))]
+    pub output_volume_handle: Option<Arc<AtomicU32>>,
+    /// Handle to the background mic-test task (emits amplitude events). Desktop only.
+    #[cfg(not(target_os = "android"))]
+    pub mic_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
+    /// Handle to the background latency-test task (sends periodic pings). Desktop only.
+    #[cfg(not(target_os = "android"))]
+    pub latency_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
 }
 
 // ─── Tauri-managed application state ──────────────────────────────
@@ -1025,6 +1043,41 @@ impl AppState {
                 voice_state: "Unknown".into(),
                 uptime_seconds: self.start_time.elapsed().as_secs(),
             })
+    }
+
+    // ── Channel info ──────────────────────────────────────────────
+
+    /// Return the server welcome text (from `ServerSync`), if any.
+    pub fn welcome_text(&self) -> Option<String> {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|s| s.welcome_text.clone())
+    }
+
+    /// Update a channel's name and/or description on the server.
+    pub async fn update_channel(
+        &self,
+        channel_id: u32,
+        name: Option<String>,
+        description: Option<String>,
+    ) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => {
+                h.send(command::SetChannelState {
+                    channel_id,
+                    name,
+                    description,
+                })
+                .await
+                .map_err(|e| e.to_string())
+            }
+            None => Err("Not connected".into()),
+        }
     }
 
     // ── Profile (comment / texture) ──────────────────────────────

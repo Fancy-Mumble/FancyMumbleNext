@@ -458,7 +458,9 @@ export async function initEventListeners(
 
           const { channels, selectedChannel } = useAppStore.getState();
           if (selectedChannel === null && channels.length > 0) {
-            useAppStore.getState().selectChannel(channels[0].id);
+            // Default to the channel the user is in, falling back to the first channel.
+            const defaultCh = currentCh ?? channels[0].id;
+            useAppStore.getState().selectChannel(defaultCh);
           }
         });
     }),

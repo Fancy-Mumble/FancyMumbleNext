@@ -18,8 +18,8 @@
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 20px 20px 16px;
+  gap: 8px;
+  padding: 20px 16px 16px;
   border-bottom: 1px solid var(--color-glass-border);
 }
 
@@ -27,6 +27,51 @@
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+
+/* ─── Search Fake (header trigger) ─────────────────────────────── */
+
+.searchFake {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  padding: 6px 12px;
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-glass);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  min-width: 0;
+  user-select: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.searchFake:hover {
+  border-color: var(--color-accent, #2aabee);
+  background: var(--color-glass-hover);
+}
+
+.searchFakeIcon {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.searchFakeText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.searchShortcut {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.4;
+  flex-shrink: 0;
 }
 
 .disconnectBtn {
@@ -47,6 +92,27 @@
   color: var(--color-danger);
   background: rgba(239, 68, 68, 0.1);
   border-color: rgba(239, 68, 68, 0.2);
+}
+
+.serverInfoBtn {
+  width: 36px;
+  height: 36px;
+  background: var(--color-glass);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.serverInfoBtn:hover {
+  color: var(--color-accent, #2aabee);
+  background: rgba(42, 171, 238, 0.1);
+  border-color: rgba(42, 171, 238, 0.2);
 }
 
 /* ─── Channel List ─────────────────────────────────────────────── */
@@ -728,7 +794,8 @@
   /* Voice panel: bigger buttons for touch */
   .voiceToggle,
   .settingsBtn,
-  .disconnectBtn {
+  .disconnectBtn,
+  .serverInfoBtn {
     width: var(--touch-target-min);
     height: var(--touch-target-min);
   }

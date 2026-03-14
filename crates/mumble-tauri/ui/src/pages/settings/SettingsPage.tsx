@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { load } from "@tauri-apps/plugin-store";
 import type { AudioDevice, AudioSettings, FancyProfile, UserMode, TimeFormat } from "../../types";
-import { getPreferences, updatePreferences } from "../../preferencesStorage";
+import { getPreferences, updatePreferences, getSavedAudioSettings, saveAudioSettings } from "../../preferencesStorage";
 import { serializeProfile, dataUrlToBytes } from "../../profileFormat";
 import { setKlipyApiKey } from "../../components/GifPicker";
 import { useAppStore } from "../../store";
@@ -18,7 +18,6 @@ import {
 import { loadProfileData, saveProfileData } from "./profileData";
 import { ProfilePanel } from "./ProfilePanel";
 import { AudioPanel } from "./AudioPanel";
-import { VoicePanel } from "./VoicePanel";
 import { ShortcutsPanel } from "./ShortcutsPanel";
 import { AdvancedPanel } from "./AdvancedPanel";
 import { ProfilePreviewCard } from "./ProfilePreviewCard";
@@ -26,7 +25,7 @@ import styles from "./SettingsPage.module.css";
 
 // ── Types & constants ──────────────────────────────────────────────
 
-type Tab = "profile" | "audio" | "voice" | "shortcuts" | "advanced";
+type Tab = "profile" | "voice" | "shortcuts" | "advanced";
 
 const DEFAULT_AUDIO: AudioSettings = {
   selected_device: null,
@@ -37,12 +36,18 @@ const DEFAULT_AUDIO: AudioSettings = {
   hold_frames: 15,
   push_to_talk: false,
   push_to_talk_key: null,
+  bitrate_bps: 72000,
+  frame_size_ms: 20,
+  noise_suppression: true,
+  selected_output_device: null,
+  input_volume: 1,
+  output_volume: 1,
+  auto_input_sensitivity: false,
 };
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "profile", label: "Profile", icon: "👤" },
-  { id: "audio", label: "Audio", icon: "🎙️" },
-  { id: "voice", label: "Voice", icon: "🔊" },
+  { id: "voice", label: "Voice", icon: "🎙️" },
   { id: "shortcuts", label: "Shortcuts", icon: "⌨️" },
   { id: "advanced", label: "Advanced", icon: "⚙️" },
 ];
@@ -56,6 +61,7 @@ export default function SettingsPage() {
 
   // Audio
   const [devices, setDevices] = useState<AudioDevice[]>([]);
+  const [outputDevices, setOutputDevices] = useState<AudioDevice[]>([]);
   const [audioSettings, setAudioSettings] =
     useState<AudioSettings>(DEFAULT_AUDIO);
   const initialLoadDone = useRef(false);
@@ -86,12 +92,23 @@ export default function SettingsPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [devs, cfg] = await Promise.all([
+        const [devs, outDevs, cfg, saved] = await Promise.all([
           invoke<AudioDevice[]>("get_audio_devices"),
+          invoke<AudioDevice[]>("get_output_devices"),
           invoke<AudioSettings>("get_audio_settings"),
+          getSavedAudioSettings(),
         ]);
         setDevices(devs);
-        setAudioSettings(cfg);
+        setOutputDevices(outDevs);
+        // Merge: persisted settings take precedence over backend defaults.
+        const merged = saved ? { ...cfg, ...saved } : cfg;
+        setAudioSettings(merged);
+        // Push merged settings to the backend so it picks up persisted values.
+        if (saved) {
+          invoke("set_audio_settings", { settings: merged }).catch((e) =>
+            console.error("Restore audio settings error:", e),
+          );
+        }
       } catch (e) {
         setLoadError(String(e));
       }
@@ -158,7 +175,10 @@ export default function SettingsPage() {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(async () => {
       try {
-        await invoke("set_audio_settings", { settings: audioSettings });
+        await Promise.all([
+          invoke("set_audio_settings", { settings: audioSettings }),
+          saveAudioSettings(audioSettings),
+        ]);
       } catch (e) {
         console.error("Auto-save audio settings error:", e);
       }
@@ -356,17 +376,10 @@ export default function SettingsPage() {
             />
           )}
 
-          {tab === "audio" && (
+          {tab === "voice" && (
             <AudioPanel
               devices={devices}
-              settings={audioSettings}
-              onChange={patchAudio}
-              isExpert={userMode !== "normal"}
-            />
-          )}
-
-          {tab === "voice" && (
-            <VoicePanel
+              outputDevices={outputDevices}
               settings={audioSettings}
               onChange={patchAudio}
               isExpert={userMode !== "normal"}

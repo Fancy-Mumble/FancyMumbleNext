@@ -258,6 +258,57 @@ pub(crate) struct CurrentChannelPayload {
 
 // ─── Audio types ──────────────────────────────────────────────────
 
+/// Microphone amplitude payload emitted during mic test.
+#[cfg(not(target_os = "android"))]
+#[derive(Clone, Serialize)]
+pub(crate) struct MicAmplitudePayload {
+    /// RMS amplitude (0.0 - 1.0).
+    pub rms: f32,
+    /// Peak amplitude (0.0 - 1.0).
+    pub peak: f32,
+}
+
+/// Latency measurement payload emitted during latency test.
+#[derive(Clone, Serialize)]
+pub(crate) struct LatencyPayload {
+    /// Round-trip time in milliseconds.
+    pub rtt_ms: f64,
+}
+
+// ─── Search types ─────────────────────────────────────────────────
+
+/// Category tag for a search result.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchCategory {
+    Channel,
+    User,
+    Group,
+    Message,
+}
+
+/// A single search result returned by the super-search command.
+#[derive(Debug, Clone, Serialize)]
+pub struct SearchResult {
+    /// What kind of item this is.
+    pub category: SearchCategory,
+    /// Fuzzy match score (lower = better match, 0 = exact).
+    pub score: u32,
+    /// Primary display text (channel name, username, group name, or message snippet).
+    pub title: String,
+    /// Secondary context (e.g. channel name for a user, sender for a message).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+    /// Numeric ID for channels (`channel_id`) or users (session).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
+    /// String ID for groups (group UUID).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub string_id: Option<String>,
+}
+
+// ─── Audio device type ────────────────────────────────────────────
+
 /// An available audio input device.
 #[derive(Debug, Clone, Serialize)]
 pub struct AudioDevice {
@@ -266,7 +317,7 @@ pub struct AudioDevice {
 }
 
 /// User-configurable audio settings.
-#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq)]
 pub struct AudioSettings {
     /// Selected input device name (None = system default).
     pub selected_device: Option<String>,
@@ -289,7 +340,26 @@ pub struct AudioSettings {
     /// Global shortcut string for PTT (e.g. "Alt+T").
     #[serde(default)]
     pub push_to_talk_key: Option<String>,
-}
+    /// Opus encoder bitrate in bits/s (e.g. 72000).
+    #[serde(default = "AudioSettings::default_bitrate")]
+    pub bitrate_bps: i32,
+    /// Audio duration per Opus packet in milliseconds (10, 20, 40, or 60).
+    #[serde(default = "AudioSettings::default_frame_size_ms")]
+    pub frame_size_ms: u32,
+    /// Whether the noise gate (noise suppression) is enabled.
+    #[serde(default = "AudioSettings::default_noise_suppression")]
+    pub noise_suppression: bool,
+    /// Selected output device name (None = system default).
+    #[serde(default)]
+    pub selected_output_device: Option<String>,
+    /// Microphone volume multiplier (0.0–2.0, default 1.0).
+    #[serde(default = "AudioSettings::default_volume")]
+    pub input_volume: f32,
+    /// Speaker volume multiplier (0.0–2.0, default 1.0).
+    #[serde(default = "AudioSettings::default_volume")]
+    pub output_volume: f32,    /// Automatically adjust input sensitivity based on ambient noise floor.
+    #[serde(default)]
+    pub auto_input_sensitivity: bool,}
 
 impl AudioSettings {
     pub(crate) fn default_max_gain() -> f32 {
@@ -300,6 +370,53 @@ impl AudioSettings {
     }
     pub(crate) fn default_hold_frames() -> u32 {
         15
+    }
+    pub(crate) fn default_bitrate() -> i32 {
+        72_000
+    }
+    pub(crate) fn default_frame_size_ms() -> u32 {
+        20
+    }
+    pub(crate) fn default_noise_suppression() -> bool {
+        true
+    }
+    pub(crate) fn default_volume() -> f32 {
+        1.0
+    }
+
+    /// Convert `frame_size_ms` to samples-per-channel at 48 kHz.
+    ///
+    /// Clamps to valid Opus frame sizes (10, 20, 40, 60 ms).
+    #[cfg(not(target_os = "android"))]
+    pub fn frame_size_samples(&self) -> usize {
+        match self.frame_size_ms {
+            10 => 480,
+            40 => 1920,
+            60 => 2880,
+            _ => 960, // 20 ms default
+        }
+    }
+
+    /// Whether any pipeline-relevant setting differs from `other`.
+    ///
+    /// PTT key and UI-only fields are excluded since they don't
+    /// require a pipeline restart.
+    pub fn needs_pipeline_restart(&self, other: &Self) -> bool {
+        self.selected_device != other.selected_device
+            || self.auto_gain != other.auto_gain
+            || (self.vad_threshold - other.vad_threshold).abs() > f32::EPSILON
+            || (self.max_gain_db - other.max_gain_db).abs() > f32::EPSILON
+            || (self.noise_gate_close_ratio - other.noise_gate_close_ratio).abs() > f32::EPSILON
+            || self.hold_frames != other.hold_frames
+            || self.bitrate_bps != other.bitrate_bps
+            || self.frame_size_ms != other.frame_size_ms
+            || self.noise_suppression != other.noise_suppression
+            || self.auto_input_sensitivity != other.auto_input_sensitivity
+    }
+
+    /// Whether the output device changed, requiring inbound pipeline restart.
+    pub fn needs_inbound_restart(&self, other: &Self) -> bool {
+        self.selected_output_device != other.selected_output_device
     }
 }
 
@@ -314,6 +431,13 @@ impl Default for AudioSettings {
             hold_frames: 15,
             push_to_talk: false,
             push_to_talk_key: None,
+            bitrate_bps: 72_000,
+            frame_size_ms: 20,
+            noise_suppression: true,
+            selected_output_device: None,
+            input_volume: 1.0,
+            output_volume: 1.0,
+            auto_input_sensitivity: false,
         }
     }
 }

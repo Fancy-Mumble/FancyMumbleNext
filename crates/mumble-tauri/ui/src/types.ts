@@ -112,6 +112,15 @@ export interface UserPreferences {
   timeFormat: TimeFormat;
   /** Convert UTC timestamps to the local timezone before displaying. */
   convertToLocalTime: boolean;
+  /** Collapsed/expanded state of sidebar sections. */
+  sidebarSections?: SidebarSections;
+}
+
+/** Persisted open/closed state for each sidebar section. */
+export interface SidebarSections {
+  channels: boolean;
+  groups: boolean;
+  online: boolean;
 }
 
 /** Debug statistics returned by the backend for the developer info panel. */
@@ -152,10 +161,36 @@ export interface AudioSettings {
   /** Use push-to-talk instead of voice activation. */
   push_to_talk: boolean;
   /** Global shortcut string for PTT, e.g. "Alt+T". */
-  push_to_talk_key: string | null;
+  push_to_talk_key: string | null;  /** Opus encoder bitrate in bits/s (e.g. 72000). */
+  bitrate_bps: number;
+  /** Audio duration per Opus packet in ms (10, 20, 40, or 60). */
+  frame_size_ms: number;
+  /** Whether noise suppression (noise gate) is enabled. */
+  noise_suppression: boolean;
+  /** Selected output device name (null = system default). */
+  selected_output_device: string | null;
+  /** Microphone volume multiplier (0.0-2.0, default 1.0). */
+  input_volume: number;
+  /** Speaker volume multiplier (0.0-2.0, default 1.0). */
+  output_volume: number;
+  /** Automatically adjust VAD threshold based on ambient noise floor. */
+  auto_input_sensitivity: boolean;
 }
 
 export type VoiceState = "inactive" | "active" | "muted";
+
+// ─── Super Search ─────────────────────────────────────────────────
+
+export type SearchCategory = "channel" | "user" | "group" | "message";
+
+export interface SearchResult {
+  category: SearchCategory;
+  score: number;
+  title: string;
+  subtitle: string | null;
+  id: number | null;
+  string_id: string | null;
+}
 
 // ─── FancyMumble Profile ──────────────────────────────────────────
 

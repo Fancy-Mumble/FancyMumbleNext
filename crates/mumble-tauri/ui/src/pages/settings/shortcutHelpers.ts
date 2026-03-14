@@ -43,8 +43,10 @@ export async function applyGlobalShortcut(
   if (!shortcut) return;
   try {
     if (await isRegistered(shortcut)) await unregister(shortcut);
-    await register(shortcut, () => {
-      invoke(command).catch(console.error);
+    await register(shortcut, (event) => {
+      if (event.state === "Pressed") {
+        invoke(command).catch(console.error);
+      }
     });
   } catch (e) {
     console.warn(`Failed to register shortcut "${shortcut}":`, e);

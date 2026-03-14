@@ -10,7 +10,7 @@ mod state;
 
 use state::{
     AppState, AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus,
-    DebugStats, GroupChat, ServerConfig, ServerInfo, UserEntry, VoiceState,
+    DebugStats, GroupChat, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
 };
 use std::collections::HashMap;
 use tauri::Manager;
@@ -284,6 +284,11 @@ fn get_users(state: tauri::State<'_, AppState>) -> Vec<UserEntry> {
 }
 
 #[tauri::command]
+fn super_search(state: tauri::State<'_, AppState>, query: String) -> Vec<SearchResult> {
+    state.super_search(&query)
+}
+
+#[tauri::command]
 fn get_messages(state: tauri::State<'_, AppState>, channel_id: u32) -> Vec<ChatMessage> {
     state.messages(channel_id)
 }
@@ -352,6 +357,23 @@ fn get_server_info(state: tauri::State<'_, AppState>) -> ServerInfo {
     state.server_info()
 }
 
+/// Get the server welcome text (HTML) received during handshake.
+#[tauri::command]
+fn get_welcome_text(state: tauri::State<'_, AppState>) -> Option<String> {
+    state.welcome_text()
+}
+
+/// Update a channel's name and/or description on the server.
+#[tauri::command]
+async fn update_channel(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    name: Option<String>,
+    description: Option<String>,
+) -> Result<(), String> {
+    state.update_channel(channel_id, name, description).await
+}
+
 /// Ping a Mumble server by attempting a TCP connection and measuring
 /// how long it takes. Times out after 4 seconds.
 #[tauri::command]
@@ -418,6 +440,47 @@ fn get_audio_devices() -> Vec<AudioDevice> {
     Vec::new()
 }
 
+/// List available audio output devices (speakers/headphones).
+/// Only available on desktop (cpal is not supported on Android).
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn get_output_devices() -> Vec<AudioDevice> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+
+    let host = cpal::default_host();
+    let default_name = host
+        .default_output_device()
+        .and_then(|d| {
+            d.description()
+                .ok()
+                .map(|desc| desc.name().to_string())
+        });
+
+    host.output_devices()
+        .map(|devices| {
+            devices
+                .filter_map(|d| {
+                    let name = d
+                        .description()
+                        .ok()
+                        .map(|desc| desc.name().to_string())?;
+                    Some(AudioDevice {
+                        name: name.clone(),
+                        is_default: default_name.as_deref() == Some(&name),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Stub: on Android, return an empty device list.
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn get_output_devices() -> Vec<AudioDevice> {
+    Vec::new()
+}
+
 /// Get current audio settings.
 #[tauri::command]
 fn get_audio_settings(state: tauri::State<'_, AppState>) -> AudioSettings {
@@ -425,12 +488,26 @@ fn get_audio_settings(state: tauri::State<'_, AppState>) -> AudioSettings {
 }
 
 /// Update audio settings.
+///
+/// If any pipeline-relevant setting changes while voice is active, the
+/// capture/playback pipelines are automatically restarted as needed.
 #[tauri::command]
-fn set_audio_settings(
+async fn set_audio_settings(
     state: tauri::State<'_, AppState>,
     settings: AudioSettings,
-) {
-    state.set_audio_settings(settings);
+) -> Result<(), String> {
+    let (needs_outbound, needs_inbound) = state
+        .set_audio_settings(settings)
+        .unwrap_or((false, false));
+
+    if needs_outbound {
+        state.restart_outbound()?;
+    }
+    if needs_inbound {
+        state.restart_inbound()?;
+    }
+
+    Ok(())
 }
 
 /// Get the current voice state.
@@ -462,6 +539,30 @@ async fn toggle_mute(state: tauri::State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 async fn toggle_deafen(state: tauri::State<'_, AppState>) -> Result<(), String> {
     state.toggle_deafen().await
+}
+
+/// Start monitoring the microphone and emitting amplitude events.
+#[tauri::command]
+fn start_mic_test(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.start_mic_test()
+}
+
+/// Stop monitoring the microphone.
+#[tauri::command]
+fn stop_mic_test(state: tauri::State<'_, AppState>) {
+    state.stop_mic_test();
+}
+
+/// Start periodic TCP pings for live latency measurement.
+#[tauri::command]
+fn start_latency_test(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.start_latency_test()
+}
+
+/// Stop the latency test.
+#[tauri::command]
+fn stop_latency_test(state: tauri::State<'_, AppState>) {
+    state.stop_latency_test();
 }
 
 /// Set the user comment on the connected server (`FancyMumble` profile + bio).
@@ -713,6 +814,10 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init());
 
+    // Window state persistence is desktop-only.
+    #[cfg(not(target_os = "android"))]
+    let builder = builder.plugin(tauri_plugin_window_state::Builder::new().build());
+
     // Global shortcuts (PTT) are only available on desktop.
     #[cfg(not(target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
@@ -749,8 +854,11 @@ pub fn run() {
             mark_channel_read,
             get_server_config,
             get_server_info,
+            get_welcome_text,
+            update_channel,
             ping_server,
             get_audio_devices,
+            get_output_devices,
             get_audio_settings,
             set_audio_settings,
             get_voice_state,
@@ -758,6 +866,10 @@ pub fn run() {
             disable_voice,
             toggle_mute,
             toggle_deafen,
+            start_mic_test,
+            stop_mic_test,
+            start_latency_test,
+            stop_latency_test,
             set_user_comment,
             set_user_texture,
             get_own_session,
@@ -782,6 +894,7 @@ pub fn run() {
             load_offloaded_messages_batch,
             clear_offloaded_messages,
             get_debug_stats,
+            super_search,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
