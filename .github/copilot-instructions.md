@@ -255,10 +255,26 @@ cargo tauri dev
 cd crates/mumble-tauri
 cargo tauri android dev
 
-# Check Android dev prerequisites (Windows)
-.\scripts\android-dev.ps1
-# Check and launch dev server
-.\scripts\android-dev.ps1 -Run
+# Android development helper script (Windows only)
+# scripts/android-dev.ps1 - validates all prerequisites (JDK, ANDROID_HOME,
+# NDK_HOME, Rust targets, Tauri CLI, ADB, emulator AVDs) and optionally
+# launches the dev server or sets up WebView DevTools port-forwarding.
+# It also auto-detects JAVA_HOME from common install locations and injects
+# NDK CMake/ninja env vars so cargo builds find the toolchain.
+#
+# Prerequisites checked: Windows Developer Mode, JAVA_HOME, ANDROID_HOME,
+# NDK_HOME (NDK 27), Rust targets aarch64-linux-android + x86_64-linux-android,
+# Tauri CLI (cargo-tauri), ADB, emulator AVDs.
+#
+# Usage:
+.\scripts\android-dev.ps1                        # Check prerequisites only
+.\scripts\android-dev.ps1 -Run                   # Check + start dev server (cargo tauri android dev)
+.\scripts\android-dev.ps1 -Inspect               # Set up WebView DevTools forwarding for chrome://inspect
+.\scripts\android-dev.ps1 -Inspect -Serial emulator-5554  # Target a specific device
+#
+# To perform a release APK/AAB build instead of the dev server:
+cd crates/mumble-tauri
+cargo tauri android build
 
 # Run the Dioxus dev server
 cd crates/mumble-gui

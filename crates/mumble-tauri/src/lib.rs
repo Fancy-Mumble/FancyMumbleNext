@@ -613,8 +613,8 @@ async fn reset_app_data(app: tauri::AppHandle) -> Result<(), String> {
 /// Set the taskbar badge count.
 ///
 /// On Windows this renders a small red overlay icon with the count (the native
-/// `set_badge_count` API is not supported). On other platforms it delegates to
-/// the native badge-count API.
+/// `set_badge_count` API is not supported). On Linux/macOS it delegates to
+/// the native badge-count API. On Android/iOS this is a no-op.
 #[tauri::command]
 fn update_badge_count(window: tauri::Window, count: Option<u32>) -> Result<(), String> {
     set_badge_platform(&window, count)
@@ -633,11 +633,17 @@ fn set_badge_platform(window: &tauri::Window, count: Option<u32>) -> Result<(), 
     }
 }
 
-/// Non-Windows implementation - native badge count.
-#[cfg(not(target_os = "windows"))]
+/// Linux/macOS implementation - native badge count.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn set_badge_platform(window: &tauri::Window, count: Option<u32>) -> Result<(), String> {
-    let badge = count.filter(|&c| c > 0).map(|c| i64::from(c));
+    let badge = count.filter(|&c| c > 0).map(i64::from);
     window.set_badge_count(badge).map_err(|e| e.to_string())
+}
+
+/// Android/iOS - badge counts are not supported, no-op.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn set_badge_platform(_window: &tauri::Window, _count: Option<u32>) -> Result<(), String> {
+    Ok(())
 }
 
 // --- Content offloading commands ----------------------------------

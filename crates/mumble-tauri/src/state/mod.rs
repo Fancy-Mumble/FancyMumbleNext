@@ -990,13 +990,13 @@ impl AppState {
         self.inner
             .lock()
             .map(|s| {
-                let channel_msgs: usize = s.messages.values().map(|v| v.len()).sum();
-                let dm_msgs: usize = s.dm_messages.values().map(|v| v.len()).sum();
-                let group_msgs: usize = s.group_messages.values().map(|v| v.len()).sum();
+                let channel_msgs: usize = s.messages.values().map(Vec::len).sum();
+                let dm_msgs: usize = s.dm_messages.values().map(Vec::len).sum();
+                let group_msgs: usize = s.group_messages.values().map(Vec::len).sum();
                 let offloaded = s
                     .offload_store
                     .as_ref()
-                    .map_or(0, |store| store.offloaded_count());
+                    .map_or(0, OffloadStore::offloaded_count);
 
                 DebugStats {
                     channel_message_count: channel_msgs,
