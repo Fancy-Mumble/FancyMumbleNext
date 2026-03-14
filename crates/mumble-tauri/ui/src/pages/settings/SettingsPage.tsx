@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { load } from "@tauri-apps/plugin-store";
 import type { AudioDevice, AudioSettings, FancyProfile, UserMode, TimeFormat } from "../../types";
-import { getPreferences, updatePreferences } from "../../preferencesStorage";
+import { getPreferences, updatePreferences, getSavedAudioSettings, saveAudioSettings } from "../../preferencesStorage";
 import { serializeProfile, dataUrlToBytes } from "../../profileFormat";
 import { setKlipyApiKey } from "../../components/GifPicker";
 import { useAppStore } from "../../store";
@@ -37,6 +37,9 @@ const DEFAULT_AUDIO: AudioSettings = {
   hold_frames: 15,
   push_to_talk: false,
   push_to_talk_key: null,
+  bitrate_bps: 72000,
+  frame_size_ms: 20,
+  noise_suppression: true,
 };
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
@@ -86,12 +89,21 @@ export default function SettingsPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [devs, cfg] = await Promise.all([
+        const [devs, cfg, saved] = await Promise.all([
           invoke<AudioDevice[]>("get_audio_devices"),
           invoke<AudioSettings>("get_audio_settings"),
+          getSavedAudioSettings(),
         ]);
         setDevices(devs);
-        setAudioSettings(cfg);
+        // Merge: persisted settings take precedence over backend defaults.
+        const merged = saved ? { ...cfg, ...saved } : cfg;
+        setAudioSettings(merged);
+        // Push merged settings to the backend so it picks up persisted values.
+        if (saved) {
+          invoke("set_audio_settings", { settings: merged }).catch((e) =>
+            console.error("Restore audio settings error:", e),
+          );
+        }
       } catch (e) {
         setLoadError(String(e));
       }
@@ -158,7 +170,10 @@ export default function SettingsPage() {
     if (!initialLoadDone.current) return;
     const timer = setTimeout(async () => {
       try {
-        await invoke("set_audio_settings", { settings: audioSettings });
+        await Promise.all([
+          invoke("set_audio_settings", { settings: audioSettings }),
+          saveAudioSettings(audioSettings),
+        ]);
       } catch (e) {
         console.error("Auto-save audio settings error:", e);
       }

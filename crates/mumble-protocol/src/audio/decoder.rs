@@ -122,20 +122,29 @@ impl AudioDecoder for OpusDecoder {
     }
 
     fn decode_lost(&mut self) -> Result<AudioFrame> {
-        // Use Opus PLC by passing None for the input packet
+        // Use Opus built-in packet-loss concealment (PLC) by passing
+        // an empty slice to decode_float.  libopus internally calls
+        // opus_decode_float(dec, NULL, 0, ...) which generates a smooth
+        // concealment frame based on the previous packet's state.
+        // This is the same approach the official Mumble C++ client uses
+        // (AudioOutputSpeech::needSamples → opus_decode_float with NULL).
         let frame_size = self.frame_size;
         let needed = frame_size * self.format.channels as usize;
         if self.out_buf.len() < needed {
             self.out_buf.resize(needed, 0.0);
         }
 
-        // Decode with FEC=false and empty data triggers PLC in libopus
-        // Note: opus crate doesn't expose a direct PLC call, so we
-        // return silence as a safe fallback.
-        let samples = (self.format.sample_rate / 100) as usize * self.format.channels as usize;
-        let bytes = samples * self.format.sample_format.byte_width();
+        let decoded_samples = self
+            .inner
+            .decode_float(&[], &mut self.out_buf[..needed], false)
+            .map_err(|e| Error::OpusCodec(e.to_string()))?;
+
+        let total_samples = decoded_samples * self.format.channels as usize;
+        let pcm = &self.out_buf[..total_samples];
+        let data: Vec<u8> = pcm.iter().flat_map(|s| s.to_ne_bytes()).collect();
+
         Ok(AudioFrame {
-            data: vec![0u8; bytes],
+            data,
             format: self.format,
             sequence: 0,
             is_silent: false,

@@ -136,3 +136,70 @@
   background: var(--color-glass-hover);
   color: var(--color-text-primary);
 }
+
+/* ── Accordion ─────────────────────────────────────────────────── */
+
+.accordion {
+  border: 1px solid var(--color-glass-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.accordion + .accordion {
+  margin-top: 8px;
+}
+
+.accordionHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-glass-hover);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: left;
+}
+
+.accordionHeader:hover {
+  background: var(--color-glass);
+}
+
+.accordionChevron {
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+  transform: rotate(0deg);
+}
+
+.accordionChevronOpen {
+  transform: rotate(90deg);
+}
+
+.accordionBody {
+  padding: 10px 12px;
+  border-top: 1px solid var(--color-glass-border);
+}
+
+/* ── Debug grid ────────────────────────────────────────────────── */
+
+.debugGrid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 12px;
+}
+
+.debugLabel {
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.debugValue {
+  color: var(--color-text-primary);
+  word-break: break-all;
+}

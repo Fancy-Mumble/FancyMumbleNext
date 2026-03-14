@@ -237,6 +237,93 @@
 
 /* --- Toggle switch ---------------------------------------------- */
 
+.radioGroup {
+  display: flex;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.radioLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.radioLabel input[type="radio"] {
+  accent-color: var(--color-accent);
+  margin: 0;
+}
+
+/* --- Accordion -------------------------------------------------- */
+
+.accordion {
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.accordion + .accordion {
+  margin-top: 8px;
+}
+
+.accordionHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: left;
+}
+
+.accordionHeader:hover {
+  background: var(--color-glass-hover);
+}
+
+.accordionChevron {
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+  transform: rotate(0deg);
+}
+
+.accordionChevronOpen {
+  transform: rotate(90deg);
+}
+
+.accordionBody {
+  padding: 12px 14px;
+  border-top: 1px solid var(--color-glass-border);
+}
+
+/* --- Debug info grid -------------------------------------------- */
+
+.debugGrid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 13px;
+}
+
+.debugLabel {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.debugValue {
+  color: var(--color-text-primary);
+  word-break: break-all;
+}
+
 .toggleRow {
   display: flex;
   align-items: center;

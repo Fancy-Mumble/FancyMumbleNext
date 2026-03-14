@@ -4,6 +4,8 @@
 //! placed first so that subsequent (more expensive) filters can skip
 //! silent frames.
 
+use std::f32::consts::PI;
+
 use crate::audio::sample::AudioFrame;
 use crate::audio::filter::AudioFilter;
 use crate::error::Result;
@@ -41,8 +43,8 @@ impl Default for NoiseGateConfig {
             open_threshold: 0.01,
             close_threshold: 0.008,
             hold_frames: 10,
-            attack_samples: 48,   // 1 ms @ 48 kHz
-            release_samples: 96,  // 2 ms @ 48 kHz
+            attack_samples: 480,  // 10 ms @ 48 kHz
+            release_samples: 480,  // 10 ms @ 48 kHz
         }
     }
 }
@@ -91,12 +93,16 @@ impl AudioFilter for NoiseGate {
                     self.state = GateState::Open;
                     self.hold_counter = self.config.hold_frames;
                     frame.is_silent = false;
-                    // Apply short fade-in to avoid a click.
+                    // Raised-cosine fade-in to avoid a click.
+                    // Using a Hann curve: gain = 0.5 * (1 - cos(PI * i / n))
+                    // produces a smooth S-shape with no sharp corners.
                     let attack = self.config.attack_samples.min(n);
                     if attack > 0 {
                         let samples_mut = frame.as_f32_samples_mut();
+                        let inv = 1.0 / attack as f32;
                         for (i, sample) in samples_mut.iter_mut().enumerate().take(attack) {
-                            *sample *= i as f32 / attack as f32;
+                            let gain = 0.5 * (1.0 - (PI * i as f32 * inv).cos());
+                            *sample *= gain;
                         }
                     }
                 } else {
@@ -113,16 +119,16 @@ impl AudioFilter for NoiseGate {
                         frame.is_silent = false;
                     } else {
                         self.state = GateState::Closed;
-                        // Apply short fade-out before zeroing.
+                        // Raised-cosine fade-out to avoid a click.
                         let release = self.config.release_samples.min(n);
                         if release > 0 {
                             let samples_mut = frame.as_f32_samples_mut();
                             let start = n - release;
+                            let inv = 1.0 / release as f32;
                             for i in 0..release {
-                                samples_mut[start + i] *= 1.0 - (i as f32 / release as f32);
+                                let gain = 0.5 * (1.0 + (PI * i as f32 * inv).cos());
+                                samples_mut[start + i] *= gain;
                             }
-                            // Zero the rest of the frame after the fade
-                            // (the fade region itself is reduced, not zeroed).
                         }
                         frame.is_silent = true;
                     }
@@ -184,8 +190,12 @@ mod tests {
     fn loud_frame_passes_through() -> Result<()> {
         let config = NoiseGateConfig::default();
         let attack = config.attack_samples;
+        // Frame must be at least as large as the attack region.
+        let frame_len = attack.max(480);
         let mut gate = NoiseGate::new(config);
-        let samples: Vec<f32> = (0..480).map(|i| (i as f32 / 480.0 * 0.5).sin() * 0.5).collect();
+        let samples: Vec<f32> = (0..frame_len)
+            .map(|i| (i as f32 / frame_len as f32 * 0.5).sin() * 0.5)
+            .collect();
         let mut frame = make_frame(&samples);
         gate.process(&mut frame)?;
         let output = frame.as_f32_samples();
@@ -194,7 +204,7 @@ mod tests {
         assert_eq!(output[0], 0.0, "First sample should be faded to zero");
 
         // After the attack region, audio should pass through unchanged.
-        for i in attack..480 {
+        for i in attack..frame_len {
             assert!(
                 (output[i] - samples[i]).abs() < 1e-6,
                 "Sample {i} should pass through unchanged"

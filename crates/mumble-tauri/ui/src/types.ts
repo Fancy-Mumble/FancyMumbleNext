@@ -152,8 +152,12 @@ export interface AudioSettings {
   /** Use push-to-talk instead of voice activation. */
   push_to_talk: boolean;
   /** Global shortcut string for PTT, e.g. "Alt+T". */
-  push_to_talk_key: string | null;
-}
+  push_to_talk_key: string | null;  /** Opus encoder bitrate in bits/s (e.g. 72000). */
+  bitrate_bps: number;
+  /** Audio duration per Opus packet in ms (10, 20, 40, or 60). */
+  frame_size_ms: number;
+  /** Whether noise suppression (noise gate) is enabled. */
+  noise_suppression: boolean;}
 
 export type VoiceState = "inactive" | "active" | "muted";
 

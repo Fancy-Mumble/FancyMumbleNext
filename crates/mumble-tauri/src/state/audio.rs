@@ -22,10 +22,25 @@ impl AppState {
     }
 
     /// Update audio settings.
-    pub fn set_audio_settings(&self, settings: super::types::AudioSettings) {
+    ///
+    /// If any pipeline-relevant setting changed while voice is active,
+    /// the outbound pipeline is automatically restarted.
+    pub fn set_audio_settings(&self, settings: super::types::AudioSettings) -> Option<bool> {
+        let (old_settings, voice_active) = {
+            let state = self.inner.lock().ok()?;
+            (
+                state.audio_settings.clone(),
+                state.voice_state == VoiceState::Active,
+            )
+        };
+
+        let restart = voice_active && old_settings.needs_pipeline_restart(&settings);
+
         if let Ok(mut state) = self.inner.lock() {
             state.audio_settings = settings;
         }
+
+        Some(restart)
     }
 
     /// Get current voice state.
@@ -56,7 +71,7 @@ mod desktop {
 
     use mumble_protocol::audio::decoder::OpusDecoder;
     use mumble_protocol::audio::encoder::{OpusEncoder, OpusEncoderConfig};
-    use mumble_protocol::audio::filter::automatic_gain::AutomaticGainControl;
+    use mumble_protocol::audio::filter::automatic_gain::{AgcConfig, AutomaticGainControl};
     use mumble_protocol::audio::filter::noise_gate::{NoiseGate, NoiseGateConfig};
     use mumble_protocol::audio::filter::FilterChain;
     use mumble_protocol::audio::pipeline::{InboundPipeline, OutboundPipeline, OutboundTick};
@@ -92,25 +107,34 @@ mod desktop {
             // Outbound: capture -> filters -> encoder -> network.
             let capture = CpalCapture::new(
                 audio_settings.selected_device.as_deref(),
-                960, // 20 ms @ 48 kHz (matches encoder frame size)
+                audio_settings.frame_size_samples(),
             )
             .map_err(|e| format!("Capture init: {e}"))?;
 
-            let encoder_config = OpusEncoderConfig::default();
+            let encoder_config = OpusEncoderConfig {
+                bitrate: audio_settings.bitrate_bps,
+                frame_size: audio_settings.frame_size_samples(),
+                ..OpusEncoderConfig::default()
+            };
             let encoder = OpusEncoder::new(encoder_config, AudioFormat::MONO_48KHZ_F32)
                 .map_err(|e| format!("Encoder init: {e}"))?;
 
             let mut outbound_filters = FilterChain::new();
-            let noise_gate = NoiseGate::new(NoiseGateConfig {
-                open_threshold: audio_settings.vad_threshold,
-                close_threshold: audio_settings.vad_threshold * audio_settings.noise_gate_close_ratio,
-                hold_frames: audio_settings.hold_frames,
-                ..NoiseGateConfig::default()
-            });
-            outbound_filters.push(Box::new(noise_gate));
+            if audio_settings.noise_suppression {
+                let noise_gate = NoiseGate::new(NoiseGateConfig {
+                    open_threshold: audio_settings.vad_threshold,
+                    close_threshold: audio_settings.vad_threshold * audio_settings.noise_gate_close_ratio,
+                    hold_frames: audio_settings.hold_frames,
+                    ..NoiseGateConfig::default()
+                });
+                outbound_filters.push(Box::new(noise_gate));
+            }
             if audio_settings.auto_gain {
-                outbound_filters
-                    .push(Box::new(AutomaticGainControl::new(Default::default())));
+                let max_gain_linear = 10.0_f32.powf(audio_settings.max_gain_db / 20.0);
+                outbound_filters.push(Box::new(AutomaticGainControl::new(AgcConfig {
+                    max_gain: max_gain_linear,
+                    ..AgcConfig::default()
+                })));
             }
 
             let mut outbound = OutboundPipeline::new(
@@ -189,6 +213,22 @@ mod desktop {
             }
         }
 
+        /// Restart the outbound pipeline with the current audio settings.
+        ///
+        /// Called when the input device (or other capture-relevant settings)
+        /// change while voice is active.
+        pub fn restart_outbound(&self) -> Result<(), String> {
+            info!("restart_outbound: restarting capture pipeline with new settings");
+            self.stop_outbound();
+
+            let (audio_settings, client_handle) = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                (state.audio_settings.clone(), state.client_handle.clone())
+            };
+
+            self.start_outbound_pipeline(&audio_settings, &client_handle)
+        }
+
         /// Create and start a fresh outbound audio pipeline (mic -> encoder -> network).
         fn start_outbound_pipeline(
             &self,
@@ -197,22 +237,33 @@ mod desktop {
         ) -> Result<(), String> {
             let capture = CpalCapture::new(
                 audio_settings.selected_device.as_deref(),
-                960,
+                audio_settings.frame_size_samples(),
             )
             .map_err(|e| format!("Capture init: {e}"))?;
 
-            let encoder = OpusEncoder::new(OpusEncoderConfig::default(), AudioFormat::MONO_48KHZ_F32)
+            let encoder_config = OpusEncoderConfig {
+                bitrate: audio_settings.bitrate_bps,
+                frame_size: audio_settings.frame_size_samples(),
+                ..OpusEncoderConfig::default()
+            };
+            let encoder = OpusEncoder::new(encoder_config, AudioFormat::MONO_48KHZ_F32)
                 .map_err(|e| format!("Encoder init: {e}"))?;
 
             let mut outbound_filters = FilterChain::new();
-            outbound_filters.push(Box::new(NoiseGate::new(NoiseGateConfig {
-                open_threshold: audio_settings.vad_threshold,
-                close_threshold: audio_settings.vad_threshold * audio_settings.noise_gate_close_ratio,
-                hold_frames: audio_settings.hold_frames,
-                ..NoiseGateConfig::default()
-            })));
+            if audio_settings.noise_suppression {
+                outbound_filters.push(Box::new(NoiseGate::new(NoiseGateConfig {
+                    open_threshold: audio_settings.vad_threshold,
+                    close_threshold: audio_settings.vad_threshold * audio_settings.noise_gate_close_ratio,
+                    hold_frames: audio_settings.hold_frames,
+                    ..NoiseGateConfig::default()
+                })));
+            }
             if audio_settings.auto_gain {
-                outbound_filters.push(Box::new(AutomaticGainControl::new(Default::default())));
+                let max_gain_linear = 10.0_f32.powf(audio_settings.max_gain_db / 20.0);
+                outbound_filters.push(Box::new(AutomaticGainControl::new(AgcConfig {
+                    max_gain: max_gain_linear,
+                    ..AgcConfig::default()
+                })));
             }
 
             let mut outbound = OutboundPipeline::new(
@@ -304,16 +355,52 @@ mod desktop {
         }
     }
 
-    /// Background task that reads from the microphone, encodes, and sends
-    /// Opus packets to the server via the client handle.
+    /// Payload queued from the encoding loop to the network send task.
+    struct AudioPacketOut {
+        data: Vec<u8>,
+        sequence: u64,
+        is_terminator: bool,
+    }
+
+    /// Background task that reads from the microphone, encodes, and queues
+    /// Opus packets for network transmission.
+    ///
+    /// Encoding and network I/O are decoupled via a bounded channel so
+    /// that slow network sends never stall the audio processing loop.
     async fn outbound_audio_loop(mut pipeline: OutboundPipeline, handle: ClientHandle) {
-        let mut interval = tokio::time::interval(Duration::from_millis(20));
+        // Bounded channel: 50 packets ~ 1 second of audio at 20ms/frame.
+        // If the network can't keep up, packets are dropped (preferable
+        // to blocking the encoder and causing dropouts).
+        let (tx, rx) = tokio::sync::mpsc::channel::<AudioPacketOut>(50);
+
+        // Dedicated task for network sends - runs independently so
+        // network latency never blocks encoding.
+        tokio::spawn(outbound_send_task(rx, handle));
+
+        // Let the capture buffer fill before we start encoding.
+        // Without this, the first few ticks return NoData (dropout at t=0).
+        tokio::time::sleep(Duration::from_millis(60)).await;
+
+        // Poll at 5 ms instead of 20 ms.  Each frame is still 960 samples
+        // (20 ms @ 48 kHz), but the shorter interval reduces the chance of
+        // missing the moment when enough samples become available.
+        // On Windows the default timer resolution is ~15.6 ms, so a 20 ms
+        // interval can fire anywhere from 15.6-31.2 ms -- easily before
+        // cpal has delivered a full frame, causing a dropout.  5 ms keeps
+        // us well inside a single timer period and lets us catch frames
+        // as soon as they appear.
+        let mut interval = tokio::time::interval(Duration::from_millis(5));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut packet_count: u64 = 0;
 
         loop {
             interval.tick().await;
 
-            loop {
+            // Process a bounded number of frames per tick. Under normal
+            // conditions there is exactly 1 frame available (20ms of
+            // captured audio). The bound prevents scheduler starvation
+            // when catching up after a brief delay.
+            for _ in 0..5 {
                 match pipeline.tick() {
                     Ok(OutboundTick::Audio(packet)) => {
                         packet_count += 1;
@@ -325,17 +412,15 @@ mod desktop {
                                 packet.sequence
                             );
                         }
-                        if let Err(e) = handle
-                            .send(command::SendAudio {
-                                opus_data: packet.data,
-                                target: 0,
-                                frame_number: packet.sequence,
-                                positional_data: None,
+                        if tx
+                            .try_send(AudioPacketOut {
+                                data: packet.data,
+                                sequence: packet.sequence,
                                 is_terminator: false,
                             })
-                            .await
+                            .is_err()
                         {
-                            warn!("outbound_audio: send failed: {e}");
+                            warn!("outbound_audio: send channel full, dropping packet");
                         }
                     }
                     Ok(OutboundTick::Terminator(packet)) => {
@@ -343,18 +428,11 @@ mod desktop {
                             "outbound_audio: sending terminator (opus {} bytes)",
                             packet.data.len()
                         );
-                        if let Err(e) = handle
-                            .send(command::SendAudio {
-                                opus_data: packet.data,
-                                target: 0,
-                                frame_number: packet.sequence,
-                                positional_data: None,
-                                is_terminator: true,
-                            })
-                            .await
-                        {
-                            warn!("outbound_audio: terminator send failed: {e}");
-                        }
+                        let _ = tx.try_send(AudioPacketOut {
+                            data: packet.data,
+                            sequence: packet.sequence,
+                            is_terminator: true,
+                        });
                     }
                     Ok(OutboundTick::Silence) => {
                         continue;
@@ -365,6 +443,29 @@ mod desktop {
                         break;
                     }
                 }
+            }
+        }
+    }
+
+    /// Drains encoded audio packets from the channel and sends them to
+    /// the server. Runs in its own tokio task so network latency never
+    /// blocks the audio encoding loop.
+    async fn outbound_send_task(
+        mut rx: tokio::sync::mpsc::Receiver<AudioPacketOut>,
+        handle: ClientHandle,
+    ) {
+        while let Some(pkt) = rx.recv().await {
+            if let Err(e) = handle
+                .send(command::SendAudio {
+                    opus_data: pkt.data,
+                    target: 0,
+                    frame_number: pkt.sequence,
+                    positional_data: None,
+                    is_terminator: pkt.is_terminator,
+                })
+                .await
+            {
+                warn!("outbound_audio: network send failed: {e}");
             }
         }
     }
@@ -387,6 +488,11 @@ impl AppState {
 
     /// No-op on Android (no audio pipelines to stop).
     pub(super) fn stop_audio(&self) {}
+
+    /// No-op on Android (no audio pipelines to restart).
+    pub fn restart_outbound(&self) -> Result<(), String> {
+        Ok(())
+    }
 
     /// Audio is not yet supported on Android.
     pub async fn toggle_mute(&self) -> Result<(), String> {

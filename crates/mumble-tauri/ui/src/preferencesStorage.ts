@@ -4,10 +4,11 @@
  */
 
 import { load } from "@tauri-apps/plugin-store";
-import type { UserPreferences, UserMode } from "./types";
+import type { AudioSettings, UserPreferences, UserMode } from "./types";
 
 const STORE_FILE = "preferences.json";
 const KEY = "preferences";
+const AUDIO_KEY = "audioSettings";
 
 const DEFAULTS: UserPreferences = {
   userMode: "normal",
@@ -75,4 +76,20 @@ export async function completeSetup(
     defaultUsername,
     hasCompletedSetup: true,
   });
+}
+
+// ── Audio settings persistence ────────────────────────────────────
+
+/** Return persisted audio settings, or null if none saved yet. */
+export async function getSavedAudioSettings(): Promise<AudioSettings | null> {
+  const store = await getStore();
+  return (await store.get<AudioSettings>(AUDIO_KEY)) ?? null;
+}
+
+/** Persist audio settings to disk. */
+export async function saveAudioSettings(
+  settings: AudioSettings,
+): Promise<void> {
+  const store = await getStore();
+  await store.set(AUDIO_KEY, settings);
 }

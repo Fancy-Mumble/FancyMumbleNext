@@ -266,7 +266,7 @@ pub struct AudioDevice {
 }
 
 /// User-configurable audio settings.
-#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq)]
 pub struct AudioSettings {
     /// Selected input device name (None = system default).
     pub selected_device: Option<String>,
@@ -289,6 +289,15 @@ pub struct AudioSettings {
     /// Global shortcut string for PTT (e.g. "Alt+T").
     #[serde(default)]
     pub push_to_talk_key: Option<String>,
+    /// Opus encoder bitrate in bits/s (e.g. 72000).
+    #[serde(default = "AudioSettings::default_bitrate")]
+    pub bitrate_bps: i32,
+    /// Audio duration per Opus packet in milliseconds (10, 20, 40, or 60).
+    #[serde(default = "AudioSettings::default_frame_size_ms")]
+    pub frame_size_ms: u32,
+    /// Whether the noise gate (noise suppression) is enabled.
+    #[serde(default = "AudioSettings::default_noise_suppression")]
+    pub noise_suppression: bool,
 }
 
 impl AudioSettings {
@@ -300,6 +309,43 @@ impl AudioSettings {
     }
     pub(crate) fn default_hold_frames() -> u32 {
         15
+    }
+    pub(crate) fn default_bitrate() -> i32 {
+        72_000
+    }
+    pub(crate) fn default_frame_size_ms() -> u32 {
+        20
+    }
+    pub(crate) fn default_noise_suppression() -> bool {
+        true
+    }
+
+    /// Convert `frame_size_ms` to samples-per-channel at 48 kHz.
+    ///
+    /// Clamps to valid Opus frame sizes (10, 20, 40, 60 ms).
+    pub fn frame_size_samples(&self) -> usize {
+        match self.frame_size_ms {
+            10 => 480,
+            40 => 1920,
+            60 => 2880,
+            _ => 960, // 20 ms default
+        }
+    }
+
+    /// Whether any pipeline-relevant setting differs from `other`.
+    ///
+    /// PTT key and UI-only fields are excluded since they don't
+    /// require a pipeline restart.
+    pub fn needs_pipeline_restart(&self, other: &Self) -> bool {
+        self.selected_device != other.selected_device
+            || self.auto_gain != other.auto_gain
+            || (self.vad_threshold - other.vad_threshold).abs() > f32::EPSILON
+            || (self.max_gain_db - other.max_gain_db).abs() > f32::EPSILON
+            || (self.noise_gate_close_ratio - other.noise_gate_close_ratio).abs() > f32::EPSILON
+            || self.hold_frames != other.hold_frames
+            || self.bitrate_bps != other.bitrate_bps
+            || self.frame_size_ms != other.frame_size_ms
+            || self.noise_suppression != other.noise_suppression
     }
 }
 
@@ -314,6 +360,9 @@ impl Default for AudioSettings {
             hold_frames: 15,
             push_to_talk: false,
             push_to_talk_key: None,
+            bitrate_bps: 72_000,
+            frame_size_ms: 20,
+            noise_suppression: true,
         }
     }
 }

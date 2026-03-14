@@ -425,12 +425,21 @@ fn get_audio_settings(state: tauri::State<'_, AppState>) -> AudioSettings {
 }
 
 /// Update audio settings.
+///
+/// If any pipeline-relevant setting changes while voice is active, the
+/// outbound capture pipeline is automatically restarted.
 #[tauri::command]
-fn set_audio_settings(
+async fn set_audio_settings(
     state: tauri::State<'_, AppState>,
     settings: AudioSettings,
-) {
-    state.set_audio_settings(settings);
+) -> Result<(), String> {
+    let needs_restart = state.set_audio_settings(settings).unwrap_or(false);
+
+    if needs_restart {
+        state.restart_outbound()?;
+    }
+
+    Ok(())
 }
 
 /// Get the current voice state.

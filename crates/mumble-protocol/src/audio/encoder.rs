@@ -96,9 +96,9 @@ impl Default for OpusEncoderConfig {
         Self {
             bitrate: 72_000,
             frame_size: 960,
-            application: OpusApplication::Voip,
+            application: OpusApplication::Audio,
             vbr: true,
-            complexity: 10,
+            complexity: 5,
             fec: true,
             packet_loss_percent: 3,
             dtx: false,

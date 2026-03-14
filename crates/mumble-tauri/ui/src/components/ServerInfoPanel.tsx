@@ -9,10 +9,10 @@
  * from the backend.
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { ServerInfo, DebugStats } from "../types";
-import { getPreferences } from "../preferencesStorage";
+import type { ServerInfo, DebugStats, AudioSettings } from "../types";
+import { getPreferences, getSavedAudioSettings } from "../preferencesStorage";
 import styles from "./ServerInfoPanel.module.css";
 
 /** Format a bandwidth value (bits/s) into a human-readable string. */
@@ -40,6 +40,49 @@ function formatUptime(seconds: number): string {
   return parts.join(" ");
 }
 
+function Accordion({ title, defaultOpen = false, children }: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={styles.accordion}>
+      <button
+        type="button"
+        className={styles.accordionHeader}
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        <svg
+          className={`${styles.accordionChevron} ${open ? styles.accordionChevronOpen : ""}`}
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+        <span>{title}</span>
+      </button>
+      {open && <div className={styles.accordionBody}>{children}</div>}
+    </div>
+  );
+}
+
+function DebugRow({ label, value }: { label: string; value: string | number | boolean }) {
+  return (
+    <>
+      <span className={styles.debugLabel}>{label}</span>
+      <span className={styles.debugValue}>{String(value)}</span>
+    </>
+  );
+}
+
 interface ServerInfoPanelProps {
   readonly onClose: () => void;
 }
@@ -48,6 +91,7 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
   const [info, setInfo] = useState<ServerInfo | null>(null);
   const [devMode, setDevMode] = useState(false);
   const [debugStats, setDebugStats] = useState<DebugStats | null>(null);
+  const [audioSettings, setAudioSettings] = useState<AudioSettings | null>(null);
 
   // Load server info and developer-mode preference on mount.
   useEffect(() => {
@@ -62,6 +106,14 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
         }
       })
       .catch(() => {});
+
+    // Load audio settings for the debug overview.
+    Promise.all([
+      getSavedAudioSettings(),
+      invoke<AudioSettings>("get_audio_settings"),
+    ]).then(([saved, backend]) => {
+      setAudioSettings(saved ?? backend);
+    }).catch(() => {});
   }, []);
 
   // Fetch debug stats when developer mode is active, refresh periodically.
@@ -195,8 +247,8 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
             </div>
           </section>
 
-          {/* Developer section (expert + developer mode only) */}
-          {devMode && debugStats && (
+          {/* Developer section (developer mode only) */}
+          {devMode && (
             <section className={styles.section}>
               <div className={styles.devHeader}>
                 <h3 className={styles.sectionTitle}>Developer</h3>
@@ -214,42 +266,51 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
                   </svg>
                 </button>
               </div>
-              <div className={styles.infoGrid}>
-                <span className={styles.infoLabel}>Channel Messages</span>
-                <span className={styles.infoValue}>{debugStats.channel_message_count}</span>
 
-                <span className={styles.infoLabel}>DM Messages</span>
-                <span className={styles.infoValue}>{debugStats.dm_message_count}</span>
+              {audioSettings && (
+                <Accordion title="Audio Settings">
+                  <div className={styles.debugGrid}>
+                    <DebugRow label="Input Device" value={audioSettings.selected_device ?? "System default"} />
+                    <DebugRow label="Bitrate" value={`${audioSettings.bitrate_bps / 1000} kb/s`} />
+                    <DebugRow label="Frame Size" value={`${audioSettings.frame_size_ms} ms`} />
+                    <DebugRow label="VAD Threshold" value={`${(audioSettings.vad_threshold * 100).toFixed(1)}%`} />
+                    <DebugRow label="Auto Gain" value={audioSettings.auto_gain} />
+                    <DebugRow label="Max Gain" value={`${audioSettings.max_gain_db} dB`} />
+                    <DebugRow label="Noise Suppression" value={audioSettings.noise_suppression} />
+                    <DebugRow label="Gate Close Ratio" value={`${(audioSettings.noise_gate_close_ratio * 100).toFixed(0)}%`} />
+                    <DebugRow label="Hold Frames" value={audioSettings.hold_frames} />
+                    <DebugRow label="Push to Talk" value={audioSettings.push_to_talk} />
+                    {audioSettings.push_to_talk_key && (
+                      <DebugRow label="PTT Key" value={audioSettings.push_to_talk_key} />
+                    )}
+                  </div>
+                </Accordion>
+              )}
 
-                <span className={styles.infoLabel}>Group Messages</span>
-                <span className={styles.infoValue}>{debugStats.group_message_count}</span>
+              {debugStats && (
+                <>
+                  <Accordion title="Connection & State">
+                    <div className={styles.debugGrid}>
+                      <DebugRow label="Voice State" value={debugStats.voice_state} />
+                      <DebugRow label="Connection Epoch" value={debugStats.connection_epoch} />
+                      <DebugRow label="App Uptime" value={formatUptime(debugStats.uptime_seconds)} />
+                      <DebugRow label="Users" value={debugStats.user_count} />
+                      <DebugRow label="Channels" value={debugStats.channel_count} />
+                      <DebugRow label="Groups" value={debugStats.group_count} />
+                    </div>
+                  </Accordion>
 
-                <span className={styles.infoLabel}>Total Messages</span>
-                <span className={styles.infoValue}>
-                  <strong>{debugStats.total_message_count}</strong>
-                </span>
-
-                <span className={styles.infoLabel}>Offloaded</span>
-                <span className={styles.infoValue}>{debugStats.offloaded_count}</span>
-
-                <span className={styles.infoLabel}>Channels</span>
-                <span className={styles.infoValue}>{debugStats.channel_count}</span>
-
-                <span className={styles.infoLabel}>Users</span>
-                <span className={styles.infoValue}>{debugStats.user_count}</span>
-
-                <span className={styles.infoLabel}>Groups</span>
-                <span className={styles.infoValue}>{debugStats.group_count}</span>
-
-                <span className={styles.infoLabel}>Voice State</span>
-                <span className={styles.infoValue}>{debugStats.voice_state}</span>
-
-                <span className={styles.infoLabel}>Connection Epoch</span>
-                <span className={styles.infoValue}>{debugStats.connection_epoch}</span>
-
-                <span className={styles.infoLabel}>App Uptime</span>
-                <span className={styles.infoValue}>{formatUptime(debugStats.uptime_seconds)}</span>
-              </div>
+                  <Accordion title="Messages">
+                    <div className={styles.debugGrid}>
+                      <DebugRow label="Channel Messages" value={debugStats.channel_message_count} />
+                      <DebugRow label="DM Messages" value={debugStats.dm_message_count} />
+                      <DebugRow label="Group Messages" value={debugStats.group_message_count} />
+                      <DebugRow label="Total Messages" value={debugStats.total_message_count} />
+                      <DebugRow label="Offloaded" value={debugStats.offloaded_count} />
+                    </div>
+                  </Accordion>
+                </>
+              )}
             </section>
           )}
         </>
