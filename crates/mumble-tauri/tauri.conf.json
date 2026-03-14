@@ -11,6 +11,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Fancy Mumble",
         "width": 1024,
         "height": 768,

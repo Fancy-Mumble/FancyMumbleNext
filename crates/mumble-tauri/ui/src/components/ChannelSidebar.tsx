@@ -2,8 +2,9 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store";
-import type { ChannelEntry, UserEntry, VoiceState } from "../types";
+import type { ChannelEntry, UserEntry, VoiceState, SidebarSections } from "../types";
 import { textureToDataUrl, parseComment } from "../profileFormat";
+import { getPreferences, updatePreferences } from "../preferencesStorage";
 import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
 import { SuperSearch } from "./SuperSearch";
 import styles from "./ChannelSidebar.module.css";
@@ -450,10 +451,35 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
     return () => document.removeEventListener("keydown", handleKey);
   }, []);
 
-  // Section collapse state (all expanded by default).
+  // Section collapse state (all expanded by default, restored from prefs).
   const [channelsOpen, setChannelsOpen] = useState(true);
   const [groupsOpen, setGroupsOpen] = useState(true);
   const [onlineOpen, setOnlineOpen] = useState(true);
+
+  // Load persisted section states on mount.
+  useEffect(() => {
+    getPreferences().then((prefs) => {
+      const s = prefs.sidebarSections;
+      if (s) {
+        setChannelsOpen(s.channels);
+        setGroupsOpen(s.groups);
+        setOnlineOpen(s.online);
+      }
+    });
+  }, []);
+
+  // Persist section states when they change.
+  const toggleSection = useCallback(
+    (section: keyof SidebarSections, current: boolean, setter: (v: boolean) => void) => {
+      const next = !current;
+      setter(next);
+      getPreferences().then((prefs) => {
+        const sections = prefs.sidebarSections ?? { channels: true, groups: true, online: true };
+        updatePreferences({ sidebarSections: { ...sections, [section]: next } });
+      });
+    },
+    [],
+  );
 
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
@@ -688,7 +714,7 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
       <div className={styles.sectionHeaderBar}>
         <button
           className={styles.collapsibleHeader}
-          onClick={() => setChannelsOpen((o) => !o)}
+          onClick={() => toggleSection("channels", channelsOpen, setChannelsOpen)}
           type="button"
         >
           <svg
@@ -804,7 +830,7 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
         <div className={styles.groupSectionHeader}>
           <button
             className={styles.collapsibleHeader}
-            onClick={() => setGroupsOpen((o) => !o)}
+            onClick={() => toggleSection("groups", groupsOpen, setGroupsOpen)}
             type="button"
           >
             <svg
@@ -885,7 +911,7 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
       <div className={`${styles.userSection} ${onlineOpen ? "" : styles.sectionCollapsed}`}>
         <button
           className={styles.collapsibleHeader}
-          onClick={() => setOnlineOpen((o) => !o)}
+          onClick={() => toggleSection("online", onlineOpen, setOnlineOpen)}
           type="button"
         >
           <svg

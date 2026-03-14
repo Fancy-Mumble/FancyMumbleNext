@@ -112,6 +112,15 @@ export interface UserPreferences {
   timeFormat: TimeFormat;
   /** Convert UTC timestamps to the local timezone before displaying. */
   convertToLocalTime: boolean;
+  /** Collapsed/expanded state of sidebar sections. */
+  sidebarSections?: SidebarSections;
+}
+
+/** Persisted open/closed state for each sidebar section. */
+export interface SidebarSections {
+  channels: boolean;
+  groups: boolean;
+  online: boolean;
 }
 
 /** Debug statistics returned by the backend for the developer info panel. */

@@ -5,7 +5,7 @@ members = [
     "crates/mumble-tauri",
 ]
 
-# ── Workspace-wide Clippy lints ─────────────────────────────────────
+# -- Workspace-wide Clippy lints -------------------------------------
 # These apply to every crate in the workspace automatically.
 [workspace.lints.rust]
 unsafe_code = "warn"
@@ -28,3 +28,11 @@ uninlined_format_args = "warn"
 doc_markdown = "warn"
 missing_errors_doc = "allow"         # too noisy for early development
 module_name_repetitions = "allow"    # common pattern in Rust
+
+# -- Release profile optimizations -----------------------------------
+[profile.release]
+lto = "thin"              # Link-Time Optimization (thin = fast builds, good codegen)
+codegen-units = 1         # Single codegen unit for maximum optimization
+opt-level = 3             # Full optimizations
+strip = "symbols"         # Strip debug symbols from the binary
+panic = "abort"           # Abort on panic (smaller binary, no unwind overhead)
