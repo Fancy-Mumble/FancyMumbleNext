@@ -25,6 +25,7 @@ rcgen = "0.14.7"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 uuid = { version = "1", features = ["v4"] }
+ring = "0.17"
 
 # Desktop-only dependencies (cpal, global shortcuts, and Opus are not available on Android).
 [target.'cfg(not(target_os = "android"))'.dependencies]

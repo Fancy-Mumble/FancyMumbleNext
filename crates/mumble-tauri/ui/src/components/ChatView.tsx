@@ -11,6 +11,11 @@ import { registerVote, registerLocalVote, getPoll } from "./PollCard";
 import { mediaKind, fileToDataUrl, fitImage, fitVideo, mediaToHtml } from "../utils/media";
 import { textureToDataUrl } from "../profileFormat";
 import { markdownToHtml } from "./MarkdownInput";
+import {
+  isHeavyContent,
+  offloadManager,
+  type MessageScope,
+} from "../messageOffload";
 import styles from "./ChatView.module.css";
 
 // ─── Scroll helpers ──────────────────────────────────────────────
@@ -107,6 +112,19 @@ export default function ChatView({ onServerInfoToggle }: ChatViewProps) {
       })
       .catch(() => { /* leave undefined - fall back to Intl */ });
   }, []);
+
+  // ─── Content offloading ──────────────────────────────────────────
+
+  /** Set of message IDs currently being restored from offload storage. */
+  const [restoringKeys, setRestoringKeys] = useState<Set<string>>(new Set());
+
+  /** Build the `MessageScope` for the current chat mode. */
+  const currentScope = useCallback((): MessageScope | null => {
+    if (isGroupMode && selectedGroup) return { scope: "group", scopeId: selectedGroup };
+    if (isDmMode && selectedDmUser !== null) return { scope: "dm", scopeId: String(selectedDmUser) };
+    if (selectedChannel !== null) return { scope: "channel", scopeId: String(selectedChannel) };
+    return null;
+  }, [isGroupMode, selectedGroup, isDmMode, selectedDmUser, selectedChannel]);
 
   /** The scroll container (<div.messages>). */
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -420,6 +438,105 @@ export default function ChatView({ onServerInfoToggle }: ChatViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChannel, selectedDmUser, selectedGroup]);
 
+  // ─── Offload IntersectionObserver ─────────────────────────────────
+  //
+  // Watches message elements for visibility changes.  Heavy messages
+  // that scroll out of view are offloaded (encrypted → temp file) after
+  // a delay; offloaded messages approaching the viewport are restored.
+
+  const scopeRef = useRef(currentScope);
+  scopeRef.current = currentScope;
+
+  useEffect(() => {
+    const inner = messagesInnerRef.current;
+    const container = messagesContainerRef.current;
+    if (!inner || !container) return;
+
+    const refreshForScope = (scope: MessageScope) => {
+      const state = useAppStore.getState();
+      if (scope.scope === "channel") {
+        state.refreshMessages(Number(scope.scopeId));
+      } else if (scope.scope === "dm") {
+        state.refreshDmMessages(Number(scope.scopeId));
+      } else if (scope.scope === "group") {
+        state.refreshGroupMessages(scope.scopeId);
+      }
+    };
+
+    const handleRestored = (scope: MessageScope, restoredIds: string[]) => {
+      setRestoringKeys((prev) => {
+        const next = new Set(prev);
+        for (const id of restoredIds) next.delete(id);
+        return next;
+      });
+      if (restoredIds.length > 0) refreshForScope(scope);
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const scope = scopeRef.current();
+        if (!scope) return;
+
+        // Collect all offloaded messages that just entered the viewport
+        // so we can restore them in a single batch IPC call.
+        const toRestore: string[] = [];
+
+        for (const entry of entries) {
+          const el = entry.target as HTMLElement;
+          const msgId = el.dataset.msgId;
+          if (!msgId) continue;
+
+          if (entry.isIntersecting) {
+            offloadManager.cancelOffload(msgId);
+
+            if (offloadManager.isOffloaded(msgId)) {
+              toRestore.push(msgId);
+            }
+          } else if (el.dataset.msgHeavy !== undefined) {
+            offloadManager.scheduleOffload(msgId, scope, () => {
+              refreshForScope(scope);
+            });
+          }
+        }
+
+        if (toRestore.length > 0) {
+          setRestoringKeys((prev) => {
+            const next = new Set(prev);
+            for (const id of toRestore) next.add(id);
+            return next;
+          });
+
+          offloadManager.restoreMany(toRestore, scope).then((results) => {
+            handleRestored(scope, Object.keys(results));
+          });
+        }
+      },
+      {
+        root: container,
+        // Load content 800px before it enters the viewport to avoid
+        // visible skeleton flicker; offload 200px after it leaves.
+        rootMargin: "800px 0px 800px 0px",
+      },
+    );
+
+    // Observe all message elements with a data-msg-id attribute.
+    const observeAll = () => {
+      for (const el of inner.querySelectorAll<HTMLElement>("[data-msg-id]")) {
+        observer.observe(el);
+      }
+    };
+    observeAll();
+
+    // Re-observe when new message elements are added.
+    const mutObs = new MutationObserver(observeAll);
+    mutObs.observe(inner, { childList: true, subtree: true });
+
+    return () => {
+      observer.disconnect();
+      mutObs.disconnect();
+    };
+  }, [selectedChannel, selectedDmUser, selectedGroup]);
+
   /** Jump-to-bottom handler used by the "new messages" pill. */
   const handleScrollToBottom = useCallback(() => {
     const el = messagesContainerRef.current;
@@ -650,27 +767,33 @@ export default function ChatView({ onServerInfoToggle }: ChatViewProps) {
                     <span className={styles.unreadDividerLabel}>New messages</span>
                   </div>
                 )}
-                <MessageItem
-                  msg={msg}
-                  index={i}
-                  avatarUrl={
-                    msg.sender_session === null
-                      ? undefined
-                      : avatarBySession.get(msg.sender_session)
-                  }
-                  user={
-                    msg.sender_session === null
-                      ? undefined
-                      : userBySession.get(msg.sender_session)
-                  }
-                  polls={polls}
-                  ownSession={ownSession}
-                  onVote={handlePollVote}
-                  onAvatarClick={selectUser}
-                  timeFormat={timeFormat}
-                  convertToLocalTime={convertToLocalTime}
-                  systemUses24h={systemUses24h}
-                />
+                <div
+                  data-msg-id={msg.message_id ?? undefined}
+                  data-msg-heavy={msg.message_id && isHeavyContent(msg.body) ? "" : undefined}
+                >
+                  <MessageItem
+                    msg={msg}
+                    index={i}
+                    avatarUrl={
+                      msg.sender_session === null
+                        ? undefined
+                        : avatarBySession.get(msg.sender_session)
+                    }
+                    user={
+                      msg.sender_session === null
+                        ? undefined
+                        : userBySession.get(msg.sender_session)
+                    }
+                    polls={polls}
+                    ownSession={ownSession}
+                    onVote={handlePollVote}
+                    onAvatarClick={selectUser}
+                    timeFormat={timeFormat}
+                    convertToLocalTime={convertToLocalTime}
+                    systemUses24h={systemUses24h}
+                    isRestoring={msg.message_id ? restoringKeys.has(msg.message_id) : false}
+                  />
+                </div>
               </React.Fragment>
             ))
           )}

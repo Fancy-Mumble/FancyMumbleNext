@@ -93,7 +93,7 @@ export interface ServerPingResult {
 // ─── User Preferences ─────────────────────────────────────────────
 
 /** Whether the user prefers a simplified or full-featured UI. */
-export type UserMode = "normal" | "expert";
+export type UserMode = "normal" | "expert" | "developer";
 
 /** Preferred time display format. */
 export type TimeFormat = "12h" | "24h" | "auto";
@@ -112,6 +112,21 @@ export interface UserPreferences {
   timeFormat: TimeFormat;
   /** Convert UTC timestamps to the local timezone before displaying. */
   convertToLocalTime: boolean;
+}
+
+/** Debug statistics returned by the backend for the developer info panel. */
+export interface DebugStats {
+  channel_message_count: number;
+  dm_message_count: number;
+  group_message_count: number;
+  total_message_count: number;
+  offloaded_count: number;
+  channel_count: number;
+  user_count: number;
+  group_count: number;
+  connection_epoch: number;
+  voice_state: string;
+  uptime_seconds: number;
 }
 
 // ─── Audio / Voice ────────────────────────────────────────────────

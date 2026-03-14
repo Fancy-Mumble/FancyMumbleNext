@@ -256,6 +256,12 @@ export default function SettingsPage() {
     });
   }, []);
 
+  const handleToggleDeveloperMode = useCallback(async () => {
+    const next: UserMode = userMode === "developer" ? "expert" : "developer";
+    setUserMode(next);
+    await updatePreferences({ userMode: next });
+  }, [userMode]);
+
   const handleReset = useCallback(async () => {
     try {
       // Clear all tauri-plugin-store caches so the in-memory data is gone.
@@ -346,7 +352,7 @@ export default function SettingsPage() {
               avatar={avatarDataUrl}
               onAvatarChange={setAvatarDataUrl}
               profileError={profileError}
-              isExpert={userMode === "expert"}
+              isExpert={userMode !== "normal"}
             />
           )}
 
@@ -355,7 +361,7 @@ export default function SettingsPage() {
               devices={devices}
               settings={audioSettings}
               onChange={patchAudio}
-              isExpert={userMode === "expert"}
+              isExpert={userMode !== "normal"}
             />
           )}
 
@@ -363,7 +369,7 @@ export default function SettingsPage() {
             <VoicePanel
               settings={audioSettings}
               onChange={patchAudio}
-              isExpert={userMode === "expert"}
+              isExpert={userMode !== "normal"}
             />
           )}
 
@@ -384,6 +390,7 @@ export default function SettingsPage() {
               onKlipyApiKeyChange={handleKlipyApiKeyChange}
               onTimeFormatChange={handleTimeFormatChange}
               onConvertToLocalTimeChange={handleConvertToLocalTimeChange}
+              onToggleDeveloperMode={handleToggleDeveloperMode}
               onReset={handleReset}
             />
           )}

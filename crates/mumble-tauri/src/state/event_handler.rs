@@ -350,11 +350,7 @@ impl EventHandler for TauriEventHandler {
                     if let Some((ref gid, ref stripped_body)) = group_marker {
                         // Group message - route to the correct group conversation.
                         if state.group_chats.contains_key(gid) {
-                            state
-                                .group_messages
-                                .entry(gid.clone())
-                                .or_default()
-                                .push(ChatMessage {
+                            let mut msg = ChatMessage {
                                     sender_session: actor,
                                     sender_name,
                                     body: stripped_body.clone(),
@@ -364,7 +360,13 @@ impl EventHandler for TauriEventHandler {
                                     group_id: Some(gid.clone()),
                                     message_id: tm.message_id.clone(),
                                     timestamp: tm.timestamp,
-                                });
+                                };
+                            msg.ensure_id();
+                            state
+                                .group_messages
+                                .entry(gid.clone())
+                                .or_default()
+                                .push(msg);
 
                             if state.selected_group.as_deref() != Some(gid) {
                                 *state.group_unread_counts.entry(gid.clone()).or_insert(0) += 1;
@@ -377,11 +379,7 @@ impl EventHandler for TauriEventHandler {
                         let body = tm.message.clone();
                         // Direct message - store keyed by the sender's session.
                         if let Some(sender_session) = actor {
-                            state
-                                .dm_messages
-                                .entry(sender_session)
-                                .or_default()
-                                .push(ChatMessage {
+                            let mut msg = ChatMessage {
                                     sender_session: actor,
                                     sender_name,
                                     body,
@@ -391,7 +389,13 @@ impl EventHandler for TauriEventHandler {
                                     group_id: None,
                                     message_id: tm.message_id.clone(),
                                     timestamp: tm.timestamp,
-                                });
+                                };
+                            msg.ensure_id();
+                            state
+                                .dm_messages
+                                .entry(sender_session)
+                                .or_default()
+                                .push(msg);
 
                             // Increment DM unread if this DM conversation is not viewed.
                             if state.selected_dm_user != Some(sender_session) {
@@ -413,11 +417,7 @@ impl EventHandler for TauriEventHandler {
                         let selected = state.selected_channel;
 
                         for &ch_id in &target_channels {
-                            state
-                                .messages
-                                .entry(ch_id)
-                                .or_default()
-                                .push(ChatMessage {
+                            let mut msg = ChatMessage {
                                     sender_session: actor,
                                     sender_name: sender_name.clone(),
                                     body: body.clone(),
@@ -427,7 +427,13 @@ impl EventHandler for TauriEventHandler {
                                     group_id: None,
                                     message_id: tm.message_id.clone(),
                                     timestamp: tm.timestamp,
-                                });
+                                };
+                            msg.ensure_id();
+                            state
+                                .messages
+                                .entry(ch_id)
+                                .or_default()
+                                .push(msg);
 
                             // Increment unread count if this channel is not currently viewed.
                             if selected != Some(ch_id) {

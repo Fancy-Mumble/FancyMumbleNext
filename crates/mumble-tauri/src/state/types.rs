@@ -53,6 +53,18 @@ pub struct ChatMessage {
     pub timestamp: Option<u64>,
 }
 
+impl ChatMessage {
+    /// Ensure the message has a `message_id`, generating a UUID if absent.
+    ///
+    /// A stable ID is required so the offloading system can refer to the
+    /// message across encrypt/store/restore cycles.
+    pub fn ensure_id(&mut self) {
+        if self.message_id.is_none() {
+            self.message_id = Some(uuid::Uuid::new_v4().to_string());
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ConnectionStatus {
@@ -126,6 +138,33 @@ pub struct ServerInfo {
 }
 
 // ─── Group chat ────────────────────────────────────────────────────
+
+/// Debug statistics for the developer info panel.
+#[derive(Debug, Clone, Serialize)]
+pub struct DebugStats {
+    /// Number of channel messages in memory.
+    pub channel_message_count: usize,
+    /// Number of DM messages in memory.
+    pub dm_message_count: usize,
+    /// Number of group messages in memory.
+    pub group_message_count: usize,
+    /// Total messages (channel + DM + group).
+    pub total_message_count: usize,
+    /// Number of messages currently offloaded to disk.
+    pub offloaded_count: usize,
+    /// Number of channels known to the client.
+    pub channel_count: usize,
+    /// Number of users connected to the server.
+    pub user_count: usize,
+    /// Number of group chats active.
+    pub group_count: usize,
+    /// Internal connection epoch counter.
+    pub connection_epoch: u64,
+    /// Current voice state as a string.
+    pub voice_state: String,
+    /// Seconds since the app was started.
+    pub uptime_seconds: u64,
+}
 
 /// A multi-member group chat, identified by a UUID.
 ///

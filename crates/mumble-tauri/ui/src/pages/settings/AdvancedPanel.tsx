@@ -18,6 +18,7 @@ export function AdvancedPanel({
   onKlipyApiKeyChange,
   onTimeFormatChange,
   onConvertToLocalTimeChange,
+  onToggleDeveloperMode,
   onReset,
 }: {
   userMode: UserMode;
@@ -28,6 +29,7 @@ export function AdvancedPanel({
   onKlipyApiKeyChange: (key: string) => void;
   onTimeFormatChange: (fmt: TimeFormat) => void;
   onConvertToLocalTimeChange: () => void;
+  onToggleDeveloperMode: () => void;
   onReset: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -41,16 +43,16 @@ export function AdvancedPanel({
           <div className={styles.toggleInfo}>
             <h3 className={styles.sectionTitle}>Expert Mode</h3>
             <p className={styles.fieldHint}>
-              {userMode === "expert"
-                ? "Full control - advanced audio options, custom ports and labels are visible."
-                : "Streamlined - we handle the technical details for you."}
+              {userMode === "normal"
+                ? "Streamlined - we handle the technical details for you."
+                : "Full control - advanced audio options, custom ports and labels are visible."}
             </p>
           </div>
-          <Toggle checked={userMode === "expert"} onChange={onToggleMode} />
+          <Toggle checked={userMode !== "normal"} onChange={onToggleMode} />
         </div>
       </section>
 
-      {userMode === "expert" && (
+      {userMode !== "normal" && (
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>Klipy API Key</h3>
           <p className={styles.fieldHint}>
@@ -74,6 +76,24 @@ export function AdvancedPanel({
             autoComplete="off"
             spellCheck={false}
           />
+        </section>
+      )}
+
+      {userMode !== "normal" && (
+        <section className={styles.section}>
+          <div className={styles.toggleRow}>
+            <div className={styles.toggleInfo}>
+              <h3 className={styles.sectionTitle}>Developer Mode</h3>
+              <p className={styles.fieldHint}>
+                Show debug statistics (message counts, offloaded content, memory
+                usage) in the server info panel.
+              </p>
+            </div>
+            <Toggle
+              checked={userMode === "developer"}
+              onChange={onToggleDeveloperMode}
+            />
+          </div>
         </section>
       )}
 

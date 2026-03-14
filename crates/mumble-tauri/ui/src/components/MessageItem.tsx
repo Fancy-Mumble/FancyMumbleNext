@@ -5,6 +5,7 @@ import type { PollPayload } from "./PollCreator";
 import { parseComment } from "../profileFormat";
 import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
 import { isMobilePlatform } from "../utils/platform";
+import { extractOffloadInfo } from "../messageOffload";
 import PollCard, { getPoll } from "./PollCard";
 import MediaPreview from "./MediaPreview";
 import styles from "./ChatView.module.css";
@@ -106,6 +107,8 @@ interface MessageItemProps {
   readonly convertToLocalTime?: boolean;
   /** OS-reported clock format for "auto" mode (true = 24h). */
   readonly systemUses24h?: boolean;
+  /** Whether the message content is currently being loaded from offload storage. */
+  readonly isRestoring?: boolean;
 }
 
 export default function MessageItem({
@@ -120,8 +123,11 @@ export default function MessageItem({
   timeFormat = "auto",
   convertToLocalTime = true,
   systemUses24h,
+  isRestoring = false,
 }: MessageItemProps) {
-  const pureMedia = isPureMedia(msg.body);
+  const offloadInfo = extractOffloadInfo(msg.body);
+  const offloaded = offloadInfo !== null;
+  const pureMedia = !offloaded && isPureMedia(msg.body);
   const isMobile = isMobilePlatform();
 
   // Desktop hover-card state
@@ -158,6 +164,27 @@ export default function MessageItem({
   }, [msg.sender_session, onAvatarClick]);
 
   const renderBody = () => {
+    if (offloaded || isRestoring) {
+      // Estimate skeleton height from the original content byte-length.
+      // Images/videos encoded as data-URLs are ~1.37x larger than the
+      // decoded pixels, so a rough heuristic of 1 byte ~= 0.003 px
+      // gives a decent approximation without knowing the actual
+      // dimensions.  Clamp to a reasonable range.
+      const contentLen = offloadInfo?.contentLength ?? 0;
+      const estimatedHeight = contentLen > 0
+        ? Math.max(80, Math.min(Math.round(contentLen * 0.003), 600))
+        : 80;
+
+      return (
+        <div>
+          <div className={styles.skeleton} style={{ minHeight: estimatedHeight }} />
+          <span className={styles.skeletonLabel}>
+            {isRestoring ? "Decrypting\u2026" : "Content offloaded"}
+          </span>
+        </div>
+      );
+    }
+
     const pollMatch = /<!-- FANCY_POLL:(.+?) -->/.exec(msg.body);
     if (pollMatch) {
       const pollId = pollMatch[1];

@@ -104,3 +104,35 @@
   color: var(--color-text-primary);
   word-break: break-all;
 }
+
+/* ── Developer section header ──────────────────────────────────── */
+
+.devHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.devHeader .sectionTitle {
+  margin-bottom: 0;
+}
+
+.refreshBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.refreshBtn:hover {
+  background: var(--color-glass-hover);
+  color: var(--color-text-primary);
+}

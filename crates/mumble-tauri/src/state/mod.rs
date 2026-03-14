@@ -14,19 +14,23 @@
 mod audio;
 mod connection;
 mod event_handler;
+pub mod offload;
 pub mod types;
 
 // Re-export everything that lib.rs needs.
 pub use types::{
-    AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus, GroupChat,
-    ServerConfig, ServerInfo, UserEntry, VoiceState,
+    AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus, DebugStats,
+    GroupChat, ServerConfig, ServerInfo, UserEntry, VoiceState,
 };
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use tauri::{AppHandle, Emitter};
 use tracing::info;
+
+use offload::OffloadStore;
 
 #[cfg(not(target_os = "android"))]
 use mumble_protocol::audio::pipeline::InboundPipeline;
@@ -97,6 +101,8 @@ pub(super) struct SharedState {
     pub audio_settings: AudioSettings,
     /// Whether voice calling is active (inactive = deaf+muted).
     pub voice_state: VoiceState,
+    /// Encrypted temp-file store for offloaded heavy message content.
+    pub offload_store: Option<OffloadStore>,
     /// Inbound audio pipeline (network -> speakers).  Desktop only.
     #[cfg(not(target_os = "android"))]
     pub inbound_pipeline: Option<InboundPipeline>,
@@ -111,6 +117,7 @@ pub(super) struct SharedState {
 pub struct AppState {
     pub(super) inner: Arc<Mutex<SharedState>>,
     app_handle: Mutex<Option<AppHandle>>,
+    start_time: Instant,
 }
 
 impl AppState {
@@ -118,6 +125,7 @@ impl AppState {
         Self {
             inner: Arc::new(Mutex::new(SharedState::default())),
             app_handle: Mutex::new(None),
+            start_time: Instant::now(),
         }
     }
 
@@ -190,6 +198,199 @@ impl AppState {
         self.inner.lock().ok().and_then(|s| s.own_session)
     }
 
+    // ── Content offloading ────────────────────────────────────────
+
+    /// Initialise the encrypted offload store (called once during setup).
+    pub fn init_offload_store(&self) -> Result<(), String> {
+        OffloadStore::cleanup_stale();
+        let store = OffloadStore::new()?;
+        if let Ok(mut state) = self.inner.lock() {
+            state.offload_store = Some(store);
+        }
+        Ok(())
+    }
+
+    /// Encrypt a message body and write it to a temp file, replacing
+    /// the in-memory body with a lightweight placeholder that includes
+    /// the original content byte-length (used for skeleton sizing).
+    ///
+    /// `scope` is one of `"channel"`, `"dm"`, or `"group"`.
+    /// `scope_id` is the channel ID, DM session, or group UUID.
+    pub fn offload_message(
+        &self,
+        message_id: String,
+        scope: String,
+        scope_id: String,
+    ) -> Result<(), String> {
+        let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+
+        // Locate the message first and extract its body.
+        let body = Self::find_message_body(&state, &scope, &scope_id, &message_id)?;
+
+        // Already offloaded.
+        if body.starts_with("<!-- OFFLOADED:") {
+            return Ok(());
+        }
+
+        let content_len = body.len();
+
+        // Encrypt and write to disk.
+        let store = state
+            .offload_store
+            .as_mut()
+            .ok_or("Offload store not initialised")?;
+        store.store(&message_id, &body)?;
+
+        // Replace the in-memory body with a placeholder.
+        // Format: <!-- OFFLOADED:{id}:{byte_length} -->
+        Self::set_message_body(
+            &mut state,
+            &scope,
+            &scope_id,
+            &message_id,
+            format!("<!-- OFFLOADED:{message_id}:{content_len} -->"),
+        );
+
+        Ok(())
+    }
+
+    /// Decrypt an offloaded message body from its temp file and restore
+    /// it in the in-memory message store.  Returns the restored body.
+    pub fn load_offloaded_message(
+        &self,
+        message_id: String,
+        scope: String,
+        scope_id: String,
+    ) -> Result<String, String> {
+        let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+
+        // Decrypt from disk.
+        let store = state
+            .offload_store
+            .as_mut()
+            .ok_or("Offload store not initialised")?;
+        let body = store.load(&message_id)?;
+
+        // Remove the temp file now that it is restored in memory.
+        store.remove(&message_id);
+
+        // Restore the in-memory body.
+        Self::set_message_body(&mut state, &scope, &scope_id, &message_id, body.clone());
+
+        Ok(body)
+    }
+
+    /// Decrypt multiple offloaded messages in a single call.
+    ///
+    /// Returns a map of `message_id` to restored body.  Keys that fail
+    /// to decrypt are silently omitted.
+    pub fn load_offloaded_messages_batch(
+        &self,
+        message_ids: Vec<String>,
+        scope: String,
+        scope_id: String,
+    ) -> Result<HashMap<String, String>, String> {
+        let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+
+        let store = state
+            .offload_store
+            .as_mut()
+            .ok_or("Offload store not initialised")?;
+
+        let key_refs: Vec<&str> = message_ids.iter().map(String::as_str).collect();
+        let results = store.load_many(&key_refs);
+
+        let mut restored = HashMap::new();
+        for (key, result) in &results {
+            if let Ok(body) = result {
+                store.remove(key);
+                restored.insert(key.clone(), body.clone());
+            }
+        }
+
+        // Restore all successfully decrypted bodies in-memory.
+        for (key, body) in &restored {
+            Self::set_message_body(&mut state, &scope, &scope_id, key, body.clone());
+        }
+
+        Ok(restored)
+    }
+
+    /// Look up a message body across the channel / DM / group stores.
+    fn find_message_body(
+        state: &SharedState,
+        scope: &str,
+        scope_id: &str,
+        message_id: &str,
+    ) -> Result<String, String> {
+        let messages = match scope {
+            "channel" => {
+                let ch_id: u32 = scope_id.parse().map_err(|_| "Invalid channel ID")?;
+                state.messages.get(&ch_id)
+            }
+            "dm" => {
+                let session: u32 = scope_id.parse().map_err(|_| "Invalid DM session")?;
+                state.dm_messages.get(&session)
+            }
+            "group" => state.group_messages.get(scope_id),
+            _ => return Err(format!("Unknown scope: {scope}")),
+        };
+        let messages = messages.ok_or("No messages found for scope")?;
+        let msg = messages
+            .iter()
+            .find(|m| m.message_id.as_deref() == Some(message_id))
+            .ok_or("Message not found")?;
+        Ok(msg.body.clone())
+    }
+
+    /// Set a message body in the channel / DM / group stores.
+    fn set_message_body(
+        state: &mut SharedState,
+        scope: &str,
+        scope_id: &str,
+        message_id: &str,
+        body: String,
+    ) {
+        let messages = match scope {
+            "channel" => {
+                let ch_id: u32 = scope_id.parse().unwrap_or(0);
+                state.messages.get_mut(&ch_id)
+            }
+            "dm" => {
+                let session: u32 = scope_id.parse().unwrap_or(0);
+                state.dm_messages.get_mut(&session)
+            }
+            "group" => state.group_messages.get_mut(scope_id),
+            _ => None,
+        };
+        if let Some(messages) = messages {
+            if let Some(msg) = messages
+                .iter_mut()
+                .find(|m| m.message_id.as_deref() == Some(message_id))
+            {
+                msg.body = body;
+            }
+        }
+    }
+
+    /// Delete all offloaded temp files and clear tracking.
+    pub fn clear_offloaded(&self) {
+        if let Ok(mut state) = self.inner.lock() {
+            if let Some(store) = state.offload_store.as_mut() {
+                store.clear();
+            }
+        }
+    }
+
+    /// Shut down the offload store, deleting the temp directory.
+    pub fn shutdown_offload_store(&self) {
+        if let Ok(mut state) = self.inner.lock() {
+            if let Some(store) = state.offload_store.as_mut() {
+                store.cleanup_dir();
+            }
+        }
+    }
+
     // ── Messaging ─────────────────────────────────────────────────
 
     pub async fn send_message(&self, channel_id: u32, body: String) -> Result<(), String> {
@@ -232,21 +433,19 @@ impl AppState {
 
         // Add locally - the server does not echo our own messages back.
         if let Ok(mut state) = self.inner.lock() {
-            state
-                .messages
-                .entry(channel_id)
-                .or_default()
-                .push(ChatMessage {
-                    sender_session: own_session,
-                    sender_name: own_name,
-                    body,
-                    channel_id,
-                    is_own: true,
-                    dm_session: None,
-                    group_id: None,
-                    message_id,
-                    timestamp,
-                });
+            let mut msg = ChatMessage {
+                sender_session: own_session,
+                sender_name: own_name,
+                body,
+                channel_id,
+                is_own: true,
+                dm_session: None,
+                group_id: None,
+                message_id,
+                timestamp,
+            };
+            msg.ensure_id();
+            state.messages.entry(channel_id).or_default().push(msg);
         }
 
         Ok(())
@@ -291,21 +490,19 @@ impl AppState {
 
         // Store locally keyed by the target user's session.
         if let Ok(mut state) = self.inner.lock() {
-            state
-                .dm_messages
-                .entry(target_session)
-                .or_default()
-                .push(ChatMessage {
-                    sender_session: own_session,
-                    sender_name: own_name,
-                    body,
-                    channel_id: 0,
-                    is_own: true,
-                    dm_session: Some(target_session),
-                    group_id: None,
-                    message_id,
-                    timestamp,
-                });
+            let mut msg = ChatMessage {
+                sender_session: own_session,
+                sender_name: own_name,
+                body,
+                channel_id: 0,
+                is_own: true,
+                dm_session: Some(target_session),
+                group_id: None,
+                message_id,
+                timestamp,
+            };
+            msg.ensure_id();
+            state.dm_messages.entry(target_session).or_default().push(msg);
         }
 
         Ok(())
@@ -704,21 +901,23 @@ impl AppState {
 
         // Store locally (without the marker prefix).
         if let Ok(mut state) = self.inner.lock() {
+            let mut msg = ChatMessage {
+                sender_session: own_session,
+                sender_name: own_name,
+                body,
+                channel_id: 0,
+                is_own: true,
+                dm_session: None,
+                group_id: Some(group_id),
+                message_id,
+                timestamp,
+            };
+            msg.ensure_id();
             state
                 .group_messages
-                .entry(group_id.clone())
+                .entry(msg.group_id.clone().unwrap_or_default())
                 .or_default()
-                .push(ChatMessage {
-                    sender_session: own_session,
-                    sender_name: own_name,
-                    body,
-                    channel_id: 0,
-                    is_own: true,
-                    dm_session: None,
-                    group_id: Some(group_id),
-                    message_id,
-                    timestamp,
-                });
+                .push(msg);
         }
 
         Ok(())
@@ -783,6 +982,48 @@ impl AppState {
                 os: None,
                 max_bandwidth: None,
                 opus: false,
+            })
+    }
+
+    /// Collect debug statistics about the current application state.
+    pub fn debug_stats(&self) -> DebugStats {
+        self.inner
+            .lock()
+            .map(|s| {
+                let channel_msgs: usize = s.messages.values().map(|v| v.len()).sum();
+                let dm_msgs: usize = s.dm_messages.values().map(|v| v.len()).sum();
+                let group_msgs: usize = s.group_messages.values().map(|v| v.len()).sum();
+                let offloaded = s
+                    .offload_store
+                    .as_ref()
+                    .map_or(0, |store| store.offloaded_count());
+
+                DebugStats {
+                    channel_message_count: channel_msgs,
+                    dm_message_count: dm_msgs,
+                    group_message_count: group_msgs,
+                    total_message_count: channel_msgs + dm_msgs + group_msgs,
+                    offloaded_count: offloaded,
+                    channel_count: s.channels.len(),
+                    user_count: s.users.len(),
+                    group_count: s.group_chats.len(),
+                    connection_epoch: s.connection_epoch,
+                    voice_state: format!("{:?}", s.voice_state),
+                    uptime_seconds: self.start_time.elapsed().as_secs(),
+                }
+            })
+            .unwrap_or(DebugStats {
+                channel_message_count: 0,
+                dm_message_count: 0,
+                group_message_count: 0,
+                total_message_count: 0,
+                offloaded_count: 0,
+                channel_count: 0,
+                user_count: 0,
+                group_count: 0,
+                connection_epoch: 0,
+                voice_state: "Unknown".into(),
+                uptime_seconds: self.start_time.elapsed().as_secs(),
             })
     }
 

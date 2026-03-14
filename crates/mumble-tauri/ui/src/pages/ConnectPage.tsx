@@ -62,7 +62,7 @@ export default function ConnectPage() {
   /* ── user mode ───────────────────────────────────────────────── */
   const [userMode, setUserMode] = useState<UserMode>("normal");
   const [defaultUsername, setDefaultUsername] = useState("");
-  const STEPS = userMode === "expert" ? STEPS_EXPERT : STEPS_NORMAL;
+  const STEPS = userMode === "normal" ? STEPS_NORMAL : STEPS_EXPERT;
 
   /* ── saved servers ───────────────────────────────────────────── */
   const [savedServers, setSavedServers] = useState<SavedServer[]>([]);
@@ -299,7 +299,7 @@ export default function ConnectPage() {
                       autoFocus
                     />
                   </div>
-                  {userMode === "expert" && (
+                  {userMode !== "normal" && (
                     <>
                       <div className={styles.field}>
                         <label className={styles.label}>Port</label>
@@ -386,7 +386,7 @@ export default function ConnectPage() {
               )}
 
               {/* ── Step 2: Label (expert only) ────────── */}
-              {step === 2 && userMode === "expert" && (
+              {step === 2 && userMode !== "normal" && (
                 <div className={styles.field}>
                   <label className={styles.label}>Server label (optional)</label>
                   <input

@@ -19,6 +19,7 @@ import type {
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/PollCreator";
 import { registerPoll, registerVote } from "./components/PollCard";
+import { offloadManager } from "./messageOffload";
 
 // ─── Store shape ──────────────────────────────────────────────────
 
@@ -178,6 +179,8 @@ export const useAppStore = create<AppState>((set) => ({
 
   disconnect: async () => {
     try {
+      // Clean up offloaded temp files before resetting state.
+      await offloadManager.dispose();
       await invoke("disconnect");
     } catch (e) {
       console.error("disconnect error:", e);
@@ -464,6 +467,8 @@ export async function initEventListeners(
   // Connection dropped.
   unlisteners.push(
     await listen("server-disconnected", () => {
+      // Clean up offloaded temp files.
+      offloadManager.dispose().catch(() => {});
       // Preserve any error that was set by connection-rejected.
       const currentError = useAppStore.getState().error;
       useAppStore.setState({ ...INITIAL, error: currentError });

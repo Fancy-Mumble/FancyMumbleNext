@@ -10,12 +10,12 @@ mod state;
 
 use state::{
     AppState, AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus,
-    GroupChat, ServerConfig, ServerInfo, UserEntry, VoiceState,
+    DebugStats, GroupChat, ServerConfig, ServerInfo, UserEntry, VoiceState,
 };
 use std::collections::HashMap;
 use tauri::Manager;
 
-// ─── Windows system clock detection ──────────────────────────────
+// --- Windows system clock detection ------------------------------
 
 // GetLocaleInfoW from kernel32 - used to read the user's regional settings.
 #[cfg(target_os = "windows")]
@@ -75,7 +75,7 @@ struct PingResult {
     latency_ms: Option<u32>,
 }
 
-// ─── Badge overlay icon (Windows) ─────────────────────────────────
+// --- Badge overlay icon (Windows) ---------------------------------
 
 /// Render a small 16x16 RGBA image with a red circle and white digit(s).
 ///
@@ -166,7 +166,7 @@ fn stamp_text(rgba: &mut [u8], size: usize, text: &str) {
     }
 }
 
-// ─── Tauri commands ───────────────────────────────────────────────
+// --- Tauri commands -----------------------------------------------
 
 #[tauri::command]
 async fn connect(
@@ -375,7 +375,7 @@ async fn ping_server(host: String, port: u16) -> PingResult {
     }
 }
 
-// ─── Audio device commands ────────────────────────────────────────
+// --- Audio device commands ----------------------------------------
 
 /// List available audio input devices (microphones).
 /// Only available on desktop (cpal is not supported on Android).
@@ -503,7 +503,7 @@ async fn send_plugin_data(
     state.send_plugin_data(receiver_sessions, data, data_id).await
 }
 
-// ─── Direct message (DM) commands ────────────────────────────────
+// --- Direct message (DM) commands --------------------------------
 
 /// Send a direct message to a specific user.
 #[tauri::command]
@@ -539,7 +539,7 @@ fn mark_dm_read(state: tauri::State<'_, AppState>, session: u32) {
     state.mark_dm_read(session);
 }
 
-// ─── Group chat commands ──────────────────────────────────────
+// --- Group chat commands --------------------------------------
 
 /// Create a new group chat with the given name and member sessions.
 #[tauri::command]
@@ -640,7 +640,62 @@ fn set_badge_platform(window: &tauri::Window, count: Option<u32>) -> Result<(), 
     window.set_badge_count(badge).map_err(|e| e.to_string())
 }
 
-// ─── Application bootstrap ───────────────────────────────────────
+// --- Content offloading commands ----------------------------------
+
+/// Encrypt a heavy message body and write it to a temp file, replacing
+/// the in-memory body with a lightweight placeholder.
+///
+/// `scope` is `"channel"`, `"dm"`, or `"group"`.
+/// `scope_id` is the channel ID, DM session, or group UUID as a string.
+#[tauri::command]
+fn offload_message(
+    state: tauri::State<'_, AppState>,
+    message_id: String,
+    scope: String,
+    scope_id: String,
+) -> Result<(), String> {
+    state.offload_message(message_id, scope, scope_id)
+}
+
+/// Decrypt an offloaded message body from its temp file and restore it
+/// in the in-memory message store.  Returns the restored body.
+#[tauri::command]
+fn load_offloaded_message(
+    state: tauri::State<'_, AppState>,
+    message_id: String,
+    scope: String,
+    scope_id: String,
+) -> Result<String, String> {
+    state.load_offloaded_message(message_id, scope, scope_id)
+}
+
+/// Decrypt multiple offloaded message bodies in a single IPC call.
+///
+/// Returns a map of `message_id` to restored body.  Keys that fail to
+/// decrypt are silently omitted from the result.
+#[tauri::command]
+fn load_offloaded_messages_batch(
+    state: tauri::State<'_, AppState>,
+    message_ids: Vec<String>,
+    scope: String,
+    scope_id: String,
+) -> Result<HashMap<String, String>, String> {
+    state.load_offloaded_messages_batch(message_ids, scope, scope_id)
+}
+
+/// Delete all offloaded temp files.
+#[tauri::command]
+fn clear_offloaded_messages(state: tauri::State<'_, AppState>) {
+    state.clear_offloaded();
+}
+
+/// Collect debug statistics for the developer info panel.
+#[tauri::command]
+fn get_debug_stats(state: tauri::State<'_, AppState>) -> DebugStats {
+    state.debug_stats()
+}
+
+// --- Application bootstrap ---------------------------------------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -661,6 +716,11 @@ pub fn run() {
         .setup(|app| {
             let state = app.state::<AppState>();
             state.set_app_handle(app.handle().clone());
+            // Initialise the encrypted temp-file store for message offloading.
+            // Stale files from a previous session are deleted first.
+            if let Err(e) = state.init_offload_store() {
+                tracing::warn!("Failed to initialise offload store: {e}");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -711,7 +771,20 @@ pub fn run() {
             reset_app_data,
             update_badge_count,
             get_system_clock_format,
+            offload_message,
+            load_offloaded_message,
+            load_offloaded_messages_batch,
+            clear_offloaded_messages,
+            get_debug_stats,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Clean up offloaded temp files on graceful shutdown.
+                if let Some(state) = app.try_state::<AppState>() {
+                    state.shutdown_offload_store();
+                }
+            }
+        });
 }

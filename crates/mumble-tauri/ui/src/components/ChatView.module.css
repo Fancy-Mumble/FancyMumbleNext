@@ -328,6 +328,39 @@
   color: white;
 }
 
+/* --- Offloaded message skeleton --------------------------------- */
+
+.skeleton {
+  border-radius: var(--radius-md);
+  width: 100%;
+  background: linear-gradient(
+    90deg,
+    var(--color-glass-hover) 25%,
+    var(--color-glass-border) 50%,
+    var(--color-glass-hover) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeletonLabel {
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  opacity: 0.5;
+  margin-top: 6px;
+}
+
 /* --- Composer --------------------------------------------------- */
 
 .composerWrapper {
