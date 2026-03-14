@@ -24,6 +24,7 @@ pub use types::{
 };
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -109,6 +110,13 @@ pub(super) struct SharedState {
     /// Handle to the outbound audio capture task (mic -> network).  Desktop only.
     #[cfg(not(target_os = "android"))]
     pub outbound_task_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Live input volume multiplier (f32 stored as u32 bits). Updated atomically
+    /// so volume slider changes take effect without pipeline restart.
+    #[cfg(not(target_os = "android"))]
+    pub input_volume_handle: Option<Arc<AtomicU32>>,
+    /// Live output volume multiplier (f32 stored as u32 bits).
+    #[cfg(not(target_os = "android"))]
+    pub output_volume_handle: Option<Arc<AtomicU32>>,
 }
 
 // ─── Tauri-managed application state ──────────────────────────────

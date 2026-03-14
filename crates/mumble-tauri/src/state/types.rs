@@ -298,6 +298,15 @@ pub struct AudioSettings {
     /// Whether the noise gate (noise suppression) is enabled.
     #[serde(default = "AudioSettings::default_noise_suppression")]
     pub noise_suppression: bool,
+    /// Selected output device name (None = system default).
+    #[serde(default)]
+    pub selected_output_device: Option<String>,
+    /// Microphone volume multiplier (0.0–2.0, default 1.0).
+    #[serde(default = "AudioSettings::default_volume")]
+    pub input_volume: f32,
+    /// Speaker volume multiplier (0.0–2.0, default 1.0).
+    #[serde(default = "AudioSettings::default_volume")]
+    pub output_volume: f32,
 }
 
 impl AudioSettings {
@@ -318,6 +327,9 @@ impl AudioSettings {
     }
     pub(crate) fn default_noise_suppression() -> bool {
         true
+    }
+    pub(crate) fn default_volume() -> f32 {
+        1.0
     }
 
     /// Convert `frame_size_ms` to samples-per-channel at 48 kHz.
@@ -347,6 +359,11 @@ impl AudioSettings {
             || self.frame_size_ms != other.frame_size_ms
             || self.noise_suppression != other.noise_suppression
     }
+
+    /// Whether the output device changed, requiring inbound pipeline restart.
+    pub fn needs_inbound_restart(&self, other: &Self) -> bool {
+        self.selected_output_device != other.selected_output_device
+    }
 }
 
 impl Default for AudioSettings {
@@ -363,6 +380,9 @@ impl Default for AudioSettings {
             bitrate_bps: 72_000,
             frame_size_ms: 20,
             noise_suppression: true,
+            selected_output_device: None,
+            input_volume: 1.0,
+            output_volume: 1.0,
         }
     }
 }

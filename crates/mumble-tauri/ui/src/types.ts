@@ -157,7 +157,14 @@ export interface AudioSettings {
   /** Audio duration per Opus packet in ms (10, 20, 40, or 60). */
   frame_size_ms: number;
   /** Whether noise suppression (noise gate) is enabled. */
-  noise_suppression: boolean;}
+  noise_suppression: boolean;
+  /** Selected output device name (null = system default). */
+  selected_output_device: string | null;
+  /** Microphone volume multiplier (0.0-2.0, default 1.0). */
+  input_volume: number;
+  /** Speaker volume multiplier (0.0-2.0, default 1.0). */
+  output_volume: number;
+}
 
 export type VoiceState = "inactive" | "active" | "muted";
 

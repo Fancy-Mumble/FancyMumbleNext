@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
+import { invoke } from "@tauri-apps/api/core";
 import { initEventListeners } from "./store";
-import { getPreferences, isFirstRun } from "./preferencesStorage";
+import { getPreferences, getSavedAudioSettings, isFirstRun } from "./preferencesStorage";
 import { setKlipyApiKey } from "./components/GifPicker";
+import { loadShortcuts, applyGlobalShortcut } from "./pages/settings/shortcutHelpers";
 import { useVisualViewport } from "./hooks/useVisualViewport";
 import TitleBar from "./components/TitleBar";
 import ConnectPage from "./pages/ConnectPage";
@@ -19,10 +21,27 @@ export default function App() {
   useVisualViewport();
 
   // Check first-run status on mount and load persisted preferences.
+  // Also apply saved audio settings and shortcuts to the backend so
+  // they take effect without the user visiting the settings page.
   useEffect(() => {
     isFirstRun().then(setFirstRun);
     getPreferences().then((prefs) => {
       setKlipyApiKey(prefs.klipyApiKey);
+    });
+    getSavedAudioSettings().then((saved) => {
+      if (saved) {
+        invoke("set_audio_settings", { settings: saved }).catch((e) =>
+          console.error("Startup audio settings error:", e),
+        );
+      }
+    });
+    loadShortcuts().then((sc) => {
+      if (sc.toggleMute) {
+        applyGlobalShortcut(sc.toggleMute, "toggle_mute").catch(console.error);
+      }
+      if (sc.toggleDeafen) {
+        applyGlobalShortcut(sc.toggleDeafen, "toggle_deafen").catch(console.error);
+      }
     });
   }, []);
 

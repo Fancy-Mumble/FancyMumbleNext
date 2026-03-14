@@ -18,7 +18,6 @@ import {
 import { loadProfileData, saveProfileData } from "./profileData";
 import { ProfilePanel } from "./ProfilePanel";
 import { AudioPanel } from "./AudioPanel";
-import { VoicePanel } from "./VoicePanel";
 import { ShortcutsPanel } from "./ShortcutsPanel";
 import { AdvancedPanel } from "./AdvancedPanel";
 import { ProfilePreviewCard } from "./ProfilePreviewCard";
@@ -26,7 +25,7 @@ import styles from "./SettingsPage.module.css";
 
 // ── Types & constants ──────────────────────────────────────────────
 
-type Tab = "profile" | "audio" | "voice" | "shortcuts" | "advanced";
+type Tab = "profile" | "voice" | "shortcuts" | "advanced";
 
 const DEFAULT_AUDIO: AudioSettings = {
   selected_device: null,
@@ -40,12 +39,14 @@ const DEFAULT_AUDIO: AudioSettings = {
   bitrate_bps: 72000,
   frame_size_ms: 20,
   noise_suppression: true,
+  selected_output_device: null,
+  input_volume: 1,
+  output_volume: 1,
 };
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "profile", label: "Profile", icon: "👤" },
-  { id: "audio", label: "Audio", icon: "🎙️" },
-  { id: "voice", label: "Voice", icon: "🔊" },
+  { id: "voice", label: "Voice", icon: "🎙️" },
   { id: "shortcuts", label: "Shortcuts", icon: "⌨️" },
   { id: "advanced", label: "Advanced", icon: "⚙️" },
 ];
@@ -59,6 +60,7 @@ export default function SettingsPage() {
 
   // Audio
   const [devices, setDevices] = useState<AudioDevice[]>([]);
+  const [outputDevices, setOutputDevices] = useState<AudioDevice[]>([]);
   const [audioSettings, setAudioSettings] =
     useState<AudioSettings>(DEFAULT_AUDIO);
   const initialLoadDone = useRef(false);
@@ -89,12 +91,14 @@ export default function SettingsPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [devs, cfg, saved] = await Promise.all([
+        const [devs, outDevs, cfg, saved] = await Promise.all([
           invoke<AudioDevice[]>("get_audio_devices"),
+          invoke<AudioDevice[]>("get_output_devices"),
           invoke<AudioSettings>("get_audio_settings"),
           getSavedAudioSettings(),
         ]);
         setDevices(devs);
+        setOutputDevices(outDevs);
         // Merge: persisted settings take precedence over backend defaults.
         const merged = saved ? { ...cfg, ...saved } : cfg;
         setAudioSettings(merged);
@@ -371,17 +375,10 @@ export default function SettingsPage() {
             />
           )}
 
-          {tab === "audio" && (
+          {tab === "voice" && (
             <AudioPanel
               devices={devices}
-              settings={audioSettings}
-              onChange={patchAudio}
-              isExpert={userMode !== "normal"}
-            />
-          )}
-
-          {tab === "voice" && (
-            <VoicePanel
+              outputDevices={outputDevices}
               settings={audioSettings}
               onChange={patchAudio}
               isExpert={userMode !== "normal"}

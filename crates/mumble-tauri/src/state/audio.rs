@@ -25,7 +25,8 @@ impl AppState {
     ///
     /// If any pipeline-relevant setting changed while voice is active,
     /// the outbound pipeline is automatically restarted.
-    pub fn set_audio_settings(&self, settings: super::types::AudioSettings) -> Option<bool> {
+    /// Volume changes are applied live via atomic handles (no restart).
+    pub fn set_audio_settings(&self, settings: super::types::AudioSettings) -> Option<(bool, bool)> {
         let (old_settings, voice_active) = {
             let state = self.inner.lock().ok()?;
             (
@@ -34,13 +35,26 @@ impl AppState {
             )
         };
 
-        let restart = voice_active && old_settings.needs_pipeline_restart(&settings);
+        let restart_outbound = voice_active && old_settings.needs_pipeline_restart(&settings);
+        let restart_inbound = voice_active && old_settings.needs_inbound_restart(&settings);
+
+        // Update live volume handles (no pipeline restart needed).
+        #[cfg(not(target_os = "android"))]
+        if let Ok(state) = self.inner.lock() {
+            use std::sync::atomic::Ordering;
+            if let Some(ref h) = state.input_volume_handle {
+                h.store(settings.input_volume.to_bits(), Ordering::Relaxed);
+            }
+            if let Some(ref h) = state.output_volume_handle {
+                h.store(settings.output_volume.to_bits(), Ordering::Relaxed);
+            }
+        }
 
         if let Ok(mut state) = self.inner.lock() {
             state.audio_settings = settings;
         }
 
-        Some(restart)
+        Some((restart_outbound, restart_inbound))
     }
 
     /// Get current voice state.
@@ -65,6 +79,8 @@ impl AppState {
 
 #[cfg(not(target_os = "android"))]
 mod desktop {
+    use std::sync::atomic::AtomicU32;
+    use std::sync::Arc;
     use std::time::Duration;
 
     use tracing::{info, warn};
@@ -93,8 +109,16 @@ mod desktop {
 
             info!("enable_voice: starting audio pipelines");
 
+            // Create shared volume handles for live updates.
+            let input_vol = Arc::new(AtomicU32::new(audio_settings.input_volume.to_bits()));
+            let output_vol = Arc::new(AtomicU32::new(audio_settings.output_volume.to_bits()));
+
             // Inbound: network -> decoder -> playback.
-            let playback = CpalPlayback::new().map_err(|e| format!("Playback init: {e}"))?;
+            let playback = CpalPlayback::new(
+                audio_settings.selected_output_device.as_deref(),
+                output_vol.clone(),
+            )
+            .map_err(|e| format!("Playback init: {e}"))?;
             let decoder = OpusDecoder::new(AudioFormat::MONO_48KHZ_F32)
                 .map_err(|e| format!("Decoder init: {e}"))?;
             let mut inbound = InboundPipeline::new(
@@ -108,6 +132,7 @@ mod desktop {
             let capture = CpalCapture::new(
                 audio_settings.selected_device.as_deref(),
                 audio_settings.frame_size_samples(),
+                input_vol.clone(),
             )
             .map_err(|e| format!("Capture init: {e}"))?;
 
@@ -158,6 +183,8 @@ mod desktop {
                 state.voice_state = VoiceState::Active;
                 state.inbound_pipeline = Some(inbound);
                 state.outbound_task_handle = outbound_handle;
+                state.input_volume_handle = Some(input_vol);
+                state.output_volume_handle = Some(output_vol);
             }
 
             info!("enable_voice: pipelines started, sending unmute");
@@ -201,6 +228,8 @@ mod desktop {
                     handle.abort();
                 }
                 state.inbound_pipeline = None;
+                state.input_volume_handle = None;
+                state.output_volume_handle = None;
             }
         }
 
@@ -229,15 +258,61 @@ mod desktop {
             self.start_outbound_pipeline(&audio_settings, &client_handle)
         }
 
+        /// Restart the inbound pipeline with the current audio settings.
+        ///
+        /// Called when the output device changes while voice is active.
+        pub fn restart_inbound(&self) -> Result<(), String> {
+            info!("restart_inbound: restarting playback pipeline with new settings");
+
+            // Stop the old inbound pipeline.
+            if let Ok(mut state) = self.inner.lock() {
+                state.inbound_pipeline = None;
+            }
+
+            let audio_settings = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                state.audio_settings.clone()
+            };
+
+            let output_vol = Arc::new(AtomicU32::new(audio_settings.output_volume.to_bits()));
+
+            let playback = CpalPlayback::new(
+                audio_settings.selected_output_device.as_deref(),
+                output_vol.clone(),
+            )
+            .map_err(|e| format!("Playback init: {e}"))?;
+            let decoder = OpusDecoder::new(AudioFormat::MONO_48KHZ_F32)
+                .map_err(|e| format!("Decoder init: {e}"))?;
+            let mut inbound = InboundPipeline::new(
+                Box::new(decoder),
+                FilterChain::new(),
+                Box::new(playback),
+            );
+            inbound.start().map_err(|e| format!("Playback start: {e}"))?;
+
+            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.inbound_pipeline = Some(inbound);
+            state.output_volume_handle = Some(output_vol);
+            Ok(())
+        }
+
         /// Create and start a fresh outbound audio pipeline (mic -> encoder -> network).
         fn start_outbound_pipeline(
             &self,
             audio_settings: &AudioSettings,
             client_handle: &Option<ClientHandle>,
         ) -> Result<(), String> {
+            // Re-use existing input volume handle or create a new one.
+            let input_vol = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                state.input_volume_handle.clone()
+            }
+            .unwrap_or_else(|| Arc::new(AtomicU32::new(audio_settings.input_volume.to_bits())));
+
             let capture = CpalCapture::new(
                 audio_settings.selected_device.as_deref(),
                 audio_settings.frame_size_samples(),
+                input_vol.clone(),
             )
             .map_err(|e| format!("Capture init: {e}"))?;
 
@@ -284,10 +359,69 @@ mod desktop {
 
             let mut state = self.inner.lock().map_err(|e| e.to_string())?;
             state.outbound_task_handle = outbound_handle;
+            state.input_volume_handle = Some(input_vol);
             Ok(())
         }
 
-        /// Toggle mute: Active <-> Muted.
+        /// Enable voice in muted state: start inbound pipeline (hearing)
+        /// but keep outbound stopped (mic off).
+        ///
+        /// Used when undeafening from Inactive to land in Muted state.
+        pub async fn enable_voice_muted(&self) -> Result<(), String> {
+            let (handle, audio_settings) = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                (state.client_handle.clone(), state.audio_settings.clone())
+            };
+
+            info!("enable_voice_muted: starting inbound pipeline only");
+
+            let output_vol = Arc::new(AtomicU32::new(audio_settings.output_volume.to_bits()));
+
+            let playback = CpalPlayback::new(
+                audio_settings.selected_output_device.as_deref(),
+                output_vol.clone(),
+            )
+            .map_err(|e| format!("Playback init: {e}"))?;
+            let decoder = OpusDecoder::new(AudioFormat::MONO_48KHZ_F32)
+                .map_err(|e| format!("Decoder init: {e}"))?;
+            let mut inbound = InboundPipeline::new(
+                Box::new(decoder),
+                FilterChain::new(),
+                Box::new(playback),
+            );
+            inbound.start().map_err(|e| format!("Playback start: {e}"))?;
+
+            {
+                let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+                state.voice_state = VoiceState::Muted;
+                state.inbound_pipeline = Some(inbound);
+                state.output_volume_handle = Some(output_vol);
+            }
+
+            info!("enable_voice_muted: inbound started, sending undeafen");
+
+            if let Some(handle) = handle {
+                handle
+                    .send(command::SetSelfDeaf { deafened: false })
+                    .await
+                    .map_err(|e| format!("Failed to undeafen: {e}"))?;
+                handle
+                    .send(command::SetSelfMute { muted: true })
+                    .await
+                    .map_err(|e| format!("Failed to mute: {e}"))?;
+            }
+
+            self.emit_voice_state();
+            Ok(())
+        }
+
+        /// Toggle mute.
+        ///
+        /// | Current   | Result  |
+        /// |-----------|---------|
+        /// | Inactive  | Active  | (full unmute + undeaf)
+        /// | Active    | Muted   |
+        /// | Muted     | Active  |
         pub async fn toggle_mute(&self) -> Result<(), String> {
             let (voice_state, handle, audio_settings) = {
                 let state = self.inner.lock().map_err(|e| e.to_string())?;
@@ -328,6 +462,8 @@ mod desktop {
                     }
                 }
                 VoiceState::Inactive => {
+                    info!("toggle_mute: enabling voice from inactive");
+                    self.enable_voice().await?;
                     return Ok(());
                 }
             }
@@ -336,7 +472,13 @@ mod desktop {
             Ok(())
         }
 
-        /// Toggle deafen: Active/Muted -> Inactive, Inactive -> Active.
+        /// Toggle deafen.
+        ///
+        /// | Current   | Result   |
+        /// |-----------|----------|
+        /// | Inactive  | Muted    | (undeaf, stay muted)
+        /// | Active    | Inactive | (deaf + muted)
+        /// | Muted     | Inactive | (deaf + muted)
         pub async fn toggle_deafen(&self) -> Result<(), String> {
             let voice_state = {
                 let state = self.inner.lock().map_err(|e| e.to_string())?;
@@ -348,7 +490,7 @@ mod desktop {
                     self.disable_voice().await?;
                 }
                 VoiceState::Inactive => {
-                    self.enable_voice().await?;
+                    self.enable_voice_muted().await?;
                 }
             }
             Ok(())

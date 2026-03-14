@@ -156,6 +156,26 @@
   color: var(--color-text-primary);
 }
 
+/* --- Device columns (side-by-side input/output) ----------------- */
+
+.deviceColumns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 600px) {
+  .deviceColumns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.deviceColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 /* --- Fields ----------------------------------------------------- */
 
 .field {

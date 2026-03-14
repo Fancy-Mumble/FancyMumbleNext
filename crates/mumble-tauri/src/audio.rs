@@ -5,7 +5,7 @@
 //! the existing pipeline infrastructure can drive real hardware.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -34,6 +34,8 @@ pub struct CpalCapture {
     device: cpal::Device,
     /// Number of channels the hardware actually uses.
     hw_channels: u16,
+    /// Live input volume multiplier (`f32` bits in `AtomicU32`).
+    volume: Arc<AtomicU32>,
 }
 
 // SAFETY: On Windows / WASAPI the underlying COM objects use the MTA
@@ -45,9 +47,10 @@ unsafe impl Send for CpalCapture {}
 impl CpalCapture {
     /// Create a new capture source.
     ///
-    /// * `device_name` – choose a specific device, or `None` for default.
-    /// * `frame_size` – samples per channel per frame (480 for Mumble).
-    pub fn new(device_name: Option<&str>, frame_size: usize) -> Result<Self> {
+    /// * `device_name` - choose a specific device, or `None` for default.
+    /// * `frame_size` - samples per channel per frame (480 for Mumble).
+    /// * `volume` - shared atomic volume multiplier (f32 bits as u32).
+    pub fn new(device_name: Option<&str>, frame_size: usize, volume: Arc<AtomicU32>) -> Result<Self> {
         let host = cpal::default_host();
 
         let device = if let Some(name) = device_name {
@@ -83,6 +86,7 @@ impl CpalCapture {
             stream: None,
             device,
             hw_channels,
+            volume,
         })
     }
 }
@@ -102,7 +106,11 @@ impl AudioCapture for CpalCapture {
             return Err(Error::InvalidState("Not enough samples".into()));
         }
 
-        let samples: Vec<f32> = buf.drain(..self.frame_size).collect();
+        let vol = f32::from_bits(self.volume.load(Ordering::Relaxed));
+        let samples: Vec<f32> = buf
+            .drain(..self.frame_size)
+            .map(|s| s * vol)
+            .collect();
         let data: Vec<u8> = samples
             .iter()
             .flat_map(|s| s.to_ne_bytes())
@@ -185,6 +193,8 @@ pub struct CpalPlayback {
     buffer: Arc<Mutex<VecDeque<f32>>>,
     stream: Option<cpal::Stream>,
     device: cpal::Device,
+    /// Live output volume multiplier (`f32` bits in `AtomicU32`).
+    volume: Arc<AtomicU32>,
 }
 
 // SAFETY: See `CpalCapture` - same justification applies.
@@ -192,17 +202,33 @@ pub struct CpalPlayback {
 unsafe impl Send for CpalPlayback {}
 
 impl CpalPlayback {
-    pub fn new() -> Result<Self> {
+    pub fn new(device_name: Option<&str>, volume: Arc<AtomicU32>) -> Result<Self> {
+        use cpal::traits::{DeviceTrait, HostTrait};
+
         let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or_else(|| Error::InvalidState("No default output device".into()))?;
+        let device = if let Some(name) = device_name {
+            host.output_devices()
+                .map_err(|e| Error::InvalidState(e.to_string()))?
+                .find(|d| {
+                    d.description()
+                        .ok()
+                        .map(|desc| desc.name() == name)
+                        .unwrap_or(false)
+                })
+                .ok_or_else(|| {
+                    Error::InvalidState(format!("Output device not found: {name}"))
+                })?
+        } else {
+            host.default_output_device()
+                .ok_or_else(|| Error::InvalidState("No default output device".into()))?
+        };
 
         Ok(Self {
             format: AudioFormat::MONO_48KHZ_F32,
             buffer: Arc::new(Mutex::new(VecDeque::with_capacity(96_000))),
             stream: None,
             device,
+            volume,
         })
     }
 }
@@ -231,6 +257,7 @@ impl AudioPlayback for CpalPlayback {
 
     fn start(&mut self) -> Result<()> {
         let buffer = self.buffer.clone();
+        let volume = self.volume.clone();
 
         // Pre-buffer: accumulate samples before starting playback to
         // absorb network jitter and prevent pops at stream start.
@@ -238,6 +265,7 @@ impl AudioPlayback for CpalPlayback {
         const PRE_BUFFER_SAMPLES: usize = 2880;
         let primed = Arc::new(AtomicBool::new(false));
         let primed_cb = primed.clone();
+        let volume_cb = volume;
 
         // Most output devices are stereo; duplicate mono to both channels.
         let stream_config = cpal::StreamConfig {
@@ -276,6 +304,9 @@ impl AudioPlayback for CpalPlayback {
                         return;
                     };
 
+                    // Read volume once per callback for consistency.
+                    let vol = f32::from_bits(volume_cb.load(Ordering::Relaxed));
+
                     // Wait for pre-buffer level before starting playback.
                     if !primed_cb.load(Ordering::Relaxed) {
                         if buf.len() < PRE_BUFFER_SAMPLES {
@@ -307,8 +338,8 @@ impl AudioPlayback for CpalPlayback {
                                 sample
                             };
                             last_sample = out;
-                            chunk[0] = out;
-                            chunk[1] = out;
+                            chunk[0] = out * vol;
+                            chunk[1] = out * vol;
                         } else {
                             // Buffer empty: smooth fade-out via
                             // exponential decay to avoid pop.
@@ -326,8 +357,8 @@ impl AudioPlayback for CpalPlayback {
                                 primed_cb.store(false, Ordering::Relaxed);
                             }
 
-                            chunk[0] = last_sample;
-                            chunk[1] = last_sample;
+                            chunk[0] = last_sample * vol;
+                            chunk[1] = last_sample * vol;
                         }
                     }
                 },

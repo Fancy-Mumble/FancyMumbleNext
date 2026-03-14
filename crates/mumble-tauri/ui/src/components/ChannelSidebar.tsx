@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store";
-import type { ChannelEntry, UserEntry } from "../types";
+import type { ChannelEntry, UserEntry, VoiceState } from "../types";
 import { textureToDataUrl, parseComment } from "../profileFormat";
 import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
 import styles from "./ChannelSidebar.module.css";
@@ -386,6 +386,21 @@ function GroupCreateModal({ users, ownSession, onClose, onCreate }: GroupCreateM
   );
 }
 
+// --- Voice panel helpers -------------------------------------------
+
+function voiceInfoLabel(voiceState: VoiceState, s: typeof styles): React.ReactNode {
+  if (voiceState === "active") {
+    return (
+      <>
+        <span className={s.voiceDot} />
+        <span className={s.voiceLabel}>Voice Connected</span>
+      </>
+    );
+  }
+  const label = voiceState === "muted" ? "Muted" : "Voice Inactive";
+  return <span className={s.voiceLabelMuted}>{label}</span>;
+}
+
 // --- Main component -----------------------------------------------
 
 interface ChannelSidebarProps {
@@ -591,17 +606,11 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
   }
 
   // Computed display values to avoid nested ternaries in JSX.
-  const voiceStatusText = voiceState === "muted" ? "Muted" : "Deaf & Muted";
-  const voiceInfoContent =
-    voiceState === "active" ? (
-      <>
-        <span className={styles.voiceDot} />
-        <span className={styles.voiceLabel}>Voice Connected</span>
-      </>
-    ) : (
-      <span className={styles.voiceLabelMuted}>{voiceStatusText}</span>
-    );
-  const muteTitle = voiceState === "muted" ? "Unmute" : "Mute";
+  const isVoiceActive = voiceState === "active";
+  const isVoiceInactive = voiceState === "inactive";
+
+  const voiceInfoContent = voiceInfoLabel(voiceState, styles);
+  const muteTitle = isVoiceActive ? "Mute" : "Unmute";
 
   return (
     <aside className={styles.sidebar}>
@@ -878,11 +887,19 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
             <>
               {/* Mute toggle */}
               <button
-                className={`${styles.voiceToggle} ${voiceState === "active" ? styles.voiceActive : ""}`}
+                className={`${styles.voiceToggle} ${isVoiceActive ? styles.voiceActive : ""}`}
                 onClick={toggleMute}
                 title={muteTitle}
               >
-                {voiceState === "muted" ? (
+                {isVoiceActive ? (
+                  /* Mic on icon */
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" y1="19" x2="12" y2="23" />
+                    <line x1="8" y1="23" x2="16" y2="23" />
+                  </svg>
+                ) : (
                   /* Mic off icon */
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="1" y1="1" x2="23" y2="23" />
@@ -891,24 +908,16 @@ export default function ChannelSidebar({ onChannelSelect }: Readonly<ChannelSide
                     <line x1="12" y1="19" x2="12" y2="23" />
                     <line x1="8" y1="23" x2="16" y2="23" />
                   </svg>
-                ) : (
-                  /* Mic on icon */
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="12" y1="19" x2="12" y2="23" />
-                    <line x1="8" y1="23" x2="16" y2="23" />
-                  </svg>
                 )}
               </button>
 
               {/* Deafen toggle */}
               <button
-                className={`${styles.voiceToggle} ${voiceState === "inactive" ? "" : styles.voiceActive}`}
+                className={`${styles.voiceToggle} ${isVoiceInactive ? "" : styles.voiceActive}`}
                 onClick={toggleDeafen}
-                title={voiceState === "inactive" ? "Undeafen" : "Deafen"}
+                title={isVoiceInactive ? "Enable Voice" : "Disable Voice"}
               >
-                {voiceState === "inactive" ? (
+                {isVoiceInactive ? (
                   /* Headphone off icon */
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="1" y1="1" x2="23" y2="23" />

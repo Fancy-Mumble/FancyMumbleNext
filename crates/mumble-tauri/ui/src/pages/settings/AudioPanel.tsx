@@ -1,5 +1,5 @@
 import type { AudioDevice, AudioSettings } from "../../types";
-import { Toggle, SliderField } from "./SharedControls";
+import { Toggle, SliderField, ShortcutRecorder } from "./SharedControls";
 import styles from "./SettingsPage.module.css";
 
 const FRAME_SIZE_OPTIONS = [
@@ -11,45 +11,94 @@ const FRAME_SIZE_OPTIONS = [
 
 export function AudioPanel({
   devices,
+  outputDevices,
   settings,
   onChange,
   isExpert,
-}: {
+}: Readonly<{
   devices: AudioDevice[];
+  outputDevices: AudioDevice[];
   settings: AudioSettings;
   onChange: (patch: Partial<AudioSettings>) => void;
   isExpert: boolean;
-}) {
+}>) {
   return (
     <>
-      <h2 className={styles.panelTitle}>Audio</h2>
+      <h2 className={styles.panelTitle}>Voice</h2>
 
-      {/* ── Input Device ─────────────────────────────────── */}
+      {/* ── Input & Output Devices (side by side) ────────── */}
       <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>Input Device</h3>
-        <select
-          className={styles.select}
-          value={settings.selected_device ?? ""}
-          onChange={(e) =>
-            onChange({
-              selected_device: e.target.value === "" ? null : e.target.value,
-            })
-          }
-        >
-          <option value="">System default</option>
-          {devices.map((d) => (
-            <option key={d.name} value={d.name}>
-              {d.name}
-              {d.is_default ? " (default)" : ""}
-            </option>
-          ))}
-        </select>
+        <div className={styles.deviceColumns}>
+          {/* Left: Microphone */}
+          <div className={styles.deviceColumn}>
+            <h3 className={styles.sectionTitle}>Input Device</h3>
+            <select
+              className={styles.select}
+              value={settings.selected_device ?? ""}
+              onChange={(e) =>
+                onChange({
+                  selected_device: e.target.value === "" ? null : e.target.value,
+                })
+              }
+            >
+              <option value="">System default</option>
+              {devices.map((d) => (
+                <option key={d.name} value={d.name}>
+                  {d.name}
+                  {d.is_default ? " (default)" : ""}
+                </option>
+              ))}
+            </select>
+            <SliderField
+              label="Microphone Volume"
+              min={0}
+              max={2}
+              step={0.01}
+              value={settings.input_volume}
+              onChange={(v) => onChange({ input_volume: v })}
+              format={(v) => `${Math.round(v * 100)}%`}
+            />
+          </div>
+
+          {/* Right: Speaker */}
+          <div className={styles.deviceColumn}>
+            <h3 className={styles.sectionTitle}>Output Device</h3>
+            <select
+              className={styles.select}
+              value={settings.selected_output_device ?? ""}
+              onChange={(e) =>
+                onChange({
+                  selected_output_device:
+                    e.target.value === "" ? null : e.target.value,
+                })
+              }
+            >
+              <option value="">System default</option>
+              {outputDevices.map((d) => (
+                <option key={d.name} value={d.name}>
+                  {d.name}
+                  {d.is_default ? " (default)" : ""}
+                </option>
+              ))}
+            </select>
+            <SliderField
+              label="Speaker Volume"
+              min={0}
+              max={2}
+              step={0.01}
+              value={settings.output_volume}
+              onChange={(v) => onChange({ output_volume: v })}
+              format={(v) => `${Math.round(v * 100)}%`}
+            />
+          </div>
+        </div>
       </section>
 
       {/* ── Voice Activation ─────────────────────────────── */}
       <section className={styles.section}>
+        <h3 className={styles.sectionTitle}>Voice Activation</h3>
         <SliderField
-          label="Voice Activation Threshold"
+          label="Threshold"
           hint="Audio below this level is treated as silence; above it is treated as speech."
           min={0}
           max={1}
@@ -58,47 +107,51 @@ export function AudioPanel({
           onChange={(v) => onChange({ vad_threshold: v })}
           format={(v) => `${(v * 100).toFixed(1)}%`}
         />
+
+        <div className={styles.toggleRow}>
+          <div className={styles.toggleInfo}>
+            <span className={styles.fieldLabel}>Noise Gate</span>
+            <p className={styles.fieldHint}>
+              Silences audio below the voice activation threshold to remove
+              background noise between speech.
+            </p>
+          </div>
+          <Toggle
+            checked={settings.noise_suppression}
+            onChange={() =>
+              onChange({ noise_suppression: !settings.noise_suppression })
+            }
+          />
+        </div>
       </section>
 
-      {/* ── Compression ──────────────────────────────────── */}
+      {/* ── Push-to-Talk ─────────────────────────────────── */}
       <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>Compression</h3>
-        <SliderField
-          label="Quality"
-          hint="Higher bitrate means better audio quality but more bandwidth."
-          min={8}
-          max={320}
-          step={8}
-          value={settings.bitrate_bps / 1000}
-          onChange={(v) => onChange({ bitrate_bps: v * 1000 })}
-          format={(v) => `${v} kb/s`}
-        />
-        <div className={styles.field}>
-          <div className={styles.fieldRow}>
-            <label className={styles.fieldLabel}>Audio per packet</label>
-            <span className={styles.sliderValue}>
-              {settings.frame_size_ms} ms
-            </span>
+        <div className={styles.toggleRow}>
+          <div className={styles.toggleInfo}>
+            <span className={styles.fieldLabel}>Push-to-Talk</span>
+            <p className={styles.fieldHint}>
+              Hold a key to transmit instead of voice activation.
+            </p>
           </div>
-          <p className={styles.fieldHint}>
-            Smaller values reduce latency; larger values are more
-            bandwidth-efficient.
-          </p>
-          <div className={styles.radioGroup}>
-            {FRAME_SIZE_OPTIONS.map((opt) => (
-              <label key={opt.value} className={styles.radioLabel}>
-                <input
-                  type="radio"
-                  name="frame_size_ms"
-                  value={opt.value}
-                  checked={settings.frame_size_ms === opt.value}
-                  onChange={() => onChange({ frame_size_ms: opt.value })}
-                />
-                {opt.label}
-              </label>
-            ))}
-          </div>
+          <Toggle
+            checked={settings.push_to_talk}
+            onChange={() =>
+              onChange({ push_to_talk: !settings.push_to_talk })
+            }
+          />
         </div>
+        {settings.push_to_talk && (
+          <div className={styles.pttKeyRow}>
+            <ShortcutRecorder
+              label="PTT Key"
+              value={settings.push_to_talk_key ?? ""}
+              onChange={(key) =>
+                onChange({ push_to_talk_key: key || null })
+              }
+            />
+          </div>
+        )}
       </section>
 
       {/* ── Audio Processing ─────────────────────────────── */}
@@ -132,24 +185,44 @@ export function AudioPanel({
         )}
       </section>
 
-      {/* ── Noise Suppression ────────────────────────────── */}
+      {/* ── Compression ──────────────────────────────────── */}
       <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>Noise Suppression</h3>
-
-        <div className={styles.toggleRow}>
-          <div className={styles.toggleInfo}>
-            <span className={styles.fieldLabel}>Noise Gate</span>
-            <p className={styles.fieldHint}>
-              Silences audio below the voice activation threshold to remove
-              background noise between speech.
-            </p>
+        <h3 className={styles.sectionTitle}>Compression</h3>
+        <SliderField
+          label="Quality"
+          hint="Higher bitrate means better audio quality but more bandwidth."
+          min={8}
+          max={320}
+          step={8}
+          value={settings.bitrate_bps / 1000}
+          onChange={(v) => onChange({ bitrate_bps: v * 1000 })}
+          format={(v) => `${v} kb/s`}
+        />
+        <div className={styles.field}>
+          <div className={styles.fieldRow}>
+            <span className={styles.fieldLabel}>Audio per packet</span>
+            <span className={styles.sliderValue}>
+              {settings.frame_size_ms} ms
+            </span>
           </div>
-          <Toggle
-            checked={settings.noise_suppression}
-            onChange={() =>
-              onChange({ noise_suppression: !settings.noise_suppression })
-            }
-          />
+          <p className={styles.fieldHint}>
+            Smaller values reduce latency; larger values are more
+            bandwidth-efficient.
+          </p>
+          <div className={styles.radioGroup}>
+            {FRAME_SIZE_OPTIONS.map((opt) => (
+              <label key={opt.value} className={styles.radioLabel}>
+                <input
+                  type="radio"
+                  name="frame_size_ms"
+                  value={opt.value}
+                  checked={settings.frame_size_ms === opt.value}
+                  onChange={() => onChange({ frame_size_ms: opt.value })}
+                />
+                {opt.label}
+              </label>
+            ))}
+          </div>
         </div>
       </section>
 

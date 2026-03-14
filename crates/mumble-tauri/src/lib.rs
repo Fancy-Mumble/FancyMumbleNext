@@ -418,6 +418,47 @@ fn get_audio_devices() -> Vec<AudioDevice> {
     Vec::new()
 }
 
+/// List available audio output devices (speakers/headphones).
+/// Only available on desktop (cpal is not supported on Android).
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn get_output_devices() -> Vec<AudioDevice> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+
+    let host = cpal::default_host();
+    let default_name = host
+        .default_output_device()
+        .and_then(|d| {
+            d.description()
+                .ok()
+                .map(|desc| desc.name().to_string())
+        });
+
+    host.output_devices()
+        .map(|devices| {
+            devices
+                .filter_map(|d| {
+                    let name = d
+                        .description()
+                        .ok()
+                        .map(|desc| desc.name().to_string())?;
+                    Some(AudioDevice {
+                        name: name.clone(),
+                        is_default: default_name.as_deref() == Some(&name),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Stub: on Android, return an empty device list.
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn get_output_devices() -> Vec<AudioDevice> {
+    Vec::new()
+}
+
 /// Get current audio settings.
 #[tauri::command]
 fn get_audio_settings(state: tauri::State<'_, AppState>) -> AudioSettings {
@@ -427,16 +468,21 @@ fn get_audio_settings(state: tauri::State<'_, AppState>) -> AudioSettings {
 /// Update audio settings.
 ///
 /// If any pipeline-relevant setting changes while voice is active, the
-/// outbound capture pipeline is automatically restarted.
+/// capture/playback pipelines are automatically restarted as needed.
 #[tauri::command]
 async fn set_audio_settings(
     state: tauri::State<'_, AppState>,
     settings: AudioSettings,
 ) -> Result<(), String> {
-    let needs_restart = state.set_audio_settings(settings).unwrap_or(false);
+    let (needs_outbound, needs_inbound) = state
+        .set_audio_settings(settings)
+        .unwrap_or((false, false));
 
-    if needs_restart {
+    if needs_outbound {
         state.restart_outbound()?;
+    }
+    if needs_inbound {
+        state.restart_inbound()?;
     }
 
     Ok(())
@@ -760,6 +806,7 @@ pub fn run() {
             get_server_info,
             ping_server,
             get_audio_devices,
+            get_output_devices,
             get_audio_settings,
             set_audio_settings,
             get_voice_state,
