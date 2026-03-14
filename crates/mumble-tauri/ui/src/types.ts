@@ -164,6 +164,8 @@ export interface AudioSettings {
   input_volume: number;
   /** Speaker volume multiplier (0.0-2.0, default 1.0). */
   output_volume: number;
+  /** Automatically adjust VAD threshold based on ambient noise floor. */
+  auto_input_sensitivity: boolean;
 }
 
 export type VoiceState = "inactive" | "active" | "muted";

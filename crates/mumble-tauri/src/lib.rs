@@ -524,6 +524,18 @@ async fn toggle_deafen(state: tauri::State<'_, AppState>) -> Result<(), String> 
     state.toggle_deafen().await
 }
 
+/// Start monitoring the microphone and emitting amplitude events.
+#[tauri::command]
+fn start_mic_test(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.start_mic_test()
+}
+
+/// Stop monitoring the microphone.
+#[tauri::command]
+fn stop_mic_test(state: tauri::State<'_, AppState>) {
+    state.stop_mic_test();
+}
+
 /// Set the user comment on the connected server (`FancyMumble` profile + bio).
 #[tauri::command]
 async fn set_user_comment(
@@ -819,6 +831,8 @@ pub fn run() {
             disable_voice,
             toggle_mute,
             toggle_deafen,
+            start_mic_test,
+            stop_mic_test,
             set_user_comment,
             set_user_texture,
             get_own_session,

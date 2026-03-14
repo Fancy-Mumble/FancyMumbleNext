@@ -258,6 +258,15 @@ pub(crate) struct CurrentChannelPayload {
 
 // ─── Audio types ──────────────────────────────────────────────────
 
+/// Microphone amplitude payload emitted during mic test.
+#[derive(Clone, Serialize)]
+pub(crate) struct MicAmplitudePayload {
+    /// RMS amplitude (0.0 - 1.0).
+    pub rms: f32,
+    /// Peak amplitude (0.0 - 1.0).
+    pub peak: f32,
+}
+
 // ─── Search types ─────────────────────────────────────────────────
 
 /// Category tag for a search result.
@@ -282,7 +291,7 @@ pub struct SearchResult {
     /// Secondary context (e.g. channel name for a user, sender for a message).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subtitle: Option<String>,
-    /// Numeric ID for channels (channel_id) or users (session).
+    /// Numeric ID for channels (`channel_id`) or users (session).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<u32>,
     /// String ID for groups (group UUID).
@@ -340,8 +349,9 @@ pub struct AudioSettings {
     pub input_volume: f32,
     /// Speaker volume multiplier (0.0–2.0, default 1.0).
     #[serde(default = "AudioSettings::default_volume")]
-    pub output_volume: f32,
-}
+    pub output_volume: f32,    /// Automatically adjust input sensitivity based on ambient noise floor.
+    #[serde(default)]
+    pub auto_input_sensitivity: bool,}
 
 impl AudioSettings {
     pub(crate) fn default_max_gain() -> f32 {
@@ -392,6 +402,7 @@ impl AudioSettings {
             || self.bitrate_bps != other.bitrate_bps
             || self.frame_size_ms != other.frame_size_ms
             || self.noise_suppression != other.noise_suppression
+            || self.auto_input_sensitivity != other.auto_input_sensitivity
     }
 
     /// Whether the output device changed, requiring inbound pipeline restart.
@@ -417,6 +428,7 @@ impl Default for AudioSettings {
             selected_output_device: None,
             input_volume: 1.0,
             output_volume: 1.0,
+            auto_input_sensitivity: false,
         }
     }
 }

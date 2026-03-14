@@ -42,6 +42,7 @@ const DEFAULT_AUDIO: AudioSettings = {
   selected_output_device: null,
   input_volume: 1,
   output_volume: 1,
+  auto_input_sensitivity: false,
 };
 
 const TABS: { id: Tab; label: string; icon: string }[] = [

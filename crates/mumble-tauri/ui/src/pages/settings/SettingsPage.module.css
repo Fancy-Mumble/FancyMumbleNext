@@ -436,6 +436,77 @@
   text-align: right;
 }
 
+/* --- Mic Test & VU Meter --------------------------------------- */
+
+.micTestRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.micTestBtn {
+  padding: 7px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.micTestBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.micTestActive {
+  border-color: var(--color-accent);
+  background: rgba(var(--color-accent-rgb, 99, 102, 241), 0.15);
+  color: var(--color-accent);
+}
+
+.vuMeter {
+  flex: 1;
+  min-width: 0;
+}
+
+.vuTrack {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.vuFill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.06s linear;
+  background: linear-gradient(90deg, #22c55e 0%, #22c55e 50%, #eab308 75%, #ef4444 100%);
+}
+
+.vuPeak {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.7);
+  transition: left 0.06s linear;
+  transform: translateX(-1px);
+}
+
+.vuLabels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  margin-top: 3px;
+  padding: 0 2px;
+}
+
 /* --- Shortcut recorder ----------------------------------------- */
 
 .recorderRow {

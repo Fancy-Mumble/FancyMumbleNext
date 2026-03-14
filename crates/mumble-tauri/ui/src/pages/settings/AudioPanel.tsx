@@ -1,3 +1,6 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { AudioDevice, AudioSettings } from "../../types";
 import { Toggle, SliderField, ShortcutRecorder } from "./SharedControls";
 import styles from "./SettingsPage.module.css";
@@ -8,6 +11,26 @@ const FRAME_SIZE_OPTIONS = [
   { value: 40, label: "40 ms" },
   { value: 60, label: "60 ms" },
 ];
+
+function VuMeter({ rms, peak }: Readonly<{ rms: number; peak: number }>) {
+  const rmsPercent = Math.min(rms * 100 * 5, 100); // scale up for visibility
+  const peakPercent = Math.min(peak * 100 * 5, 100);
+
+  return (
+    <div className={styles.vuMeter}>
+      <div className={styles.vuTrack}>
+        <div className={styles.vuFill} style={{ width: `${rmsPercent}%` }} />
+        <div className={styles.vuPeak} style={{ left: `${peakPercent}%` }} />
+      </div>
+      <div className={styles.vuLabels}>
+        <span>-60</span>
+        <span>-40</span>
+        <span>-20</span>
+        <span>0 dB</span>
+      </div>
+    </div>
+  );
+}
 
 export function AudioPanel({
   devices,
@@ -22,6 +45,48 @@ export function AudioPanel({
   onChange: (patch: Partial<AudioSettings>) => void;
   isExpert: boolean;
 }>) {
+  const [micTesting, setMicTesting] = useState(false);
+  const [amplitude, setAmplitude] = useState({ rms: 0, peak: 0 });
+  const micTestingRef = useRef(false);
+
+  const toggleMicTest = useCallback(async () => {
+    if (micTestingRef.current) {
+      await invoke("stop_mic_test").catch(() => {});
+      setMicTesting(false);
+      micTestingRef.current = false;
+      setAmplitude({ rms: 0, peak: 0 });
+    } else {
+      try {
+        await invoke("start_mic_test");
+        setMicTesting(true);
+        micTestingRef.current = true;
+      } catch (e) {
+        console.error("Mic test failed:", e);
+      }
+    }
+  }, []);
+
+  // Listen for amplitude events while mic test is active.
+  useEffect(() => {
+    if (!micTesting) return;
+    const unlisten = listen<{ rms: number; peak: number }>(
+      "mic-amplitude",
+      (event) => setAmplitude(event.payload),
+    );
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, [micTesting]);
+
+  // Stop mic test on unmount.
+  useEffect(() => {
+    return () => {
+      if (micTestingRef.current) {
+        invoke("stop_mic_test").catch(() => {});
+      }
+    };
+  }, []);
+
   return (
     <>
       <h2 className={styles.panelTitle}>Voice</h2>
@@ -94,19 +159,40 @@ export function AudioPanel({
         </div>
       </section>
 
-      {/* ── Voice Activation ─────────────────────────────── */}
+      {/* -- Voice Activation ---------------------------------------- */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Voice Activation</h3>
-        <SliderField
-          label="Threshold"
-          hint="Audio below this level is treated as silence; above it is treated as speech."
-          min={0}
-          max={1}
-          step={0.005}
-          value={settings.vad_threshold}
-          onChange={(v) => onChange({ vad_threshold: v })}
-          format={(v) => `${(v * 100).toFixed(1)}%`}
-        />
+
+        <div className={styles.toggleRow}>
+          <div className={styles.toggleInfo}>
+            <span className={styles.fieldLabel}>Auto Sensitivity</span>
+            <p className={styles.fieldHint}>
+              Automatically adjusts the activation threshold based on your
+              ambient noise level.
+            </p>
+          </div>
+          <Toggle
+            checked={settings.auto_input_sensitivity}
+            onChange={() =>
+              onChange({
+                auto_input_sensitivity: !settings.auto_input_sensitivity,
+              })
+            }
+          />
+        </div>
+
+        {!settings.auto_input_sensitivity && (
+          <SliderField
+            label="Threshold"
+            hint="Audio below this level is treated as silence; above it is treated as speech."
+            min={0}
+            max={1}
+            step={0.005}
+            value={settings.vad_threshold}
+            onChange={(v) => onChange({ vad_threshold: v })}
+            format={(v) => `${(v * 100).toFixed(1)}%`}
+          />
+        )}
 
         <div className={styles.toggleRow}>
           <div className={styles.toggleInfo}>
@@ -123,9 +209,21 @@ export function AudioPanel({
             }
           />
         </div>
+
+        {/* Mic Test */}
+        <div className={styles.micTestRow}>
+          <button
+            type="button"
+            className={`${styles.micTestBtn} ${micTesting ? styles.micTestActive : ""}`}
+            onClick={toggleMicTest}
+          >
+            {micTesting ? "Stop Test" : "Mic Test"}
+          </button>
+          {micTesting && <VuMeter rms={amplitude.rms} peak={amplitude.peak} />}
+        </div>
       </section>
 
-      {/* ── Push-to-Talk ─────────────────────────────────── */}
+      {/* -- Push-to-Talk -------------------------------------------- */}
       <section className={styles.section}>
         <div className={styles.toggleRow}>
           <div className={styles.toggleInfo}>

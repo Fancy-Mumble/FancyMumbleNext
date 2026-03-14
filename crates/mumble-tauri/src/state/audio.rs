@@ -96,8 +96,8 @@ mod desktop {
     use mumble_protocol::command;
 
     use crate::audio::{CpalCapture, CpalPlayback};
-    use crate::state::types::{AudioSettings, VoiceState};
-    use crate::state::AppState;
+    use crate::state::types::{AudioSettings, MicAmplitudePayload, VoiceState};
+    use crate::state::{AppState, SharedState};
 
     impl AppState {
         /// Enable voice calling: unmute + undeaf, start audio pipelines.
@@ -225,6 +225,9 @@ mod desktop {
         pub(in crate::state) fn stop_audio(&self) {
             if let Ok(mut state) = self.inner.lock() {
                 if let Some(handle) = state.outbound_task_handle.take() {
+                    handle.abort();
+                }
+                if let Some(handle) = state.mic_test_handle.take() {
                     handle.abort();
                 }
                 state.inbound_pipeline = None;
@@ -495,6 +498,54 @@ mod desktop {
             }
             Ok(())
         }
+
+        /// Start the mic test: opens a capture stream and emits
+        /// `mic-amplitude` events to the frontend at ~30 Hz.
+        ///
+        /// When `auto_input_sensitivity` is enabled, the measured
+        /// noise floor is used to auto-adjust `vad_threshold`.
+        pub fn start_mic_test(&self) -> Result<(), String> {
+            // Stop any already-running mic test.
+            self.stop_mic_test();
+
+            let audio_settings = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                state.audio_settings.clone()
+            };
+
+            let input_vol = Arc::new(AtomicU32::new(audio_settings.input_volume.to_bits()));
+
+            let mut capture = CpalCapture::new(
+                audio_settings.selected_device.as_deref(),
+                960, // 20ms @ 48kHz
+                input_vol,
+            )
+            .map_err(|e| format!("Mic test capture init: {e}"))?;
+
+            use mumble_protocol::audio::capture::AudioCapture;
+            capture.start().map_err(|e| format!("Mic test capture start: {e}"))?;
+
+            let app = self.app_handle().ok_or("No app handle")?;
+            let auto_sensitivity = audio_settings.auto_input_sensitivity;
+            let inner = self.inner.clone();
+
+            let handle = tokio::spawn(async move {
+                mic_test_loop(capture, app, auto_sensitivity, inner).await;
+            });
+
+            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.mic_test_handle = Some(handle);
+            Ok(())
+        }
+
+        /// Stop the mic test.
+        pub fn stop_mic_test(&self) {
+            if let Ok(mut state) = self.inner.lock() {
+                if let Some(handle) = state.mic_test_handle.take() {
+                    handle.abort();
+                }
+            }
+        }
     }
 
     /// Payload queued from the encoding loop to the network send task.
@@ -611,6 +662,92 @@ mod desktop {
             }
         }
     }
+
+    /// Background loop for the mic test.
+    ///
+    /// Reads frames from the capture device, computes RMS/peak, and
+    /// emits `mic-amplitude` events to the frontend.  When
+    /// `auto_sensitivity` is enabled, measures the noise floor over a
+    /// sliding window and writes the auto-computed `vad_threshold`
+    /// back into `AudioSettings`.
+    async fn mic_test_loop(
+        mut capture: CpalCapture,
+        app: tauri::AppHandle,
+        auto_sensitivity: bool,
+        inner: Arc<std::sync::Mutex<SharedState>>,
+    ) {
+        use mumble_protocol::audio::capture::AudioCapture;
+        use tauri::Emitter;
+
+        // Emit at ~30 Hz (every ~33 ms). Two 20 ms frames = 40 ms,
+        // close enough without burning CPU.
+        let mut interval = tokio::time::interval(Duration::from_millis(33));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        // Exponential moving average of the noise floor for auto-sensitivity.
+        let mut noise_floor_ema: f32 = 0.0;
+        let ema_alpha: f32 = 0.05; // slow adaptation
+        let mut frame_count: u64 = 0;
+
+        loop {
+            interval.tick().await;
+
+            let Ok(frame) = capture.read_frame() else {
+                continue;
+            };
+
+            // Parse f32 samples from the raw byte data.
+            let samples: Vec<f32> = frame
+                .data
+                .chunks_exact(4)
+                .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+                .collect();
+
+            if samples.is_empty() {
+                continue;
+            }
+
+            let sum_sq: f32 = samples.iter().map(|s| s * s).sum();
+            let rms = (sum_sq / samples.len() as f32).sqrt();
+            let peak = samples.iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
+
+            // Clamp to [0, 1].
+            let rms = rms.min(1.0);
+            let peak = peak.min(1.0);
+
+            let _ = app.emit("mic-amplitude", MicAmplitudePayload { rms, peak });
+
+            // Auto-sensitivity: adapt noise floor and set threshold.
+            if auto_sensitivity {
+                frame_count += 1;
+
+                // Only update noise floor from quiet frames (likely ambient noise).
+                // A frame is considered "quiet" if its RMS < 3x the current noise floor
+                // estimate, or during the initial calibration period.
+                let is_calibrating = frame_count < 30; // ~1 second warmup
+                let is_quiet = rms < noise_floor_ema * 3.0 || noise_floor_ema < 0.0001;
+
+                if is_calibrating || is_quiet {
+                    if noise_floor_ema < 0.0001 {
+                        noise_floor_ema = rms;
+                    } else {
+                        noise_floor_ema = ema_alpha * rms + (1.0 - ema_alpha) * noise_floor_ema;
+                    }
+                }
+
+                // Set threshold at 2x the noise floor, with a minimum.
+                // This gives headroom above ambient noise but catches speech.
+                if frame_count > 15 && frame_count.is_multiple_of(10) {
+                    let threshold = (noise_floor_ema * 2.0).clamp(0.005, 0.5);
+                    if let Ok(mut state) = inner.lock() {
+                        if (state.audio_settings.vad_threshold - threshold).abs() > 0.002 {
+                            state.audio_settings.vad_threshold = threshold;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ── Android: stub audio (no cpal) ─────────────────────────────────
@@ -645,4 +782,12 @@ impl AppState {
     pub async fn toggle_deafen(&self) -> Result<(), String> {
         Err("Audio is not yet supported on Android".into())
     }
+
+    /// No-op on Android.
+    pub fn start_mic_test(&self) -> Result<(), String> {
+        Err("Audio is not yet supported on Android".into())
+    }
+
+    /// No-op on Android.
+    pub fn stop_mic_test(&self) {}
 }
