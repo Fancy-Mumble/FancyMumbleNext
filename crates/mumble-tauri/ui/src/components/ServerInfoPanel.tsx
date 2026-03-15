@@ -14,33 +14,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ServerInfo, DebugStats, AudioSettings } from "../types";
 import { getPreferences, getSavedAudioSettings } from "../preferencesStorage";
+import { formatBandwidth, formatDuration } from "../utils/format";
 import { SafeHtml } from "./SafeHtml";
 import styles from "./ServerInfoPanel.module.css";
-
-/** Format a bandwidth value (bits/s) into a human-readable string. */
-function formatBandwidth(bitsPerSec: number): string {
-  if (bitsPerSec >= 1_000_000) {
-    return `${(bitsPerSec / 1_000_000).toFixed(1)} Mbit/s`;
-  }
-  if (bitsPerSec >= 1_000) {
-    return `${(bitsPerSec / 1_000).toFixed(0)} kbit/s`;
-  }
-  return `${bitsPerSec} bit/s`;
-}
-
-/** Format seconds into a human-readable uptime string. */
-function formatUptime(seconds: number): string {
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  const parts: string[] = [];
-  if (d > 0) parts.push(`${d}d`);
-  if (h > 0) parts.push(`${h}h`);
-  if (m > 0) parts.push(`${m}m`);
-  parts.push(`${s}s`);
-  return parts.join(" ");
-}
 
 function Accordion({ title, defaultOpen = false, children }: {
   title: string;
@@ -408,7 +384,7 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
                     <div className={styles.debugGrid}>
                       <DebugRow label="Voice State" value={debugStats.voice_state} />
                       <DebugRow label="Connection Epoch" value={debugStats.connection_epoch} />
-                      <DebugRow label="App Uptime" value={formatUptime(debugStats.uptime_seconds)} />
+                      <DebugRow label="App Uptime" value={formatDuration(debugStats.uptime_seconds)} />
                       <DebugRow label="Users" value={debugStats.user_count} />
                       <DebugRow label="Channels" value={debugStats.channel_count} />
                       <DebugRow label="Groups" value={debugStats.group_count} />

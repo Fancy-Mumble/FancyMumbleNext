@@ -5,74 +5,15 @@ import type { PollPayload } from "./PollCreator";
 import { parseComment } from "../profileFormat";
 import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
 import { isMobilePlatform } from "../utils/platform";
+import { formatTimestamp, colorFor } from "../utils/format";
 import { extractOffloadInfo } from "../messageOffload";
 import PollCard, { getPoll } from "./PollCard";
 import MediaPreview from "./MediaPreview";
 import styles from "./ChatView.module.css";
 
-const AVATAR_COLORS = [
-  "#2AABEE",
-  "#7c3aed",
-  "#22c55e",
-  "#f59e0b",
-  "#ef4444",
-  "#ec4899",
-];
-
-/**
- * Format a Unix-epoch-millis timestamp into a short time string.
- *
- * @param epochMs       - Timestamp value (always epoch milliseconds).
- * @param timeFormat    - "12h", "24h", or "auto" (follow OS setting).
- * @param localTime     - When true, display in local timezone (default).
- *                        When false, display in UTC.
- * @param systemUses24h - OS-reported clock format for "auto" mode. When
- *   provided, bypasses the unreliable WebView2 Intl probe on Windows.
- */
-function formatTimestamp(
-  epochMs: number,
-  timeFormat: TimeFormat = "auto",
-  localTime = true,
-  systemUses24h?: boolean,
-): string {
-  const d = new Date(epochMs);
-  const opts: Intl.DateTimeFormatOptions = {
-    hour: "2-digit",
-    minute: "2-digit",
-  };
-
-  if (timeFormat === "12h") {
-    opts.hour12 = true;
-  } else if (timeFormat === "24h") {
-    opts.hour12 = false;
-  } else if (systemUses24h !== undefined) {
-    // "auto" with a reliable OS-reported value (avoids the WebView2 bug
-    // where Intl always uses the language-tag default, not the Windows
-    // Region setting).
-    opts.hour12 = !systemUses24h;
-  } else {
-    // "auto" fallback: probe via Intl. Unreliable on Windows/WebView2 but
-    // acceptable as a momentary placeholder before the invoke resolves.
-    const resolved = new Intl.DateTimeFormat([], { hour: "numeric" }).resolvedOptions();
-    opts.hour12 = resolved.hour12 ?? (resolved.hourCycle !== "h23" && resolved.hourCycle !== "h24");
-  }
-
-  if (!localTime) opts.timeZone = "UTC";
-
-  return d.toLocaleTimeString(undefined, opts);
-}
-
 /** Approximate height of the profile hover card, used for viewport clamping. */
 const HOVER_CARD_H = 340;
 const HOVER_CARD_MARGIN = 10;
-
-function colorFor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = (name.codePointAt(i) ?? 0) + ((hash << 5) - hash);
-  }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
 
 /**
  * Returns true when the message body contains only media elements

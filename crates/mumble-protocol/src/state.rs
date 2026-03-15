@@ -4,6 +4,7 @@
 //! External consumers can query it through the public API.
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 /// Snapshot of a connected user.
 #[derive(Debug, Clone)]
@@ -19,6 +20,50 @@ pub struct User {
     pub texture: Vec<u8>,
     pub hash: String,
 }
+
+/// Running TCP ping statistics tracked during the connection.
+///
+/// Updated every time the server echoes back a `Ping` message containing
+/// the timestamp we originally sent.  The accumulated counters are
+/// included in subsequent outbound `Ping` messages so the server (and
+/// other clients requesting our stats) can see our link quality.
+#[derive(Debug, Clone, Default)]
+pub struct PingStats {
+    /// Number of TCP pings sent.
+    pub tcp_packets: u32,
+    /// Running average TCP round-trip time in milliseconds.
+    pub tcp_ping_avg: f32,
+    /// Running variance of TCP round-trip time (ms^2).
+    pub tcp_ping_var: f32,
+    /// Number of UDP pings sent (placeholder - not yet implemented).
+    pub udp_packets: u32,
+    /// Running average UDP round-trip time in milliseconds.
+    pub udp_ping_avg: f32,
+    /// Running variance of UDP round-trip time (ms^2).
+    pub udp_ping_var: f32,
+    /// Count used internally for incremental variance (Welford's algorithm).
+    count: u32,
+}
+
+impl PingStats {
+    /// Record a new TCP RTT sample using Welford's online algorithm
+    /// for numerically stable mean and variance.
+    pub fn record_tcp_rtt(&mut self, rtt_ms: f32) {
+        self.tcp_packets += 1;
+        self.count += 1;
+        let n = self.count as f32;
+        let delta = rtt_ms - self.tcp_ping_avg;
+        self.tcp_ping_avg += delta / n;
+        let delta2 = rtt_ms - self.tcp_ping_avg;
+        self.tcp_ping_var += (delta * delta2 - self.tcp_ping_var) / n;
+    }
+}
+
+/// Thread-safe handle to the shared ping statistics.
+///
+/// Cloned into the periodic ping task so it can read the latest stats
+/// while the main event loop updates them.
+pub type SharedPingStats = Arc<Mutex<PingStats>>;
 
 /// Snapshot of a channel on the server.
 #[derive(Debug, Clone)]
@@ -66,6 +111,9 @@ pub struct ServerState {
     pub connection: ConnectionInfo,
     pub users: HashMap<u32, User>,
     pub channels: HashMap<u32, Channel>,
+    /// Shared ping statistics - updated on every Ping echo from the server,
+    /// read by the periodic ping task to populate outbound Ping messages.
+    pub ping_stats: SharedPingStats,
 }
 
 impl ServerState {
@@ -223,6 +271,15 @@ impl ServerState {
     /// Get our own session ID.
     pub fn own_session(&self) -> Option<u32> {
         self.connection.session_id
+    }
+
+    /// Record a TCP ping round-trip sample.
+    ///
+    /// Called by the event loop when the server echoes back our `Ping`.
+    pub fn record_tcp_ping(&self, rtt_ms: f32) {
+        if let Ok(mut stats) = self.ping_stats.lock() {
+            stats.record_tcp_rtt(rtt_ms);
+        }
     }
 }
 

@@ -291,6 +291,23 @@ pub(crate) struct LatencyPayload {
     pub rtt_ms: f64,
 }
 
+/// Payload emitted when a `UserStats` response arrives from the server.
+#[derive(Clone, Serialize)]
+pub(crate) struct UserStatsPayload {
+    pub session: u32,
+    pub tcp_packets: u32,
+    pub udp_packets: u32,
+    pub tcp_ping_avg: f32,
+    pub tcp_ping_var: f32,
+    pub udp_ping_avg: f32,
+    pub udp_ping_var: f32,
+    pub bandwidth: Option<u32>,
+    pub onlinesecs: Option<u32>,
+    pub idlesecs: Option<u32>,
+    pub strong_certificate: bool,
+    pub opus: bool,
+}
+
 // ─── Search types ─────────────────────────────────────────────────
 
 /// Category tag for a search result.

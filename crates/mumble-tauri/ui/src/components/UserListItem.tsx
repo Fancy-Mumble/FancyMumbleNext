@@ -4,26 +4,11 @@ import { useAppStore } from "../store";
 import type { UserEntry } from "../types";
 import { textureToDataUrl, parseComment } from "../profileFormat";
 import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
+import { colorFor } from "../utils/format";
 import styles from "./UserListItem.module.css";
 
-// ── Avatar helpers (shared cache) ─────────────────────────────────
-
-const AVATAR_COLORS = [
-  "#2AABEE",
-  "#7c3aed",
-  "#22c55e",
-  "#f59e0b",
-  "#ef4444",
-  "#ec4899",
-];
-
-export function colorFor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = (name.codePointAt(i) ?? 0) + ((hash << 5) - hash);
-  }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
+// Re-export so existing consumers (e.g. ChannelSidebar) keep working.
+export { colorFor };
 
 const textureCache = new Map<number, { len: number; url: string }>();
 

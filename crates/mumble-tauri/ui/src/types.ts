@@ -204,6 +204,24 @@ export interface AudioSettings {
 
 export type VoiceState = "inactive" | "active" | "muted";
 
+// ─── User Stats (ping statistics) ─────────────────────────────────
+
+/** Ping and connection statistics for a user, returned by the server. */
+export interface UserStats {
+  session: number;
+  tcp_packets: number;
+  udp_packets: number;
+  tcp_ping_avg: number;
+  tcp_ping_var: number;
+  udp_ping_avg: number;
+  udp_ping_var: number;
+  bandwidth: number | null;
+  onlinesecs: number | null;
+  idlesecs: number | null;
+  strong_certificate: boolean;
+  opus: boolean;
+}
+
 // ─── Super Search ─────────────────────────────────────────────────
 
 export type SearchCategory = "channel" | "user" | "group" | "message";

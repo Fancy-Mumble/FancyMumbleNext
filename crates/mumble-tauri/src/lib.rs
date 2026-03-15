@@ -969,6 +969,18 @@ async fn remove_user_avatar(
     state.remove_user_avatar(session).await
 }
 
+/// Request ping/connection statistics for a specific user.
+///
+/// The server responds asynchronously with a `UserStats` message,
+/// which is emitted to the frontend as a `"user-stats"` event.
+#[tauri::command]
+async fn request_user_stats(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+) -> Result<(), String> {
+    state.request_user_stats(session).await
+}
+
 // --- Application bootstrap ---------------------------------------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1070,6 +1082,7 @@ pub fn run() {
             set_priority_speaker,
             reset_user_comment,
             remove_user_avatar,
+            request_user_stats,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

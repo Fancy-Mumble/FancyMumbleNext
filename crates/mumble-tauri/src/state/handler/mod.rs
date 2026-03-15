@@ -17,6 +17,7 @@ mod server_sync;
 mod text_message;
 mod user_remove;
 mod user_state;
+mod user_stats;
 mod version;
 
 #[cfg(test)]
@@ -89,6 +90,7 @@ pub(crate) fn dispatch(msg: &ControlMessage, ctx: &HandlerContext) {
         ControlMessage::PluginDataTransmission(m) => m.handle(ctx),
         ControlMessage::PermissionQuery(m) => m.handle(ctx),
         ControlMessage::CodecVersion(m) => m.handle(ctx),
+        ControlMessage::UserStats(m) => m.handle(ctx),
         _ => {}
     }
 }

@@ -1276,4 +1276,22 @@ impl AppState {
             None => Err("Not connected".into()),
         }
     }
+
+    /// Request statistics for a specific user from the server.
+    ///
+    /// The server replies with a `UserStats` message, which the handler
+    /// emits as a `"user-stats"` event to the frontend.
+    pub async fn request_user_stats(&self, session: u32) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::RequestUserStats { session })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
 }
