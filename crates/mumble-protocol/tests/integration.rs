@@ -1302,12 +1302,9 @@ async fn test_channel_description_blob_request() {
             _ => break,
         }
     }
-    let channel_id = match new_channel_id {
-        Some(id) => id,
-        None => {
-            eprintln!("WARNING: could not create temp channel. Skipping.");
-            return;
-        }
+    let Some(channel_id) = new_channel_id else {
+        eprintln!("WARNING: could not create temp channel. Skipping.");
+        return;
     };
 
     // 2) A regular client connects and collects channels.
