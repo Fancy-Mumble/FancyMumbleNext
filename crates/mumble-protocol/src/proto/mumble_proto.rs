@@ -175,17 +175,9 @@ pub struct ChannelState {
     pub is_enter_restricted: ::core::option::Option<bool>,
     #[prost(bool, optional, tag = "13")]
     pub can_enter: ::core::option::Option<bool>,
-    /// Fancy Mumble persistent chat extension.
-    /// Field IDs start at 100 to avoid clashing with future upstream
-    /// Mumble protocol additions. Legacy clients silently ignore
-    /// unknown fields (standard protobuf behaviour).
-    ///
-    /// Persistence mode for this channel:
-    ///    0 = NONE (default, no persistence)
-    ///    1 = POST_JOIN (messages accessible from the moment a user first joined)
-    ///    2 = FULL_ARCHIVE (all stored messages accessible to any member)
-    #[prost(uint32, optional, tag = "100")]
-    pub pchat_mode: ::core::option::Option<u32>,
+    /// Persistence mode for this channel.
+    #[prost(enumeration = "channel_state::PchatMode", optional, tag = "100")]
+    pub pchat_mode: ::core::option::Option<i32>,
     /// Maximum number of messages to store (0 = unlimited).
     #[prost(uint32, optional, tag = "101")]
     pub pchat_max_history: ::core::option::Option<u32>,
@@ -197,6 +189,55 @@ pub struct ChannelState {
     /// authorities for key distribution. Set by channel operators.
     #[prost(string, repeated, tag = "103")]
     pub pchat_key_custodians: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+/// Nested message and enum types in `ChannelState`.
+pub mod channel_state {
+    /// Fancy Mumble persistent chat extension.
+    /// Field IDs start at 100 to avoid clashing with future upstream
+    /// Mumble protocol additions. Legacy clients silently ignore
+    /// unknown fields (standard protobuf behaviour).
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum PchatMode {
+        PchatNone = 0,
+        PchatPostJoin = 1,
+        PchatFullArchive = 2,
+        PchatServerManaged = 3,
+    }
+    impl PchatMode {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::PchatNone => "PCHAT_NONE",
+                Self::PchatPostJoin => "PCHAT_POST_JOIN",
+                Self::PchatFullArchive => "PCHAT_FULL_ARCHIVE",
+                Self::PchatServerManaged => "PCHAT_SERVER_MANAGED",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "PCHAT_NONE" => Some(Self::PchatNone),
+                "PCHAT_POST_JOIN" => Some(Self::PchatPostJoin),
+                "PCHAT_FULL_ARCHIVE" => Some(Self::PchatFullArchive),
+                "PCHAT_SERVER_MANAGED" => Some(Self::PchatServerManaged),
+                _ => None,
+            }
+        }
+    }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct UserRemove {

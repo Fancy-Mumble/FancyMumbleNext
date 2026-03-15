@@ -103,6 +103,7 @@ A server admin configures each channel with one of three modes:
 | **None** | `NONE` | No persistence. Standard volatile Mumble chat. |
 | **Post-Join** | `POST_JOIN` | Users can access all messages sent after the moment they first joined the channel (registered-user identity, not session). Messages from before their initial join are inaccessible. |
 | **Full Archive** | `FULL_ARCHIVE` | Users can access all stored messages regardless of when they joined. A shared channel key encrypts everything. |
+| **Server-Managed** | `SERVER_MANAGED` | *(Future - not yet implemented.)* Messages are encrypted only in transit (TLS) and stored **plaintext** (or with a server-held key) on the companion server. The server can read and index message content. No client-side key management is required. See section 3.1 for design notes. |
 
 ### Mode Implications for Encryption
 
@@ -110,6 +111,7 @@ A server admin configures each channel with one of three modes:
 |------|-----------|-----------------|
 | POST_JOIN | Rotating group key, re-keyed on member join | Members from their join epoch onwards |
 | FULL_ARCHIVE | Static group key, distributed to all members | Anyone with channel access |
+| SERVER_MANAGED *(future)* | No client-side key; server-held key or plaintext | Server + any authorised client |
 
 ### Server-Side vs Client-Side Access Control
 
@@ -132,6 +134,122 @@ enforce confidentiality; they MUST:
 This separation means a compromised companion server cannot grant
 unauthorized access to historical messages - the worst it can do is
 deliver ciphertext the client has no key for.
+
+### 3.1 Future: SERVER_MANAGED Mode (Client-to-Server Encryption Only)
+
+> **Status: design placeholder -- not yet implemented.**
+> This mode is documented here so that all protocol structures,
+> wire formats, and trait abstractions are designed with forward
+> compatibility in mind. Implementations MUST reserve `pchat_mode = 3`
+> for this purpose and MUST NOT assign that value to another mode.
+
+#### Motivation
+
+POST_JOIN and FULL_ARCHIVE provide strong E2E guarantees but require
+complex client-side key management (identity seeds, epoch ratchets,
+consensus, TOFU, custodians). For some deployments -- particularly
+private gaming communities where the server operator is fully trusted
+-- this overhead is unnecessary. A simpler mode where the server
+stores messages in plaintext (or encrypted with a server-held key)
+eliminates all key exchange, all client-side key storage, and all
+trust verification UX, while still providing:
+
+- **Transport encryption**: Messages are protected in transit by the
+  existing Mumble TLS channel.
+- **Persistent history**: The companion server stores messages and
+  serves them to authorised clients on reconnect.
+- **Server-side access control**: The server enforces who can read
+  what (e.g. based on Mumble ACLs or registration status), rather
+  than relying on client-side key possession.
+- **Server-side search and indexing**: Because the server can read
+  message content, it can offer full-text search, spam filtering,
+  moderation tools, and audit logs -- features that are impossible
+  with E2E encryption.
+
+#### Design Constraints (for future implementation)
+
+1. **`pchat_mode = 3` (SERVER_MANAGED)**: Reserved in the
+   `ChannelState` protobuf extension. Clients that encounter this
+   value MUST understand the mode but MAY refuse to use it (e.g.
+   display a warning that messages are not end-to-end encrypted).
+
+2. **No client-side key exchange**: The `fancy-pchat-key-announce`,
+   `fancy-pchat-key-request`, and `fancy-pchat-key-exchange` flows
+   are skipped entirely for SERVER_MANAGED channels. The `KeyManager`
+   is not involved.
+
+3. **Message format**: The `fancy-pchat-msg` payload is sent with the
+   `envelope` field containing a **plaintext** `MessageEnvelope`
+   (serialised but not encrypted). The `epoch`, `chain_index`, and
+   `epoch_fingerprint` fields are omitted (or set to zero / empty).
+   A new boolean field `encrypted: false` (or absence of a version
+   byte in the envelope) signals to the companion server that no
+   decryption is needed.
+
+4. **Server-side storage**: The companion stores the plaintext
+   `MessageEnvelope` directly. It MAY apply server-side encryption at
+   rest (e.g. database-level encryption or a server-held symmetric
+   key) -- this is an operational choice, not a protocol concern.
+
+5. **Fetch responses**: `fancy-pchat-fetch-resp` returns messages with
+   plaintext envelopes. The client deserialises them directly without
+   calling `KeyManager.decrypt()`.
+
+6. **Access control model**: The server enforces access based on
+   Mumble ACLs, user registration status, or channel membership. The
+   companion server is the sole authority for who receives which
+   messages. There is no client-side access control.
+
+7. **Trust indicator**: The client MUST display a clear indicator that
+   the channel is **not** end-to-end encrypted. Suggested UX: an open
+   lock icon with the text "Server-managed -- not E2E encrypted.
+   The server operator can read messages in this channel."
+
+8. **Trait compatibility**: `PersistenceMode::ServerManaged` MUST be
+   added to the `PersistenceMode` enum. `MessageProvider` and
+   `CompositeMessageProvider` MUST handle it without requiring a
+   `KeyManager`. The `PersistentMessageProvider` should delegate to a
+   sub-provider that skips all encryption/decryption.
+
+9. **Wire format reservation**: The `mode` field in `fancy-pchat-msg`
+   and `fancy-pchat-key-exchange` already uses string values
+   (`"POST_JOIN"`, `"FULL_ARCHIVE"`). Reserve `"SERVER_MANAGED"` for
+   this mode. Clients that do not support the mode MUST ignore (not
+   reject) messages with `mode: "SERVER_MANAGED"`.
+
+#### Security Trade-offs
+
+| Property | E2E modes (POST_JOIN / FULL_ARCHIVE) | SERVER_MANAGED |
+|----------|--------------------------------------|----------------|
+| Server reads content | No | **Yes** |
+| Transport encryption | TLS | TLS |
+| Key management complexity | High (seeds, epochs, consensus) | **None** |
+| Forward secrecy | Epoch-level (POST_JOIN) | **None** (server retains plaintext) |
+| Server compromise impact | Ciphertext leak only | **Full plaintext exposure** |
+| Search / moderation | Not possible server-side | **Full server-side capability** |
+| Compliance / audit | Client-only | **Server-side audit logs** |
+
+This mode explicitly sacrifices confidentiality from the server
+operator in exchange for operational simplicity. It MUST be clearly
+documented as such in both admin and user-facing documentation.
+
+#### Implementation Checklist (for when this mode is built)
+
+- [ ] Add `SERVER_MANAGED = 3` variant to `PersistenceMode` enum
+- [ ] Update `ChannelState` protobuf extension handling to parse
+      `pchat_mode = 3`
+- [ ] Add `PlaintextMessageProvider` (no encryption, delegates
+      directly to the companion server's storage)
+- [ ] Update `CompositeMessageProvider` to route `ServerManaged`
+      channels to `PlaintextMessageProvider`
+- [ ] Update `fancy-pchat-msg` wire format: allow unencrypted
+      envelope, omit epoch/chain fields
+- [ ] Update `fancy-pchat-fetch-resp` handling: skip
+      `KeyManager.decrypt()` for `SERVER_MANAGED` messages
+- [ ] Add "not E2E encrypted" trust indicator in frontend
+- [ ] Skip `fancy-pchat-key-*` flows for `SERVER_MANAGED` channels
+- [ ] Update server companion to accept and store plaintext envelopes
+- [ ] Write integration tests for `SERVER_MANAGED` message lifecycle
 
 ---
 
@@ -992,7 +1110,13 @@ message ChannelState {
     // ... standard Mumble fields (1-13) ...
 
     // Fancy Mumble persistent chat extension (field IDs 100+)
-    optional uint32 pchat_mode           = 100; // 0=NONE,1=POST_JOIN,2=FULL_ARCHIVE
+    enum PchatMode {
+        PCHAT_NONE           = 0;
+        PCHAT_POST_JOIN      = 1;
+        PCHAT_FULL_ARCHIVE   = 2;
+        PCHAT_SERVER_MANAGED = 3;
+    }
+    optional PchatMode pchat_mode        = 100; // persistence mode for this channel
     optional uint32 pchat_max_history    = 101; // max messages stored (0=unlimited)
     optional uint32 pchat_retention_days = 102; // auto-delete after N days (0=forever)
     repeated string pchat_key_custodians = 103; // cert hashes of key custodians (see 5.7)
@@ -1001,7 +1125,7 @@ message ChannelState {
 
 | Field | Values | Default |
 |-------|--------|---------|
-| `pchat_mode` | `0` NONE, `1` POST_JOIN, `2` FULL_ARCHIVE | absent = NONE |
+| `pchat_mode` | `PCHAT_NONE` (0), `PCHAT_POST_JOIN` (1), `PCHAT_FULL_ARCHIVE` (2), `PCHAT_SERVER_MANAGED` (3, *future*) | absent = NONE |
 | `pchat_max_history` | `0` = unlimited, else max messages | server default |
 | `pchat_retention_days` | `0` = forever, else days | server default |
 | `pchat_key_custodians` | cert hash strings | empty list |
@@ -1730,6 +1854,9 @@ pub enum PersistenceMode {
     None,
     PostJoin,
     FullArchive,
+    /// Future: server stores plaintext (or server-encrypted) messages.
+    /// No client-side key management. See section 3.1.
+    ServerManaged,
 }
 ```
 
@@ -1767,7 +1894,12 @@ impl MessageProvider for CompositeMessageProvider {
     fn get_messages(&self, channel_id: u32, range: MessageRange) -> Result<Vec<StoredMessage>> {
         match self.mode(channel_id) {
             PersistenceMode::None => self.volatile.get_messages(channel_id, range),
-            _ => self.persistent.get_messages(channel_id, range),
+            PersistenceMode::PostJoin | PersistenceMode::FullArchive => {
+                self.persistent.get_messages(channel_id, range)
+            }
+            // Future: delegate to PlaintextMessageProvider (no encryption).
+            // PersistenceMode::ServerManaged => self.plaintext.get_messages(channel_id, range),
+            _ => self.volatile.get_messages(channel_id, range), // fallback until implemented
         }
     }
 

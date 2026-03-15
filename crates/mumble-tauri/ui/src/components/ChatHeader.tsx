@@ -1,4 +1,6 @@
 import { isMobilePlatform } from "../utils/platform";
+import type { KeyTrustLevel } from "../types";
+import KeyTrustIndicator from "./KeyTrustIndicator";
 import styles from "./ChatView.module.css";
 
 interface ChatHeaderProps {
@@ -9,6 +11,8 @@ interface ChatHeaderProps {
   readonly isGroup?: boolean;
   readonly onJoin?: () => void;
   readonly onChannelInfoToggle?: () => void;
+  readonly keyTrustLevel?: KeyTrustLevel;
+  readonly onVerifyClick?: () => void;
 }
 
 export default function ChatHeader({
@@ -19,6 +23,8 @@ export default function ChatHeader({
   isGroup,
   onJoin,
   onChannelInfoToggle,
+  keyTrustLevel,
+  onVerifyClick,
 }: ChatHeaderProps) {
   let prefix: string;
   if (isGroup) prefix = "";
@@ -49,6 +55,12 @@ export default function ChatHeader({
         {!isMobilePlatform() && (<span className={styles.memberCount}>{subtitle}</span>)}
       </div>
       <div className={styles.headerActions}>
+        {keyTrustLevel && !privateBadge && (
+          <KeyTrustIndicator
+            trustLevel={keyTrustLevel}
+            onVerifyClick={onVerifyClick}
+          />
+        )}
         {onChannelInfoToggle && !privateBadge && (
           <button
             className={styles.serverInfoBtn}

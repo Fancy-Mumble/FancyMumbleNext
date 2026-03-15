@@ -94,12 +94,14 @@ message ChannelState {
 	// Field IDs start at 100 to avoid clashing with future upstream
 	// Mumble protocol additions. Legacy clients silently ignore
 	// unknown fields (standard protobuf behaviour).
-	//
-	// Persistence mode for this channel:
-	//   0 = NONE (default, no persistence)
-	//   1 = POST_JOIN (messages accessible from the moment a user first joined)
-	//   2 = FULL_ARCHIVE (all stored messages accessible to any member)
-	optional uint32 pchat_mode = 100;
+	enum PchatMode {
+		PCHAT_NONE = 0;
+		PCHAT_POST_JOIN = 1;
+		PCHAT_FULL_ARCHIVE = 2;
+		PCHAT_SERVER_MANAGED = 3;
+	}
+	// Persistence mode for this channel.
+	optional PchatMode pchat_mode = 100;
 	// Maximum number of messages to store (0 = unlimited).
 	optional uint32 pchat_max_history = 101;
 	// Auto-delete messages after this many days (0 = forever).

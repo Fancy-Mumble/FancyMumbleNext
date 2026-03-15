@@ -16,6 +16,13 @@ import type {
   MumbleServerConfig,
   VoiceState,
   GroupChat,
+  PersistenceMode,
+  ChannelPersistenceState,
+  KeyTrustState,
+  CustodianPinState,
+  PendingDispute,
+  FetchHistoryResponse,
+  ChannelPersistConfig,
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/PollCreator";
 import { registerPoll, registerVote } from "./components/PollCard";
@@ -66,6 +73,16 @@ interface AppState {
   /** Synthetic local-only messages for rendering polls in the chat flow. */
   pollMessages: ChatMessage[];
 
+  // -- Persistent chat state -------------------------------------
+  /** Persistence metadata per channel (mode, retention, fetch state). */
+  channelPersistence: Record<number, ChannelPersistenceState>;
+  /** Key trust state per channel (trust level, fingerprints, distributor). */
+  keyTrust: Record<number, KeyTrustState>;
+  /** Custodian pin state per channel (TOFU pinning). */
+  custodianPins: Record<number, CustodianPinState>;
+  /** Pending key disputes per channel. */
+  pendingDisputes: Record<number, PendingDispute>;
+
   // Actions
   connect: (host: string, port: number, username: string, certLabel?: string | null) => Promise<void>;
   disconnect: () => Promise<void>;
@@ -96,6 +113,15 @@ interface AppState {
   selectGroup: (groupId: string) => Promise<void>;
   sendGroupMessage: (groupId: string, body: string) => Promise<void>;
   refreshGroupMessages: (groupId: string) => Promise<void>;
+
+  // Persistent chat actions
+  fetchHistory: (channelId: number, beforeId?: string) => Promise<void>;
+  getPersistenceMode: (channelId: number) => PersistenceMode;
+  verifyKeyFingerprint: (channelId: number) => Promise<void>;
+  acceptCustodianChanges: (channelId: number) => Promise<void>;
+  confirmCustodians: (channelId: number) => Promise<void>;
+  resolveKeyDispute: (channelId: number, trustedSenderHash: string) => Promise<void>;
+  updateChannelPersistenceConfig: (channelId: number, config: ChannelPersistConfig) => void;
 }
 
 const INITIAL: Pick<
@@ -122,6 +148,10 @@ const INITIAL: Pick<
   | "groupUnreadCounts"
   | "polls"
   | "pollMessages"
+  | "channelPersistence"
+  | "keyTrust"
+  | "custodianPins"
+  | "pendingDisputes"
 > = {
   status: "disconnected",
   channels: [],
@@ -149,6 +179,10 @@ const INITIAL: Pick<
   groupUnreadCounts: {},
   polls: new Map(),
   pollMessages: [],
+  channelPersistence: {},
+  keyTrust: {},
+  custodianPins: {},
+  pendingDisputes: {},
 };
 
 // --- Store --------------------------------------------------------
@@ -165,7 +199,7 @@ function updateBadgeCount(): void {
   });
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   ...INITIAL,
 
   connect: async (host, port, username, certLabel) => {
@@ -407,6 +441,160 @@ export const useAppStore = create<AppState>((set) => ({
   },
   setError: (error) => set({ error }),
   reset: () => set({ ...INITIAL }),
+
+  // -- Persistent chat actions ------------------------------------
+
+  fetchHistory: async (channelId, beforeId) => {
+    set((prev) => ({
+      channelPersistence: {
+        ...prev.channelPersistence,
+        [channelId]: {
+          ...prev.channelPersistence[channelId],
+          isFetching: true,
+        },
+      },
+    }));
+    try {
+      const response = await invoke<FetchHistoryResponse>("fetch_persistent_messages", {
+        channelId,
+        beforeId: beforeId ?? null,
+        limit: 50,
+      });
+      // Convert stored messages into ChatMessage format and prepend to existing messages.
+      const historicMessages: ChatMessage[] = response.messages.map((m) => ({
+        sender_session: null,
+        sender_name: m.senderName,
+        body: m.body,
+        channel_id: m.channelId,
+        is_own: false,
+        message_id: m.messageId,
+        timestamp: m.timestamp,
+      }));
+      set((prev) => ({
+        messages: [...historicMessages, ...prev.messages],
+        channelPersistence: {
+          ...prev.channelPersistence,
+          [channelId]: {
+            ...prev.channelPersistence[channelId],
+            hasMore: response.hasMore,
+            isFetching: false,
+            totalStored: response.totalStored,
+          },
+        },
+      }));
+    } catch (e) {
+      console.error("fetch_persistent_messages error:", e);
+      set((prev) => ({
+        channelPersistence: {
+          ...prev.channelPersistence,
+          [channelId]: {
+            ...prev.channelPersistence[channelId],
+            isFetching: false,
+          },
+        },
+      }));
+    }
+  },
+
+  getPersistenceMode: (channelId) => {
+    return get().channelPersistence[channelId]?.mode ?? "NONE";
+  },
+
+  verifyKeyFingerprint: async (channelId) => {
+    try {
+      await invoke("verify_channel_key_manual", { channelId });
+      set((prev) => ({
+        keyTrust: {
+          ...prev.keyTrust,
+          [channelId]: {
+            ...prev.keyTrust[channelId],
+            trustLevel: "ManuallyVerified",
+          },
+        },
+      }));
+    } catch (e) {
+      console.error("verify_channel_key_manual error:", e);
+    }
+  },
+
+  acceptCustodianChanges: async (channelId) => {
+    try {
+      await invoke("accept_custodian_changes", { channelId });
+      set((prev) => {
+        const pin = prev.custodianPins[channelId];
+        if (!pin?.pendingUpdate) return {};
+        return {
+          custodianPins: {
+            ...prev.custodianPins,
+            [channelId]: {
+              pinned: pin.pendingUpdate,
+              confirmed: true,
+              pendingUpdate: null,
+            },
+          },
+        };
+      });
+    } catch (e) {
+      console.error("accept_custodian_changes error:", e);
+    }
+  },
+
+  confirmCustodians: async (channelId) => {
+    try {
+      const { custodianPins } = get();
+      const pin = custodianPins[channelId];
+      if (!pin) return;
+      await invoke("confirm_custodians", {
+        channelId,
+        custodianHashes: pin.pinned,
+      });
+      set((prev) => ({
+        custodianPins: {
+          ...prev.custodianPins,
+          [channelId]: { ...prev.custodianPins[channelId], confirmed: true },
+        },
+      }));
+    } catch (e) {
+      console.error("confirm_custodians error:", e);
+    }
+  },
+
+  resolveKeyDispute: async (channelId, trustedSenderHash) => {
+    try {
+      await invoke("resolve_key_dispute", { channelId, trustedSenderHash });
+      set((prev) => {
+        const { [channelId]: _removed, ...rest } = prev.pendingDisputes;
+        return {
+          pendingDisputes: rest,
+          keyTrust: {
+            ...prev.keyTrust,
+            [channelId]: {
+              ...prev.keyTrust[channelId],
+              trustLevel: "ManuallyVerified",
+            },
+          },
+        };
+      });
+    } catch (e) {
+      console.error("resolve_key_dispute error:", e);
+    }
+  },
+
+  updateChannelPersistenceConfig: (channelId, config) => {
+    set((prev) => ({
+      channelPersistence: {
+        ...prev.channelPersistence,
+        [channelId]: {
+          mode: config.mode,
+          maxHistory: config.maxHistory,
+          retentionDays: config.retentionDays,
+          hasMore: false,
+          isFetching: false,
+          totalStored: prev.channelPersistence[channelId]?.totalStored ?? 0,
+        },
+      },
+    }));
+  },
 }));
 
 // --- Tauri event bridge -------------------------------------------
@@ -664,6 +852,64 @@ export async function initEventListeners(
         for (const handler of pluginDataHandlers) {
           handler(data_id, bytes, sender_session);
         }
+      },
+    ),
+  );
+
+  // -- Persistent chat events -------------------------------------
+
+  unlisteners.push(
+    // Channel persistence config changed (from ChannelState updates).
+    await listen<{ channel_id: number; config: ChannelPersistConfig }>(
+      "persistence-config-changed",
+      (event) => {
+        const { channel_id, config } = event.payload;
+        useAppStore.getState().updateChannelPersistenceConfig(channel_id, config);
+      },
+    ),
+
+    // Key trust level changed for a channel.
+    await listen<{ channel_id: number; trust: KeyTrustState }>(
+      "key-trust-changed",
+      (event) => {
+        const { channel_id, trust } = event.payload;
+        useAppStore.setState((prev) => ({
+          keyTrust: { ...prev.keyTrust, [channel_id]: trust },
+        }));
+      },
+    ),
+
+    // Custodian list changed (TOFU change detection).
+    await listen<{ channel_id: number; pin: CustodianPinState }>(
+      "custodian-pin-changed",
+      (event) => {
+        const { channel_id, pin } = event.payload;
+        useAppStore.setState((prev) => ({
+          custodianPins: { ...prev.custodianPins, [channel_id]: pin },
+        }));
+      },
+    ),
+
+    // Key dispute detected.
+    await listen<{ channel_id: number; dispute: PendingDispute }>(
+      "key-dispute-detected",
+      (event) => {
+        const { channel_id, dispute } = event.payload;
+        useAppStore.setState((prev) => ({
+          pendingDisputes: { ...prev.pendingDisputes, [channel_id]: dispute },
+        }));
+      },
+    ),
+
+    // Key dispute resolved (by custodian shortcut or timeout).
+    await listen<{ channel_id: number }>(
+      "key-dispute-resolved",
+      (event) => {
+        const { channel_id } = event.payload;
+        useAppStore.setState((prev) => {
+          const { [channel_id]: _removed, ...rest } = prev.pendingDisputes;
+          return { pendingDisputes: rest };
+        });
       },
     ),
   );

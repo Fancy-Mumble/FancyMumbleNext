@@ -26,6 +26,8 @@ pub mod command;
 pub mod error;
 pub mod event;
 pub mod message;
+#[cfg(feature = "persistent-chat")]
+pub mod persistent;
 pub mod proto;
 pub mod state;
 pub mod transport;

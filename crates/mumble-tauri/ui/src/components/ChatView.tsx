@@ -6,6 +6,7 @@ import { getPreferences } from "../preferencesStorage";
 import ChatHeader from "./ChatHeader";
 import MessageItem from "./MessageItem";
 import ChatComposer from "./ChatComposer";
+import { usePersistentChat } from "./PersistentChatOverlays";
 import type { PollPayload, PollVotePayload } from "./PollCreator";
 import { registerVote, registerLocalVote, getPoll } from "./PollCard";
 import { mediaKind, fileToDataUrl, fitImage, fitVideo, mediaToHtml } from "../utils/media";
@@ -218,6 +219,12 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
     }
     return map;
   }, [users]);
+
+  // Persistent chat hook (banners, key verification, custodian prompt).
+  const persistent = usePersistentChat(
+    isDmMode || isGroupMode ? null : selectedChannel,
+    channel?.name ?? "Unknown",
+  );
 
   /** Merge real messages with local-only poll messages for rendering. */
   const allMessages = useMemo(() => {
@@ -748,11 +755,19 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
         isGroup={isGroupMode}
         onJoin={showJoinButton ? () => joinChannel(selectedChannel!) : undefined}
         onChannelInfoToggle={onChannelInfoToggle}
+        keyTrustLevel={persistent.trustLevel}
+        onVerifyClick={persistent.onVerifyClick}
       />
 
       {/* Messages */}
       <div ref={messagesContainerRef} className={styles.messages}>
         <div ref={messagesInnerRef} className={styles.messagesInner}>
+          {/* Persistent chat banners */}
+          {persistent.banner}
+
+          {/* Disputed key banner */}
+          {persistent.disputeBanner}
+
           {allMessages.length === 0 ? (
             <div className={styles.empty}>
               <div className={styles.emptyIcon}>👋</div>
@@ -826,6 +841,9 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
         onPollCreate={handlePollCreate}
         disabled={sending}
       />
+
+      {/* Persistent chat dialogs (key verification, custodian prompt) */}
+      {persistent.dialogs}
     </main>
   );
 }
