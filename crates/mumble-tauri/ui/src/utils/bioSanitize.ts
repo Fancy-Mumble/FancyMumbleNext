@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Shared bio HTML sanitization.
  *
  * Security guarantees:
@@ -11,7 +11,7 @@
  *    removed.  Allowed anchors are decorated with data-external="true"
  *    so the ExternalLinkGuard component can intercept clicks and show
  *    a confirmation dialog before navigation.
- *  - No event attributes (onerror, onload, …) survive - DOMPurify strips them.
+ *  - No event attributes (onerror, onload, ...) survive - DOMPurify strips them.
  *  - No data attributes survive (ALLOW_DATA_ATTR: false).
  *  - All other tags and attributes are stripped.
  */

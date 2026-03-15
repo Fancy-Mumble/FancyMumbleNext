@@ -1,4 +1,4 @@
-/** Lightweight value types mirroring the Rust backend structs. */
+﻿/** Lightweight value types mirroring the Rust backend structs. */
 
 export interface ChannelEntry {
   id: number;
@@ -18,6 +18,18 @@ export interface UserEntry {
   texture: number[] | null;
   /** Mumble comment - may contain FancyMumble profile JSON marker. */
   comment: string | null;
+  /** Server-side admin mute. */
+  mute: boolean;
+  /** Server-side admin deafen. */
+  deaf: boolean;
+  /** Suppressed by the server. */
+  suppress: boolean;
+  /** User has self-muted. */
+  self_mute: boolean;
+  /** User has self-deafened. */
+  self_deaf: boolean;
+  /** Priority speaker status. */
+  priority_speaker: boolean;
 }
 
 export interface ChatMessage {
@@ -90,7 +102,20 @@ export interface ServerPingResult {
   latency_ms: number | null;
 }
 
-// ─── User Preferences ─────────────────────────────────────────────
+// --- Public Server List -------------------------------------------
+
+/** A public Mumble server from the official directory. */
+export interface PublicServer {
+  name: string;
+  country: string;
+  country_code: string;
+  ip: string;
+  port: number;
+  region: string;
+  url: string;
+}
+
+// --- User Preferences ---------------------------------------------
 
 /** Whether the user prefers a simplified or full-featured UI. */
 export type UserMode = "normal" | "expert" | "developer";
@@ -138,7 +163,7 @@ export interface DebugStats {
   uptime_seconds: number;
 }
 
-// ─── Audio / Voice ────────────────────────────────────────────────
+// --- Audio / Voice ------------------------------------------------
 
 export interface AudioDevice {
   name: string;
@@ -179,7 +204,25 @@ export interface AudioSettings {
 
 export type VoiceState = "inactive" | "active" | "muted";
 
-// ─── Super Search ─────────────────────────────────────────────────
+// --- User Stats (ping statistics) ---------------------------------
+
+/** Ping and connection statistics for a user, returned by the server. */
+export interface UserStats {
+  session: number;
+  tcp_packets: number;
+  udp_packets: number;
+  tcp_ping_avg: number;
+  tcp_ping_var: number;
+  udp_ping_avg: number;
+  udp_ping_var: number;
+  bandwidth: number | null;
+  onlinesecs: number | null;
+  idlesecs: number | null;
+  strong_certificate: boolean;
+  opus: boolean;
+}
+
+// --- Super Search -------------------------------------------------
 
 export type SearchCategory = "channel" | "user" | "group" | "message";
 
@@ -192,7 +235,7 @@ export interface SearchResult {
   string_id: string | null;
 }
 
-// ─── FancyMumble Profile ──────────────────────────────────────────
+// --- FancyMumble Profile ------------------------------------------
 
 /**
  * Profile customisation data embedded in the Mumble user comment.

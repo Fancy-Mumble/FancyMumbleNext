@@ -1,4 +1,4 @@
-//! Audio capture abstraction (pipeline input stage).
+﻿//! Audio capture abstraction (pipeline input stage).
 //!
 //! Implement [`AudioCapture`] to feed PCM audio from any hardware or
 //! virtual source into the outbound pipeline.
@@ -9,7 +9,7 @@ use crate::error::Result;
 /// Trait for capturing audio from an input device.
 ///
 /// Implementations are responsible for interacting with the OS audio
-/// subsystem (WASAPI, `PulseAudio`, ALSA, `CoreAudio`, …). The pipeline
+/// subsystem (WASAPI, `PulseAudio`, ALSA, `CoreAudio`, ...). The pipeline
 /// only ever sees this trait, keeping platform code isolated.
 pub trait AudioCapture: Send + 'static {
     /// The native output format of this capture device.
@@ -28,7 +28,7 @@ pub trait AudioCapture: Send + 'static {
     fn stop(&mut self) -> Result<()>;
 }
 
-// ── Null capture (testing / headless) ──────────────────────────────
+// -- Null capture (testing / headless) ------------------------------
 
 /// A silent capture source that produces empty frames at a fixed interval.
 ///

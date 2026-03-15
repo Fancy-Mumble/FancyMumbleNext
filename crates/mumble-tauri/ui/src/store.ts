@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Global Zustand store for the Mumble Tauri client.
  *
  * All complex logic lives in the Rust backend - the frontend only
@@ -21,7 +21,7 @@ import type { PollPayload, PollVotePayload } from "./components/PollCreator";
 import { registerPoll, registerVote } from "./components/PollCard";
 import { offloadManager } from "./messageOffload";
 
-// ─── Store shape ──────────────────────────────────────────────────
+// --- Store shape --------------------------------------------------
 
 interface AppState {
   // Reactive state
@@ -42,7 +42,7 @@ interface AppState {
   serverConfig: MumbleServerConfig;
   voiceState: VoiceState;
 
-  // ── DM state ──────────────────────────────────────────────────
+  // -- DM state --------------------------------------------------
   /** Session ID of the user whose DM chat is currently viewed. */
   selectedDmUser: number | null;
   /** DM messages for the currently viewed conversation. */
@@ -50,7 +50,7 @@ interface AppState {
   /** DM unread counts keyed by user session. */
   dmUnreadCounts: Record<number, number>;
 
-  // ── Group chat state ──────────────────────────────────────────
+  // -- Group chat state ------------------------------------------
   /** All known group chats. */
   groupChats: GroupChat[];
   /** ID of the group chat currently being viewed (mutually exclusive with channel/DM). */
@@ -60,7 +60,7 @@ interface AppState {
   /** Group unread counts keyed by group ID. */
   groupUnreadCounts: Record<string, number>;
 
-  // ── Poll state (in-memory, not persisted) ─────────────────────
+  // -- Poll state (in-memory, not persisted) ---------------------
   /** All known polls keyed by poll ID. */
   polls: Map<string, PollPayload>;
   /** Synthetic local-only messages for rendering polls in the chat flow. */
@@ -151,7 +151,7 @@ const INITIAL: Pick<
   pollMessages: [],
 };
 
-// ─── Store ────────────────────────────────────────────────────────
+// --- Store --------------------------------------------------------
 
 /** Update the taskbar badge with the total unread count (channels + DMs + groups). */
 function updateBadgeCount(): void {
@@ -329,7 +329,7 @@ export const useAppStore = create<AppState>((set) => ({
     }
   },
 
-  // ── Group chat actions ─────────────────────────────────────────
+  // -- Group chat actions -----------------------------------------
 
   createGroup: async (name, memberSessions) => {
     try {
@@ -409,9 +409,9 @@ export const useAppStore = create<AppState>((set) => ({
   reset: () => set({ ...INITIAL }),
 }));
 
-// ─── Tauri event bridge ───────────────────────────────────────────
+// --- Tauri event bridge -------------------------------------------
 
-// ─── Plugin data handler registry ─────────────────────────────────
+// --- Plugin data handler registry ---------------------------------
 
 type PluginDataHandler = (dataId: string, data: Uint8Array, senderSession: number | null) => void;
 const pluginDataHandlers: PluginDataHandler[] = [];
@@ -536,7 +536,7 @@ export async function initEventListeners(
     ),
   );
 
-  // ── Group chat events ──────────────────────────────────────────
+  // -- Group chat events ------------------------------------------
 
   // A new group chat was created (locally or by another member).
   unlisteners.push(

@@ -175,6 +175,28 @@ pub struct ChannelState {
     pub is_enter_restricted: ::core::option::Option<bool>,
     #[prost(bool, optional, tag = "13")]
     pub can_enter: ::core::option::Option<bool>,
+    /// Fancy Mumble persistent chat extension.
+    /// Field IDs start at 100 to avoid clashing with future upstream
+    /// Mumble protocol additions. Legacy clients silently ignore
+    /// unknown fields (standard protobuf behaviour).
+    ///
+    /// Persistence mode for this channel:
+    ///    0 = NONE (default, no persistence)
+    ///    1 = POST_JOIN (messages accessible from the moment a user first joined)
+    ///    2 = FULL_ARCHIVE (all stored messages accessible to any member)
+    #[prost(uint32, optional, tag = "100")]
+    pub pchat_mode: ::core::option::Option<u32>,
+    /// Maximum number of messages to store (0 = unlimited).
+    #[prost(uint32, optional, tag = "101")]
+    pub pchat_max_history: ::core::option::Option<u32>,
+    /// Auto-delete messages after this many days (0 = forever).
+    #[prost(uint32, optional, tag = "102")]
+    pub pchat_retention_days: ::core::option::Option<u32>,
+    /// Cert hashes of users designated as key custodians for this channel.
+    /// Key custodians can countersign epoch transitions and are trusted
+    /// authorities for key distribution. Set by channel operators.
+    #[prost(string, repeated, tag = "103")]
+    pub pchat_key_custodians: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct UserRemove {

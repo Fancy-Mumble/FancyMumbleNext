@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+﻿import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../store";
 import {
@@ -9,11 +9,12 @@ import {
 import { getPreferences } from "../preferencesStorage";
 import type { SavedServer, ServerPingResult, UserMode } from "../types";
 import ServerList from "../components/ServerList";
+import PublicServerList from "../components/PublicServerList";
 import styles from "./ConnectPage.module.css";
 
-type View = "loading" | "servers" | "wizard";
+type View = "loading" | "servers" | "wizard" | "public";
 
-/** Module-level cache: "host:port" → epoch-ms of last ping invocation. */
+/** Module-level cache: "host:port" -> epoch-ms of last ping invocation. */
 const pingCache = new Map<string, number>();
 
 interface StepDef {
@@ -59,16 +60,16 @@ export default function ConnectPage() {
   const { connect, status, error } = useAppStore();
   const isConnecting = status === "connecting";
 
-  /* ── user mode ───────────────────────────────────────────────── */
+  /* -- user mode ------------------------------------------------- */
   const [userMode, setUserMode] = useState<UserMode>("normal");
   const [defaultUsername, setDefaultUsername] = useState("");
   const STEPS = userMode === "normal" ? STEPS_NORMAL : STEPS_EXPERT;
 
-  /* ── saved servers ───────────────────────────────────────────── */
+  /* -- saved servers --------------------------------------------- */
   const [savedServers, setSavedServers] = useState<SavedServer[]>([]);
   const [view, setView] = useState<View>("loading");
 
-  /* ── ping results keyed by server id ─────────────────────────── */
+  /* -- ping results keyed by server id --------------------------- */
   const [pings, setPings] = useState<Record<string, ServerPingResult>>({});
 
   /**
@@ -113,7 +114,7 @@ export default function ConnectPage() {
     });
   }, [pingServers]);
 
-  /* ── certificate state ───────────────────────────────────────── */
+  /* -- certificate state ----------------------------------------- */
   const [availableCerts, setAvailableCerts] = useState<string[]>([]);
   const [certLabel, setCertLabel] = useState<string>("default");
 
@@ -123,7 +124,7 @@ export default function ConnectPage() {
       .catch(() => setAvailableCerts([]));
   }, []);
 
-  /* ── wizard state ────────────────────────────────────────────── */
+  /* -- wizard state ---------------------------------------------- */
   const [step, setStep] = useState(0);
   const [label, setLabel] = useState("");
   const [host, setHost] = useState("");
@@ -142,7 +143,7 @@ export default function ConnectPage() {
     setCertLabel("default");
   };
 
-  /* ── per-step validation ─────────────────────────────────────── */
+  /* -- per-step validation --------------------------------------- */
   const canAdvance = (): boolean => {
     if (step === 0) return host.trim().length > 0;
     if (step === 1) {
@@ -153,7 +154,7 @@ export default function ConnectPage() {
     return true; // label is optional
   };
 
-  /* ── actions ─────────────────────────────────────────────────── */
+  /* -- actions --------------------------------------------------- */
   const handleNext = (e: FormEvent) => {
     e.preventDefault();
     if (!canAdvance()) return;
@@ -205,28 +206,41 @@ export default function ConnectPage() {
     setView("wizard");
   };
 
-  const handleBackToServers = () => {
-    if (savedServers.length > 0) {
-      setView("servers");
-      resetWizard();
-    }
+  const handleShowPublic = () => {
+    setView("public");
   };
 
-  /* ── render helpers ──────────────────────────────────────────── */
+  const handlePublicConnect = (pubHost: string, pubPort: number) => {
+    // Pre-fill the wizard with the public server's address
+    resetWizard();
+    setHost(pubHost);
+    setPort(String(pubPort));
+    setStep(1); // skip to username step
+    setView("wizard");
+  };
+
+  const handleBackToServers = () => {
+    setView(savedServers.length > 0 ? "servers" : "wizard");
+    resetWizard();
+  };
+
+  /* -- render helpers -------------------------------------------- */
   const isLastStep = step === STEPS.length - 1;
   const currentStep = STEPS[step];
 
   if (view === "loading") return null;
 
+  const cardClass = [styles.card, view === "public" && styles.cardWide].filter(Boolean).join(" ");
+
   return (
     <div className={styles.page}>
-      <div className={styles.card}>
+      <div className={cardClass}>
         {/* Logo - always visible */}
         <div className={styles.logo}>
           <div className={styles.logoIcon}>M</div>
           <h1 className={styles.title}>Fancy Mumble</h1>
           <p className={styles.subtitle}>
-            {view === "servers"
+            {view === "servers" || view === "public"
               ? "Choose a server to connect"
               : currentStep.subtitle}
           </p>
@@ -240,19 +254,38 @@ export default function ConnectPage() {
           </div>
         )}
 
-        {/* ──────── Server list view (happy path) ──────── */}
+        {/* -------- Server list view (happy path) -------- */}
         {view === "servers" && (
-          <ServerList
-            servers={savedServers}
-            pings={pings}
-            onConnect={handleQuickConnect}
-            onDelete={handleDelete}
-            onAddNew={handleShowWizard}
+          <>
+            <ServerList
+              servers={savedServers}
+              pings={pings}
+              onConnect={handleQuickConnect}
+              onDelete={handleDelete}
+              onAddNew={handleShowWizard}
+              disabled={isConnecting}
+            />
+            <button
+              className={styles.publicLink}
+              onClick={handleShowPublic}
+              disabled={isConnecting}
+              type="button"
+            >
+              Browse public servers
+            </button>
+          </>
+        )}
+
+        {/* -------- Public server list ------------------- */}
+        {view === "public" && (
+          <PublicServerList
+            onConnect={handlePublicConnect}
+            onBack={handleBackToServers}
             disabled={isConnecting}
           />
         )}
 
-        {/* ──────── Multi-step wizard ──────────────────── */}
+        {/* -------- Multi-step wizard -------------------- */}
         {view === "wizard" && (
           <>
             {/* Back navigation */}
@@ -284,7 +317,7 @@ export default function ConnectPage() {
               onSubmit={isLastStep ? (e) => { e.preventDefault(); handleConnectAndSave(); } : handleNext}
               className={styles.form}
             >
-              {/* ── Step 0: Server address ──────────────── */}
+              {/* -- Step 0: Server address ---------------- */}
               {step === 0 && (
                 <>
                   <div className={styles.field}>
@@ -333,7 +366,7 @@ export default function ConnectPage() {
                 </>
               )}
 
-              {/* ── Step 1: Username ────────────────────── */}
+              {/* -- Step 1: Username ---------------------- */}
               {step === 1 && (
                 <>
                   {/* Normal mode + stored default: happy path confirmation */}
@@ -385,7 +418,7 @@ export default function ConnectPage() {
                 </>
               )}
 
-              {/* ── Step 2: Label (expert only) ────────── */}
+              {/* -- Step 2: Label (expert only) ---------- */}
               {step === 2 && userMode !== "normal" && (
                 <div className={styles.field}>
                   <label className={styles.label}>Server label (optional)</label>
@@ -426,7 +459,7 @@ export default function ConnectPage() {
                     {isConnecting ? (
                       <>
                         <span className={styles.spinner} />
-                        Connecting…
+                        Connecting...
                       </>
                     ) : (
                       "Connect & Save"

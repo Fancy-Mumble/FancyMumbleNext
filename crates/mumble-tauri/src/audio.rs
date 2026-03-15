@@ -1,4 +1,4 @@
-//! Cpal-based audio capture and playback implementations.
+﻿//! Cpal-based audio capture and playback implementations.
 //!
 //! Bridges the OS audio subsystem (via `cpal`) to the protocol
 //! library's [`AudioCapture`] / [`AudioPlayback`] traits so that
@@ -16,7 +16,7 @@ use mumble_protocol::audio::playback::AudioPlayback;
 use mumble_protocol::audio::sample::{AudioFormat, AudioFrame};
 use mumble_protocol::error::{Error, Result};
 
-// ── Capture ────────────────────────────────────────────────────────
+// -- Capture --------------------------------------------------------
 
 /// Captures microphone input via cpal and makes it available as
 /// [`AudioFrame`]s through the [`AudioCapture`] trait.
@@ -181,13 +181,13 @@ impl AudioCapture for CpalCapture {
     }
 }
 
-// ── Playback ───────────────────────────────────────────────────────
+// -- Playback -------------------------------------------------------
 
 /// Plays decoded PCM audio through the default output device.
 ///
 /// [`write_frame`](AudioPlayback::write_frame) pushes mono F32
 /// samples into a shared buffer that the cpal output callback
-/// drains, duplicating mono → stereo for the hardware.
+/// drains, duplicating mono -> stereo for the hardware.
 pub struct CpalPlayback {
     format: AudioFormat,
     buffer: Arc<Mutex<VecDeque<f32>>>,

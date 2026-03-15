@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Message content offloading abstraction.
  *
  * Provides a generic `MessageContentProvider` interface that decouples
@@ -13,7 +13,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-// ─── Abstraction ──────────────────────────────────────────────────
+// --- Abstraction --------------------------------------------------
 
 /** Scope that identifies where a message lives (channel / DM / group). */
 export interface MessageScope {
@@ -45,7 +45,7 @@ export interface MessageContentProvider {
   dispose(): Promise<void>;
 }
 
-// ─── Local encrypted implementation (Tauri commands) ──────────────
+// --- Local encrypted implementation (Tauri commands) --------------
 
 /**
  * Stores message bodies in encrypted temp files via the Rust backend.
@@ -97,7 +97,7 @@ class LocalEncryptedProvider implements MessageContentProvider {
   }
 }
 
-// ─── Offload helpers ──────────────────────────────────────────────
+// --- Offload helpers ----------------------------------------------
 
 const OFFLOAD_PREFIX = "<!-- OFFLOADED:";
 const OFFLOAD_SUFFIX = " -->";
@@ -142,7 +142,7 @@ export function extractOffloadInfo(body: string): { key: string; contentLength: 
   return { key, contentLength };
 }
 
-// ─── Offload manager ──────────────────────────────────────────────
+// --- Offload manager ----------------------------------------------
 
 /** Delay (ms) before a message leaving the viewport is actually offloaded. */
 const OFFLOAD_DELAY_MS = 5_000;
@@ -284,7 +284,7 @@ export class MessageOffloadManager {
   }
 }
 
-// ─── Singleton ────────────────────────────────────────────────────
+// --- Singleton ----------------------------------------------------
 
 /** Global offload manager instance (local encrypted provider). */
 export const offloadManager = new MessageOffloadManager(

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Tiptap-based WYSIWYG editor for the profile bio.
  *
  * Provides bold, italic, underline, and text-colour formatting.
@@ -15,7 +15,7 @@ import TiptapImage from "@tiptap/extension-image";
 import { resizeImage } from "./imageUtils";
 import styles from "./SettingsPage.module.css";
 
-// ── Colour palette for the quick-pick colour grid ─────────────────
+// -- Colour palette for the quick-pick colour grid -----------------
 
 const COLOUR_PALETTE = [
   "#ffffff",
@@ -32,7 +32,7 @@ const COLOUR_PALETTE = [
   "#00ffaa",
 ];
 
-// ── Component ─────────────────────────────────────────────────────
+// -- Component -----------------------------------------------------
 
 interface BioEditorProps {
   readonly value: string;
@@ -45,7 +45,7 @@ export function BioEditor({
   value,
   onChange,
   maxLength = 2000,
-  placeholder = "Tell others about yourself…",
+  placeholder = "Tell others about yourself...",
 }: BioEditorProps) {
   const [showColourPicker, setShowColourPicker] = useState(false);
   const colourPickerRef = useRef<HTMLDivElement>(null);

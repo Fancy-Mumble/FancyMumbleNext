@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+﻿import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { completeSetup } from "../preferencesStorage";
@@ -89,7 +89,7 @@ export default function WelcomePage({ onComplete }: { onComplete?: () => void })
             type="submit"
             disabled={!username.trim() || saving}
           >
-            {saving ? "Starting…" : "Get started"}
+            {saving ? "Starting..." : "Get started"}
           </button>
         </form>
       </div>

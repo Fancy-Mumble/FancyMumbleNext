@@ -1,4 +1,4 @@
-//! Shared application state for the Tauri backend.
+﻿//! Shared application state for the Tauri backend.
 //!
 //! Mirrors the architecture of the Dioxus `MumbleBackend` but uses
 //! Tauri's event system instead of mpsc channels to push updates to
@@ -14,6 +14,7 @@
 mod audio;
 mod connection;
 mod event_handler;
+mod handler;
 pub mod offload;
 mod search;
 pub mod types;
@@ -42,7 +43,7 @@ use mumble_protocol::command;
 
 use types::*;
 
-// ─── Shared interior state ────────────────────────────────────────
+// --- Shared interior state ----------------------------------------
 
 #[derive(Default)]
 pub(super) struct SharedState {
@@ -55,9 +56,9 @@ pub(super) struct SharedState {
     pub event_loop_handle: Option<tokio::task::JoinHandle<()>>,
     pub users: HashMap<u32, UserEntry>,
     pub channels: HashMap<u32, ChannelEntry>,
-    /// `channel_id` → messages
+    /// `channel_id` -> messages
     pub messages: HashMap<u32, Vec<ChatMessage>>,
-    /// Direct message storage: `other_session` → messages (conversation thread).
+    /// Direct message storage: `other_session` -> messages (conversation thread).
     pub dm_messages: HashMap<u32, Vec<ChatMessage>>,
     pub own_session: Option<u32>,
     pub own_name: String,
@@ -129,7 +130,7 @@ pub(super) struct SharedState {
     pub latency_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
 }
 
-// ─── Tauri-managed application state ──────────────────────────────
+// --- Tauri-managed application state ------------------------------
 
 /// Central state managed by Tauri and shared across all commands.
 pub struct AppState {
@@ -168,7 +169,7 @@ impl AppState {
         }
     }
 
-    // ── Query methods ─────────────────────────────────────────────
+    // -- Query methods ---------------------------------------------
 
     pub fn status(&self) -> ConnectionStatus {
         self.inner
@@ -216,7 +217,7 @@ impl AppState {
         self.inner.lock().ok().and_then(|s| s.own_session)
     }
 
-    // ── Content offloading ────────────────────────────────────────
+    // -- Content offloading ----------------------------------------
 
     /// Initialise the encrypted offload store (called once during setup).
     pub fn init_offload_store(&self) -> Result<(), String> {
@@ -409,7 +410,7 @@ impl AppState {
         }
     }
 
-    // ── Messaging ─────────────────────────────────────────────────
+    // -- Messaging -------------------------------------------------
 
     pub async fn send_message(&self, channel_id: u32, body: String) -> Result<(), String> {
         let (handle, own_session, own_name, is_fancy) = {
@@ -526,7 +527,7 @@ impl AppState {
         Ok(())
     }
 
-    // ── Plugin data ────────────────────────────────────────────────
+    // -- Plugin data ------------------------------------------------
 
     /// Send a plugin data transmission to the server.
     pub async fn send_plugin_data(
@@ -554,7 +555,7 @@ impl AppState {
         Ok(())
     }
 
-    // ── Channel browse / join / listen ──────────────────────────────
+    // -- Channel browse / join / listen ------------------------------
 
     /// Select a channel in the UI for viewing (does NOT join it).
     /// Clears any active DM or group view.
@@ -707,7 +708,7 @@ impl AppState {
         }
     }
 
-    // ── Direct message helpers ─────────────────────────────────────
+    // -- Direct message helpers -------------------------------------
 
     /// Select a DM conversation for viewing. Clears the channel and group selection.
     pub fn select_dm_user(&self, session: u32) -> Result<(), String> {
@@ -1045,7 +1046,7 @@ impl AppState {
             })
     }
 
-    // ── Channel info ──────────────────────────────────────────────
+    // -- Channel info ----------------------------------------------
 
     /// Return the server welcome text (from `ServerSync`), if any.
     pub fn welcome_text(&self) -> Option<String> {
@@ -1080,7 +1081,7 @@ impl AppState {
         }
     }
 
-    // ── Profile (comment / texture) ──────────────────────────────
+    // -- Profile (comment / texture) ------------------------------
 
     /// Set the user's comment on the connected server.
     ///
@@ -1158,6 +1159,138 @@ impl AppState {
                 }
                 Ok(())
             }
+            None => Err("Not connected".into()),
+        }
+    }
+
+    // -- Admin actions --------------------------------------------
+
+    /// Kick a user from the server.
+    pub async fn kick_user(&self, session: u32, reason: Option<String>) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::KickUser { session, reason })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Ban a user from the server.
+    pub async fn ban_user(&self, session: u32, reason: Option<String>) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::BanUser { session, reason })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Admin-mute or unmute another user.
+    pub async fn mute_user(&self, session: u32, muted: bool) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::SetUserMute { session, muted })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Admin-deafen or undeafen another user.
+    pub async fn deafen_user(&self, session: u32, deafened: bool) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::SetUserDeaf {
+                    session,
+                    deafened,
+                })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Set or clear priority speaker for a user.
+    pub async fn set_priority_speaker(
+        &self,
+        session: u32,
+        priority: bool,
+    ) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::SetPrioritySpeaker { session, priority })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Reset another user's comment (admin action).
+    pub async fn reset_user_comment(&self, session: u32) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::ResetUserComment { session })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Remove another user's avatar (admin action).
+    pub async fn remove_user_avatar(&self, session: u32) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::RemoveUserAvatar { session })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Request statistics for a specific user from the server.
+    ///
+    /// The server replies with a `UserStats` message, which the handler
+    /// emits as a `"user-stats"` event to the frontend.
+    pub async fn request_user_stats(&self, session: u32) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::RequestUserStats { session })
+                .await
+                .map_err(|e| e.to_string()),
             None => Err("Not connected".into()),
         }
     }

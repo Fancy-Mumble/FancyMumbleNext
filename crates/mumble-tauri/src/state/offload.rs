@@ -1,4 +1,4 @@
-//! Encrypted temporary file storage for offloaded message content.
+﻿//! Encrypted temporary file storage for offloaded message content.
 //!
 //! Provides an [`OffloadProvider`] trait that abstracts storage and
 //! retrieval of message bodies.  The default implementation,
@@ -25,7 +25,7 @@ const KEY_LEN: usize = 32;
 /// Sub-directory name inside the system temp folder.
 const OFFLOAD_DIR_NAME: &str = "fancy-mumble-offload";
 
-// ─── Provider trait ───────────────────────────────────────────────
+// --- Provider trait -----------------------------------------------
 
 /// Abstraction over how offloaded message content is persisted and
 /// retrieved.
@@ -68,7 +68,7 @@ pub trait OffloadProvider {
     fn cleanup(&mut self);
 }
 
-// ─── Encrypted file provider ──────────────────────────────────────
+// --- Encrypted file provider --------------------------------------
 
 /// Encrypted temporary file storage for offloaded message content.
 ///
@@ -252,7 +252,7 @@ impl OffloadProvider for EncryptedFileProvider {
     }
 }
 
-// ─── OffloadStore (facade) ────────────────────────────────────────
+// --- OffloadStore (facade) ----------------------------------------
 
 /// Wraps an [`OffloadProvider`] and exposes it as the public API used
 /// by the rest of the application.
@@ -317,7 +317,7 @@ impl OffloadStore {
     }
 }
 
-// ─── Tests ────────────────────────────────────────────────────────
+// --- Tests --------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

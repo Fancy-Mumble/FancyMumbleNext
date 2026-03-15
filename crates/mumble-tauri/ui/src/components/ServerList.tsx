@@ -1,9 +1,9 @@
-import type { SavedServer, ServerPingResult } from "../types";
+﻿import type { SavedServer, ServerPingResult } from "../types";
 import styles from "./ServerList.module.css";
 
 interface Props {
   servers: SavedServer[];
-  /** Map of server id → ping result. Missing = still pinging. */
+  /** Map of server id -> ping result. Missing = still pinging. */
   pings: Record<string, ServerPingResult>;
   onConnect: (server: SavedServer) => void;
   onDelete: (id: string) => void;
@@ -21,7 +21,7 @@ function latencyTier(ms: number): "great" | "okay" | "poor" {
 function PingDot({ ping }: Readonly<{ ping?: ServerPingResult }>) {
   if (!ping) {
     return (
-      <span className={`${styles.pingDot} ${styles.dotProbing}`} title="Checking…" />
+      <span className={`${styles.pingDot} ${styles.dotProbing}`} title="Checking..." />
     );
   }
   if (!ping.online) {

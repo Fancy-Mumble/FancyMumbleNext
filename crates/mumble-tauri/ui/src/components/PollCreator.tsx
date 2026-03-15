@@ -1,9 +1,9 @@
-/**
+﻿/**
  * PollCreator - modal dialog for creating a poll.
  *
  * Fields:
  *   - Question (free text)
- *   - Answers (dynamic list, 2–10 options)
+ *   - Answers (dynamic list, 2-10 options)
  *   - Multiple choice toggle (checkbox vs radio)
  *
  * Produces a JSON payload to send via Mumble plugin messages.
@@ -12,7 +12,7 @@
 import { useState, useCallback } from "react";
 import styles from "./PollCreator.module.css";
 
-// ─── Poll data format ─────────────────────────────────────────────
+// --- Poll data format ---------------------------------------------
 
 /** Poll message payload sent over PluginDataTransmission. */
 export interface PollPayload {
@@ -45,7 +45,7 @@ export interface PollVotePayload {
   voterName: string;
 }
 
-// ─── Component ────────────────────────────────────────────────────
+// --- Component ----------------------------------------------------
 
 interface PollCreatorProps {
   /** Called when user submits the poll. */

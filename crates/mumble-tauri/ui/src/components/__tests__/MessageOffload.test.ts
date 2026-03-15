@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Unit tests for the message offloading system.
  *
  * Tests cover:
@@ -20,7 +20,7 @@ import {
   type MessageScope,
 } from "../../messageOffload";
 
-// ─── Helpers ──────────────────────────────────────────────────────
+// --- Helpers ------------------------------------------------------
 
 /** Build a scope for testing. */
 function channelScope(id = "42"): MessageScope {
@@ -66,7 +66,7 @@ function createMockProvider(): MessageContentProvider & {
   return provider;
 }
 
-// ─── isHeavyContent ───────────────────────────────────────────────
+// --- isHeavyContent -----------------------------------------------
 
 describe("isHeavyContent", () => {
   it("returns false for short text", () => {
@@ -93,7 +93,7 @@ describe("isHeavyContent", () => {
   });
 });
 
-// ─── isOffloaded ──────────────────────────────────────────────────
+// --- isOffloaded --------------------------------------------------
 
 describe("isOffloaded", () => {
   it("detects a valid offload placeholder", () => {
@@ -109,7 +109,7 @@ describe("isOffloaded", () => {
   });
 });
 
-// ─── offloadPlaceholder ───────────────────────────────────────────
+// --- offloadPlaceholder -------------------------------------------
 
 describe("offloadPlaceholder", () => {
   it("produces the correct format with size", () => {
@@ -125,7 +125,7 @@ describe("offloadPlaceholder", () => {
   });
 });
 
-// ─── extractOffloadInfo ───────────────────────────────────────────
+// --- extractOffloadInfo -------------------------------------------
 
 describe("extractOffloadInfo", () => {
   it("extracts key and contentLength", () => {
@@ -162,7 +162,7 @@ describe("extractOffloadInfo", () => {
   });
 });
 
-// ─── MessageOffloadManager ────────────────────────────────────────
+// --- MessageOffloadManager ----------------------------------------
 
 describe("MessageOffloadManager", () => {
   let provider: ReturnType<typeof createMockProvider>;

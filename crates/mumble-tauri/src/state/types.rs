@@ -1,11 +1,11 @@
-//! UI value types, event payloads, and configuration structs serialised
+﻿//! UI value types, event payloads, and configuration structs serialised
 //! to the React frontend.
 
 use std::collections::HashMap;
 
 use serde::Serialize;
 
-// ─── UI value types (serializable to the frontend) ────────────────
+// --- UI value types (serializable to the frontend) ----------------
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ChannelEntry {
@@ -13,6 +13,10 @@ pub struct ChannelEntry {
     pub parent_id: Option<u32>,
     pub name: String,
     pub description: String,
+    /// SHA-256 hash of the description blob.  Internal tracking only;
+    /// not serialised to the frontend.
+    #[serde(skip)]
+    pub description_hash: Option<Vec<u8>>,
     pub user_count: u32,
     /// Server-reported permission bitmask for this channel.
     /// `None` until a `PermissionQuery` response is received.
@@ -26,6 +30,18 @@ pub struct UserEntry {
     pub channel_id: u32,
     pub texture: Option<Vec<u8>>,
     pub comment: Option<String>,
+    /// Server-side admin mute.
+    pub mute: bool,
+    /// Server-side admin deafen.
+    pub deaf: bool,
+    /// Suppressed by the server (e.g. moved to AFK channel).
+    pub suppress: bool,
+    /// User has self-muted.
+    pub self_mute: bool,
+    /// User has self-deafened.
+    pub self_deaf: bool,
+    /// Priority speaker status.
+    pub priority_speaker: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -74,7 +90,7 @@ pub enum ConnectionStatus {
     Connected,
 }
 
-// ─── Server config ────────────────────────────────────────────────
+// --- Server config ------------------------------------------------
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ServerConfig {
@@ -137,7 +153,7 @@ pub struct ServerInfo {
     pub opus: bool,
 }
 
-// ─── Group chat ────────────────────────────────────────────────────
+// --- Group chat ----------------------------------------------------
 
 /// Debug statistics for the developer info panel.
 #[derive(Debug, Clone, Serialize)]
@@ -182,7 +198,7 @@ pub struct GroupChat {
     pub creator: u32,
 }
 
-// ─── Event payloads emitted to the frontend ───────────────────────
+// --- Event payloads emitted to the frontend -----------------------
 
 #[derive(Clone, Serialize)]
 pub(crate) struct NewMessagePayload {
@@ -203,13 +219,13 @@ pub(crate) struct RejectedPayload {
 
 #[derive(Clone, Serialize)]
 pub(crate) struct UnreadPayload {
-    /// `channel_id` → unread count
+    /// `channel_id` -> unread count
     pub unreads: HashMap<u32, u32>,
 }
 
 #[derive(Clone, Serialize)]
 pub(crate) struct DmUnreadPayload {
-    /// `session_id` → unread DM count
+    /// `session_id` -> unread DM count
     pub unreads: HashMap<u32, u32>,
 }
 
@@ -223,7 +239,7 @@ pub(crate) struct NewGroupMessagePayload {
 /// Emitted when group unread counts change.
 #[derive(Clone, Serialize)]
 pub(crate) struct GroupUnreadPayload {
-    /// `group_id` → unread count.
+    /// `group_id` -> unread count.
     pub unreads: HashMap<String, u32>,
 }
 
@@ -256,7 +272,7 @@ pub(crate) struct CurrentChannelPayload {
     pub channel_id: u32,
 }
 
-// ─── Audio types ──────────────────────────────────────────────────
+// --- Audio types --------------------------------------------------
 
 /// Microphone amplitude payload emitted during mic test.
 #[cfg(not(target_os = "android"))]
@@ -275,7 +291,24 @@ pub(crate) struct LatencyPayload {
     pub rtt_ms: f64,
 }
 
-// ─── Search types ─────────────────────────────────────────────────
+/// Payload emitted when a `UserStats` response arrives from the server.
+#[derive(Clone, Serialize)]
+pub(crate) struct UserStatsPayload {
+    pub session: u32,
+    pub tcp_packets: u32,
+    pub udp_packets: u32,
+    pub tcp_ping_avg: f32,
+    pub tcp_ping_var: f32,
+    pub udp_ping_avg: f32,
+    pub udp_ping_var: f32,
+    pub bandwidth: Option<u32>,
+    pub onlinesecs: Option<u32>,
+    pub idlesecs: Option<u32>,
+    pub strong_certificate: bool,
+    pub opus: bool,
+}
+
+// --- Search types -------------------------------------------------
 
 /// Category tag for a search result.
 #[derive(Debug, Clone, Serialize)]
@@ -307,7 +340,7 @@ pub struct SearchResult {
     pub string_id: Option<String>,
 }
 
-// ─── Audio device type ────────────────────────────────────────────
+// --- Audio device type --------------------------------------------
 
 /// An available audio input device.
 #[derive(Debug, Clone, Serialize)]
@@ -323,7 +356,7 @@ pub struct AudioSettings {
     pub selected_device: Option<String>,
     /// Whether auto-gain is enabled.
     pub auto_gain: bool,
-    /// Voice activation threshold (0.0–1.0). Below this level → silence.
+    /// Voice activation threshold (0.0-1.0). Below this level -> silence.
     pub vad_threshold: f32,
     /// AGC maximum gain boost in dB (expert, default 15.0).
     #[serde(default = "AudioSettings::default_max_gain")]
@@ -352,10 +385,10 @@ pub struct AudioSettings {
     /// Selected output device name (None = system default).
     #[serde(default)]
     pub selected_output_device: Option<String>,
-    /// Microphone volume multiplier (0.0–2.0, default 1.0).
+    /// Microphone volume multiplier (0.0-2.0, default 1.0).
     #[serde(default = "AudioSettings::default_volume")]
     pub input_volume: f32,
-    /// Speaker volume multiplier (0.0–2.0, default 1.0).
+    /// Speaker volume multiplier (0.0-2.0, default 1.0).
     #[serde(default = "AudioSettings::default_volume")]
     pub output_volume: f32,    /// Automatically adjust input sensitivity based on ambient noise floor.
     #[serde(default)]

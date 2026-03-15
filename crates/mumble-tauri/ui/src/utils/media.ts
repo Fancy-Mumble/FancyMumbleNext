@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Utilities for encoding media files as base64 HTML for Mumble messages.
  *
  * Mumble text messages are HTML.  Images/videos are embedded as
@@ -35,9 +35,9 @@ export function fileToDataUrl(file: File): Promise<string> {
  * `maxBytes`.  Returns the data-URL string.
  *
  * Strategy - maximize visual quality:
- *   1. Original fits → return untouched (lossless).
+ *   1. Original fits -> return untouched (lossless).
  *   2. Re-encode as JPEG at full resolution.
- *      Binary-search quality 0.1–0.95 to find the highest quality
+ *      Binary-search quality 0.1-0.95 to find the highest quality
  *      that fits.  Keeping original pixel dimensions is almost always
  *      preferable over scaling down.
  *   3. Only if even quality 0.1 at full resolution overflows, scale
@@ -53,7 +53,7 @@ export async function fitImage(
 
   const dataUrl = await fileToDataUrl(file);
 
-  // 1. Original fits → return as-is.
+  // 1. Original fits -> return as-is.
   if (dataUrl.length <= maxBytes) return dataUrl;
 
   const img = await loadImage(dataUrl);
@@ -64,7 +64,7 @@ export async function fitImage(
   // Leave room for the HTML wrapper (<img src="..." alt="..." />)
   const budget = maxBytes - 100;
 
-  /** Render at `scale` × original dimensions with given JPEG `quality`. */
+  /** Render at `scale` x original dimensions with given JPEG `quality`. */
   async function tryEncode(scale: number, quality: number): Promise<string> {
     const w = Math.max(1, Math.round(srcW * scale));
     const h = Math.max(1, Math.round(srcH * scale));
@@ -105,7 +105,7 @@ export async function fitImage(
   const fullRes = await bestQualityAt(1, 0.1, 0.95, 8);
   if (fullRes) return fullRes;
 
-  // 3. Full resolution doesn't fit even at q=0.1 → scale down.
+  // 3. Full resolution doesn't fit even at q=0.1 -> scale down.
   //    Estimate starting scale from the byte-size ratio.
   const lowQ = await tryEncode(1, 0.1);
   const estScale = Math.min(0.95, Math.sqrt(budget / lowQ.length) * 1.1);
@@ -195,7 +195,7 @@ export async function fitVideo(
   return { dataUrl: frameDataUrl, kind: "image" };
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────
+// --- Helpers ------------------------------------------------------
 
 /**
  * Extract a representative frame from a video file as a JPEG blob.

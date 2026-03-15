@@ -1,0 +1,106 @@
+@startuml pchat_epoch_fork_resolution
+!theme plain
+title Persistent Chat - Epoch Fork Resolution (POST_JOIN)
+
+actor "New Member\n(Alice)" as alice
+actor "Member B\n(Bob)" as bob
+actor "Member C\n(Carol)" as carol
+participant "Server\nCompanion" as server
+
+note over alice, carol
+  Scenario: Alice joins a POST_JOIN channel.
+  Both Bob and Carol respond simultaneously,
+  each generating a different epoch key.
+  Fork must be resolved deterministically.
+end note
+
+== Trigger: Alice Joins Channel ==
+
+alice -> server : fancy-pchat-key-announce
+server -> bob : fancy-pchat-key-request\n{ requester: alice, relay_cap: 3 }
+server -> carol : fancy-pchat-key-request\n(same request_id)
+
+== Competing Responses (Fork Window) ==
+
+bob -> bob : Generate epoch_key_B\nepoch_fp_B = SHA-256(key_B)[0..8]
+carol -> carol : Generate epoch_key_C\nepoch_fp_C = SHA-256(key_C)[0..8]
+
+bob -> server : fancy-pchat-key-exchange\n{ epoch_key_B, sender_hash: bob,\n  recipient: alice, request_id }
+carol -> server : fancy-pchat-key-exchange\n{ epoch_key_C, sender_hash: carol,\n  recipient: alice, request_id }
+
+server -> alice : Forward both responses\n(relay_cap = 3 allows multiple)
+
+== Epoch Broadcasts to Existing Members ==
+
+bob -> server : fancy-pchat-key-exchange\n{ epoch_key_B, recipient: carol,\n  request_id: null }
+carol -> server : fancy-pchat-key-exchange\n{ epoch_key_C, recipient: bob,\n  request_id: null }
+server -> carol : Forward Bob's epoch broadcast
+server -> bob : Forward Carol's epoch broadcast
+
+== 2-Second Grace Period ==
+
+note over alice, carol
+  All clients buffer outbound messages
+  for 2 seconds after roster change,
+  allowing epoch broadcasts to converge.
+end note
+
+== Deterministic Tie-Breaker ==
+
+note over alice
+  Alice receives two candidates for
+  (channel_id, epoch) with same
+  parent_fingerprint.
+
+  **Tie-breaker rule:**
+  Accept the epoch key from the sender
+  with the lexicographically smallest
+  cert_hash (lowercase hex comparison).
+
+  If bob.cert_hash < carol.cert_hash:
+    Winner = epoch_key_B
+  Else:
+    Winner = epoch_key_C
+end note
+
+alice -> alice : Apply tie-breaker\nDiscard losing fork\nLog discarded key for audit
+
+bob -> bob : Apply same tie-breaker\n(identical rule, same winner)
+
+carol -> carol : Apply same tie-breaker\n(identical rule, same winner)
+
+== Fork-Window Message Re-Send ==
+
+note over carol #FFF3CD
+  If Carol sent messages encrypted with
+  the losing epoch key during the fork
+  window, she MUST re-send them:
+
+  1. Generate new message_id (UUID)
+  2. Set replaces_id = original_message_id
+  3. Encrypt with winning epoch key
+  4. Send replacement via PluginDataTransmission
+
+  Receivers search BOTH volatile and
+  persistent stores for replaces_id match,
+  overwrite if found, insert if not.
+end note
+
+carol -> server : fancy-pchat-msg\n{ new_message_id,\n  replaces_id: old_message_id,\n  epoch: winning_epoch,\n  epoch_fingerprint: winner_fp }
+
+server -> alice : Forward replacement
+server -> bob : Forward replacement
+
+alice -> alice : replace_message(replaces_id)\nSearch volatile + persistent\nOverwrite stale copy
+
+bob -> bob : replace_message(replaces_id)\nSearch volatile + persistent\nOverwrite stale copy
+
+== Converged State ==
+
+note over alice, carol #D4EDDA
+  All three clients now use the
+  same winning epoch key.
+  No ghost duplicates remain.
+end note
+
+@enduml

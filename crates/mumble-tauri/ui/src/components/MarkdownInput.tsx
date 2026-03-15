@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MarkdownInput - a chat input with live markdown preview.
  *
  * Shows formatting decorations (bold, italic, underline, strikethrough,
@@ -19,7 +19,7 @@ import {
 } from "react";
 import styles from "./MarkdownInput.module.css";
 
-// ─── Markdown → decorated spans ───────────────────────────────────
+// --- Markdown -> decorated spans -----------------------------------
 
 interface Segment {
   text: string;
@@ -151,7 +151,7 @@ function getSegmentClass(seg: Segment): string {
  *
  * The caret is a blinking vertical line inserted at the correct character
  * position *within* the formatted overlay, so it naturally tracks the real
- * glyph layout (bold chars are wider → caret shifts accordingly).
+ * glyph layout (bold chars are wider -> caret shifts accordingly).
  */
 function renderFormattedOverlay(
   segments: Segment[],
@@ -230,7 +230,7 @@ function renderFormattedOverlay(
   return nodes;
 }
 
-// ─── Markdown → HTML (for sending) ───────────────────────────────
+// --- Markdown -> HTML (for sending) -------------------------------
 
 /** Convert markdown syntax to HTML for the Mumble message body. */
 export function markdownToHtml(raw: string): string {
@@ -247,7 +247,7 @@ export function markdownToHtml(raw: string): string {
   html = html.replace(/__(.+?)__/g, "<u>$1</u>");
   // ~~strikethrough~~
   html = html.replace(/~~(.+?)~~/g, "<s>$1</s>");
-  // URLs → clickable links (must run after entity escaping)
+  // URLs -> clickable links (must run after entity escaping)
   html = html.replace(
     /(https?:\/\/[^\s<>"'`,;)\]]+|ftp:\/\/[^\s<>"'`,;)\]]+)/g,
     '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
@@ -255,7 +255,7 @@ export function markdownToHtml(raw: string): string {
   return html;
 }
 
-// ─── Component ────────────────────────────────────────────────────
+// --- Component ----------------------------------------------------
 
 interface MarkdownInputProps {
   value: string;

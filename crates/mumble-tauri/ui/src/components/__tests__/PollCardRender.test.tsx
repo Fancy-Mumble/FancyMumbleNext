@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Unit tests for PollCard React component rendering.
  *
  * Uses @testing-library/react to verify the component renders
@@ -10,7 +10,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import PollCard, { registerVote, registerLocalVote } from "../PollCard";
 import type { PollPayload } from "../PollCreator";
 
-// ─── Helpers ──────────────────────────────────────────────────────
+// --- Helpers ------------------------------------------------------
 
 function makePoll(overrides: Partial<PollPayload> = {}): PollPayload {
   return {
@@ -27,7 +27,7 @@ function makePoll(overrides: Partial<PollPayload> = {}): PollPayload {
   };
 }
 
-// ─── Rendering tests ─────────────────────────────────────────────
+// --- Rendering tests ---------------------------------------------
 
 describe("PollCard rendering", () => {
   it("displays the poll question", () => {
@@ -63,7 +63,7 @@ describe("PollCard rendering", () => {
   });
 });
 
-// ─── Voting tests ─────────────────────────────────────────────────
+// --- Voting tests -------------------------------------------------
 
 describe("PollCard voting", () => {
   it("calls onVote when single-choice option is clicked", () => {
@@ -92,19 +92,19 @@ describe("PollCard voting", () => {
   it("shows radio indicators for single-choice polls", () => {
     const poll = makePoll({ multiple: false, id: "radio-test" });
     render(<PollCard poll={poll} ownSession={10} onVote={vi.fn()} />);
-    // Single-choice shows radio markers (○)
+    // Single-choice shows radio markers (O)
     expect(screen.getAllByText("○")).toHaveLength(3);
   });
 
   it("shows checkbox indicators for multiple-choice polls", () => {
     const poll = makePoll({ multiple: true, id: "check-test" });
     render(<PollCard poll={poll} ownSession={10} onVote={vi.fn()} />);
-    // Multiple choice shows checkboxes (☐)
+    // Multiple choice shows checkboxes ([_])
     expect(screen.getAllByText("☐")).toHaveLength(3);
   });
 });
 
-// ─── Own vs other rendering ───────────────────────────────────────
+// --- Own vs other rendering ---------------------------------------
 
 describe("PollCard own vs other", () => {
   it("renders with isOwn=true", () => {
@@ -135,7 +135,7 @@ describe("PollCard own vs other", () => {
   });
 });
 
-// ─── Vote display ─────────────────────────────────────────────────
+// --- Vote display -------------------------------------------------
 
 describe("PollCard vote display", () => {
   it("shows percentages after voting", () => {

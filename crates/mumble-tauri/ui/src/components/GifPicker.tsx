@@ -1,4 +1,4 @@
-/**
+﻿/**
  * GifPicker - popup GIF / Sticker search & browse powered by Klipy.
  *
  * Tabs: GIFs | Stickers
@@ -6,13 +6,13 @@
  *   - Category grid on initial open.
  *   - Text search with debounced API calls.
  *   - Masonry-style result grid.
- *   - Click → inserts the GIF as an <img> message.
+ *   - Click -> inserts the GIF as an <img> message.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import styles from "./GifPicker.module.css";
 
-// ─── Klipy API Types ──────────────────────────────────────────────
+// --- Klipy API Types ----------------------------------------------
 
 interface KlipyGif {
   id: number;
@@ -33,7 +33,7 @@ interface KlipyCategory {
 
 type TabId = "gifs" | "stickers";
 
-// ─── Klipy API helpers ────────────────────────────────────────────
+// --- Klipy API helpers --------------------------------------------
 
 /**
  * Klipy v1 API - the API key is part of the URL path, NOT a query parameter.
@@ -60,7 +60,7 @@ function getActiveApiKey(): string | undefined {
 async function klipyFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {
   const apiKey = getActiveApiKey();
   if (!apiKey) {
-    throw new Error("No Klipy API key configured. Set one in Settings → Advanced.");
+    throw new Error("No Klipy API key configured. Set one in Settings -> Advanced.");
   }
   const url = new URL(`${KLIPY_BASE}/${apiKey}${path}`);
   for (const [k, v] of Object.entries(params)) {
@@ -73,7 +73,7 @@ async function klipyFetch<T>(path: string, params: Record<string, string> = {}):
   return JSON.parse(text) as T;
 }
 
-// ─── Klipy API response shapes ───────────────────────────────────
+// --- Klipy API response shapes -----------------------------------
 
 /** A single media file variant (gif, webp, or mp4). */
 interface KlipyFileMeta {
@@ -135,7 +135,7 @@ interface KlipyCategoriesResponse {
   };
 }
 
-// ─── Mapping helpers ─────────────────────────────────────────────
+// --- Mapping helpers ---------------------------------------------
 
 function mapMediaItems(items: KlipyMediaItem[]): KlipyGif[] {
   return items
@@ -196,7 +196,7 @@ async function fetchCategories(tab: TabId): Promise<KlipyCategory[]> {
   }));
 }
 
-// ─── Component ────────────────────────────────────────────────────
+// --- Component ----------------------------------------------------
 
 interface GifPickerProps {
   /** Called when user picks a GIF. Receives the image URL. */
@@ -385,7 +385,7 @@ export default function GifPicker({ onSelect, onClose }: Readonly<GifPickerProps
         </svg>
         <input
           className={styles.searchInput}
-          placeholder={`Search ${tab}…`}
+          placeholder={`Search ${tab}...`}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           autoFocus
@@ -395,7 +395,7 @@ export default function GifPicker({ onSelect, onClose }: Readonly<GifPickerProps
       {/* Content */}
       <div className={styles.content}>
         {loading && results.length === 0 && (
-          <div className={styles.loadingMsg}>Loading…</div>
+          <div className={styles.loadingMsg}>Loading...</div>
         )}
 
         {/* Category grid */}
@@ -439,7 +439,7 @@ export default function GifPicker({ onSelect, onClose }: Readonly<GifPickerProps
 
         {/* Spinner shown while loading subsequent pages */}
         {loadingMore && (
-          <div className={styles.loadingMore}>Loading…</div>
+          <div className={styles.loadingMore}>Loading...</div>
         )}
 
         {!loading && results.length === 0 && query && (

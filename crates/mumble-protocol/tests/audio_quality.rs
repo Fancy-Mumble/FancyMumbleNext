@@ -1,4 +1,4 @@
-//! Audio quality integration tests.
+﻿//! Audio quality integration tests.
 //!
 //! These tests generate known signals (sine waves), push them through
 //! individual pipeline stages and the full encode->decode roundtrip,
@@ -24,9 +24,9 @@ use mumble_protocol::audio::sample::{AudioFormat, AudioFrame};
 const SAMPLE_RATE: u32 = 48_000;
 const FRAME_SIZE: usize = 960; // 20 ms @ 48 kHz
 
-// ────────────────────────────────────────────────────────────────────
+// --------------------------------------------------------------------
 //  Helpers
-// ────────────────────────────────────────────────────────────────────
+// --------------------------------------------------------------------
 
 /// Generate a mono 48 kHz sine wave frame at given frequency and amplitude.
 fn sine_frame(freq_hz: f32, amplitude: f32, frame_size: usize, phase: f32) -> (AudioFrame, f32) {
@@ -81,9 +81,9 @@ fn rms(samples: &[f32]) -> f32 {
     (sum_sq / samples.len() as f32).sqrt()
 }
 
-// ────────────────────────────────────────────────────────────────────
+// --------------------------------------------------------------------
 //  Minimal FFT (Cooley-Tukey radix-2 DIT)
-// ────────────────────────────────────────────────────────────────────
+// --------------------------------------------------------------------
 
 /// Simple in-place radix-2 FFT.  `n` must be a power of two.
 fn fft(real: &mut [f32], imag: &mut [f32]) {
@@ -177,13 +177,13 @@ fn dominant_frequency(samples: &[f32]) -> (f32, f32) {
 }
 
 /// Total harmonic distortion + noise (THD+N), approximated.
-/// We assume `fundamental_bin` ± 2 bins carry the fundamental energy;
+/// We assume `fundamental_bin` +/- 2 bins carry the fundamental energy;
 /// everything else is distortion / noise.
 fn thd_n(samples: &[f32], fundamental_hz: f32) -> f32 {
     let (mags, bin_hz) = magnitude_spectrum(samples);
     let half = mags.len() / 2;
     let fund_bin = (fundamental_hz / bin_hz).round() as usize;
-    let margin = 8; // ±8 bins around fundamental (accounts for Hann window main lobe)
+    let margin = 8; // +/-8 bins around fundamental (accounts for Hann window main lobe)
 
     let mut signal_power = 0.0f32;
     let mut noise_power = 0.0f32;
@@ -203,9 +203,9 @@ fn thd_n(samples: &[f32], fundamental_hz: f32) -> f32 {
     (noise_power / signal_power).sqrt()
 }
 
-// ────────────────────────────────────────────────────────────────────
-//  Tests: Opus encode → decode roundtrip
-// ────────────────────────────────────────────────────────────────────
+// --------------------------------------------------------------------
+//  Tests: Opus encode -> decode roundtrip
+// --------------------------------------------------------------------
 
 #[test]
 fn opus_roundtrip_preserves_frequency() {
@@ -230,7 +230,7 @@ fn opus_roundtrip_preserves_frequency() {
     let skip = FRAME_SIZE * 5;
     let steady = &output_samples[skip..];
 
-    // Dominant frequency should be ≈ 440 Hz.
+    // Dominant frequency should be ~ 440 Hz.
     let (dom_freq, _) = dominant_frequency(steady);
     let freq_error = (dom_freq - freq).abs();
     assert!(
@@ -309,9 +309,9 @@ fn opus_roundtrip_level_stability() {
     );
 }
 
-// ────────────────────────────────────────────────────────────────────
+// --------------------------------------------------------------------
 //  Tests: Noise gate
-// ────────────────────────────────────────────────────────────────────
+// --------------------------------------------------------------------
 
 #[test]
 fn noise_gate_does_not_cut_loud_signal() {
@@ -396,9 +396,9 @@ fn noise_gate_fade_does_not_corrupt_spectrum() {
     );
 }
 
-// ────────────────────────────────────────────────────────────────────
+// --------------------------------------------------------------------
 //  Tests: AGC
-// ────────────────────────────────────────────────────────────────────
+// --------------------------------------------------------------------
 
 #[test]
 fn agc_does_not_distort_steady_signal() {
@@ -496,9 +496,9 @@ fn agc_level_stability_across_volume_change() {
     );
 }
 
-// ────────────────────────────────────────────────────────────────────
-//  Tests: Full pipeline (noise gate → AGC → Opus encode → decode)
-// ────────────────────────────────────────────────────────────────────
+// --------------------------------------------------------------------
+//  Tests: Full pipeline (noise gate -> AGC -> Opus encode -> decode)
+// --------------------------------------------------------------------
 
 #[test]
 fn full_pipeline_quality() {
@@ -530,7 +530,7 @@ fn full_pipeline_quality() {
         gate.process(&mut frame).unwrap();
         agc.process(&mut frame).unwrap();
 
-        // Encode → decode.
+        // Encode -> decode.
         let packet = encoder.encode(&frame).unwrap();
         let decoded = decoder.decode(&packet).unwrap();
         let decoded_samples = decoded.as_f32_samples();
@@ -2265,7 +2265,7 @@ fn wav_voice_full_pipeline_crackling() {
 
 /// Auto-discover and test all WAV files in the samples directory.
 ///
-/// Each file goes through encode→decode with the user's audio settings
+/// Each file goes through encode->decode with the user's audio settings
 /// (10 ms / 136 kb/s, no filters) and is tested for crackling.
 #[test]
 fn wav_roundtrip_all_samples() {

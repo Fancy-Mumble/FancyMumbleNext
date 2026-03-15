@@ -1,4 +1,4 @@
-//! Fuzzy super-search across users, channels, groups, and messages.
+﻿//! Fuzzy super-search across users, channels, groups, and messages.
 
 use super::types::{SearchCategory, SearchResult};
 use super::AppState;
@@ -166,7 +166,7 @@ impl AppState {
     }
 }
 
-// ── Fuzzy matching ────────────────────────────────────────────────
+// -- Fuzzy matching ------------------------------------------------
 
 /// Compute a fuzzy match score between `pattern` (lowercase query) and
 /// `text` (lowercase haystack).

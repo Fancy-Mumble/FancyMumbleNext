@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ExternalLinkGuard
  *
  * Wraps any content that may contain sanitized bio HTML with external links
@@ -16,7 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import styles from "./ExternalLinkGuard.module.css";
 
-// ─── Warning dialog ───────────────────────────────────────────────
+// --- Warning dialog -----------------------------------------------
 
 interface DialogProps {
   url: string;
@@ -127,7 +127,7 @@ function ExternalLinkDialog({ url, onConfirm, onCancel }: Readonly<DialogProps>)
   );
 }
 
-// ─── Guard wrapper ────────────────────────────────────────────────
+// --- Guard wrapper ------------------------------------------------
 
 interface GuardProps {
   children: React.ReactNode;

@@ -1,4 +1,4 @@
-//! Self-describing commands using the Command pattern.
+﻿//! Self-describing commands using the Command pattern.
 //!
 //! Each command lives in its own file, carries its own data, and knows
 //! how to produce the protocol output it needs. Adding a new command
@@ -11,18 +11,23 @@ mod disconnect;
 mod join_channel;
 mod kick_user;
 mod permission_query;
+mod remove_user_avatar;
 mod request_blob;
 mod request_ban_list;
 mod request_user_stats;
+mod reset_user_comment;
 mod send_audio;
 mod send_ping;
 mod send_plugin_data;
 mod send_text_message;
 mod set_channel_state;
 mod set_comment;
+mod set_priority_speaker;
 mod set_self_deaf;
 mod set_self_mute;
 mod set_texture;
+mod set_user_deaf;
+mod set_user_mute;
 mod set_voice_target;
 
 // Re-export the core trait, output type, and boxed alias.
@@ -36,18 +41,23 @@ pub use disconnect::Disconnect;
 pub use join_channel::JoinChannel;
 pub use kick_user::KickUser;
 pub use permission_query::PermissionQuery;
+pub use remove_user_avatar::RemoveUserAvatar;
 pub use request_blob::RequestBlob;
 pub use request_ban_list::RequestBanList;
 pub use request_user_stats::RequestUserStats;
+pub use reset_user_comment::ResetUserComment;
 pub use send_audio::SendAudio;
 pub use send_ping::SendPing;
 pub use send_plugin_data::SendPluginData;
 pub use send_text_message::SendTextMessage;
 pub use set_channel_state::SetChannelState;
 pub use set_comment::SetComment;
+pub use set_priority_speaker::SetPrioritySpeaker;
 pub use set_self_deaf::SetSelfDeaf;
 pub use set_self_mute::SetSelfMute;
 pub use set_texture::SetTexture;
+pub use set_user_deaf::SetUserDeaf;
+pub use set_user_mute::SetUserMute;
 pub use set_voice_target::{SetVoiceTarget, VoiceTargetEntry};
 
 mod core {
@@ -394,7 +404,7 @@ mod tests {
         }
     }
 
-    // ── SendPluginData tests ──────────────────────────────────────
+    // -- SendPluginData tests --------------------------------------
 
     #[test]
     fn send_plugin_data_produces_correct_message() {

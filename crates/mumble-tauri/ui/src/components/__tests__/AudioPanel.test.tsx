@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Regression tests for AudioPanel features:
  * - Mic test start/stop flow
  * - VU meter rendering
@@ -87,7 +87,7 @@ beforeEach(() => {
   listenMock.mockResolvedValue(vi.fn());
 });
 
-// ── Auto Input Sensitivity ────────────────────────────────────────
+// -- Auto Input Sensitivity ----------------------------------------
 
 describe("Auto Input Sensitivity toggle", () => {
   it("shows manual threshold slider when auto sensitivity is off", () => {
@@ -127,7 +127,7 @@ describe("Auto Input Sensitivity toggle", () => {
   });
 });
 
-// ── Mic Test ──────────────────────────────────────────────────────
+// -- Mic Test ------------------------------------------------------
 
 describe("Mic Test", () => {
   it("renders the Mic Test button", () => {
@@ -223,7 +223,7 @@ describe("Mic Test", () => {
   });
 });
 
-// ── Shortcut event filtering (regression for double-fire bug) ─────
+// -- Shortcut event filtering (regression for double-fire bug) -----
 
 describe("Shortcut event filtering", () => {
   it("only invokes command on Pressed, not Released", async () => {

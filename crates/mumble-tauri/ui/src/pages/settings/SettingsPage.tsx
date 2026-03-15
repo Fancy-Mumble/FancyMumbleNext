@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+﻿import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -23,7 +23,7 @@ import { AdvancedPanel } from "./AdvancedPanel";
 import { ProfilePreviewCard } from "./ProfilePreviewCard";
 import styles from "./SettingsPage.module.css";
 
-// ── Types & constants ──────────────────────────────────────────────
+// -- Types & constants ----------------------------------------------
 
 type Tab = "profile" | "voice" | "shortcuts" | "advanced";
 
@@ -52,7 +52,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "advanced", label: "Advanced", icon: "⚙️" },
 ];
 
-// ── Main component ─────────────────────────────────────────────────
+// -- Main component -------------------------------------------------
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -87,7 +87,7 @@ export default function SettingsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
 
-  // ── Load everything on mount ────────────────────────────────────
+  // -- Load everything on mount ------------------------------------
 
   useEffect(() => {
     (async () => {
@@ -148,7 +148,7 @@ export default function SettingsPage() {
     })();
   }, []);
 
-  // ── Listen for permission-denied events from the backend ─────
+  // -- Listen for permission-denied events from the backend -----
 
   useEffect(() => {
     const unlisten = listen<{ deny_type: number | null; reason: string | null }>(
@@ -169,7 +169,7 @@ export default function SettingsPage() {
     };
   }, []);
 
-  // ── Auto-save audio settings (debounced) ────────────────────────
+  // -- Auto-save audio settings (debounced) ------------------------
 
   useEffect(() => {
     if (!initialLoadDone.current) return;
@@ -186,7 +186,7 @@ export default function SettingsPage() {
     return () => clearTimeout(timer);
   }, [audioSettings]);
 
-  // ── Auto-save profile data locally (debounced) ──────────────────
+  // -- Auto-save profile data locally (debounced) ------------------
 
   useEffect(() => {
     if (!initialLoadDone.current) return;
@@ -204,7 +204,7 @@ export default function SettingsPage() {
     return () => clearTimeout(timer);
   }, [profile, bio, avatarDataUrl]);
 
-  // ── Auto-apply profile to server (debounced) ────────────────────
+  // -- Auto-apply profile to server (debounced) --------------------
 
   useEffect(() => {
     if (!initialLoadDone.current || !isConnected) return;
@@ -223,7 +223,7 @@ export default function SettingsPage() {
     return () => clearTimeout(timer);
   }, [profile, bio, avatarDataUrl, isConnected]);
 
-  // ── Handlers ────────────────────────────────────────────────────
+  // -- Handlers ----------------------------------------------------
 
   const patchAudio = useCallback((patch: Partial<AudioSettings>) => {
     setAudioSettings((prev) => ({ ...prev, ...patch }));
@@ -308,7 +308,7 @@ export default function SettingsPage() {
     navigate(-1);
   }, [navigate]);
 
-  // ── Render ──────────────────────────────────────────────────────
+  // -- Render ------------------------------------------------------
 
   return (
     <div className={styles.page}>

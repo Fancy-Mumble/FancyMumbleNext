@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer, type ClipboardEvent } from "react";
+﻿import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer, type ClipboardEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../store";
 import type { TimeFormat } from "../types";
@@ -18,7 +18,7 @@ import {
 } from "../messageOffload";
 import styles from "./ChatView.module.css";
 
-// ─── Scroll helpers ──────────────────────────────────────────────
+// --- Scroll helpers ----------------------------------------------
 
 /** Pixel threshold: user counts as "at the bottom" when within this. */
 const NEAR_BOTTOM_PX = 120;
@@ -113,7 +113,7 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
       .catch(() => { /* leave undefined - fall back to Intl */ });
   }, []);
 
-  // ─── Content offloading ──────────────────────────────────────────
+  // --- Content offloading ------------------------------------------
 
   /** Set of message IDs currently being restored from offload storage. */
   const [restoringKeys, setRestoringKeys] = useState<Set<string>>(new Set());
@@ -190,7 +190,7 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
   ).length;
   const isInChannel = currentChannel === selectedChannel;
 
-  /** Map session → avatar data-URL for message avatars (cached). */
+  /** Map session -> avatar data-URL for message avatars (cached). */
   const avatarCache = useRef(new Map<number, { len: number; url: string }>());
   const avatarBySession = useMemo(() => {
     const cache = avatarCache.current;
@@ -233,7 +233,7 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
     return [...messages, ...channelPolls];
   }, [isGroupMode, groupMessages, isDmMode, dmMessages, messages, pollMessages, selectedChannel]);
 
-  // ─── Smart scroll behaviour ──────────────────────────────────────
+  // --- Smart scroll behaviour --------------------------------------
   //
   // 1. When the user is at the bottom and new messages arrive, auto-scroll.
   // 2. When the user has scrolled up, do NOT auto-scroll.  Instead, show a
@@ -337,7 +337,7 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
   /** Inner wrapper that grows with content. */
   const messagesInnerRef = useRef<HTMLDivElement>(null);
 
-  // ─── Re-pin after images / media load ─────────────────────────
+  // --- Re-pin after images / media load -------------------------
   //
   // When the user is pinned to the bottom (`stickToBottomRef`), every
   // content-height change must scroll down.  Three independent
@@ -438,10 +438,10 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChannel, selectedDmUser, selectedGroup]);
 
-  // ─── Offload IntersectionObserver ─────────────────────────────────
+  // --- Offload IntersectionObserver ---------------------------------
   //
   // Watches message elements for visibility changes.  Heavy messages
-  // that scroll out of view are offloaded (encrypted → temp file) after
+  // that scroll out of view are offloaded (encrypted -> temp file) after
   // a delay; offloaded messages approaching the viewport are restored.
 
   const scopeRef = useRef(currentScope);
@@ -637,7 +637,7 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
     [sendMediaFile],
   );
 
-  // ─── GIF picker handler ─────────────────────────────────────────
+  // --- GIF picker handler -----------------------------------------
 
   const handleGifSelect = useCallback(
     async (url: string, alt: string) => {
@@ -653,7 +653,7 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
     [isGroupMode, selectedGroup, sendGroupMessage, isDmMode, selectedDmUser, selectedChannel, sendMessage, sendDm],
   );
 
-  // ─── Poll handlers ─────────────────────────────────────────────
+  // --- Poll handlers ---------------------------------------------
 
   const handlePollCreate = useCallback(
     async (question: string, options: string[], multiple: boolean) => {
@@ -718,7 +718,7 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
     [sendPluginData, ownSession, selectedChannel],
   );
 
-  // ─── End poll handlers ───────────────────────────────────────────
+  // --- End poll handlers -------------------------------------------
 
   // Compute header values before any early returns (hooks can't be conditional).
   const [headerName, headerMemberCount] = computeHeader(

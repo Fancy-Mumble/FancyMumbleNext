@@ -1,4 +1,4 @@
-//! TLS-encrypted TCP transport for Mumble control messages.
+﻿//! TLS-encrypted TCP transport for Mumble control messages.
 //!
 //! Mumble uses TLS 1.2+ for its TCP control channel. This module handles
 //! connecting, framing, and sending/receiving [`ControlMessage`]s.
@@ -152,7 +152,7 @@ impl TcpWriter {
     }
 }
 
-// ── TLS configuration ─────────────────────────────────────────────
+// -- TLS configuration ---------------------------------------------
 
 fn build_tls_config(
     accept_invalid_certs: bool,

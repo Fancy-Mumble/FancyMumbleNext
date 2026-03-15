@@ -1,4 +1,4 @@
-/**
+﻿/**
  * PollCard - renders a poll inside the chat message view.
  *
  * Shows the question, options with vote counts, and lets the local
@@ -10,10 +10,10 @@ import { useState, useCallback, useMemo } from "react";
 import type { PollPayload, PollVotePayload } from "./PollCreator";
 import styles from "./PollCard.module.css";
 
-// ─── Vote store (module-level) ────────────────────────────────────
+// --- Vote store (module-level) ------------------------------------
 
 // Votes are stored in-memory per session; not persisted.
-// Map: pollId → array of PollVotePayload
+// Map: pollId -> array of PollVotePayload
 const voteStore = new Map<string, PollVotePayload[]>();
 
 /** Register a vote (from local user or received via plugin message). */
@@ -30,7 +30,7 @@ export function getVotes(pollId: string): PollVotePayload[] {
   return voteStore.get(pollId) ?? [];
 }
 
-// ─── Poll store (module-level) ────────────────────────────────────
+// --- Poll store (module-level) ------------------------------------
 
 const pollStore = new Map<string, PollPayload>();
 
@@ -44,7 +44,7 @@ export function getPoll(pollId: string): PollPayload | undefined {
   return pollStore.get(pollId);
 }
 
-// ─── Local vote tracking ──────────────────────────────────────────
+// --- Local vote tracking ------------------------------------------
 // Tracks which polls the LOCAL user has voted on and what they selected,
 // independently of session IDs.
 
@@ -60,7 +60,7 @@ export function getLocalVote(pollId: string): number[] | undefined {
   return localVotes.get(pollId);
 }
 
-// ─── Component ────────────────────────────────────────────────────
+// --- Component ----------------------------------------------------
 
 interface PollCardProps {
   poll: PollPayload;

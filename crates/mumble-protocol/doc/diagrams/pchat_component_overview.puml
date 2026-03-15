@@ -1,0 +1,104 @@
+@startuml pchat_component_overview
+!theme plain
+title Persistent Chat - Component Overview
+
+skinparam component {
+    BackgroundColor<<crypto>> #E8F4FD
+    BackgroundColor<<storage>> #FFF3CD
+    BackgroundColor<<network>> #D4EDDA
+    BackgroundColor<<trust>> #F8D7DA
+    BackgroundColor<<external>> #E2E3E5
+}
+
+skinparam package {
+    BackgroundColor #FAFAFA
+}
+
+package "Client (Fancy Mumble)" {
+
+    package "Key Management" {
+        component [KeyManager] <<crypto>> as km
+        component [Identity Seed\n(32B CSPRNG)] <<crypto>> as seed
+        component [X25519\nKey Pair] <<crypto>> as x25519
+        component [Ed25519\nKey Pair] <<crypto>> as ed25519
+        component [PeerKeyRecord\nStore] <<crypto>> as peers
+        component [EpochKey\nStore] <<crypto>> as epochs
+    }
+
+    package "Trust System" {
+        component [TOFU\nManager] <<trust>> as tofu
+        component [Visual\nFingerprints] <<trust>> as fingerprint
+        component [Custodian\nPinState] <<trust>> as custodians
+        component [Consensus\nCollector] <<trust>> as consensus
+    }
+
+    package "Message Providers" {
+        component [CompositeMessage\nProvider] <<storage>> as composite
+        component [Volatile\nMessageProvider] <<storage>> as volatile
+        component [Persistent\nMessageProvider] <<storage>> as persistent
+        component [OffloadStore\n(local cache)] <<storage>> as offload
+    }
+
+    package "Encryption" {
+        component [XChaCha20-Poly1305\nAEAD] <<crypto>> as aead
+        component [HKDF-SHA256\nKey Derivation] <<crypto>> as hkdf
+        component [Randomized\nPadding] <<crypto>> as padding
+    }
+
+    package "Protocol Messages" {
+        component [fancy-pchat-msg] <<network>> as msg
+        component [fancy-pchat-key-\nannounce] <<network>> as announce
+        component [fancy-pchat-key-\nexchange] <<network>> as exchange
+        component [fancy-pchat-key-\nrequest] <<network>> as request
+        component [fancy-pchat-\nfetch] <<network>> as fetch
+    }
+}
+
+package "Server Companion" <<external>> {
+    component [Message\nStore] <<external>> as serverdb
+    component [Key\nRegistry] <<external>> as keyreg
+    component [Relay\nManager] <<external>> as relay
+}
+
+package "Mumble Server" <<external>> {
+    component [TextMessage\nBroadcast] <<external>> as textmsg
+    component [PluginData\nRelay] <<external>> as plugin
+}
+
+' Key Management relationships
+seed --> x25519 : derives
+seed --> ed25519 : derives
+km --> x25519
+km --> ed25519
+km --> peers
+km --> epochs
+
+' Trust relationships
+tofu --> peers : first-time\nacceptance
+tofu --> fingerprint : generates
+custodians --> consensus : bypass\n(Verified)
+
+' Message Provider relationships
+composite --> volatile : delegates\n(mode=NONE)
+composite --> persistent : delegates\n(POST_JOIN/\nFULL_ARCHIVE)
+persistent --> offload : memory\nmanagement
+persistent --> km : encrypt/\ndecrypt
+
+' Encryption relationships
+aead --> hkdf : message\nkeys
+padding --> aead : padded\nplaintext
+
+' Protocol message flows
+msg --> aead : envelope\nfield
+msg --> plugin : transport
+announce --> keyreg : store keys
+announce --> ed25519 : signature
+announce --> x25519 : identity_public
+exchange --> relay : server relay
+exchange --> km : encrypted_key
+request --> exchange : triggers
+fetch --> serverdb : query
+textmsg --> volatile : real-time\ndelivery
+plugin --> persistent : encrypted\nstorage
+
+@enduml

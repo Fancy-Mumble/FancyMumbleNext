@@ -1,4 +1,4 @@
-//! Audio / voice pipeline management: enable, disable, mute, deafen,
+﻿//! Audio / voice pipeline management: enable, disable, mute, deafen,
 //! and the background outbound audio loop.
 //!
 //! On Android, audio hardware access via cpal is not available.  The
@@ -10,7 +10,7 @@ use tauri::Emitter;
 use super::types::VoiceState;
 use super::AppState;
 
-// ── Shared methods (all platforms) ────────────────────────────────
+// -- Shared methods (all platforms) --------------------------------
 
 impl AppState {
     /// Get current audio settings.
@@ -75,7 +75,7 @@ impl AppState {
     }
 }
 
-// ── Desktop: full cpal-based audio pipeline ───────────────────────
+// -- Desktop: full cpal-based audio pipeline -----------------------
 
 #[cfg(not(target_os = "android"))]
 mod desktop {
@@ -815,7 +815,7 @@ mod desktop {
     }
 }
 
-// ── Android: stub audio (no cpal) ─────────────────────────────────
+// -- Android: stub audio (no cpal) ---------------------------------
 
 #[cfg(target_os = "android")]
 impl AppState {

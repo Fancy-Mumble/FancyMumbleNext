@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+﻿import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AudioDevice, AudioSettings } from "../../types";
@@ -138,7 +138,7 @@ export function AudioPanel({
     <>
       <h2 className={styles.panelTitle}>Voice</h2>
 
-      {/* ── Input & Output Devices (side by side) ────────── */}
+      {/* -- Input & Output Devices (side by side) ---------- */}
       <section className={styles.section}>
         <div className={styles.deviceColumns}>
           {/* Left: Microphone */}
@@ -299,7 +299,7 @@ export function AudioPanel({
         )}
       </section>
 
-      {/* ── Audio Processing ─────────────────────────────── */}
+      {/* -- Audio Processing ------------------------------- */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Audio Processing</h3>
 
@@ -330,7 +330,7 @@ export function AudioPanel({
         )}
       </section>
 
-      {/* ── Compression ──────────────────────────────────── */}
+      {/* -- Compression ------------------------------------ */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Compression</h3>
         <SliderField
@@ -371,7 +371,7 @@ export function AudioPanel({
         </div>
       </section>
 
-      {/* ── Expert settings ──────────────────────────────── */}
+      {/* -- Expert settings -------------------------------- */}
       {isExpert && (
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>Expert</h3>

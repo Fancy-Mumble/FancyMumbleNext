@@ -1,7 +1,5 @@
-import { useMemo } from "react";
 import type { FancyProfile } from "../../types";
-import { sanitizeBio } from "../../utils/bioSanitize";
-import { ExternalLinkGuard } from "../../components/ExternalLinkGuard";
+import { SafeHtml } from "../../components/SafeHtml";
 import {
   DECORATIONS,
   NAMEPLATES,
@@ -11,16 +9,6 @@ import {
   AVATAR_BORDERS,
 } from "./profileData";
 import styles from "./SettingsPage.module.css";
-
-/** Renders sanitised HTML - memoised so sanitizeBio only runs when content changes. */
-function SafeBio({ html, className }: Readonly<{ html: string; className?: string }>) {
-  const clean = useMemo(() => sanitizeBio(html), [html]);
-  return (
-    <ExternalLinkGuard className={className}>
-      <div dangerouslySetInnerHTML={{ __html: clean }} />
-    </ExternalLinkGuard>
-  );
-}
 
 interface ProfilePreviewCardProps {
   profile: FancyProfile;
@@ -172,7 +160,7 @@ export function ProfilePreviewCard({
 
         {/* Bio (sanitised to prevent XSS from untrusted comments) */}
         {bio && (
-          <SafeBio html={bio} className={styles.previewBio} />
+          <SafeHtml html={bio} className={styles.previewBio} />
         )}
       </div>
     </div>

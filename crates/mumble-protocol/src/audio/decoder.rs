@@ -1,4 +1,4 @@
-//! Audio decoder trait and Opus implementation.
+﻿//! Audio decoder trait and Opus implementation.
 //!
 //! An [`AudioDecoder`] takes compressed network packets and produces
 //! raw PCM [`AudioFrame`]s for playback. Like the encoder trait, it
@@ -127,7 +127,7 @@ impl AudioDecoder for OpusDecoder {
         // opus_decode_float(dec, NULL, 0, ...) which generates a smooth
         // concealment frame based on the previous packet's state.
         // This is the same approach the official Mumble C++ client uses
-        // (AudioOutputSpeech::needSamples → opus_decode_float with NULL).
+        // (AudioOutputSpeech::needSamples -> opus_decode_float with NULL).
         let frame_size = self.frame_size;
         let needed = frame_size * self.format.channels as usize;
         if self.out_buf.len() < needed {

@@ -1,0 +1,283 @@
+/* ─── Public Server List ────────────────────────────────────────── */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+/* ─── Privacy consent gate ─────────────────────────────────────── */
+
+.consent {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0;
+}
+
+.consentText {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
+.consentWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(234, 179, 8, 0.06);
+  border: 1px solid rgba(234, 179, 8, 0.15);
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.consentWarningIcon {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.consentButton {
+  width: 100%;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, var(--color-accent), #229ed9);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s, box-shadow 0.2s;
+  box-shadow: 0 4px 16px var(--color-accent-glow);
+}
+
+.consentButton:hover {
+  opacity: 0.9;
+  box-shadow: 0 6px 24px var(--color-accent-glow);
+}
+
+/* ─── Search bar ───────────────────────────────────────────────── */
+
+.searchBar {
+  position: relative;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 10px 12px 10px 34px;
+  background: var(--color-glass);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.searchInput::placeholder {
+  color: var(--color-text-muted);
+}
+
+.searchInput:focus {
+  border-color: var(--color-accent);
+  background: var(--color-glass-hover);
+}
+
+/* ─── Table ────────────────────────────────────────────────────── */
+
+.tableWrap {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-md);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.table th {
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: color 0.15s;
+  border-bottom: 1px solid var(--color-glass-border);
+}
+
+.table th:hover {
+  color: var(--color-text-primary);
+}
+
+.sortIndicator {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.table td {
+  padding: 8px 10px;
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-glass-border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.table tbody tr {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.table tbody tr:hover {
+  background: var(--color-glass-hover);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Country cell with flag */
+.countryCell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.flag {
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* Ping cell */
+.pingValue {
+  font-variant-numeric: tabular-nums;
+}
+
+.pingGood {
+  color: #22c55e;
+}
+
+.pingOkay {
+  color: #eab308;
+}
+
+.pingPoor {
+  color: #ef4444;
+}
+
+.pingNa {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+/* ─── Loading / empty state ────────────────────────────────────── */
+
+.statusRow {
+  text-align: center;
+  padding: 28px 16px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ─── Header row with back link ────────────────────────────────── */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.heading {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-accent);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+
+.backLink:hover {
+  background: var(--color-glass-hover);
+}
+
+/* ─── Mobile ───────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .tableWrap {
+    max-height: 280px;
+  }
+
+  .table th,
+  .table td {
+    padding: 8px 6px;
+    font-size: 12px;
+  }
+
+  .table td {
+    max-width: 100px;
+  }
+}

@@ -1,0 +1,93 @@
+@startuml pchat_encryption_pipeline
+!theme plain
+title Persistent Chat - Encryption Pipeline
+
+skinparam activity {
+    BackgroundColor #E8F4FD
+    BorderColor #2196F3
+}
+skinparam note {
+    BackgroundColor #FFF3CD
+}
+
+|Sender|
+start
+:MessageEnvelope
+  { body, sender_name,
+    sender_session, attachments };
+
+:Serialize to byte array
+  (JSON or MessagePack);
+
+:Calculate padding
+  BLOCK = 256
+  blocks_needed = ceil((len + 2) / BLOCK)
+  jitter = CSPRNG(0..255)
+  padded_length = blocks_needed * BLOCK + jitter
+  pad_count = padded_length - len;
+
+:Append padding
+  padded_plaintext =
+    serialized_envelope
+    || 0x00 * (pad_count - 2)
+    || pad_count (2B BE u16);
+
+note right
+  Padding is appended AFTER
+  serialization, not inside
+  the JSON/MessagePack structure
+end note
+
+:Generate nonce (24B, CSPRNG);
+
+:Build AAD
+  channel_id (4B BE)
+  || message_id (16B UUID)
+  || timestamp (8B BE);
+
+:XChaCha20-Poly1305 encrypt
+  (key, nonce, padded_plaintext, AAD);
+
+:Assemble Encryption Envelope
+  Version (1B: 0x01)
+  || Nonce (24B)
+  || Ciphertext + Tag (16B);
+
+:Build fancy-pchat-msg payload
+  { message_id, channel_id, timestamp,
+    sender_hash, mode, envelope,
+    epoch, chain_index, epoch_fingerprint,
+    replaces_id };
+
+:Send via PluginDataTransmission
+  (to server companion);
+
+|Receiver|
+:Receive fancy-pchat-msg;
+
+:Parse Encryption Envelope
+  extract Version, Nonce, Ciphertext;
+
+:Reconstruct AAD
+  channel_id || message_id || timestamp;
+
+:Derive message key
+  (from epoch_key via HKDF chain);
+
+:XChaCha20-Poly1305 decrypt
+  (key, nonce, ciphertext, AAD);
+
+if (Authentication OK?) then (yes)
+  :Read last 2 bytes as pad_count
+    (big-endian u16);
+  :Strip last pad_count bytes;
+  :Deserialize MessageEnvelope;
+  :Display message in UI;
+else (no)
+  :Reject message
+    (tampering detected);
+  stop
+endif
+
+stop
+@enduml

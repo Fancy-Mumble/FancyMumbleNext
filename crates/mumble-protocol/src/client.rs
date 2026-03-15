@@ -1,4 +1,4 @@
-//! Client orchestrator - the async event loop that ties everything together.
+﻿//! Client orchestrator - the async event loop that ties everything together.
 //!
 //! Spawns independent tasks for TCP reading, UDP reading, and a periodic
 //! ping timer, all feeding into the priority work queue. The main loop
@@ -91,7 +91,7 @@ pub async fn run<H: EventHandler>(
                 if is_retryable && attempt < MAX_RETRIES {
                     warn!(
                         "TCP connection attempt {attempt}/{MAX_RETRIES} failed ({e}), \
-                         retrying in {}s…",
+                         retrying in {}s...",
                         RETRY_DELAY.as_secs()
                     );
                     tokio::time::sleep(RETRY_DELAY).await;
@@ -158,7 +158,7 @@ pub async fn run<H: EventHandler>(
     Ok((client_handle, join))
 }
 
-// ── Event loop ─────────────────────────────────────────────────────
+// -- Event loop -----------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
 async fn event_loop<H: EventHandler>(
@@ -206,11 +206,15 @@ async fn event_loop<H: EventHandler>(
     // Spawn periodic ping task.
     // Pings must be written directly to the TCP stream - they are outbound
     // keep-alive messages, not inbound server messages to process.
+    // Include accumulated ping statistics so the server and other clients
+    // can see our connection quality.
     let ping_tx = outbound_tx.clone();
+    let ping_stats = state.ping_stats.clone();
     let ping_task = tokio::spawn(async move {
         let mut interval = tokio::time::interval(ping_interval);
         loop {
             interval.tick().await;
+            let stats_snapshot = ping_stats.lock().ok().map(|s| s.clone()).unwrap_or_default();
             let ping = mumble_tcp::Ping {
                 timestamp: Some(
                     std::time::SystemTime::now()
@@ -218,6 +222,12 @@ async fn event_loop<H: EventHandler>(
                         .unwrap_or_default()
                         .as_millis() as u64,
                 ),
+                tcp_packets: Some(stats_snapshot.tcp_packets),
+                tcp_ping_avg: Some(stats_snapshot.tcp_ping_avg),
+                tcp_ping_var: Some(stats_snapshot.tcp_ping_var),
+                udp_packets: Some(stats_snapshot.udp_packets),
+                udp_ping_avg: Some(stats_snapshot.udp_ping_avg),
+                udp_ping_var: Some(stats_snapshot.udp_ping_var),
                 ..Default::default()
             };
             if ping_tx
@@ -341,7 +351,7 @@ async fn event_loop<H: EventHandler>(
         }
     }
 
-    // ── Clean up all spawned sub-tasks ─────────────────────────────
+    // -- Clean up all spawned sub-tasks -----------------------------
     // These tasks hold channel senders/TCP stream halves.  If we just
     // drop them (detach), the ping task keeps `ping_tx` alive which
     // keeps the TCP writer alive, so the connection never closes.
@@ -354,7 +364,7 @@ async fn event_loop<H: EventHandler>(
     Ok(())
 }
 
-// ── Helpers ────────────────────────────────────────────────────────
+// -- Helpers --------------------------------------------------------
 
 fn handle_control_message<H: EventHandler>(
     msg: &ControlMessage,
@@ -367,6 +377,16 @@ fn handle_control_message<H: EventHandler>(
             state.apply_version(v);
             if let Some(fv) = v.fancy_version {
                 info!(fancy_version = fv, "server supports Fancy Mumble extensions");
+            }
+        }
+        ControlMessage::Ping(p) => {
+            if let Some(ts) = p.timestamp {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                let rtt_ms = now.saturating_sub(ts) as f32;
+                state.record_tcp_ping(rtt_ms);
             }
         }
         ControlMessage::ServerSync(sync) => {

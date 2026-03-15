@@ -14,7 +14,7 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 /**
- * Resize an image so it fits within `maxWidth × maxHeight`, then
+ * Resize an image so it fits within `maxWidth x maxHeight`, then
  * compress it as JPEG, progressively lowering quality until the
  * result is under `maxBytes`.
  *

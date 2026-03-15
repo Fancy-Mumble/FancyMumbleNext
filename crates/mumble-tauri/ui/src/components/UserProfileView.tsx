@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Full-height right-side panel showing a user's full profile.
  *
  * Opened by clicking a username in the channel sidebar.
@@ -6,12 +6,15 @@
  * expanded bio section that isn't line-clamped.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useAppStore } from "../store";
-import { sanitizeBio } from "../utils/bioSanitize";
-import { ExternalLinkGuard } from "./ExternalLinkGuard";
-import type { UserEntry, FancyProfile } from "../types";
+import { SafeHtml } from "./SafeHtml";
+import type { UserEntry, FancyProfile, UserMode, UserStats } from "../types";
 import { textureToDataUrl, parseComment } from "../profileFormat";
+import { getPreferences } from "../preferencesStorage";
+import { formatDuration, formatBandwidth } from "../utils/format";
 import {
   DECORATIONS,
   NAMEPLATES,
@@ -22,7 +25,7 @@ import {
 } from "../pages/settings/profileData";
 import styles from "./UserProfileView.module.css";
 
-// ─── Helpers ──────────────────────────────────────────────────────
+// --- Helpers ------------------------------------------------------
 
 function resolveCardBg(profile: FancyProfile): React.CSSProperties {
   const id = profile.cardBackground ?? "default";
@@ -54,7 +57,7 @@ function resolveAvatarBorder(profile: FancyProfile): React.CSSProperties {
   return out;
 }
 
-// ─── Component ────────────────────────────────────────────────────
+// --- Component ----------------------------------------------------
 
 export default function UserProfileView() {
   const selectedUser = useAppStore((s) => s.selectedUser);
@@ -78,6 +81,38 @@ function UserProfilePanel({
   user: UserEntry;
   onClose: () => void;
 }>) {
+  const [userMode, setUserMode] = useState<UserMode>("normal");
+  const [stats, setStats] = useState<UserStats | null>(null);
+
+  const isExpert = userMode !== "normal";
+
+  // Load user mode preference on mount.
+  useEffect(() => {
+    getPreferences().then((p) => setUserMode(p.userMode));
+  }, []);
+
+  // When in expert mode, request user stats from the server and listen
+  // for the asynchronous response.
+  useEffect(() => {
+    if (!isExpert) {
+      setStats(null);
+      return;
+    }
+
+    setStats(null);
+    invoke("request_user_stats", { session: user.session }).catch(() => {});
+
+    const unlisten = listen<UserStats>("user-stats", (event) => {
+      if (event.payload.session === user.session) {
+        setStats(event.payload);
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [isExpert, user.session]);
+
   const avatarDataUrl = useMemo(
     () =>
       user.texture && user.texture.length > 0
@@ -93,7 +128,6 @@ function UserProfilePanel({
 
   const profile: FancyProfile = parsed?.profile ?? {};
   const bio = parsed?.bio ?? "";
-  const cleanBio = useMemo(() => sanitizeBio(bio), [bio]);
 
   const nameStyle = profile.nameStyle ?? {};
   const decoration = DECORATIONS.find(
@@ -224,14 +258,12 @@ function UserProfilePanel({
         </div>
       </div>
 
-      {/* ── Expanded sections below the card ───────────────── */}
+      {/* -- Expanded sections below the card ----------------- */}
 
-      {cleanBio && (
+      {bio && (
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>About Me</h3>
-          <ExternalLinkGuard className={styles.bioContent}>
-            <div dangerouslySetInnerHTML={{ __html: cleanBio }} />
-          </ExternalLinkGuard>
+          <SafeHtml html={bio} className={styles.bioContent} />
         </section>
       )}
 
@@ -244,6 +276,70 @@ function UserProfilePanel({
           <span className={styles.infoValue}>{user.channel_id}</span>
         </div>
       </section>
+
+      {isExpert && stats && (
+        <section className={styles.section}>
+          <h3 className={styles.sectionTitle}>Connection Statistics</h3>
+          <div className={styles.infoGrid}>
+            <span className={styles.infoLabel}>TCP Ping</span>
+            <span className={styles.infoValue}>
+              {stats.tcp_ping_avg.toFixed(1)} ms
+            </span>
+
+            <span className={styles.infoLabel}>TCP Variance</span>
+            <span className={styles.infoValue}>
+              {stats.tcp_ping_var.toFixed(1)} ms
+            </span>
+
+            <span className={styles.infoLabel}>TCP Packets</span>
+            <span className={styles.infoValue}>{stats.tcp_packets}</span>
+
+            {stats.udp_packets > 0 && (
+              <>
+                <span className={styles.infoLabel}>UDP Ping</span>
+                <span className={styles.infoValue}>
+                  {stats.udp_ping_avg.toFixed(1)} ms
+                </span>
+
+                <span className={styles.infoLabel}>UDP Variance</span>
+                <span className={styles.infoValue}>
+                  {stats.udp_ping_var.toFixed(1)} ms
+                </span>
+
+                <span className={styles.infoLabel}>UDP Packets</span>
+                <span className={styles.infoValue}>{stats.udp_packets}</span>
+              </>
+            )}
+
+            {stats.bandwidth != null && (
+              <>
+                <span className={styles.infoLabel}>Bandwidth</span>
+                <span className={styles.infoValue}>
+                  {formatBandwidth(stats.bandwidth * 8)}
+                </span>
+              </>
+            )}
+
+            {stats.onlinesecs != null && (
+              <>
+                <span className={styles.infoLabel}>Online</span>
+                <span className={styles.infoValue}>
+                  {formatDuration(stats.onlinesecs)}
+                </span>
+              </>
+            )}
+
+            {stats.idlesecs != null && (
+              <>
+                <span className={styles.infoLabel}>Idle</span>
+                <span className={styles.infoValue}>
+                  {formatDuration(stats.idlesecs)}
+                </span>
+              </>
+            )}
+          </div>
+        </section>
+      )}
     </aside>
   );
 }

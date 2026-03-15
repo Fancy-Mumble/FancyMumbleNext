@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from "react";
+﻿import { useRef, useState, useCallback } from "react";
 import type { FancyProfile } from "../../types";
 import { updatePreferences } from "../../preferencesStorage";
 import { Toggle, SliderField } from "./SharedControls";
@@ -93,7 +93,7 @@ export function ProfilePanel({
     <>
       <h2 className={styles.panelTitle}>Profile</h2>
 
-      {/* ── Default Username ─────────────────────────────────── */}
+      {/* -- Default Username ----------------------------------- */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Default Username</h3>
         <p className={styles.fieldHint}>
@@ -113,7 +113,7 @@ export function ProfilePanel({
         />
       </section>
 
-      {/* ── Avatar ───────────────────────────────────────────── */}
+      {/* -- Avatar --------------------------------------------- */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Avatar</h3>
         <p className={styles.fieldHint}>
@@ -160,7 +160,7 @@ export function ProfilePanel({
         />
       </section>
 
-      {/* ── Bio ──────────────────────────────────────────────── */}
+      {/* -- Bio ------------------------------------------------ */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Bio</h3>
         <p className={styles.fieldHint}>
@@ -170,11 +170,11 @@ export function ProfilePanel({
           value={bio}
           onChange={onBioChange}
           maxLength={2000}
-          placeholder="Tell others about yourself…"
+          placeholder="Tell others about yourself..."
         />
       </section>
 
-      {/* ── Custom Status ────────────────────────────────────── */}
+      {/* -- Custom Status -------------------------------------- */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Status</h3>
         <p className={styles.fieldHint}>
@@ -191,11 +191,11 @@ export function ProfilePanel({
               status: e.target.value || undefined,
             })
           }
-          placeholder="🎮 Playing a game…"
+          placeholder="🎮 Playing a game..."
         />
       </section>
 
-      {/* ── Card Background ──────────────────────────────────── */}
+      {/* -- Card Background ------------------------------------ */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Card Background</h3>
         <p className={styles.fieldHint}>
@@ -244,7 +244,7 @@ export function ProfilePanel({
         )}
       </section>
 
-      {/* ── Avatar Border ────────────────────────────────────── */}
+      {/* -- Avatar Border -------------------------------------- */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Avatar Border</h3>
         <p className={styles.fieldHint}>
@@ -306,7 +306,7 @@ export function ProfilePanel({
         )}
       </section>
 
-      {/* ── Profile Decoration ───────────────────────────────── */}
+      {/* -- Profile Decoration --------------------------------- */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Profile Decoration</h3>
         <p className={styles.fieldHint}>
@@ -335,7 +335,7 @@ export function ProfilePanel({
         </div>
       </section>
 
-      {/* ── Nameplate ────────────────────────────────────────── */}
+      {/* -- Nameplate ------------------------------------------ */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Nameplate</h3>
         <p className={styles.fieldHint}>
@@ -364,7 +364,7 @@ export function ProfilePanel({
         </div>
       </section>
 
-      {/* ── Profile Effect ───────────────────────────────────── */}
+      {/* -- Profile Effect ------------------------------------- */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Profile Effect</h3>
         <p className={styles.fieldHint}>
@@ -393,7 +393,7 @@ export function ProfilePanel({
         </div>
       </section>
 
-      {/* ── Name Style ───────────────────────────────────────── */}
+      {/* -- Name Style ----------------------------------------- */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Name Style</h3>
         <p className={styles.fieldHint}>
@@ -567,7 +567,7 @@ export function ProfilePanel({
         </div>
       </section>
 
-      {/* ── Banner ───────────────────────────────────────────── */}
+      {/* -- Banner --------------------------------------------- */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Banner</h3>
         <p className={styles.fieldHint}>

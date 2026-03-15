@@ -1,12 +1,13 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+﻿import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store";
 import type { ChannelEntry, UserEntry, VoiceState, SidebarSections } from "../types";
-import { textureToDataUrl, parseComment } from "../profileFormat";
 import { getPreferences, updatePreferences } from "../preferencesStorage";
-import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
 import { SuperSearch } from "./SuperSearch";
+import { UserListItem, colorFor, avatarUrl } from "./UserListItem";
+import { UserContextMenu } from "./UserContextMenu";
+import type { UserContextMenuState } from "./UserContextMenu";
 import styles from "./ChannelSidebar.module.css";
 
 /** Mumble permission bitmask: Listen to channel (bit 11). */
@@ -19,44 +20,7 @@ function canListen(channel: ChannelEntry | undefined): boolean {
   return (channel.permissions & PERM_LISTEN) !== 0;
 }
 
-const AVATAR_COLORS = [
-  "#2AABEE",
-  "#7c3aed",
-  "#22c55e",
-  "#f59e0b",
-  "#ef4444",
-  "#ec4899",
-];
-
-function colorFor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = (name.codePointAt(i) ?? 0) + ((hash << 5) - hash);
-  }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
-
 const MAX_STACKED = 3;
-
-/** Approximate height of the profile hover card, used for viewport clamping. */
-const HOVER_CARD_H = 340;
-const HOVER_CARD_MARGIN = 10;
-
-/**
- * Cache texture→dataURL conversions keyed by session ID.
- * Invalidated when the texture reference changes (length as a simple check).
- */
-const textureCache = new Map<number, { len: number; url: string }>();
-
-/** Get avatar data-URL from texture bytes, or null.  Uses a per-session cache. */
-function avatarUrl(user: UserEntry): string | null {
-  if (!user.texture || user.texture.length === 0) return null;
-  const cached = textureCache.get(user.session);
-  if (cached?.len === user.texture.length) return cached.url;
-  const url = textureToDataUrl(user.texture);
-  textureCache.set(user.session, { len: user.texture.length, url });
-  return url;
-}
 
 // --- Stacked avatar component -------------------------------------
 
@@ -125,95 +89,6 @@ function StackedAvatars({ users }: Readonly<{ users: UserEntry[] }>) {
 }
 
 // --- Build tree helpers -------------------------------------------
-
-// --- User item with profile card on hover -------------------------
-
-function UserItem({ user, channelName: chName }: Readonly<{ user: UserEntry; channelName: string }>) {
-  const [showCard, setShowCard] = useState(false);
-  const [cardPos, setCardPos] = useState<{ top: number; left: number } | null>(null);
-  const itemRef = useRef<HTMLButtonElement>(null);
-  const selectDmUser = useAppStore((s) => s.selectDmUser);
-  const ownSession = useAppStore((s) => s.ownSession);
-  const dmUnread = useAppStore((s) => s.dmUnreadCounts[user.session] ?? 0);
-  const selectedDmUser = useAppStore((s) => s.selectedDmUser);
-  const url = useMemo(() => avatarUrl(user), [user.texture]);
-  const parsed = useMemo(
-    () => (user.comment ? parseComment(user.comment) : null),
-    [user.comment],
-  );
-
-  const handleEnter = useCallback(() => {
-    if (itemRef.current) {
-      const rect = itemRef.current.getBoundingClientRect();
-      const rawTop = rect.top + rect.height / 2;
-      // Clamp so the card never clips above or below the viewport.
-      const top = Math.max(
-        HOVER_CARD_H / 2 + HOVER_CARD_MARGIN,
-        Math.min(rawTop, window.innerHeight - HOVER_CARD_H / 2 - HOVER_CARD_MARGIN),
-      );
-      setCardPos({ top, left: rect.right + 8 });
-    }
-    setShowCard(true);
-  }, []);
-
-  const handleLeave = useCallback(() => {
-    setShowCard(false);
-  }, []);
-
-  const handleClick = useCallback(() => {
-    // Don't open a DM with yourself.
-    if (user.session === ownSession) return;
-    selectDmUser(user.session);
-  }, [user.session, ownSession, selectDmUser]);
-
-  const isActiveDm = selectedDmUser === user.session;
-
-  return (
-    <button
-      ref={itemRef}
-      type="button"
-      className={`${styles.userItem} ${isActiveDm ? styles.userItemActive : ""}`}
-      onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
-      onClick={handleClick}
-    >
-      <div className={styles.userAvatarWrap}>
-        {url ? (
-          <img src={url} alt={user.name} className={styles.userAvatarImg} />
-        ) : (
-          <div
-            className={styles.userAvatar}
-            style={{ background: colorFor(user.name) }}
-          >
-            {user.name.charAt(0).toUpperCase()}
-          </div>
-        )}
-        <span className={styles.onlineDot} />
-      </div>
-      <span className={styles.userName}>{user.name}</span>
-      {dmUnread > 0 && (
-        <span className={styles.unreadBadge}>
-          {dmUnread > 99 ? "99+" : dmUnread}
-        </span>
-      )}
-      <span className={styles.userChannelChip}>{chName}</span>
-      {showCard && cardPos && createPortal(
-        <div
-          className={styles.profilePopover}
-          style={{ top: cardPos.top, left: cardPos.left }}
-        >
-          <ProfilePreviewCard
-            profile={parsed?.profile ?? {}}
-            bio={parsed?.bio ?? ""}
-            avatar={url}
-            displayName={user.name}
-          />
-        </div>,
-        document.body,
-      )}
-    </button>
-  );
-}
 
 // --- Build tree helpers (continued) ------------------------------
 
@@ -437,6 +312,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
   const ownSession = useAppStore((s) => s.ownSession);
 
   const selectDmUser = useAppStore((s) => s.selectDmUser);
+  const selectedDmUser = useAppStore((s) => s.selectedDmUser);
 
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -521,6 +397,18 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
     };
   }, [ctxMenu]);
 
+  // -- User context menu state ------------------------------------
+  const [userCtxMenu, setUserCtxMenu] = useState<UserContextMenuState | null>(null);
+
+  const openUserCtxMenu = useCallback(
+    (e: React.MouseEvent, user: UserEntry) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setUserCtxMenu({ x: e.clientX, y: e.clientY, user });
+    },
+    [],
+  );
+
   const { root, groups } = useMemo(() => buildGroups(channels), [channels]);
 
   const usersByChannel = useMemo(() => {
@@ -568,7 +456,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
       // Populated channels first.
       if (aCount > 0 && bCount === 0) return -1;
       if (aCount === 0 && bCount > 0) return 1;
-      // Same tier → alphabetical.
+      // Same tier -> alphabetical.
       return a.folder.name.localeCompare(b.folder.name);
     });
   }, [groups, groupUserCount]);
@@ -956,10 +844,15 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
         </button>
         {onlineOpen && <div className={styles.userList}>
           {users.map((user) => (
-            <UserItem
+            <UserListItem
               key={user.session}
               user={user}
               channelName={channelName(user.channel_id)}
+              active={selectedDmUser === user.session}
+              onClick={() => {
+                if (user.session !== ownSession) selectDmUser(user.session);
+              }}
+              onContextMenu={(e) => openUserCtxMenu(e, user)}
             />
           ))}
         </div>}
@@ -1081,6 +974,14 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
           </div>
         );
       })()}
+
+      {/* User context menu */}
+      {userCtxMenu && (
+        <UserContextMenu
+          menu={userCtxMenu}
+          onClose={() => setUserCtxMenu(null)}
+        />
+      )}
 
       {/* Super search overlay */}
       <SuperSearch

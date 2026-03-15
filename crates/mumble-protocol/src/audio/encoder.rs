@@ -1,4 +1,4 @@
-//! Audio encoder trait and real Opus implementation.
+﻿//! Audio encoder trait and real Opus implementation.
 //!
 //! An [`AudioEncoder`] takes raw PCM [`AudioFrame`]s and produces
 //! compressed packets ready for network transmission. The trait is
@@ -75,11 +75,11 @@ pub struct OpusEncoderConfig {
     pub application: OpusApplication,
     /// Enable variable bit-rate.
     pub vbr: bool,
-    /// Encoder complexity (0–10). Higher = better quality, more CPU.
+    /// Encoder complexity (0-10). Higher = better quality, more CPU.
     pub complexity: i32,
     /// Enable in-band forward error correction.
     pub fec: bool,
-    /// Expected packet loss percentage (0–100). Tunes FEC redundancy.
+    /// Expected packet loss percentage (0-100). Tunes FEC redundancy.
     pub packet_loss_percent: i32,
     /// Enable discontinuous transmission (saves bandwidth in silence
     /// by sending very small "comfort-noise" packets).

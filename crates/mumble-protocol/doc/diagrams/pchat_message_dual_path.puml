@@ -1,0 +1,60 @@
+@startuml pchat_message_dual_path
+!theme plain
+title Persistent Chat - Dual-Path Message Delivery
+
+actor "Sender" as sender
+participant "Server\n(Mumble)" as mumble
+participant "Server\nCompanion" as companion
+actor "Online\nRecipient" as online
+actor "Offline\nRecipient" as offline
+database "pchat_messages" as db
+
+== Sending a Message (Persistent Channel) ==
+
+sender -> sender : Generate message_id (UUID v4)
+sender -> sender : Generate timestamp
+
+sender -> sender : Serialize MessageEnvelope\n{ body, sender_name, sender_session }
+sender -> sender : Pad + Encrypt\n(XChaCha20-Poly1305, see encryption pipeline)
+sender -> sender : Build fancy-pchat-msg payload
+
+group Dual-Path Delivery
+    sender -> companion : PluginDataTransmission\n(fancy-pchat-msg, encrypted)\ntarget: companion_session
+    note right
+      Encrypted copy for
+      durable storage
+    end note
+
+    sender -> mumble : TextMessage\n{ message_id, timestamp,\n  channel_id, message: body }
+    note right
+      Plaintext copy for
+      real-time delivery
+      (includes legacy clients)
+    end note
+end
+
+== Real-Time Path ==
+
+mumble -> online : TextMessage\n(plaintext, immediate)
+online -> online : Store in\nVolatileMessageProvider\n(in-memory HashMap)
+online -> online : Display in UI
+
+mumble -> offline : (not delivered;\nuser is offline)
+
+== Persistent Storage Path ==
+
+companion -> companion : Validate sender_hash\nCheck rate limits\nCheck payload_size <= 64 KiB
+companion -> db : INSERT into pchat_messages\n{ message_id, channel_id, timestamp,\n  sender_hash, mode, payload }
+companion -> sender : fancy-pchat-ack\n{ message_id, status: "stored" }
+
+== Reconnection & History Fetch ==
+
+offline -> mumble : Connect, authenticate
+offline -> companion : fancy-pchat-fetch\n{ channel_id, limit: 50 }
+companion -> db : SELECT from pchat_messages\nWHERE superseded_by IS NULL\nORDER BY timestamp DESC
+companion -> offline : fancy-pchat-fetch-resp\n{ messages: [...], has_more }
+offline -> offline : Decrypt each message\nwith mode-appropriate key\n(epoch_key -> chain_key -> message_key)
+offline -> offline : Store in\nPersistentMessageProvider\n(local cache)
+offline -> offline : Display history in UI
+
+@enduml

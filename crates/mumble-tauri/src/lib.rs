@@ -1,4 +1,4 @@
-//! Tauri application entry point with Mumble backend commands.
+﻿//! Tauri application entry point with Mumble backend commands.
 //!
 // All public command functions receive `tauri::State` by value, which is
 // required by the `#[tauri::command]` macro - suppress the lint crate-wide.
@@ -398,6 +398,103 @@ async fn ping_server(host: String, port: u16) -> PingResult {
 }
 
 // --- Audio device commands ----------------------------------------
+
+/// A public Mumble server from the official directory.
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+struct PublicServer {
+    name: String,
+    country: String,
+    country_code: String,
+    ip: String,
+    port: u16,
+    region: String,
+    url: String,
+}
+
+/// XML wrapper: `<servers><server .../> ...</servers>`
+#[derive(serde::Deserialize, Debug)]
+struct ServersXml {
+    #[serde(rename = "server", default)]
+    server: Vec<ServerXml>,
+}
+
+/// A single `<server ... />` element with attributes.
+#[derive(serde::Deserialize, Debug)]
+struct ServerXml {
+    #[serde(rename = "@name", default)]
+    name: String,
+    #[serde(rename = "@country", default)]
+    country: String,
+    #[serde(rename = "@country_code", default)]
+    country_code: String,
+    #[serde(rename = "@ip", default)]
+    ip: String,
+    #[serde(rename = "@port", default = "default_port")]
+    port: u16,
+    #[serde(rename = "@region", default)]
+    region: String,
+    #[serde(rename = "@url", default)]
+    url: String,
+}
+
+fn default_port() -> u16 {
+    64738
+}
+
+/// Parse the Mumble public server list XML into a vec of [`PublicServer`].
+fn parse_public_server_xml(xml: &str) -> Result<Vec<PublicServer>, String> {
+    let parsed: ServersXml =
+        quick_xml::de::from_str(xml).map_err(|e| format!("XML parse error: {e}"))?;
+
+    Ok(parsed
+        .server
+        .into_iter()
+        .map(|s| PublicServer {
+            name: s.name,
+            country: s.country,
+            country_code: s.country_code,
+            ip: s.ip,
+            port: s.port,
+            region: s.region,
+            url: s.url,
+        })
+        .collect())
+}
+
+/// Fetch the official Mumble public server list.
+///
+/// The list is served as XML from `https://publist.mumble.info/v1/list`.
+#[tauri::command]
+async fn fetch_public_servers() -> Result<Vec<PublicServer>, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) FancyMumble/1.0 Safari/537.36")
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    let response = client
+        .get("https://publist.mumble.info/v1/list")
+        .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch public server list: {e}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("Server returned HTTP {status}"));
+    }
+
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read response body: {e}"))?;
+
+    tracing::debug!("Public server list: {} bytes received", body.len());
+
+    let servers = parse_public_server_xml(&body)?;
+
+    tracing::info!("Fetched {} public servers", servers.len());
+    Ok(servers)
+}
 
 /// List available audio input devices (microphones).
 /// Only available on desktop (cpal is not supported on Android).
@@ -802,6 +899,88 @@ fn get_debug_stats(state: tauri::State<'_, AppState>) -> DebugStats {
     state.debug_stats()
 }
 
+// -- Admin commands ----------------------------------------------
+
+/// Kick a user from the server.
+#[tauri::command]
+async fn kick_user(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+    reason: Option<String>,
+) -> Result<(), String> {
+    state.kick_user(session, reason).await
+}
+
+/// Ban a user from the server.
+#[tauri::command]
+async fn ban_user(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+    reason: Option<String>,
+) -> Result<(), String> {
+    state.ban_user(session, reason).await
+}
+
+/// Admin-mute or unmute another user.
+#[tauri::command]
+async fn mute_user(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+    muted: bool,
+) -> Result<(), String> {
+    state.mute_user(session, muted).await
+}
+
+/// Admin-deafen or undeafen another user.
+#[tauri::command]
+async fn deafen_user(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+    deafened: bool,
+) -> Result<(), String> {
+    state.deafen_user(session, deafened).await
+}
+
+/// Set or clear priority speaker for another user.
+#[tauri::command]
+async fn set_priority_speaker(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+    priority: bool,
+) -> Result<(), String> {
+    state.set_priority_speaker(session, priority).await
+}
+
+/// Reset another user's comment (admin action).
+#[tauri::command]
+async fn reset_user_comment(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+) -> Result<(), String> {
+    state.reset_user_comment(session).await
+}
+
+/// Remove another user's avatar (admin action).
+#[tauri::command]
+async fn remove_user_avatar(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+) -> Result<(), String> {
+    state.remove_user_avatar(session).await
+}
+
+/// Request ping/connection statistics for a specific user.
+///
+/// The server responds asynchronously with a `UserStats` message,
+/// which is emitted to the frontend as a `"user-stats"` event.
+#[tauri::command]
+async fn request_user_stats(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+) -> Result<(), String> {
+    state.request_user_stats(session).await
+}
+
 // --- Application bootstrap ---------------------------------------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -857,6 +1036,7 @@ pub fn run() {
             get_welcome_text,
             update_channel,
             ping_server,
+            fetch_public_servers,
             get_audio_devices,
             get_output_devices,
             get_audio_settings,
@@ -895,6 +1075,14 @@ pub fn run() {
             clear_offloaded_messages,
             get_debug_stats,
             super_search,
+            kick_user,
+            ban_user,
+            mute_user,
+            deafen_user,
+            set_priority_speaker,
+            reset_user_comment,
+            remove_user_avatar,
+            request_user_stats,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -906,4 +1094,115 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_single_server() {
+        let xml = r#"<servers><server name="Test Server" ca="1" continent_code="EU" country="Germany" country_code="DE" ip="mumble.example.com" port="64738" region="Bavaria" url="https://example.com"/></servers>"#;
+        let servers = parse_public_server_xml(xml).unwrap();
+        assert_eq!(servers.len(), 1);
+        assert_eq!(
+            servers[0],
+            PublicServer {
+                name: "Test Server".into(),
+                country: "Germany".into(),
+                country_code: "DE".into(),
+                ip: "mumble.example.com".into(),
+                port: 64738,
+                region: "Bavaria".into(),
+                url: "https://example.com".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_multiple_servers() {
+        let xml = r#"<servers>
+            <server name="Alpha" ca="0" continent_code="NA" country="Canada" country_code="CA" ip="1.2.3.4" port="12345" region="Ontario" url="https://alpha.ca"/>
+            <server name="Beta" ca="1" continent_code="AS" country="Japan" country_code="JP" ip="5.6.7.8" port="64738" region="Tokyo" url="https://beta.jp"/>
+            <server name="Gamma" ca="0" continent_code="EU" country="France" country_code="FR" ip="fr.example.com" port="9999" region="Paris" url=""/>
+        </servers>"#;
+        let servers = parse_public_server_xml(xml).unwrap();
+        assert_eq!(servers.len(), 3);
+        assert_eq!(servers[0].name, "Alpha");
+        assert_eq!(servers[0].country_code, "CA");
+        assert_eq!(servers[0].port, 12345);
+        assert_eq!(servers[1].name, "Beta");
+        assert_eq!(servers[1].country, "Japan");
+        assert_eq!(servers[2].name, "Gamma");
+        assert_eq!(servers[2].ip, "fr.example.com");
+        assert_eq!(servers[2].port, 9999);
+    }
+
+    #[test]
+    fn parse_empty_server_list() {
+        let xml = r#"<servers></servers>"#;
+        let servers = parse_public_server_xml(xml).unwrap();
+        assert!(servers.is_empty());
+    }
+
+    #[test]
+    fn parse_self_closing_servers_tag() {
+        let xml = r#"<servers/>"#;
+        let servers = parse_public_server_xml(xml).unwrap();
+        assert!(servers.is_empty());
+    }
+
+    #[test]
+    fn parse_default_port_when_missing() {
+        let xml = r#"<servers><server name="NoPort" country="US" country_code="US" ip="10.0.0.1" region="Test" url=""/></servers>"#;
+        let servers = parse_public_server_xml(xml).unwrap();
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].port, 64738);
+    }
+
+    #[test]
+    fn parse_special_characters_in_name() {
+        let xml = r#"<servers><server name="&lt;Cool&amp;Server&gt;" country="US" country_code="US" ip="10.0.0.1" port="64738" region="Test" url=""/></servers>"#;
+        let servers = parse_public_server_xml(xml).unwrap();
+        assert_eq!(servers[0].name, "<Cool&Server>");
+    }
+
+    #[test]
+    fn parse_unicode_in_name() {
+        let xml = r#"<servers><server name="Mumble Deutsch" country="Germany" country_code="DE" ip="10.0.0.1" port="64738" region="NRW" url=""/></servers>"#;
+        let servers = parse_public_server_xml(xml).unwrap();
+        assert_eq!(servers[0].name, "Mumble Deutsch");
+        assert_eq!(servers[0].country, "Germany");
+    }
+
+    #[test]
+    fn parse_invalid_xml_returns_error() {
+        let xml = r#"<servers><server name="broken"</servers>"#;
+        let result = parse_public_server_xml(xml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("XML parse error"));
+    }
+
+    #[test]
+    fn parse_extra_attributes_are_ignored() {
+        let xml = r#"<servers><server name="Extra" ca="1" continent_code="EU" country="UK" country_code="GB" ip="10.0.0.1" port="64738" region="London" url="https://uk.example.com" extra_field="ignored"/></servers>"#;
+        let servers = parse_public_server_xml(xml).unwrap();
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, "Extra");
+    }
+
+    #[test]
+    fn parse_realistic_snippet() {
+        let xml = r#"<servers>
+<server name="`JOIN RADIO BRIKER NUSANTARA`" ca="0" continent_code="AS" country="Singapore" country_code="SG" ip="beve-studio.my.id" port="10622" region="Singapore" url="https://www.mumble.info/"/>
+<server name="Comms" ca="1" continent_code="EU" country="Germany" country_code="DE" ip="mumble.natenom.dev" port="64738" region="Baden-Wurttemberg" url="https://natenom.dev"/>
+</servers>"#;
+        let servers = parse_public_server_xml(xml).unwrap();
+        assert_eq!(servers.len(), 2);
+        assert_eq!(servers[0].name, "`JOIN RADIO BRIKER NUSANTARA`");
+        assert_eq!(servers[0].country_code, "SG");
+        assert_eq!(servers[0].port, 10622);
+        assert_eq!(servers[1].ip, "mumble.natenom.dev");
+        assert_eq!(servers[1].country, "Germany");
+    }
 }

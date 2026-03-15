@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+﻿import { useState, useEffect, useRef, useCallback } from "react";
 import { loadImage, cropToCanvas, resizeImage } from "./imageUtils";
 import styles from "./SettingsPage.module.css";
 
@@ -92,7 +92,7 @@ export function ImageEditor({
     [img, minZoom, zoom, pos, clamp, cropLeft, cropTop, cropW, cropH],
   );
 
-  // ── Mouse / pointer handlers ──────────────────────────────────
+  // -- Mouse / pointer handlers ----------------------------------
   const onPointerDown = (e: React.PointerEvent) => {
     dragging.current = true;
     lastMouse.current = { x: e.clientX, y: e.clientY };
@@ -116,7 +116,7 @@ export function ImageEditor({
     handleZoom(zoom * (1 - e.deltaY * 0.001));
   };
 
-  // ── Export ─────────────────────────────────────────────────────
+  // -- Export -----------------------------------------------------
   const handleConfirm = useCallback(async () => {
     if (!img) return;
     // Map crop area back to natural-image coordinates.
@@ -160,7 +160,7 @@ export function ImageEditor({
             }}
           />
 
-          {/* SVG mask overlay – darkens everything outside the crop region */}
+          {/* SVG mask overlay - darkens everything outside the crop region */}
           <svg className={styles.editorMask} viewBox={`0 0 ${VP_W} ${VP_H}`}>
             <defs>
               <mask id="crop-mask">
