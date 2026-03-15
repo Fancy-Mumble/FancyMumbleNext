@@ -232,3 +232,17 @@
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.2);
 }
+
+/* When rendered inside a MobileBottomSheet, fill the available width. */
+@media (max-width: 768px) {
+  .panel {
+    width: 100%;
+    height: auto;
+    border-left: none;
+    overflow-y: visible;
+  }
+
+  .closeBtn {
+    display: none;
+  }
+}

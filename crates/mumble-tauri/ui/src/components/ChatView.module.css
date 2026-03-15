@@ -474,7 +474,9 @@
 @media (max-width: 768px) {
   /* Reserve space for the hamburger button */
   .header {
-    padding: 12px 16px 12px 60px;
+    padding: 12px 16px 12px 56px;
+    min-height: 44px;
+    align-items: center;
   }
 
   .messages {

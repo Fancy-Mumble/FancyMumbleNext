@@ -12,6 +12,11 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     host: true,
+    hmr: {
+      // On Android devices, "localhost" resolves to the device itself.
+      // Use the dev machine's LAN IP so HMR WebSocket can connect.
+      host: process.env.TAURI_DEV_HOST || "localhost",
+    },
   },
 
   // Expose TAURI_* env variables to client code.

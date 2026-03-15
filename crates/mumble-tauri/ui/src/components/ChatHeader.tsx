@@ -1,3 +1,4 @@
+import { isMobilePlatform } from "../utils/platform";
 import styles from "./ChatView.module.css";
 
 interface ChatHeaderProps {
@@ -45,7 +46,7 @@ export default function ChatHeader({
           )}
           {prefix} {channelName}
         </h2>
-        <span className={styles.memberCount}>{subtitle}</span>
+        {!isMobilePlatform() && (<span className={styles.memberCount}>{subtitle}</span>)}
       </div>
       <div className={styles.headerActions}>
         {onChannelInfoToggle && !privateBadge && (
@@ -62,7 +63,7 @@ export default function ChatHeader({
         )}
         {!isInChannel && onJoin && (
           <button className={styles.joinBtn} onClick={onJoin}>
-            Join Channel
+            {isMobilePlatform() ? "Join" : "Join Channel"}
           </button>
         )}
       </div>

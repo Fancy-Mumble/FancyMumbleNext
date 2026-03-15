@@ -314,3 +314,17 @@
   color: var(--color-text-secondary);
   font-style: italic;
 }
+
+/* When rendered inside a MobileBottomSheet, fill the available width. */
+@media (max-width: 768px) {
+  .panel {
+    width: 100%;
+    height: auto;
+    border-left: none;
+    overflow-y: visible;
+  }
+
+  .closeBtn {
+    display: none;
+  }
+}

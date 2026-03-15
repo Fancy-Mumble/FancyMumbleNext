@@ -1493,7 +1493,16 @@
 
   .backBtn {
     margin-bottom: 0;
-    white-space: nowrap;
+    margin-right: 8px;
+    padding: 8px;
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+    border-right: 1px solid var(--color-glass-border);
+  }
+
+  .backBtn span {
+    display: none;
   }
 
   .tabList {

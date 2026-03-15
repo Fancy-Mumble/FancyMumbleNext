@@ -5,6 +5,7 @@ import type { UserEntry } from "../types";
 import { textureToDataUrl, parseComment } from "../profileFormat";
 import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
 import { colorFor } from "../utils/format";
+import { isMobilePlatform } from "../utils/platform";
 import styles from "./UserListItem.module.css";
 
 // Re-export so existing consumers (e.g. ChannelSidebar) keep working.
@@ -92,8 +93,10 @@ export function UserListItem({
   const isMuted = user.mute || user.self_mute;
   const isDeafened = user.deaf || user.self_deaf;
   const isPriority = user.priority_speaker;
+  const isMobile = isMobilePlatform();
 
   const handleEnter = useCallback(() => {
+    if (isMobile) return;
     if (itemRef.current) {
       const rect = itemRef.current.getBoundingClientRect();
       const rawTop = rect.top + rect.height / 2;
@@ -104,7 +107,7 @@ export function UserListItem({
       setCardPos({ top, left: rect.right + 8 });
     }
     setShowCard(true);
-  }, []);
+  }, [isMobile]);
 
   const handleLeave = useCallback(() => {
     setShowCard(false);
