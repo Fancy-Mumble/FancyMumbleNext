@@ -1,4 +1,4 @@
-import { load } from "@tauri-apps/plugin-store";
+﻿import { load } from "@tauri-apps/plugin-store";
 import type React from "react";
 import type { FancyProfile } from "../../types";
 
@@ -126,7 +126,7 @@ export const FONTS: { id: string; label: string; css: string }[] = [
   { id: "fantasy", label: "Fantasy", css: "'Impact', fantasy" },
 ];
 
-// ─── Card Backgrounds ──────────────────────────────────────────────
+// --- Card Backgrounds ----------------------------------------------
 
 export const CARD_BACKGROUNDS: {
   id: string;
@@ -196,12 +196,12 @@ export const CARD_BACKGROUNDS: {
   },
   {
     id: "custom",
-    label: "Custom…",
+    label: "Custom...",
     value: "",
   },
 ];
 
-// ─── Avatar Borders ────────────────────────────────────────────────
+// --- Avatar Borders ------------------------------------------------
 
 export const AVATAR_BORDERS: {
   id: string;
@@ -262,7 +262,7 @@ export const AVATAR_BORDERS: {
   },
   {
     id: "custom",
-    label: "Custom…",
+    label: "Custom...",
     border: "",
   },
 ];

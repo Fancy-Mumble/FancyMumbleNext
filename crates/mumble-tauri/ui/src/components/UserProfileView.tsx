@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Full-height right-side panel showing a user's full profile.
  *
  * Opened by clicking a username in the channel sidebar.
@@ -25,7 +25,7 @@ import {
 } from "../pages/settings/profileData";
 import styles from "./UserProfileView.module.css";
 
-// ─── Helpers ──────────────────────────────────────────────────────
+// --- Helpers ------------------------------------------------------
 
 function resolveCardBg(profile: FancyProfile): React.CSSProperties {
   const id = profile.cardBackground ?? "default";
@@ -57,7 +57,7 @@ function resolveAvatarBorder(profile: FancyProfile): React.CSSProperties {
   return out;
 }
 
-// ─── Component ────────────────────────────────────────────────────
+// --- Component ----------------------------------------------------
 
 export default function UserProfileView() {
   const selectedUser = useAppStore((s) => s.selectedUser);
@@ -258,7 +258,7 @@ function UserProfilePanel({
         </div>
       </div>
 
-      {/* ── Expanded sections below the card ───────────────── */}
+      {/* -- Expanded sections below the card ----------------- */}
 
       {bio && (
         <section className={styles.section}>

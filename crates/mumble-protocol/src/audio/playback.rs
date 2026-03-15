@@ -1,4 +1,4 @@
-//! Audio playback abstraction (pipeline output stage).
+﻿//! Audio playback abstraction (pipeline output stage).
 //!
 //! Implement [`AudioPlayback`] to send decoded PCM audio to any
 //! hardware or virtual output device.
@@ -27,7 +27,7 @@ pub trait AudioPlayback: Send + 'static {
     fn stop(&mut self) -> Result<()>;
 }
 
-// ── Null playback (testing / headless) ─────────────────────────────
+// -- Null playback (testing / headless) -----------------------------
 
 /// A playback sink that discards all audio. Useful for testing or bots.
 pub struct NullPlayback {

@@ -1,4 +1,4 @@
-//! Automatic gain control (AGC).
+﻿//! Automatic gain control (AGC).
 //!
 //! Normalises the signal level so quiet talkers are brought up and
 //! loud peaks are attenuated. Uses a simple envelope follower with
@@ -11,16 +11,16 @@ use crate::error::Result;
 /// Configuration for the AGC.
 #[derive(Debug, Clone)]
 pub struct AgcConfig {
-    /// Target RMS level (linear, 0.0–1.0).
+    /// Target RMS level (linear, 0.0-1.0).
     pub target_level: f32,
     /// Maximum gain that can be applied (prevents amplifying noise).
     pub max_gain: f32,
     /// Minimum gain (prevents total silence on loud signals).
     pub min_gain: f32,
-    /// Attack coefficient per frame (0.0–1.0). Smaller = slower reaction
+    /// Attack coefficient per frame (0.0-1.0). Smaller = slower reaction
     /// to increasing volume.
     pub attack: f32,
-    /// Release coefficient per frame (0.0–1.0). Smaller = slower reaction
+    /// Release coefficient per frame (0.0-1.0). Smaller = slower reaction
     /// to decreasing volume.
     pub release: f32,
 }

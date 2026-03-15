@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MediaPreview - renders inline media (images, GIFs, videos) extracted
  * from a Mumble message body.
  *
@@ -17,7 +17,7 @@ import {
 import styles from "./MediaPreview.module.css";
 import { ExternalLinkGuard } from "./ExternalLinkGuard";
 
-// ─── Types ────────────────────────────────────────────────────────
+// --- Types --------------------------------------------------------
 
 interface MediaItem {
   kind: "image" | "gif" | "video";
@@ -37,7 +37,7 @@ interface Props {
   compact?: boolean;
 }
 
-// ─── Global GIF-played tracker ────────────────────────────────────
+// --- Global GIF-played tracker ------------------------------------
 // Persists across re-renders and channel switches.  Once a GIF has
 // played its 4 s it is marked here so it will never auto-play again.
 const playedGifs = new Set<string>();
@@ -45,9 +45,9 @@ const playedGifs = new Set<string>();
 /** Cached frozen-frame data URLs so re-mounts don't need to reload. */
 const frozenFrames = new Map<string, string>();
 
-// ─── Helpers ──────────────────────────────────────────────────────
+// --- Helpers ------------------------------------------------------
 
-// ─── HTML Sanitiser (whitelist-based) ──────────────────────────────
+// --- HTML Sanitiser (whitelist-based) ------------------------------
 
 /** Tags allowed in message text after media extraction. */
 const ALLOWED_TAGS = new Set([
@@ -180,7 +180,7 @@ function extractMedia(html: string): { cleaned: string; media: MediaItem[] } {
   return { cleaned, media };
 }
 
-// ─── Sub-components ───────────────────────────────────────────────
+// --- Sub-components -----------------------------------------------
 
 function GifThumb({
   item,
@@ -198,7 +198,7 @@ function GifThumb({
     () => frozenFrames.get(id) ?? null,
   );
 
-  /** Snapshot whatever frame the <img> is currently showing → data URL,
+  /** Snapshot whatever frame the <img> is currently showing -> data URL,
    *  cache it, then freeze the display. */
   const captureAndFreeze = useCallback(() => {
     if (timerRef.current) {
@@ -287,7 +287,7 @@ function GifThumb({
           <div className={styles.thumbPlaceholder} />
         )}
         <button className={styles.replayOverlay} onClick={handleReplay}>
-          <span className={styles.replayIcon}>▶</span>
+          <span className={styles.replayIcon}>&#x25B6;</span>
         </button>
         <span className={styles.gifBadge}>GIF</span>
       </button>
@@ -332,12 +332,12 @@ function VideoThumb({
   return (
     <button type="button" className={styles.thumbWrap} onClick={onOpen}>
       <video className={styles.thumb} src={item.src} muted preload="metadata" />
-      <span className={styles.playBadge}>▶</span>
+      <span className={styles.playBadge}>&#x25B6;</span>
     </button>
   );
 }
 
-// ─── Lightbox ─────────────────────────────────────────────────────
+// --- Lightbox -----------------------------------------------------
 
 function Lightbox({
   item,
@@ -387,7 +387,7 @@ function Lightbox({
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────
+// --- Main component -----------------------------------------------
 
 export default function MediaPreview({ html, messageId, compact = false }: Readonly<Props>): ReactNode {
   const { cleaned, media } = extractMedia(html);

@@ -1,4 +1,4 @@
-//! Tauri application entry point with Mumble backend commands.
+﻿//! Tauri application entry point with Mumble backend commands.
 //!
 // All public command functions receive `tauri::State` by value, which is
 // required by the `#[tauri::command]` macro - suppress the lint crate-wide.
@@ -899,7 +899,7 @@ fn get_debug_stats(state: tauri::State<'_, AppState>) -> DebugStats {
     state.debug_stats()
 }
 
-// ── Admin commands ──────────────────────────────────────────────
+// -- Admin commands ----------------------------------------------
 
 /// Kick a user from the server.
 #[tauri::command]

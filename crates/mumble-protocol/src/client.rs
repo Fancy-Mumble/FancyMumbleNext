@@ -1,4 +1,4 @@
-//! Client orchestrator - the async event loop that ties everything together.
+﻿//! Client orchestrator - the async event loop that ties everything together.
 //!
 //! Spawns independent tasks for TCP reading, UDP reading, and a periodic
 //! ping timer, all feeding into the priority work queue. The main loop
@@ -91,7 +91,7 @@ pub async fn run<H: EventHandler>(
                 if is_retryable && attempt < MAX_RETRIES {
                     warn!(
                         "TCP connection attempt {attempt}/{MAX_RETRIES} failed ({e}), \
-                         retrying in {}s…",
+                         retrying in {}s...",
                         RETRY_DELAY.as_secs()
                     );
                     tokio::time::sleep(RETRY_DELAY).await;
@@ -158,7 +158,7 @@ pub async fn run<H: EventHandler>(
     Ok((client_handle, join))
 }
 
-// ── Event loop ─────────────────────────────────────────────────────
+// -- Event loop -----------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
 async fn event_loop<H: EventHandler>(
@@ -351,7 +351,7 @@ async fn event_loop<H: EventHandler>(
         }
     }
 
-    // ── Clean up all spawned sub-tasks ─────────────────────────────
+    // -- Clean up all spawned sub-tasks -----------------------------
     // These tasks hold channel senders/TCP stream halves.  If we just
     // drop them (detach), the ping task keeps `ping_tx` alive which
     // keeps the TCP writer alive, so the connection never closes.
@@ -364,7 +364,7 @@ async fn event_loop<H: EventHandler>(
     Ok(())
 }
 
-// ── Helpers ────────────────────────────────────────────────────────
+// -- Helpers --------------------------------------------------------
 
 fn handle_control_message<H: EventHandler>(
     msg: &ControlMessage,

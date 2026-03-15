@@ -1,4 +1,4 @@
-//! Integration tests for the Mumble protocol client.
+﻿//! Integration tests for the Mumble protocol client.
 //!
 //! These tests require a running Mumble server. Start one with:
 //!
@@ -141,7 +141,7 @@ async fn connect_and_authenticate(
     (transport, state)
 }
 
-// ── Tests ──────────────────────────────────────────────────────────
+// -- Tests ----------------------------------------------------------
 
 #[tokio::test]
 async fn test_tcp_connect_and_version_exchange() {
@@ -525,7 +525,7 @@ async fn test_server_config_has_large_limits() {
     drop(transport);
 }
 
-// ── PluginDataTransmission tests ───────────────────────────────────
+// -- PluginDataTransmission tests -----------------------------------
 
 /// Two clients connect; client A sends a `PluginDataTransmission` to client B.
 /// Client B must receive the message with the correct payload and `data_id`.
@@ -768,7 +768,7 @@ async fn test_poll_bidirectional_sending() {
         }
     }
 
-    // ── A → B ─────────────────────────────────────────────────────
+    // -- A -> B -----------------------------------------------------
     let poll_a = format!(
         r#"{{"type":"poll","id":"bidir-a","question":"From A?","options":["Yes","No"],"multiple":false,"creator":{session_a},"creatorName":"BiDirA","createdAt":"2025-01-01T00:00:00Z","channelId":0}}"#
     );
@@ -798,7 +798,7 @@ async fn test_poll_bidirectional_sending() {
     }
     assert!(b_got_poll, "B should receive poll from A");
 
-    // ── B → A ─────────────────────────────────────────────────────
+    // -- B -> A -----------------------------------------------------
     let poll_b = format!(
         r#"{{"type":"poll","id":"bidir-b","question":"From B?","options":["Yes","No"],"multiple":false,"creator":{session_b},"creatorName":"BiDirB","createdAt":"2025-01-01T00:00:00Z","channelId":0}}"#
     );
@@ -1381,7 +1381,7 @@ async fn test_channel_description_blob_request() {
     drop(su);
 }
 
-// ── Helpers ────────────────────────────────────────────────────────
+// -- Helpers --------------------------------------------------------
 
 /// Minimal base64 encoder (avoids adding a `base64` dependency just for tests).
 fn base64_encode(data: &[u8]) -> String {

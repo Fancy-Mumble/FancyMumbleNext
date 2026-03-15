@@ -1,4 +1,4 @@
-//! Self-describing commands using the Command pattern.
+﻿//! Self-describing commands using the Command pattern.
 //!
 //! Each command lives in its own file, carries its own data, and knows
 //! how to produce the protocol output it needs. Adding a new command
@@ -404,7 +404,7 @@ mod tests {
         }
     }
 
-    // ── SendPluginData tests ──────────────────────────────────────
+    // -- SendPluginData tests --------------------------------------
 
     #[test]
     fn send_plugin_data_produces_correct_message() {

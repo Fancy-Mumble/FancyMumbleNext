@@ -1,6 +1,6 @@
-import type { TimeFormat } from "../types";
+﻿import type { TimeFormat } from "../types";
 
-// ── Duration / uptime ─────────────────────────────────────────────
+// -- Duration / uptime ---------------------------------------------
 
 /** Format a number of seconds into a compact human-readable string (e.g. "2d 5h 3m 12s"). */
 export function formatDuration(totalSeconds: number): string {
@@ -16,7 +16,7 @@ export function formatDuration(totalSeconds: number): string {
   return parts.join(" ");
 }
 
-// ── Bandwidth ─────────────────────────────────────────────────────
+// -- Bandwidth -----------------------------------------------------
 
 /** Format a bandwidth value (bits/s) into a human-readable string. */
 export function formatBandwidth(bitsPerSec: number): string {
@@ -29,7 +29,7 @@ export function formatBandwidth(bitsPerSec: number): string {
   return `${bitsPerSec} bit/s`;
 }
 
-// ── Timestamp ─────────────────────────────────────────────────────
+// -- Timestamp -----------------------------------------------------
 
 /**
  * Format a Unix-epoch-millis timestamp into a short time string.
@@ -69,7 +69,7 @@ export function formatTimestamp(
   return d.toLocaleTimeString(undefined, opts);
 }
 
-// ── Avatar colour ─────────────────────────────────────────────────
+// -- Avatar colour -------------------------------------------------
 
 const AVATAR_COLORS = [
   "#2AABEE",

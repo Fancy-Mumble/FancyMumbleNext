@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Unit tests for PublicServerList component.
  *
  * Covers: consent gate, server rendering, sorting, fuzzy search,
@@ -8,7 +8,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
-// ─── Mocks ────────────────────────────────────────────────────────
+// --- Mocks --------------------------------------------------------
 
 const invokeMock = vi.fn<(cmd: string, args?: unknown) => Promise<unknown>>();
 
@@ -20,7 +20,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 import PublicServerList from "../PublicServerList";
 import type { PublicServer } from "../../types";
 
-// ─── Helpers ──────────────────────────────────────────────────────
+// --- Helpers ------------------------------------------------------
 
 function makeServer(overrides: Partial<PublicServer> = {}): PublicServer {
   return {
@@ -58,7 +58,7 @@ async function consentAndWait() {
   });
 }
 
-// ─── Tests ────────────────────────────────────────────────────────
+// --- Tests --------------------------------------------------------
 
 beforeEach(() => {
   vi.clearAllMocks();

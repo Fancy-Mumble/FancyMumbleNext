@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Regression tests for poll processing in the Zustand store.
  *
  * These tests verify that the store's "plugin-data" event handler
@@ -17,7 +17,7 @@ import { useAppStore } from "../../store";
 import type { PollPayload, PollVotePayload } from "../PollCreator";
 import { getPoll, getVotes, registerVote } from "../PollCard";
 
-// ─── Helpers ──────────────────────────────────────────────────────
+// --- Helpers ------------------------------------------------------
 
 function makePoll(overrides: Partial<PollPayload> = {}): PollPayload {
   return {
@@ -39,7 +39,7 @@ function simulateIncomingPoll(
   poll: PollPayload,
   senderSession: number | null = poll.creator,
 ) {
-  // This replicates the exact logic in initEventListeners → "plugin-data" handler
+  // This replicates the exact logic in initEventListeners -> "plugin-data" handler
   const bytes = new TextEncoder().encode(JSON.stringify(poll));
   const json = new TextDecoder().decode(bytes);
   const payload = JSON.parse(json) as PollPayload;
@@ -71,13 +71,13 @@ function simulateIncomingVote(
   useAppStore.setState({});
 }
 
-// ─── Reset store between tests ────────────────────────────────────
+// --- Reset store between tests ------------------------------------
 
 beforeEach(() => {
   useAppStore.getState().reset();
 });
 
-// ─── Core poll processing ─────────────────────────────────────────
+// --- Core poll processing -----------------------------------------
 
 describe("store poll processing (regression)", () => {
   it("addPoll stores poll in Zustand state", () => {
@@ -136,7 +136,7 @@ describe("store poll processing (regression)", () => {
   });
 });
 
-// ─── Simulated plugin-data processing ─────────────────────────────
+// --- Simulated plugin-data processing -----------------------------
 
 describe("simulated plugin-data event processing", () => {
   it("incoming poll appears in store state", () => {
@@ -238,7 +238,7 @@ describe("simulated plugin-data event processing", () => {
   });
 });
 
-// ─── Reset resilience ─────────────────────────────────────────────
+// --- Reset resilience ---------------------------------------------
 
 describe("poll state reset on disconnect", () => {
   it("reset clears polls and pollMessages", () => {

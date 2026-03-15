@@ -1,4 +1,4 @@
-//! Mumble TCP packet framing: encode and decode the `[type:u16][length:u32][payload]` wire format.
+﻿//! Mumble TCP packet framing: encode and decode the `[type:u16][length:u32][payload]` wire format.
 
 use bytes::{Buf, BufMut, BytesMut};
 use prost::Message;
@@ -55,7 +55,7 @@ pub fn decode(buf: &mut BytesMut) -> Result<Option<ControlMessage>> {
     Ok(Some(msg))
 }
 
-// ── Serialization helpers ──────────────────────────────────────────
+// -- Serialization helpers ------------------------------------------
 
 fn serialize_control_message(msg: &ControlMessage) -> Result<(u16, Vec<u8>)> {
     use ControlMessage::*;
@@ -414,7 +414,7 @@ mod tests {
         Ok(())
     }
 
-    // ── PluginDataTransmission codec tests ────────────────────────
+    // -- PluginDataTransmission codec tests ------------------------
 
     #[test]
     fn roundtrip_plugin_data_transmission() -> Result<()> {

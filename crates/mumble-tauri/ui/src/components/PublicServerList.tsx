@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { PublicServer, ServerPingResult } from "../types";
 import styles from "./PublicServerList.module.css";
@@ -146,7 +146,7 @@ export default function PublicServerList({
     return sorted;
   }, [servers, search, sortKey, sortDir, pings]);
 
-  // ── Consent gate ──────────────────────────────────────────────
+  // -- Consent gate ----------------------------------------------
   if (!consented) {
     return (
       <div className={styles.container}>
@@ -188,7 +188,7 @@ export default function PublicServerList({
     );
   }
 
-  // ── Main list view ────────────────────────────────────────────
+  // -- Main list view --------------------------------------------
   return (
     <div className={styles.container}>
       <div className={styles.header}>

@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode } from "react";
+﻿import { useState, useCallback, type ReactNode } from "react";
 import { eventToShortcut } from "./shortcutHelpers";
 import styles from "./SettingsPage.module.css";
 
@@ -132,7 +132,7 @@ export function ShortcutRecorder({
           className={`${styles.recorderInput} ${styles.recorderActive}`}
           autoFocus
           readOnly
-          placeholder="Press a key combo…"
+          placeholder="Press a key combo..."
           onKeyDown={handleKeyDown}
           onBlur={() => setRecording(false)}
         />

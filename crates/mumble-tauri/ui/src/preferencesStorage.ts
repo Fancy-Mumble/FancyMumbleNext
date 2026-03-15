@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Persistent storage for user preferences (app-wide settings)
  * using `@tauri-apps/plugin-store` (Tauri Store v2).
  */
@@ -78,7 +78,7 @@ export async function completeSetup(
   });
 }
 
-// ── Audio settings persistence ────────────────────────────────────
+// -- Audio settings persistence ------------------------------------
 
 /** Return persisted audio settings, or null if none saved yet. */
 export async function getSavedAudioSettings(): Promise<AudioSettings | null> {

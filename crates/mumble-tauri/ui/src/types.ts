@@ -1,4 +1,4 @@
-/** Lightweight value types mirroring the Rust backend structs. */
+﻿/** Lightweight value types mirroring the Rust backend structs. */
 
 export interface ChannelEntry {
   id: number;
@@ -102,7 +102,7 @@ export interface ServerPingResult {
   latency_ms: number | null;
 }
 
-// ─── Public Server List ───────────────────────────────────────────
+// --- Public Server List -------------------------------------------
 
 /** A public Mumble server from the official directory. */
 export interface PublicServer {
@@ -115,7 +115,7 @@ export interface PublicServer {
   url: string;
 }
 
-// ─── User Preferences ─────────────────────────────────────────────
+// --- User Preferences ---------------------------------------------
 
 /** Whether the user prefers a simplified or full-featured UI. */
 export type UserMode = "normal" | "expert" | "developer";
@@ -163,7 +163,7 @@ export interface DebugStats {
   uptime_seconds: number;
 }
 
-// ─── Audio / Voice ────────────────────────────────────────────────
+// --- Audio / Voice ------------------------------------------------
 
 export interface AudioDevice {
   name: string;
@@ -204,7 +204,7 @@ export interface AudioSettings {
 
 export type VoiceState = "inactive" | "active" | "muted";
 
-// ─── User Stats (ping statistics) ─────────────────────────────────
+// --- User Stats (ping statistics) ---------------------------------
 
 /** Ping and connection statistics for a user, returned by the server. */
 export interface UserStats {
@@ -222,7 +222,7 @@ export interface UserStats {
   opus: boolean;
 }
 
-// ─── Super Search ─────────────────────────────────────────────────
+// --- Super Search -------------------------------------------------
 
 export type SearchCategory = "channel" | "user" | "group" | "message";
 
@@ -235,7 +235,7 @@ export interface SearchResult {
   string_id: string | null;
 }
 
-// ─── FancyMumble Profile ──────────────────────────────────────────
+// --- FancyMumble Profile ------------------------------------------
 
 /**
  * Profile customisation data embedded in the Mumble user comment.

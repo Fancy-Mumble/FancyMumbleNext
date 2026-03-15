@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import type { UserMode, TimeFormat } from "../../types";
 import { Toggle } from "./SharedControls";
 import styles from "./SettingsPage.module.css";
@@ -72,7 +72,7 @@ export function AdvancedPanel({
             className={styles.input}
             value={klipyApiKey}
             onChange={(e) => onKlipyApiKeyChange(e.target.value)}
-            placeholder="klipy_xxxxxxxx…"
+            placeholder="klipy_xxxxxxxx..."
             autoComplete="off"
             spellCheck={false}
           />

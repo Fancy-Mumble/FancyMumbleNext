@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Security-focused tests for sanitizeHtml.
  *
  * Each section tries to break the sanitizer with known XSS vectors,
@@ -9,7 +9,7 @@
 import { describe, it, expect } from "vitest";
 import { sanitizeHtml } from "../sanitizeHtml";
 
-// ─── Helpers ──────────────────────────────────────────────────────
+// --- Helpers ------------------------------------------------------
 
 /** Parse the output into a temporary DOM so we can query it. */
 function parse(html: string): Document {
@@ -25,7 +25,7 @@ function expectStripped(input: string, needle: string) {
   expect(out.toLowerCase()).not.toContain(needle.toLowerCase());
 }
 
-// ─── Basic plumbing ───────────────────────────────────────────────
+// --- Basic plumbing -----------------------------------------------
 
 describe("sanitizeHtml basics", () => {
   it("returns empty string for empty input", () => {
@@ -72,7 +72,7 @@ describe("sanitizeHtml basics", () => {
   });
 });
 
-// ─── Script injection ─────────────────────────────────────────────
+// --- Script injection ---------------------------------------------
 
 describe("script injection", () => {
   it("strips <script> tags completely", () => {
@@ -102,7 +102,7 @@ describe("script injection", () => {
   });
 });
 
-// ─── Event handler attributes ─────────────────────────────────────
+// --- Event handler attributes -------------------------------------
 
 describe("event handler attributes", () => {
   it("strips onclick", () => {
@@ -137,7 +137,7 @@ describe("event handler attributes", () => {
   });
 });
 
-// ─── Dangerous tags ───────────────────────────────────────────────
+// --- Dangerous tags -----------------------------------------------
 
 describe("dangerous tags", () => {
   it("strips <iframe>", () => {
@@ -205,7 +205,7 @@ describe("dangerous tags", () => {
   });
 });
 
-// ─── Anchor href attacks ──────────────────────────────────────────
+// --- Anchor href attacks ------------------------------------------
 
 describe("anchor href attacks", () => {
   it("preserves valid https links and marks them external", () => {
@@ -312,7 +312,7 @@ describe("anchor href attacks", () => {
   });
 });
 
-// ─── Image src attacks ────────────────────────────────────────────
+// --- Image src attacks --------------------------------------------
 
 describe("image src attacks", () => {
   it("preserves data:image/png src", () => {
@@ -392,7 +392,7 @@ describe("image src attacks", () => {
   });
 });
 
-// ─── CSS injection ────────────────────────────────────────────────
+// --- CSS injection ------------------------------------------------
 
 describe("CSS injection", () => {
   it("preserves safe inline styles", () => {
@@ -458,7 +458,7 @@ describe("CSS injection", () => {
   });
 });
 
-// ─── Data attribute stripping ─────────────────────────────────────
+// --- Data attribute stripping -------------------------------------
 
 describe("data attributes", () => {
   it("strips custom data-* attributes from input", () => {
@@ -478,7 +478,7 @@ describe("data attributes", () => {
   });
 });
 
-// ─── Encoding / obfuscation bypasses ──────────────────────────────
+// --- Encoding / obfuscation bypasses ------------------------------
 
 describe("encoding and obfuscation attacks", () => {
   it("handles HTML-entity-encoded script tag", () => {
@@ -511,7 +511,7 @@ describe("encoding and obfuscation attacks", () => {
   });
 });
 
-// ─── DOM clobbering ───────────────────────────────────────────────
+// --- DOM clobbering -----------------------------------------------
 
 describe("DOM clobbering", () => {
   it("strips name attribute (prevents document.X clobbering)", () => {
@@ -530,7 +530,7 @@ describe("DOM clobbering", () => {
   });
 });
 
-// ─── Mutation XSS (mXSS) patterns ────────────────────────────────
+// --- Mutation XSS (mXSS) patterns --------------------------------
 
 describe("mutation XSS patterns", () => {
   it("handles noscript bypass", () => {
@@ -553,7 +553,7 @@ describe("mutation XSS patterns", () => {
   });
 });
 
-// ─── Nested and chained attacks ───────────────────────────────────
+// --- Nested and chained attacks -----------------------------------
 
 describe("nested and chained attacks", () => {
   it("handles script inside anchor text", () => {
@@ -601,7 +601,7 @@ describe("nested and chained attacks", () => {
   });
 });
 
-// ─── Font tag (legacy Mumble) ─────────────────────────────────────
+// --- Font tag (legacy Mumble) -------------------------------------
 
 describe("font tag handling", () => {
   it("preserves <font> with color attribute", () => {
@@ -628,7 +628,7 @@ describe("font tag handling", () => {
   });
 });
 
-// ─── Edge cases ───────────────────────────────────────────────────
+// --- Edge cases ---------------------------------------------------
 
 describe("edge cases", () => {
   it("handles extremely long input without crashing", () => {

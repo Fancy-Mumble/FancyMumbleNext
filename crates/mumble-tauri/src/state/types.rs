@@ -1,11 +1,11 @@
-//! UI value types, event payloads, and configuration structs serialised
+﻿//! UI value types, event payloads, and configuration structs serialised
 //! to the React frontend.
 
 use std::collections::HashMap;
 
 use serde::Serialize;
 
-// ─── UI value types (serializable to the frontend) ────────────────
+// --- UI value types (serializable to the frontend) ----------------
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ChannelEntry {
@@ -90,7 +90,7 @@ pub enum ConnectionStatus {
     Connected,
 }
 
-// ─── Server config ────────────────────────────────────────────────
+// --- Server config ------------------------------------------------
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ServerConfig {
@@ -153,7 +153,7 @@ pub struct ServerInfo {
     pub opus: bool,
 }
 
-// ─── Group chat ────────────────────────────────────────────────────
+// --- Group chat ----------------------------------------------------
 
 /// Debug statistics for the developer info panel.
 #[derive(Debug, Clone, Serialize)]
@@ -198,7 +198,7 @@ pub struct GroupChat {
     pub creator: u32,
 }
 
-// ─── Event payloads emitted to the frontend ───────────────────────
+// --- Event payloads emitted to the frontend -----------------------
 
 #[derive(Clone, Serialize)]
 pub(crate) struct NewMessagePayload {
@@ -219,13 +219,13 @@ pub(crate) struct RejectedPayload {
 
 #[derive(Clone, Serialize)]
 pub(crate) struct UnreadPayload {
-    /// `channel_id` → unread count
+    /// `channel_id` -> unread count
     pub unreads: HashMap<u32, u32>,
 }
 
 #[derive(Clone, Serialize)]
 pub(crate) struct DmUnreadPayload {
-    /// `session_id` → unread DM count
+    /// `session_id` -> unread DM count
     pub unreads: HashMap<u32, u32>,
 }
 
@@ -239,7 +239,7 @@ pub(crate) struct NewGroupMessagePayload {
 /// Emitted when group unread counts change.
 #[derive(Clone, Serialize)]
 pub(crate) struct GroupUnreadPayload {
-    /// `group_id` → unread count.
+    /// `group_id` -> unread count.
     pub unreads: HashMap<String, u32>,
 }
 
@@ -272,7 +272,7 @@ pub(crate) struct CurrentChannelPayload {
     pub channel_id: u32,
 }
 
-// ─── Audio types ──────────────────────────────────────────────────
+// --- Audio types --------------------------------------------------
 
 /// Microphone amplitude payload emitted during mic test.
 #[cfg(not(target_os = "android"))]
@@ -308,7 +308,7 @@ pub(crate) struct UserStatsPayload {
     pub opus: bool,
 }
 
-// ─── Search types ─────────────────────────────────────────────────
+// --- Search types -------------------------------------------------
 
 /// Category tag for a search result.
 #[derive(Debug, Clone, Serialize)]
@@ -340,7 +340,7 @@ pub struct SearchResult {
     pub string_id: Option<String>,
 }
 
-// ─── Audio device type ────────────────────────────────────────────
+// --- Audio device type --------------------------------------------
 
 /// An available audio input device.
 #[derive(Debug, Clone, Serialize)]
@@ -356,7 +356,7 @@ pub struct AudioSettings {
     pub selected_device: Option<String>,
     /// Whether auto-gain is enabled.
     pub auto_gain: bool,
-    /// Voice activation threshold (0.0–1.0). Below this level → silence.
+    /// Voice activation threshold (0.0-1.0). Below this level -> silence.
     pub vad_threshold: f32,
     /// AGC maximum gain boost in dB (expert, default 15.0).
     #[serde(default = "AudioSettings::default_max_gain")]
@@ -385,10 +385,10 @@ pub struct AudioSettings {
     /// Selected output device name (None = system default).
     #[serde(default)]
     pub selected_output_device: Option<String>,
-    /// Microphone volume multiplier (0.0–2.0, default 1.0).
+    /// Microphone volume multiplier (0.0-2.0, default 1.0).
     #[serde(default = "AudioSettings::default_volume")]
     pub input_volume: f32,
-    /// Speaker volume multiplier (0.0–2.0, default 1.0).
+    /// Speaker volume multiplier (0.0-2.0, default 1.0).
     #[serde(default = "AudioSettings::default_volume")]
     pub output_volume: f32,    /// Automatically adjust input sensitivity based on ambient noise floor.
     #[serde(default)]

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import type { UserEntry } from "../types";
 import { useAppStore } from "../store";
 import styles from "./UserContextMenu.module.css";
 
-// ── Local per-session state for volume and blocked users ──────────
+// -- Local per-session state for volume and blocked users ----------
 
 /** Local volume overrides keyed by session ID (0-200, default 100). */
 const localVolumes = new Map<number, number>();
@@ -25,7 +25,7 @@ export function resetLocalState(): void {
   blockedUsers.clear();
 }
 
-// ── Position computation (overflow-aware) ─────────────────────────
+// -- Position computation (overflow-aware) -------------------------
 
 interface MenuPosition {
   top: number;
@@ -58,7 +58,7 @@ function computePosition(
   return { top, left };
 }
 
-// ── Menu component ────────────────────────────────────────────────
+// -- Menu component ------------------------------------------------
 
 export interface UserContextMenuState {
   x: number;
@@ -97,7 +97,7 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
     return () => window.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
-  // ── Volume handler ──────────────────────────────────────────────
+  // -- Volume handler ----------------------------------------------
 
   const handleVolumeChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -108,7 +108,7 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
     [user.session],
   );
 
-  // ── Block toggle ────────────────────────────────────────────────
+  // -- Block toggle ------------------------------------------------
 
   const toggleBlock = useCallback(() => {
     if (blockedUsers.has(user.session)) {
@@ -121,7 +121,7 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
     onClose();
   }, [user.session, onClose]);
 
-  // ── Admin actions ───────────────────────────────────────────────
+  // -- Admin actions -----------------------------------------------
 
   const handleAction = useCallback(
     async (action: string) => {
@@ -169,7 +169,7 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
         className={styles.menu}
         style={pos ? { top: pos.top, left: pos.left } : { top: menu.y, left: menu.x, visibility: "hidden" }}
       >
-        {/* ── Local settings ── */}
+        {/* -- Local settings -- */}
         {!isSelf && (
           <>
             <div className={styles.sectionLabel}>Local</div>
@@ -203,7 +203,7 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
           </>
         )}
 
-        {/* ── Admin actions ── */}
+        {/* -- Admin actions -- */}
         {!isSelf && (
           <>
             <div className={styles.divider} />

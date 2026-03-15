@@ -1,18 +1,18 @@
-//! Legacy Mumble audio packet codec.
+﻿//! Legacy Mumble audio packet codec.
 //!
 //! Before protocol v2 (Mumble 1.5), audio packets use a compact
 //! binary encoding - both over raw UDP and inside `UDPTunnel`.
 //!
 //! ```text
-//! ┌──────────┬──────────┬──────────┬────────────────┬────────────┐
-//! │ header   │ session  │ sequence │ opus len+term  │ opus data  │
-//! │ 1 byte   │ varint   │ varint   │ varint         │ N bytes    │
-//! │(type|tgt)│(srv→cli) │          │ len| terminator│            │
-//! └──────────┴──────────┴──────────┴────────────────┴────────────┘
+//! +----------+----------+----------+----------------+------------+
+//! | header   | session  | sequence | opus len+term  | opus data  |
+//! | 1 byte   | varint   | varint   | varint         | N bytes    |
+//! |(type|tgt)|(srv->cli) |          | len| terminator|            |
+//! +----------+----------+----------+----------------+------------+
 //! ```
 //!
 //! - **header**: `(type << 5) | target`. Type 4 = Opus.
-//! - **session**: only present in server → client direction.
+//! - **session**: only present in server -> client direction.
 //! - **sequence**: frame counter.
 //! - **opus len**: 13-bit length + 1-bit terminator (MSB) packed
 //!   as a varint.
@@ -27,7 +27,7 @@ const AUDIO_TYPE_PROTO: u8 = 0;
 /// Protobuf Ping message type.
 const _PING_TYPE_PROTO: u8 = 1;
 
-// ── Varint helpers (Mumble-style) ──────────────────────────────────
+// -- Varint helpers (Mumble-style) ----------------------------------
 
 /// Read a Mumble varint from `buf`, returning `(value, bytes_consumed)`.
 ///
@@ -40,12 +40,12 @@ fn read_varint(buf: &[u8]) -> Result<(u64, usize)> {
 
     let first = buf[0];
 
-    // Single byte encoding (bit 7 clear → value in bits 0–6).
+    // Single byte encoding (bit 7 clear -> value in bits 0-6).
     if first & 0x80 == 0 {
         return Ok((first as u64, 1));
     }
 
-    // Two byte encoding (bits 6-7 = 10 → 14-bit value).
+    // Two byte encoding (bits 6-7 = 10 -> 14-bit value).
     if first & 0xC0 == 0x80 {
         if buf.len() < 2 {
             return Err(Error::InvalidState("varint: truncated 2-byte".into()));
@@ -54,7 +54,7 @@ fn read_varint(buf: &[u8]) -> Result<(u64, usize)> {
         return Ok((val, 2));
     }
 
-    // Three byte encoding (bits 5-7 = 110 → 21-bit value).
+    // Three byte encoding (bits 5-7 = 110 -> 21-bit value).
     if first & 0xE0 == 0xC0 {
         if buf.len() < 3 {
             return Err(Error::InvalidState("varint: truncated 3-byte".into()));
@@ -65,7 +65,7 @@ fn read_varint(buf: &[u8]) -> Result<(u64, usize)> {
         return Ok((val, 3));
     }
 
-    // Four byte encoding (bits 4-7 = 1110 → 28-bit value).
+    // Four byte encoding (bits 4-7 = 1110 -> 28-bit value).
     if first & 0xF0 == 0xE0 {
         if buf.len() < 4 {
             return Err(Error::InvalidState("varint: truncated 4-byte".into()));
@@ -77,7 +77,7 @@ fn read_varint(buf: &[u8]) -> Result<(u64, usize)> {
         return Ok((val, 4));
     }
 
-    // Prefix 11110000 → 32-bit value in next 4 bytes (big-endian).
+    // Prefix 11110000 -> 32-bit value in next 4 bytes (big-endian).
     if first == 0xF0 {
         if buf.len() < 5 {
             return Err(Error::InvalidState("varint: truncated 32-bit".into()));
@@ -89,7 +89,7 @@ fn read_varint(buf: &[u8]) -> Result<(u64, usize)> {
         return Ok((val, 5));
     }
 
-    // Prefix 11110100 → 64-bit value in next 8 bytes.
+    // Prefix 11110100 -> 64-bit value in next 8 bytes.
     if first == 0xF4 {
         if buf.len() < 9 {
             return Err(Error::InvalidState("varint: truncated 64-bit".into()));
@@ -147,13 +147,13 @@ fn write_varint(buf: &mut Vec<u8>, val: u64) {
     }
 }
 
-// ── Public API ─────────────────────────────────────────────────────
+// -- Public API -----------------------------------------------------
 
 /// Try to decode a legacy Mumble audio packet from raw bytes.
 ///
 /// `from_server` must be `true` when the packet was received from the
 /// server (which includes a session-id varint after the header) and
-/// `false` for client → server packets (which omit the session).
+/// `false` for client -> server packets (which omit the session).
 pub fn decode_legacy_audio(data: &[u8], from_server: bool) -> Result<mumble_udp::Audio> {
     if data.is_empty() {
         return Err(Error::InvalidState("empty audio packet".into()));
@@ -171,7 +171,7 @@ pub fn decode_legacy_audio(data: &[u8], from_server: bool) -> Result<mumble_udp:
 
     let mut pos: usize = 1;
 
-    // Session ID (only in server → client).
+    // Session ID (only in server -> client).
     let sender_session = if from_server {
         let (session, n) = read_varint(&data[pos..])?;
         pos += n;
@@ -215,7 +215,7 @@ pub fn decode_legacy_audio(data: &[u8], from_server: bool) -> Result<mumble_udp:
     })
 }
 
-/// Encode audio into legacy Mumble binary format (client → server).
+/// Encode audio into legacy Mumble binary format (client -> server).
 ///
 /// The resulting bytes are suitable for wrapping in a `UDPTunnel`
 /// control message (or sending as a raw UDP packet).
@@ -230,7 +230,7 @@ pub fn encode_legacy_audio(audio: &mumble_udp::Audio) -> Vec<u8> {
 
     buf.push(header);
 
-    // Client → server: no session ID.
+    // Client -> server: no session ID.
     // Sequence number.
     write_varint(&mut buf, audio.frame_number);
 
@@ -248,11 +248,11 @@ pub fn encode_legacy_audio(audio: &mumble_udp::Audio) -> Vec<u8> {
 /// Encode audio into Mumble protobuf v2 format for `UdpTunnel`.
 ///
 /// ```text
-/// ┌──────────┬──────────────────────────┐
-/// │ header   │ protobuf Audio payload   │
-/// │ 1 byte   │ N bytes                  │
-/// │(type|tgt)│                          │
-/// └──────────┴──────────────────────────┘
+/// +----------+--------------------------+
+/// | header   | protobuf Audio payload   |
+/// | 1 byte   | N bytes                  |
+/// |(type|tgt)|                          |
+/// +----------+--------------------------+
 /// ```
 pub fn encode_protobuf_audio(audio: &mumble_udp::Audio) -> Vec<u8> {
     use prost::Message as _;
@@ -281,9 +281,9 @@ pub fn encode_protobuf_audio(audio: &mumble_udp::Audio) -> Vec<u8> {
 /// Both legacy and protobuf v2 formats share the same header byte
 /// layout: `(type << 5) | target`.
 ///
-/// - `type == 0` → protobuf v2 Audio  (Mumble 1.5+)
-/// - `type == 4` → legacy Opus binary
-/// - Other types → unsupported (CELT, Speex, etc.)
+/// - `type == 0` -> protobuf v2 Audio  (Mumble 1.5+)
+/// - `type == 4` -> legacy Opus binary
+/// - Other types -> unsupported (CELT, Speex, etc.)
 pub fn decode_tunnel_audio(data: &[u8]) -> Result<mumble_udp::Audio> {
     if data.is_empty() {
         return Err(Error::InvalidState("empty UdpTunnel payload".into()));
@@ -308,7 +308,7 @@ pub fn decode_tunnel_audio(data: &[u8]) -> Result<mumble_udp::Audio> {
             Ok(audio)
         }
         AUDIO_TYPE_OPUS => {
-            // Legacy binary Opus format (server → client includes session).
+            // Legacy binary Opus format (server -> client includes session).
             decode_legacy_audio(data, true)
         }
         _ => Err(Error::InvalidState(format!(
@@ -317,7 +317,7 @@ pub fn decode_tunnel_audio(data: &[u8]) -> Result<mumble_udp::Audio> {
     }
 }
 
-// ─── Tests ─────────────────────────────────────────────────────────
+// --- Tests ---------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

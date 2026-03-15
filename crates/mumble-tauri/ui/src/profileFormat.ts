@@ -1,4 +1,4 @@
-/**
+﻿/**
  * FancyMumble profile format - serialisation helpers.
  *
  * The user's Mumble comment stores a JSON payload inside an HTML comment
@@ -11,7 +11,7 @@
  * The `texture` (avatar) uses the standard Mumble `UserState.texture`
  * bytes field and is **not** part of this comment payload.
  *
- * The protobuf `comment` field is `optional string` → must be valid
+ * The protobuf `comment` field is `optional string` -> must be valid
  * UTF-8.  Binary data (e.g. banner images) is base64-encoded.
  */
 
@@ -34,7 +34,7 @@ export function serializeProfile(
   return bio ? `${marker}\n${bio}` : marker;
 }
 
-/** Parse a Mumble comment → FancyMumble profile + visible bio.
+/** Parse a Mumble comment -> FancyMumble profile + visible bio.
  *
  *  Returns `null` profile when the comment was not written by
  *  FancyMumble (i.e. it's a regular comment from a legacy client).

@@ -1,4 +1,4 @@
-//! Common audio sample types shared across the entire pipeline.
+﻿//! Common audio sample types shared across the entire pipeline.
 //!
 //! Every pipeline stage speaks in terms of [`AudioFrame`] - a time-stamped
 //! buffer of PCM samples with associated format metadata. This keeps all
@@ -64,7 +64,7 @@ pub struct AudioFrame {
     /// - [`SampleFormat::I16`]: each sample is 2 bytes, little-endian.
     /// - [`SampleFormat::F32`]: each sample is 4 bytes, native-endian.
     ///
-    /// Interleaved when multi-channel (L R L R …).
+    /// Interleaved when multi-channel (L R L R ...).
     pub data: Vec<u8>,
     /// Format describing the samples in `data`.
     pub format: AudioFormat,
@@ -119,7 +119,7 @@ impl AudioFrame {
     }
 }
 
-// ── Minimal safe byte-casting (avoids adding a `bytemuck` dep) ─────
+// -- Minimal safe byte-casting (avoids adding a `bytemuck` dep) -----
 
 #[allow(unsafe_code)]
 fn bytemuck_cast_slice<T: Copy>(bytes: &[u8]) -> &[T] {
@@ -135,7 +135,7 @@ fn bytemuck_cast_slice_mut<T: Copy>(bytes: &mut [u8]) -> &mut [T] {
     unsafe { std::slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut T, len) }
 }
 
-// ── Conversion helpers ─────────────────────────────────────────────
+// -- Conversion helpers ---------------------------------------------
 
 /// Convert an `i16` PCM sample to `f32` normalised to [-1.0, 1.0].
 pub fn i16_to_f32(sample: i16) -> f32 {

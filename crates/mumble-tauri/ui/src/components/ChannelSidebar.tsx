@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+﻿import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store";
@@ -456,7 +456,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
       // Populated channels first.
       if (aCount > 0 && bCount === 0) return -1;
       if (aCount === 0 && bCount > 0) return 1;
-      // Same tier → alphabetical.
+      // Same tier -> alphabetical.
       return a.folder.name.localeCompare(b.folder.name);
     });
   }, [groups, groupUserCount]);

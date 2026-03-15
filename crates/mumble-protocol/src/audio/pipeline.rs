@@ -1,13 +1,13 @@
-//! Outbound and inbound audio pipelines.
+﻿//! Outbound and inbound audio pipelines.
 //!
 //! Each pipeline is a linear composition of the independently swappable
 //! stages defined elsewhere in the `audio` module:
 //!
-//! **Outbound** (capture → network):
-//!   `AudioCapture → FilterChain → AudioEncoder → EncodedPacket`
+//! **Outbound** (capture -> network):
+//!   `AudioCapture -> FilterChain -> AudioEncoder -> EncodedPacket`
 //!
-//! **Inbound** (network → playback):
-//!   `EncodedPacket → AudioDecoder → FilterChain → AudioPlayback`
+//! **Inbound** (network -> playback):
+//!   `EncodedPacket -> AudioDecoder -> FilterChain -> AudioPlayback`
 //!
 //! Pipelines do **not** own async tasks - they expose simple `tick`
 //! methods that the caller (e.g. the client event loop) drives at the
@@ -47,16 +47,16 @@ pub enum OutboundTick {
     NoData,
 }
 
-/// Drives the microphone → network direction.
+/// Drives the microphone -> network direction.
 ///
 /// ```text
 /// capture.read_frame()
-///     │
-///     ▼
-/// filter_chain.process()   (noise gate → AGC → denoiser → …)
-///     │
-///     ▼
-/// encoder.encode()  → EncodedPacket
+///     |
+///     v
+/// filter_chain.process()   (noise gate -> AGC -> denoiser -> ...)
+///     |
+///     v
+/// encoder.encode()  -> EncodedPacket
 /// ```
 pub struct OutboundPipeline {
     capture: Box<dyn AudioCapture>,

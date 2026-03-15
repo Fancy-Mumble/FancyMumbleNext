@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Unit tests for poll-related logic in ChatView.
  *
  * These test the pure-logic aspects of poll handling:
@@ -6,7 +6,7 @@
  *   - Poll marker regex matching
  *   - Synthetic message dedup
  *   - Target session computation
- *   - Poll payload round-trip (encode → decode → render)
+ *   - Poll payload round-trip (encode -> decode -> render)
  */
 
 import { describe, it, expect } from "vitest";
@@ -14,7 +14,7 @@ import type { PollPayload, PollVotePayload } from "../PollCreator";
 import type { ChatMessage } from "../../types";
 import { registerPoll, getPoll } from "../PollCard";
 
-// ─── Helpers ──────────────────────────────────────────────────────
+// --- Helpers ------------------------------------------------------
 
 /** Replicate the allMessages memo from ChatView. */
 function computeAllMessages(
@@ -53,7 +53,7 @@ function shouldAddPollMessage(
   return !existing.some((m) => m.body.includes(pollId));
 }
 
-// ─── Channel filtering ───────────────────────────────────────────
+// --- Channel filtering -------------------------------------------
 
 describe("poll channel filtering", () => {
   const pollMsgCh0: ChatMessage = {
@@ -119,7 +119,7 @@ describe("poll channel filtering", () => {
   });
 });
 
-// ─── Poll marker regex ───────────────────────────────────────────
+// --- Poll marker regex -------------------------------------------
 
 describe("poll marker extraction", () => {
   it("extracts poll ID from valid marker", () => {
@@ -147,7 +147,7 @@ describe("poll marker extraction", () => {
   });
 });
 
-// ─── Synthetic message dedup ──────────────────────────────────────
+// --- Synthetic message dedup --------------------------------------
 
 describe("poll message dedup", () => {
   it("allows new poll messages", () => {
@@ -181,7 +181,7 @@ describe("poll message dedup", () => {
   });
 });
 
-// ─── Target computation ──────────────────────────────────────────
+// --- Target computation ------------------------------------------
 
 describe("poll target computation", () => {
   const users = [
@@ -197,7 +197,7 @@ describe("poll target computation", () => {
   });
 
   it("targets all users in channel when ownSession is null", () => {
-    // Bug scenario: ownSession not yet assigned → sends to everyone
+    // Bug scenario: ownSession not yet assigned -> sends to everyone
     const targets = computePollTargets(users, 0, null);
     expect(targets).toEqual([1, 2, 3]);
   });
@@ -220,7 +220,7 @@ describe("poll target computation", () => {
   });
 });
 
-// ─── Poll payload round-trip ──────────────────────────────────────
+// --- Poll payload round-trip --------------------------------------
 
 describe("poll payload round-trip", () => {
   it("survives JSON encode/decode cycle", () => {
@@ -236,7 +236,7 @@ describe("poll payload round-trip", () => {
       channelId: 3,
     };
 
-    // Simulate network encoding (TextEncoder → TextDecoder).
+    // Simulate network encoding (TextEncoder -> TextDecoder).
     const encoded = new TextEncoder().encode(JSON.stringify(poll));
     const decoded = JSON.parse(new TextDecoder().decode(encoded)) as PollPayload;
 
@@ -291,7 +291,7 @@ describe("poll payload round-trip", () => {
   });
 });
 
-// ─── Bidirectional delivery simulation ────────────────────────────
+// --- Bidirectional delivery simulation ----------------------------
 
 describe("bidirectional poll delivery", () => {
   it("both users can create and receive polls", () => {

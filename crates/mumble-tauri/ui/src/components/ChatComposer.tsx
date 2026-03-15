@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, type ClipboardEvent } from "react";
+﻿import { useState, useRef, useCallback, type ClipboardEvent } from "react";
 import MarkdownInput from "./MarkdownInput";
 import GifPicker from "./GifPicker";
 import PollCreator from "./PollCreator";
@@ -111,7 +111,7 @@ export default function ChatComposer({
           onChange={onChange}
           onSubmit={onSend}
           onPaste={onPaste}
-          placeholder={isMobile ? "Write a message…" : "Write a message… (Ctrl+B/I/U for formatting)"}
+          placeholder={isMobile ? "Write a message..." : "Write a message... (Ctrl+B/I/U for formatting)"}
           disabled={disabled}
         />
 

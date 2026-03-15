@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from "react";
+﻿import { useState, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useAppStore } from "../store";
 import type { UserEntry } from "../types";
@@ -21,12 +21,12 @@ export function avatarUrl(user: UserEntry): string | null {
   return url;
 }
 
-// ── Constants ─────────────────────────────────────────────────────
+// -- Constants -----------------------------------------------------
 
 const HOVER_CARD_H = 340;
 const HOVER_CARD_MARGIN = 10;
 
-// ── SVG icons ─────────────────────────────────────────────────────
+// -- SVG icons -----------------------------------------------------
 
 function MutedIcon() {
   return (
@@ -57,7 +57,7 @@ function PriorityIcon() {
   );
 }
 
-// ── Component ─────────────────────────────────────────────────────
+// -- Component -----------------------------------------------------
 
 interface UserListItemProps {
   readonly user: UserEntry;

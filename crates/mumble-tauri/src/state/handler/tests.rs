@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+﻿use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
@@ -9,7 +9,7 @@ use super::{dispatch, EventEmitter, HandleMessage, HandlerContext};
 use crate::state::types::*;
 use crate::state::SharedState;
 
-// ── Test infrastructure ───────────────────────────────────────────
+// -- Test infrastructure -------------------------------------------
 
 /// Mock event emitter that records all emitted events.
 struct MockEmitter {
@@ -94,7 +94,7 @@ fn make_user(session: u32, name: &str) -> UserEntry {
     }
 }
 
-// ── Ping ──────────────────────────────────────────────────────────
+// -- Ping ----------------------------------------------------------
 
 #[test]
 fn ping_with_timestamp_emits_latency() {
@@ -120,7 +120,7 @@ fn ping_without_timestamp_emits_nothing() {
     assert!(emitter.events().is_empty());
 }
 
-// ── Version ───────────────────────────────────────────────────────
+// -- Version -------------------------------------------------------
 
 #[test]
 fn version_updates_state() {
@@ -154,7 +154,7 @@ fn version_updates_state() {
     assert!(emitter.events().is_empty());
 }
 
-// ── ServerSync ────────────────────────────────────────────────────
+// -- ServerSync ----------------------------------------------------
 
 #[tokio::test]
 async fn server_sync_sets_connected_state() {
@@ -222,7 +222,7 @@ async fn server_sync_without_user_does_not_set_channel() {
     assert!(!names.contains(&"current-channel-changed".to_string()));
 }
 
-// ── UserState ─────────────────────────────────────────────────────
+// -- UserState -----------------------------------------------------
 
 #[test]
 fn user_state_inserts_new_user() {
@@ -384,7 +384,7 @@ fn user_state_no_session_is_noop() {
     assert!(ctx.shared.lock().unwrap().users.is_empty());
 }
 
-// ── UserRemove ────────────────────────────────────────────────────
+// -- UserRemove ----------------------------------------------------
 
 #[test]
 fn user_remove_other_user() {
@@ -461,7 +461,7 @@ fn user_remove_self_default_reason() {
     );
 }
 
-// ── ChannelState ──────────────────────────────────────────────────
+// -- ChannelState --------------------------------------------------
 
 #[tokio::test]
 async fn channel_state_inserts_new_channel() {
@@ -557,7 +557,7 @@ async fn channel_state_stores_description_hash() {
     assert_eq!(state.channels[&1].description_hash, Some(hash));
 }
 
-// ── ChannelRemove ─────────────────────────────────────────────────
+// -- ChannelRemove -------------------------------------------------
 
 #[test]
 fn channel_remove_clears_channel_and_messages() {
@@ -590,7 +590,7 @@ fn channel_remove_clears_channel_and_messages() {
     assert!(emitter.event_names().contains(&"state-changed".to_string()));
 }
 
-// ── TextMessage (channel) ─────────────────────────────────────────
+// -- TextMessage (channel) -----------------------------------------
 
 #[test]
 fn text_message_channel_message() {
@@ -765,7 +765,7 @@ fn text_message_server_message_no_actor() {
     assert_eq!(msgs[0].sender_name, "Server");
 }
 
-// ── TextMessage (DM) ──────────────────────────────────────────────
+// -- TextMessage (DM) ----------------------------------------------
 
 #[test]
 fn text_message_dm() {
@@ -839,7 +839,7 @@ fn text_message_dm_always_requests_attention() {
     assert!(emitter.attention_count() > 0);
 }
 
-// ── TextMessage (group) ───────────────────────────────────────────
+// -- TextMessage (group) -------------------------------------------
 
 #[test]
 fn text_message_group() {
@@ -969,7 +969,7 @@ fn text_message_group_requests_attention() {
     assert!(emitter.attention_count() > 0);
 }
 
-// ── Reject ────────────────────────────────────────────────────────
+// -- Reject --------------------------------------------------------
 
 #[test]
 fn reject_disconnects_and_emits() {
@@ -1009,7 +1009,7 @@ fn reject_default_reason() {
     );
 }
 
-// ── ServerConfig ──────────────────────────────────────────────────
+// -- ServerConfig --------------------------------------------------
 
 #[test]
 fn server_config_updates_state() {
@@ -1062,7 +1062,7 @@ fn server_config_partial_update() {
     assert!(state.server_config.allow_html); // unchanged default
 }
 
-// ── PermissionDenied ──────────────────────────────────────────────
+// -- PermissionDenied ----------------------------------------------
 
 #[test]
 fn permission_denied_reverts_listen() {
@@ -1122,7 +1122,7 @@ fn permission_denied_payload_contains_type_and_reason() {
     assert_eq!(denied.1["reason"].as_str().unwrap(), "TextTooLong");
 }
 
-// ── PluginDataTransmission ────────────────────────────────────────
+// -- PluginDataTransmission ----------------------------------------
 
 #[test]
 fn plugin_data_creates_group_chat() {
@@ -1205,7 +1205,7 @@ fn plugin_data_no_data_emits_empty_defaults() {
     assert!(plugin.1["data"].as_array().unwrap().is_empty());
 }
 
-// ── PermissionQuery ───────────────────────────────────────────────
+// -- PermissionQuery -----------------------------------------------
 
 #[test]
 fn permission_query_stores_permissions() {
@@ -1292,7 +1292,7 @@ fn permission_query_no_channel_no_event() {
     assert!(!emitter.event_names().contains(&"state-changed".to_string()));
 }
 
-// ── CodecVersion ──────────────────────────────────────────────────
+// -- CodecVersion --------------------------------------------------
 
 #[test]
 fn codec_version_sets_opus() {
@@ -1321,7 +1321,7 @@ fn codec_version_opus_defaults_false() {
     assert!(!state.opus);
 }
 
-// ── Dispatch ──────────────────────────────────────────────────────
+// -- Dispatch ------------------------------------------------------
 
 #[test]
 fn dispatch_routes_ping() {

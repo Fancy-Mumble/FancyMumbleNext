@@ -1,4 +1,4 @@
-//! UDP transport for low-latency Mumble audio and ping messages.
+﻿//! UDP transport for low-latency Mumble audio and ping messages.
 //!
 //! Mumble encrypts UDP packets using OCB2-AES128. The encryption keys are
 //! exchanged over the TCP control channel via [`CryptSetup`] messages.
@@ -155,7 +155,7 @@ impl<C: CryptState> UdpTransport<C> {
     }
 }
 
-// ── Encode / Decode ────────────────────────────────────────────────
+// -- Encode / Decode ------------------------------------------------
 
 /// Mumble UDP wire format uses a single-byte header to distinguish
 /// message types: 0x20 = Ping, 0x80+ = Audio (protobuf).

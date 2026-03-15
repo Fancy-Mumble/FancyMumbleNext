@@ -1,4 +1,4 @@
-//! Simple noise gate that silences audio below a threshold.
+﻿//! Simple noise gate that silences audio below a threshold.
 //!
 //! This is the cheapest filter in the chain and should usually be
 //! placed first so that subsequent (more expensive) filters can skip
@@ -22,9 +22,9 @@ enum GateState {
 /// Configuration for the noise gate.
 #[derive(Debug, Clone)]
 pub struct NoiseGateConfig {
-    /// RMS threshold (linear, 0.0–1.0) below which audio is gated.
+    /// RMS threshold (linear, 0.0-1.0) below which audio is gated.
     pub open_threshold: f32,
-    /// Threshold at which the gate closes again (should be ≤ `open_threshold`).
+    /// Threshold at which the gate closes again (should be <= `open_threshold`).
     pub close_threshold: f32,
     /// Number of frames to hold the gate open after the signal drops
     /// below `close_threshold` (prevents choppy speech).

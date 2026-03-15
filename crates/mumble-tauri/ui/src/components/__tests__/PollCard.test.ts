@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Unit tests for PollCard module-level stores and helpers.
  *
  * These test the poll registration, vote tracking, and local vote
@@ -16,7 +16,7 @@ import {
 } from "../PollCard";
 import type { PollPayload, PollVotePayload } from "../PollCreator";
 
-// ─── Helpers ──────────────────────────────────────────────────────
+// --- Helpers ------------------------------------------------------
 
 function makePoll(overrides: Partial<PollPayload> = {}): PollPayload {
   return {
@@ -44,7 +44,7 @@ function makeVote(overrides: Partial<PollVotePayload> = {}): PollVotePayload {
   };
 }
 
-// ─── Poll store ───────────────────────────────────────────────────
+// --- Poll store ---------------------------------------------------
 
 describe("pollStore", () => {
   it("registers and retrieves a poll", () => {
@@ -75,7 +75,7 @@ describe("pollStore", () => {
   });
 });
 
-// ─── Vote store ───────────────────────────────────────────────────
+// --- Vote store ---------------------------------------------------
 
 describe("voteStore", () => {
   it("registers and retrieves a vote", () => {
@@ -113,7 +113,7 @@ describe("voteStore", () => {
   });
 });
 
-// ─── Local vote tracking ──────────────────────────────────────────
+// --- Local vote tracking ------------------------------------------
 
 describe("localVotes", () => {
   it("records and retrieves a local vote", () => {
@@ -132,7 +132,7 @@ describe("localVotes", () => {
   });
 });
 
-// ─── Poll payload structure ───────────────────────────────────────
+// --- Poll payload structure ---------------------------------------
 
 describe("PollPayload", () => {
   it("includes channelId field for channel-aware delivery", () => {
