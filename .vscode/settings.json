@@ -1,5 +1,13 @@
 {
     // Use clippy instead of plain `cargo check` so lint warnings appear
     // on every save / build automatically.
-    "rust-analyzer.check.command": "clippy"
+    "rust-analyzer.check.command": "clippy",
+    // spellright for markdown files (e.g. README.md)
+    "spellright.language": [
+        "en"
+    ],
+    "spellright.documentTypes": [
+        "markdown",
+        "latex"
+    ]
 }

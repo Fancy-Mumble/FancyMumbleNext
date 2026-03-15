@@ -1,0 +1,63 @@
+@startuml pchat_key_exchange_post_join
+!theme plain
+title Persistent Chat - POST_JOIN Key Exchange Flow
+
+actor "New Member (Alice)" as alice
+participant "Server\nCompanion" as server
+actor "Existing Member (Bob)" as bob
+actor "Existing Member (Carol)" as carol
+
+== Phase 1: Identity Announcement ==
+
+alice -> server : fancy-pchat-key-announce\n{ algorithm_version: 1,\n  identity_public, signing_public,\n  cert_hash, timestamp,\n  signature, tls_signature }
+server -> server : Validate algorithm_version\nVerify tls_signature\nVerify cert_hash matches session
+server -> server : Store in pchat_user_keys\n(upsert with anti-rollback)
+server -> bob : Broadcast key-announce
+server -> carol : Broadcast key-announce
+
+== Phase 2: Key Request Generation (Server-Side) ==
+
+server -> server : Alice is in persistent channel\n(POST_JOIN mode)\nGenerate request_id (UUID)
+server -> bob : fancy-pchat-key-request\n{ channel_id, mode: POST_JOIN,\n  requester_hash: alice.cert_hash,\n  requester_public, request_id,\n  timestamp, relay_cap: 3 }
+server -> carol : fancy-pchat-key-request\n(same payload, same request_id)
+
+== Phase 3: Key Distribution (Decentralized) ==
+
+bob -> bob : Generate new epoch key\n(CSPRNG, 32 bytes)
+bob -> bob : Chain: parent_fingerprint =\nSHA-256(prev_epoch_key)[0..8]
+bob -> bob : Encrypt key to Alice's\nX25519 public key (DH)
+bob -> bob : Sign: algorithm_version || channel_id\n|| mode || epoch || encrypted_key\n|| recipient_hash || request_id\n|| timestamp
+
+bob -> server : fancy-pchat-key-exchange\n{ channel_id, mode, epoch,\n  encrypted_key, sender_hash,\n  recipient_hash: alice,\n  request_id, timestamp,\n  algorithm_version: 1,\n  signature, parent_fingerprint,\n  epoch_fingerprint }
+
+note over server
+  Server validates:
+  sender_hash == session.cert_hash
+  Increments relays_sent
+  (relay_cap = 3 for POST_JOIN)
+end note
+
+server -> alice : Forward key-exchange\n(via PluginDataTransmission)
+
+== Phase 4: Epoch Broadcast to Existing Members ==
+
+bob -> bob : Encrypt same epoch key\nto Carol's X25519 public key
+
+bob -> server : fancy-pchat-key-exchange\n{ ..., recipient_hash: carol,\n  request_id: null }
+note right
+  request_id = null means
+  epoch broadcast (no relay
+  tracking by server)
+end note
+
+server -> carol : Forward epoch broadcast
+
+== Phase 5: Key Acceptance ==
+
+alice -> alice : Verify Ed25519 signature\nVerify parent_fingerprint chain\nVerify timestamp freshness\nCheck algorithm_version matches\n  sender's announced version
+alice -> alice : Decrypt epoch key\nStore in epoch_keys\nTrust level: Unverified (TOFU)\nor Verified (if Bob is key custodian)
+
+carol -> carol : Verify Ed25519 signature\nVerify parent_fingerprint\nmatches current epoch key
+carol -> carol : Accept new epoch\nBegin using new epoch key
+
+@enduml

@@ -1,0 +1,111 @@
+@startuml pchat_trust_levels
+!theme plain
+title Persistent Chat - Key Trust Level State Machine
+
+skinparam state {
+    BackgroundColor<<verified>> #D4EDDA
+    BackgroundColor<<manual>> #C3E6CB
+    BackgroundColor<<unverified>> #FFF3CD
+    BackgroundColor<<disputed>> #F8D7DA
+}
+
+state "Unverified\n(TOFU)" as unverified <<unverified>> {
+    unverified : First key acceptance
+    unverified : via key-exchange
+    unverified : ---
+    unverified : Trust-on-first-use
+    unverified : Visual fingerprint shown
+}
+
+state "Verified" as verified <<verified>> {
+    verified : Multi-confirmation consensus
+    verified : (FULL_ARCHIVE) or
+    verified : key custodian trust shortcut
+    verified : (POST_JOIN)
+    verified : ---
+    verified : Sufficient independent
+    verified : peers confirmed same key
+}
+
+state "Manually Verified" as manual <<manual>> {
+    manual : Out-of-band verification
+    manual : completed by user
+    manual : ---
+    manual : Emoji / word-list /
+    manual : hex fingerprint match
+    manual : confirmed in person
+}
+
+state "Disputed" as disputed <<disputed>> {
+    disputed : Conflicting key received
+    disputed : from same peer
+    disputed : ---
+    disputed : User warned, must
+    disputed : resolve manually or
+    disputed : via key custodian
+}
+
+[*] --> unverified : First key-exchange\nreceived (TOFU)
+
+unverified --> verified : Multi-confirmation\nconsensus reached\n(FULL_ARCHIVE)
+
+unverified --> verified : Key custodian\ntrust shortcut\n(POST_JOIN)
+
+unverified --> verified : Creator\ncountersignature\nvalidated
+
+unverified --> manual : User completes\nOOB fingerprint\nverification
+
+unverified --> disputed : Different key\nreceived from\nsame cert_hash
+
+verified --> manual : User completes\nOOB fingerprint\nverification
+
+verified --> disputed : Unexpected key\nchange detected
+
+manual --> disputed : Unexpected key\nchange detected
+
+disputed --> unverified : User accepts\nnew key\n(trust reset)
+
+disputed --> verified : Key custodian\ncountersignature\nvalidates new key
+
+disputed --> manual : User re-verifies\nOOB with new key
+
+note right of disputed
+  **Disputed Resolution**:
+  1. Key custodian countersig validates
+     new epoch -> auto-promote to Verified
+  2. User manually accepts -> reset to
+     Unverified (TOFU restart)
+  3. User verifies OOB -> Manually Verified
+  
+  Channel is NOT hard-locked during
+  dispute. Messages continue with
+  a visible warning banner.
+end note
+
+note left of unverified
+  **TOFU (Trust On First Use)**:
+  The first key seen from a peer
+  is accepted with a visual
+  fingerprint displayed for
+  optional OOB verification.
+  
+  Visual fingerprint formats:
+  - 8 emoji sequence
+  - 6 word list
+  - Hex string
+end note
+
+note bottom of verified
+  **Consensus (FULL_ARCHIVE)**:
+  required_threshold =
+    floor(fancy_members / 2) + 1
+  Collection window: 10 seconds
+  
+  **Key Custodian Shortcut**:
+  If responder is a pinned
+  custodian with valid
+  countersignature -> Verified
+  immediately (no consensus wait)
+end note
+
+@enduml

@@ -89,6 +89,25 @@ message ChannelState {
 	optional uint32 max_users = 11;
 	optional bool is_enter_restricted = 12;
 	optional bool can_enter = 13;
+
+	// Fancy Mumble persistent chat extension.
+	// Field IDs start at 100 to avoid clashing with future upstream
+	// Mumble protocol additions. Legacy clients silently ignore
+	// unknown fields (standard protobuf behaviour).
+	//
+	// Persistence mode for this channel:
+	//   0 = NONE (default, no persistence)
+	//   1 = POST_JOIN (messages accessible from the moment a user first joined)
+	//   2 = FULL_ARCHIVE (all stored messages accessible to any member)
+	optional uint32 pchat_mode = 100;
+	// Maximum number of messages to store (0 = unlimited).
+	optional uint32 pchat_max_history = 101;
+	// Auto-delete messages after this many days (0 = forever).
+	optional uint32 pchat_retention_days = 102;
+	// Cert hashes of users designated as key custodians for this channel.
+	// Key custodians can countersign epoch transitions and are trusted
+	// authorities for key distribution. Set by channel operators.
+	repeated string pchat_key_custodians = 103;
 }
 
 message UserRemove {
