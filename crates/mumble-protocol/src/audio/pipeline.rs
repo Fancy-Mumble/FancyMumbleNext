@@ -95,7 +95,7 @@ impl OutboundPipeline {
     pub fn tick(&mut self) -> Result<OutboundTick> {
         let frame = match self.capture.read_frame() {
             Ok(f) => f,
-            Err(crate::error::Error::InvalidState(_)) => {
+            Err(crate::error::Error::NotEnoughSamples) => {
                 // Expected: not enough samples yet - non-blocking.
                 return Ok(OutboundTick::NoData);
             }

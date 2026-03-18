@@ -23,6 +23,7 @@ export function usePersistentChat(
   channelName: string,
 ): PersistentChatResult {
   const channelPersistence = useAppStore((s) => s.channelPersistence);
+  const pchatHistoryLoading = useAppStore((s) => s.pchatHistoryLoading);
   const keyTrust = useAppStore((s) => s.keyTrust);
   const custodianPins = useAppStore((s) => s.custodianPins);
   const pendingDisputes = useAppStore((s) => s.pendingDisputes);
@@ -34,6 +35,7 @@ export function usePersistentChat(
   const [showCustodianPrompt, setShowCustodianPrompt] = useState(false);
 
   const persistence = channelId === null ? undefined : channelPersistence[channelId];
+  const isLoading = channelId !== null && pchatHistoryLoading.has(channelId);
   const trust = channelId === null ? undefined : keyTrust[channelId];
   const custodian = channelId === null ? undefined : custodianPins[channelId];
   const dispute = channelId === null ? undefined : pendingDisputes[channelId];
@@ -46,10 +48,14 @@ export function usePersistentChat(
     }
   }, [custodian]);
 
+  const showBanner = channelId !== null && (
+    (persistence && persistence.mode !== "NONE") || isLoading
+  );
+
   return {
     trustLevel: trust?.trustLevel,
     onVerifyClick: trust ? () => setShowVerifyDialog(true) : undefined,
-    banner: persistence && persistence.mode !== "NONE" && channelId !== null ? (
+    banner: showBanner ? (
       <PersistenceBanner channelId={channelId} />
     ) : null,
     disputeBanner: dispute ? (

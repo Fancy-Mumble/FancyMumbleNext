@@ -21,8 +21,8 @@ import type {
   KeyTrustState,
   CustodianPinState,
   PendingDispute,
-  FetchHistoryResponse,
   ChannelPersistConfig,
+  PchatMode,
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/PollCreator";
 import { registerPoll, registerVote } from "./components/PollCard";
@@ -82,14 +82,44 @@ interface AppState {
   custodianPins: Record<number, CustodianPinState>;
   /** Pending key disputes per channel. */
   pendingDisputes: Record<number, PendingDispute>;
+  /** Channels currently loading history (awaiting key exchange + fetch). */
+  pchatHistoryLoading: Set<number>;
+
+  /** Set when the server rejects with WrongUserPW/WrongServerPW - prompts the UI for a password. */
+  passwordRequired: boolean;
+  /** Connection params stored when a password prompt is needed so the user can retry. */
+  pendingConnect: { host: string; port: number; username: string; certLabel: string | null } | null;
 
   // Actions
-  connect: (host: string, port: number, username: string, certLabel?: string | null) => Promise<void>;
+  connect: (host: string, port: number, username: string, certLabel?: string | null, password?: string | null) => Promise<void>;
   disconnect: () => Promise<void>;
   selectChannel: (id: number) => Promise<void>;
   joinChannel: (id: number) => Promise<void>;
   sendMessage: (channelId: number, body: string) => Promise<void>;
   toggleListen: (channelId: number) => Promise<void>;
+
+  // Channel management
+  createChannel: (parentId: number, name: string, opts?: {
+    description?: string;
+    position?: number;
+    temporary?: boolean;
+    maxUsers?: number;
+    pchatMode?: PchatMode;
+    pchatMaxHistory?: number;
+    pchatRetentionDays?: number;
+  }) => Promise<void>;
+  updateChannel: (channelId: number, opts: {
+    name?: string;
+    description?: string;
+    position?: number;
+    temporary?: boolean;
+    maxUsers?: number;
+    pchatMode?: PchatMode;
+    pchatMaxHistory?: number;
+    pchatRetentionDays?: number;
+  }) => Promise<void>;
+  deleteChannel: (channelId: number) => Promise<void>;
+
   refreshState: () => Promise<void>;
   refreshMessages: (channelId: number) => Promise<void>;
   enableVoice: () => Promise<void>;
@@ -102,6 +132,10 @@ interface AppState {
   addPoll: (poll: PollPayload, isOwn: boolean) => void;
   setError: (error: string | null) => void;
   reset: () => void;
+  /** Retry connection with a password after a WrongUserPW/WrongServerPW rejection. */
+  retryWithPassword: (password: string) => Promise<void>;
+  /** Dismiss the password prompt without retrying. */
+  dismissPasswordPrompt: () => void;
 
   // DM actions
   selectDmUser: (session: number) => Promise<void>;
@@ -152,6 +186,9 @@ const INITIAL: Pick<
   | "keyTrust"
   | "custodianPins"
   | "pendingDisputes"
+  | "pchatHistoryLoading"
+  | "passwordRequired"
+  | "pendingConnect"
 > = {
   status: "disconnected",
   channels: [],
@@ -183,6 +220,9 @@ const INITIAL: Pick<
   keyTrust: {},
   custodianPins: {},
   pendingDisputes: {},
+  pchatHistoryLoading: new Set(),
+  passwordRequired: false,
+  pendingConnect: null,
 };
 
 // --- Store --------------------------------------------------------
@@ -202,12 +242,23 @@ function updateBadgeCount(): void {
 export const useAppStore = create<AppState>((set, get) => ({
   ...INITIAL,
 
-  connect: async (host, port, username, certLabel) => {
-    set({ status: "connecting", error: null });
+  connect: async (host, port, username, certLabel, password) => {
+    set({
+      status: "connecting",
+      error: null,
+      passwordRequired: false,
+      pendingConnect: { host, port, username, certLabel: certLabel ?? null },
+    });
     try {
-      await invoke("connect", { host, port, username, certLabel: certLabel ?? null });
+      await invoke("connect", {
+        host,
+        port,
+        username,
+        certLabel: certLabel ?? null,
+        password: password ?? null,
+      });
     } catch (e) {
-      set({ status: "disconnected", error: String(e) });
+      set({ status: "disconnected", error: String(e), pendingConnect: null });
     }
   },
 
@@ -246,6 +297,53 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  createChannel: async (parentId, name, opts = {}) => {
+    try {
+      await invoke("create_channel", {
+        parentId,
+        name,
+        description: opts.description ?? null,
+        position: opts.position ?? null,
+        temporary: opts.temporary ?? null,
+        maxUsers: opts.maxUsers ?? null,
+        pchatMode: opts.pchatMode ?? null,
+        pchatMaxHistory: opts.pchatMaxHistory ?? null,
+        pchatRetentionDays: opts.pchatRetentionDays ?? null,
+      });
+    } catch (e) {
+      console.error("create_channel error:", e);
+      throw e;
+    }
+  },
+
+  updateChannel: async (channelId, opts) => {
+    try {
+      await invoke("update_channel", {
+        channelId,
+        name: opts.name ?? null,
+        description: opts.description ?? null,
+        position: opts.position ?? null,
+        temporary: opts.temporary ?? null,
+        maxUsers: opts.maxUsers ?? null,
+        pchatMode: opts.pchatMode ?? null,
+        pchatMaxHistory: opts.pchatMaxHistory ?? null,
+        pchatRetentionDays: opts.pchatRetentionDays ?? null,
+      });
+    } catch (e) {
+      console.error("update_channel error:", e);
+      throw e;
+    }
+  },
+
+  deleteChannel: async (channelId) => {
+    try {
+      await invoke("delete_channel", { channelId });
+    } catch (e) {
+      console.error("delete_channel error:", e);
+      throw e;
+    }
+  },
+
   sendMessage: async (channelId, body) => {
     try {
       await invoke("send_message", { channelId, body });
@@ -264,7 +362,25 @@ export const useAppStore = create<AppState>((set, get) => ({
         invoke<ChannelEntry[]>("get_channels"),
         invoke<UserEntry[]>("get_users"),
       ]);
-      set({ channels, users });
+
+      // Derive channelPersistence from channel pchat_mode so the
+      // PersistenceBanner (and its loading indicator) can render.
+      const prev = get().channelPersistence;
+      const nextPersistence: Record<number, ChannelPersistenceState> = { ...prev };
+      for (const ch of channels) {
+        if (ch.pchat_mode && ch.pchat_mode !== "none") {
+          const mode = ch.pchat_mode.toUpperCase() as PersistenceMode;
+          nextPersistence[ch.id] = {
+            mode,
+            maxHistory: ch.pchat_max_history ?? prev[ch.id]?.maxHistory ?? 0,
+            retentionDays: ch.pchat_retention_days ?? prev[ch.id]?.retentionDays ?? 0,
+            hasMore: prev[ch.id]?.hasMore ?? false,
+            isFetching: prev[ch.id]?.isFetching ?? false,
+            totalStored: prev[ch.id]?.totalStored ?? 0,
+          };
+        }
+      }
+      set({ channels, users, channelPersistence: nextPersistence });
     } catch (e) {
       console.error("refresh error:", e);
     }
@@ -442,6 +558,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   setError: (error) => set({ error }),
   reset: () => set({ ...INITIAL }),
 
+  retryWithPassword: async (password) => {
+    const pending = get().pendingConnect;
+    if (!pending) return;
+    set({ passwordRequired: false, pendingConnect: null });
+    await get().connect(pending.host, pending.port, pending.username, pending.certLabel, password);
+  },
+
+  dismissPasswordPrompt: () => {
+    set({ passwordRequired: false, pendingConnect: null });
+  },
+
   // -- Persistent chat actions ------------------------------------
 
   fetchHistory: async (channelId, beforeId) => {
@@ -455,35 +582,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
     }));
     try {
-      const response = await invoke<FetchHistoryResponse>("fetch_persistent_messages", {
+      // Fire-and-forget: the response arrives asynchronously via
+      // "pchat-fetch-complete" and "new-message" events.
+      await invoke<void>("fetch_older_messages", {
         channelId,
         beforeId: beforeId ?? null,
         limit: 50,
       });
-      // Convert stored messages into ChatMessage format and prepend to existing messages.
-      const historicMessages: ChatMessage[] = response.messages.map((m) => ({
-        sender_session: null,
-        sender_name: m.senderName,
-        body: m.body,
-        channel_id: m.channelId,
-        is_own: false,
-        message_id: m.messageId,
-        timestamp: m.timestamp,
-      }));
-      set((prev) => ({
-        messages: [...historicMessages, ...prev.messages],
-        channelPersistence: {
-          ...prev.channelPersistence,
-          [channelId]: {
-            ...prev.channelPersistence[channelId],
-            hasMore: response.hasMore,
-            isFetching: false,
-            totalStored: response.totalStored,
-          },
-        },
-      }));
     } catch (e) {
-      console.error("fetch_persistent_messages error:", e);
+      console.error("fetch_older_messages error:", e);
       set((prev) => ({
         channelPersistence: {
           ...prev.channelPersistence,
@@ -626,7 +733,7 @@ export async function initEventListeners(
   unlisteners.push(
     await listen("server-connected", () => {
       // Navigate immediately - don't block on data fetching.
-      useAppStore.setState({ status: "connected" });
+      useAppStore.setState({ status: "connected", pendingConnect: null, passwordRequired: false });
       navigate("/chat");
 
       // Load channels/users/messages lazily in the background.
@@ -659,9 +766,9 @@ export async function initEventListeners(
     await listen("server-disconnected", () => {
       // Clean up offloaded temp files.
       offloadManager.dispose().catch(() => {});
-      // Preserve any error that was set by connection-rejected.
-      const currentError = useAppStore.getState().error;
-      useAppStore.setState({ ...INITIAL, error: currentError });
+      // Preserve error / password-prompt state that was set by connection-rejected.
+      const { error: currentError, passwordRequired: pwRequired, pendingConnect: pending } = useAppStore.getState();
+      useAppStore.setState({ ...INITIAL, error: currentError, passwordRequired: pwRequired, pendingConnect: pending });
       invoke("update_badge_count", { count: null }).catch(() => {});
       navigate("/");
     }),
@@ -763,11 +870,24 @@ export async function initEventListeners(
 
   // Server rejected the connection.
   unlisteners.push(
-    await listen<{ reason: string }>("connection-rejected", (event) => {
-      useAppStore.setState({
-        status: "disconnected",
-        error: event.payload.reason,
-      });
+    await listen<{ reason: string; reject_type: number | null }>("connection-rejected", (event) => {
+      const rt = event.payload.reject_type;
+      // WrongUserPW = 3, WrongServerPW = 4
+      const isPasswordError = rt === 3 || rt === 4;
+      if (isPasswordError) {
+        useAppStore.setState({
+          status: "disconnected",
+          error: event.payload.reason,
+          passwordRequired: true,
+          // pendingConnect was set by the connect action - keep it.
+        });
+      } else {
+        useAppStore.setState({
+          status: "disconnected",
+          error: event.payload.reason,
+          pendingConnect: null,
+        });
+      }
       navigate("/");
     }),
   );
@@ -910,6 +1030,40 @@ export async function initEventListeners(
           const { [channel_id]: _removed, ...rest } = prev.pendingDisputes;
           return { pendingDisputes: rest };
         });
+      },
+    ),
+
+    // Pchat history loading state (waiting for key exchange).
+    await listen<{ channel_id: number; loading: boolean }>(
+      "pchat-history-loading",
+      (event) => {
+        const { channel_id, loading } = event.payload;
+        const next = new Set(useAppStore.getState().pchatHistoryLoading);
+        if (loading) {
+          next.add(channel_id);
+        } else {
+          next.delete(channel_id);
+        }
+        useAppStore.setState({ pchatHistoryLoading: next });
+      },
+    ),
+
+    // Pchat fetch complete — update pagination metadata.
+    await listen<{ channel_id: number; has_more: boolean; total_stored: number }>(
+      "pchat-fetch-complete",
+      (event) => {
+        const { channel_id, has_more, total_stored } = event.payload;
+        useAppStore.setState((prev) => ({
+          channelPersistence: {
+            ...prev.channelPersistence,
+            [channel_id]: {
+              ...prev.channelPersistence[channel_id],
+              hasMore: has_more,
+              isFetching: false,
+              totalStored: total_stored,
+            },
+          },
+        }));
       },
     ),
   );

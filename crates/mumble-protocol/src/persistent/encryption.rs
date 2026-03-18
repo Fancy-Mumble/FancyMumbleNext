@@ -25,6 +25,21 @@ pub const HKDF_SALT_IDENTITY: &[u8] = b"fancy-pchat-v1";
 pub const HKDF_INFO_X25519: &[u8] = b"x25519";
 /// HKDF info for Ed25519 key derivation from seed.
 pub const HKDF_INFO_ED25519: &[u8] = b"ed25519";
+/// HKDF salt for deterministic archive key derivation from seed + `channel_id`.
+pub const HKDF_SALT_ARCHIVE_KEY: &[u8] = b"fancy-pchat-archive-key-v1";
+
+/// Derive a deterministic archive key from the identity seed and channel ID.
+///
+/// Uses HKDF-SHA256 so the same user always generates the same key for
+/// a given channel, allowing them to decrypt their own messages across
+/// reconnections without key-exchange.
+pub fn derive_archive_key(seed: &[u8; 32], channel_id: u32) -> [u8; 32] {
+    let hkdf = Hkdf::<Sha256>::new(Some(HKDF_SALT_ARCHIVE_KEY), seed);
+    let mut key = [0u8; 32];
+    hkdf.expand(&channel_id.to_be_bytes(), &mut key)
+        .expect("HKDF expand for archive key");
+    key
+}
 
 /// Block size for ciphertext padding (bytes).
 const PADDING_BLOCK: usize = 256;
@@ -239,7 +254,7 @@ pub fn epoch_fingerprint(key: &[u8]) -> [u8; 8] {
 /// `pad_count` includes the 2-byte trailer itself (minimum value: 2).
 fn pad_plaintext(plaintext: &[u8]) -> Result<Vec<u8>> {
     let min_padded_len = plaintext.len() + 2; // at least 2 bytes for pad_count
-    let blocks_needed = (min_padded_len + PADDING_BLOCK - 1) / PADDING_BLOCK;
+    let blocks_needed = min_padded_len.div_ceil(PADDING_BLOCK);
     let block_aligned = blocks_needed * PADDING_BLOCK;
 
     let jitter = (rand::rng().next_u32() % PADDING_BLOCK as u32) as usize;
@@ -314,6 +329,7 @@ pub fn build_countersig_data(
 ///            || recipient_hash(UTF-8) || request_id(UTF-8 or empty)
 ///            || timestamp(8B BE)
 /// ```
+#[allow(clippy::too_many_arguments)]
 pub fn build_key_exchange_signed_data(
     algorithm_version: u8,
     channel_id: u32,
@@ -376,7 +392,7 @@ mod tests {
         let plaintext = b"Hello, world!";
         let padded = pad_plaintext(plaintext).unwrap();
         assert!(padded.len() >= plaintext.len() + 2);
-        assert!(padded.len() % PADDING_BLOCK == 0 || padded.len() > PADDING_BLOCK);
+        assert!(padded.len().is_multiple_of(PADDING_BLOCK) || padded.len() > PADDING_BLOCK);
         let recovered = unpad_plaintext(&padded).unwrap();
         assert_eq!(recovered, plaintext);
     }

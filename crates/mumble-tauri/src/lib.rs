@@ -175,73 +175,38 @@ async fn connect(
     port: u16,
     username: String,
     cert_label: Option<String>,
+    password: Option<String>,
 ) -> Result<(), String> {
-    state.connect(host, port, username, cert_label).await
+    state.connect(host, port, username, cert_label, password).await
 }
 
-/// Generate a self-signed TLS client certificate and save it under
-/// `{app_data_dir}/certs/{label}.cert.pem` and `.key.pem`.
+/// Generate a self-signed TLS client certificate for an identity label.
+/// Each identity gets its own folder under `{app_data}/identities/{label}/`
+/// containing both the TLS cert and the pchat seed.
 /// Does nothing if the certificate already exists.
 #[tauri::command]
 async fn generate_certificate(
     app: tauri::AppHandle,
     label: String,
 ) -> Result<(), String> {
-    use rcgen::generate_simple_self_signed;
-
     let data_dir = app
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    let cert_dir = data_dir.join("certs");
-    std::fs::create_dir_all(&cert_dir).map_err(|e| e.to_string())?;
-
-    let cert_path = cert_dir.join(format!("{label}.cert.pem"));
-    if cert_path.exists() {
-        return Ok(()); // already exists
-    }
-
-    let certified = generate_simple_self_signed(vec![label.clone()])
-        .map_err(|e| e.to_string())?;
-    let cert_pem = certified.cert.pem();
-    let key_pem = certified.signing_key.serialize_pem();
-
-    std::fs::write(&cert_path, cert_pem).map_err(|e| e.to_string())?;
-    std::fs::write(
-        cert_dir.join(format!("{label}.key.pem")),
-        key_pem,
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok(())
+    state::pchat::generate_identity_cert(&data_dir, &label)
 }
 
-/// List the labels of all certificates stored in `{app_data_dir}/certs/`.
+/// List the labels of all identities stored in `{app_data_dir}/identities/`.
 #[tauri::command]
 async fn list_certificates(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     let data_dir = app
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    let cert_dir = data_dir.join("certs");
-    if !cert_dir.exists() {
-        return Ok(vec![]);
-    }
-
-    let mut labels = Vec::new();
-    for entry in std::fs::read_dir(&cert_dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if let Some(label) = name.strip_suffix(".cert.pem") {
-            labels.push(label.to_string());
-        }
-    }
-    labels.sort();
-    Ok(labels)
+    Ok(state::pchat::list_identity_labels(&data_dir))
 }
 
-/// Delete a certificate pair by label.
+/// Delete an identity (TLS cert + pchat seed) by label.
 #[tauri::command]
 async fn delete_certificate(
     app: tauri::AppHandle,
@@ -251,16 +216,7 @@ async fn delete_certificate(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    let cert_dir = data_dir.join("certs");
-    let cert_path = cert_dir.join(format!("{label}.cert.pem"));
-    let key_path = cert_dir.join(format!("{label}.key.pem"));
-    if cert_path.exists() {
-        std::fs::remove_file(&cert_path).map_err(|e| e.to_string())?;
-    }
-    if key_path.exists() {
-        std::fs::remove_file(&key_path).map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    state::pchat::delete_identity(&data_dir, &label)
 }
 
 #[tauri::command]
@@ -363,15 +319,73 @@ fn get_welcome_text(state: tauri::State<'_, AppState>) -> Option<String> {
     state.welcome_text()
 }
 
-/// Update a channel's name and/or description on the server.
+/// Update a channel on the server.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn update_channel(
     state: tauri::State<'_, AppState>,
     channel_id: u32,
     name: Option<String>,
     description: Option<String>,
+    position: Option<i32>,
+    temporary: Option<bool>,
+    max_users: Option<u32>,
+    pchat_mode: Option<String>,
+    pchat_max_history: Option<u32>,
+    pchat_retention_days: Option<u32>,
 ) -> Result<(), String> {
-    state.update_channel(channel_id, name, description).await
+    state
+        .update_channel(
+            channel_id,
+            name,
+            description,
+            position,
+            temporary,
+            max_users,
+            pchat_mode,
+            pchat_max_history,
+            pchat_retention_days,
+        )
+        .await
+}
+
+/// Delete a channel on the server.
+#[tauri::command]
+async fn delete_channel(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+) -> Result<(), String> {
+    state.delete_channel(channel_id).await
+}
+
+/// Create a new sub-channel on the server.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn create_channel(
+    state: tauri::State<'_, AppState>,
+    parent_id: u32,
+    name: String,
+    description: Option<String>,
+    position: Option<i32>,
+    temporary: Option<bool>,
+    max_users: Option<u32>,
+    pchat_mode: Option<String>,
+    pchat_max_history: Option<u32>,
+    pchat_retention_days: Option<u32>,
+) -> Result<(), String> {
+    state
+        .create_channel(
+            parent_id,
+            name,
+            description,
+            position,
+            temporary,
+            max_users,
+            pchat_mode,
+            pchat_max_history,
+            pchat_retention_days,
+        )
+        .await
 }
 
 /// Ping a Mumble server by attempting a TCP connection and measuring
@@ -893,6 +907,19 @@ fn clear_offloaded_messages(state: tauri::State<'_, AppState>) {
     state.clear_offloaded();
 }
 
+/// Send a PchatFetch request for older messages (pagination).
+/// The response arrives asynchronously via the `PchatFetchResponse` handler
+/// which emits `"pchat-fetch-complete"` and `"new-message"` events.
+#[tauri::command]
+async fn fetch_older_messages(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    before_id: Option<String>,
+    limit: u32,
+) -> Result<(), String> {
+    state.fetch_older_messages(channel_id, before_id, limit).await
+}
+
 /// Collect debug statistics for the developer info panel.
 #[tauri::command]
 fn get_debug_stats(state: tauri::State<'_, AppState>) -> DebugStats {
@@ -981,6 +1008,32 @@ async fn request_user_stats(
     state.request_user_stats(session).await
 }
 
+/// Confirm the initial custodian list for a channel (TOFU, Section 5.7).
+#[tauri::command]
+fn confirm_custodians(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+) -> Result<(), String> {
+    let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
+    if let Some(ref mut pchat) = shared.pchat {
+        pchat.key_manager.confirm_custodian_list(channel_id);
+    }
+    Ok(())
+}
+
+/// Accept a pending custodian list change for a channel (Section 5.7).
+#[tauri::command]
+fn accept_custodian_changes(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+) -> Result<(), String> {
+    let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
+    if let Some(ref mut pchat) = shared.pchat {
+        pchat.key_manager.accept_custodian_update(channel_id);
+    }
+    Ok(())
+}
+
 // --- Application bootstrap ---------------------------------------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1035,6 +1088,8 @@ pub fn run() {
             get_server_info,
             get_welcome_text,
             update_channel,
+            create_channel,
+            delete_channel,
             ping_server,
             fetch_public_servers,
             get_audio_devices,
@@ -1073,6 +1128,7 @@ pub fn run() {
             load_offloaded_message,
             load_offloaded_messages_batch,
             clear_offloaded_messages,
+            fetch_older_messages,
             get_debug_stats,
             super_search,
             kick_user,
@@ -1083,6 +1139,8 @@ pub fn run() {
             reset_user_comment,
             remove_user_avatar,
             request_user_stats,
+            confirm_custodians,
+            accept_custodian_changes,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

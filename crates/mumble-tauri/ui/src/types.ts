@@ -1,5 +1,8 @@
 ﻿/** Lightweight value types mirroring the Rust backend structs. */
 
+/** Persistent-chat mode for a channel. */
+export type PchatMode = "none" | "post_join" | "full_archive" | "server_managed";
+
 export interface ChannelEntry {
   id: number;
   parent_id: number | null;
@@ -8,6 +11,18 @@ export interface ChannelEntry {
   user_count: number;
   /** Server-reported permission bitmask, or null if not yet queried. */
   permissions: number | null;
+  /** Whether the channel is temporary. */
+  temporary: boolean;
+  /** Channel sort position. */
+  position: number;
+  /** Maximum users allowed (0 = unlimited). */
+  max_users: number;
+  /** Persistent-chat mode, if announced by the server. */
+  pchat_mode?: PchatMode;
+  /** Maximum stored messages (0 = unlimited). */
+  pchat_max_history?: number;
+  /** Auto-delete after N days (0 = forever). */
+  pchat_retention_days?: number;
 }
 
 export interface UserEntry {

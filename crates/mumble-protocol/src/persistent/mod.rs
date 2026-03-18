@@ -105,6 +105,28 @@ impl PersistenceMode {
     }
 }
 
+impl From<crate::state::PchatMode> for PersistenceMode {
+    fn from(mode: crate::state::PchatMode) -> Self {
+        match mode {
+            crate::state::PchatMode::None => Self::None,
+            crate::state::PchatMode::PostJoin => Self::PostJoin,
+            crate::state::PchatMode::FullArchive => Self::FullArchive,
+            crate::state::PchatMode::ServerManaged => Self::ServerManaged,
+        }
+    }
+}
+
+impl From<PersistenceMode> for crate::state::PchatMode {
+    fn from(mode: PersistenceMode) -> Self {
+        match mode {
+            PersistenceMode::None => Self::None,
+            PersistenceMode::PostJoin => Self::PostJoin,
+            PersistenceMode::FullArchive => Self::FullArchive,
+            PersistenceMode::ServerManaged => Self::ServerManaged,
+        }
+    }
+}
+
 /// Range for message queries.
 #[derive(Debug, Clone)]
 pub enum MessageRange {

@@ -33,6 +33,15 @@ pub enum TcpMessageType {
     ServerConfig = 24,
     SuggestConfig = 25,
     PluginDataTransmission = 26,
+    PchatMessage = 100,
+    PchatFetch = 101,
+    PchatFetchResponse = 102,
+    PchatMessageDeliver = 103,
+    PchatKeyAnnounce = 104,
+    PchatKeyExchange = 105,
+    PchatKeyRequest = 106,
+    PchatAck = 107,
+    PchatEpochCountersig = 108,
 }
 
 impl TryFrom<u16> for TcpMessageType {
@@ -67,6 +76,15 @@ impl TryFrom<u16> for TcpMessageType {
             24 => Ok(Self::ServerConfig),
             25 => Ok(Self::SuggestConfig),
             26 => Ok(Self::PluginDataTransmission),
+            100 => Ok(Self::PchatMessage),
+            101 => Ok(Self::PchatFetch),
+            102 => Ok(Self::PchatFetchResponse),
+            103 => Ok(Self::PchatMessageDeliver),
+            104 => Ok(Self::PchatKeyAnnounce),
+            105 => Ok(Self::PchatKeyExchange),
+            106 => Ok(Self::PchatKeyRequest),
+            107 => Ok(Self::PchatAck),
+            108 => Ok(Self::PchatEpochCountersig),
             other => Err(crate::error::Error::UnknownMessageType(other)),
         }
     }
@@ -101,6 +119,15 @@ pub enum ControlMessage {
     ServerConfig(mumble_tcp::ServerConfig),
     SuggestConfig(mumble_tcp::SuggestConfig),
     PluginDataTransmission(mumble_tcp::PluginDataTransmission),
+    PchatMessage(mumble_tcp::PchatMessage),
+    PchatFetch(mumble_tcp::PchatFetch),
+    PchatFetchResponse(mumble_tcp::PchatFetchResponse),
+    PchatMessageDeliver(mumble_tcp::PchatMessageDeliver),
+    PchatKeyAnnounce(mumble_tcp::PchatKeyAnnounce),
+    PchatKeyExchange(mumble_tcp::PchatKeyExchange),
+    PchatKeyRequest(mumble_tcp::PchatKeyRequest),
+    PchatAck(mumble_tcp::PchatAck),
+    PchatEpochCountersig(mumble_tcp::PchatEpochCountersig),
     /// UDP audio tunneled through TCP (fallback path).
     UdpTunnel(Vec<u8>),
 }
@@ -156,6 +183,15 @@ mod tests {
             (24, TcpMessageType::ServerConfig),
             (25, TcpMessageType::SuggestConfig),
             (26, TcpMessageType::PluginDataTransmission),
+            (100, TcpMessageType::PchatMessage),
+            (101, TcpMessageType::PchatFetch),
+            (102, TcpMessageType::PchatFetchResponse),
+            (103, TcpMessageType::PchatMessageDeliver),
+            (104, TcpMessageType::PchatKeyAnnounce),
+            (105, TcpMessageType::PchatKeyExchange),
+            (106, TcpMessageType::PchatKeyRequest),
+            (107, TcpMessageType::PchatAck),
+            (108, TcpMessageType::PchatEpochCountersig),
         ];
 
         for (id, expected_type) in &expected {
@@ -166,7 +202,13 @@ mod tests {
 
     #[test]
     fn tcp_message_type_roundtrip() {
+        // Core protocol IDs (contiguous 0..=26)
         for id in 0..=26u16 {
+            let msg_type = TcpMessageType::try_from(id).unwrap();
+            assert_eq!(msg_type as u16, id);
+        }
+        // Pchat IDs (100..=108)
+        for id in 100..=108u16 {
             let msg_type = TcpMessageType::try_from(id).unwrap();
             assert_eq!(msg_type as u16, id);
         }
@@ -175,7 +217,8 @@ mod tests {
     #[test]
     fn tcp_message_type_invalid_returns_error() {
         assert!(TcpMessageType::try_from(27u16).is_err());
-        assert!(TcpMessageType::try_from(100u16).is_err());
+        assert!(TcpMessageType::try_from(99u16).is_err());
+        assert!(TcpMessageType::try_from(109u16).is_err());
         assert!(TcpMessageType::try_from(u16::MAX).is_err());
     }
 

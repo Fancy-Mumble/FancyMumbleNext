@@ -13,6 +13,8 @@ use crate::command::{BoxedCommand, CommandAction};
 use crate::error::{Error, Result};
 use crate::event::EventHandler;
 use crate::message::{ControlMessage, ServerMessage, UdpMessage};
+use crate::transport::audio_codec::AudioPacketCodec;
+use crate::state::fancy_version_encode;
 use crate::proto::mumble_tcp;
 use crate::state::ServerState;
 use crate::transport::tcp::{TcpConfig, TcpTransport};
@@ -116,9 +118,9 @@ pub async fn run<H: EventHandler>(
         release: Some("FancyMumble 0.1.0".into()),
         os: Some(std::env::consts::OS.into()),
         os_version: None,
-        // Announce Fancy Mumble extension support (version 1).
+        // Announce Fancy Mumble extension support (v2-encoded 0.2.0).
         // The server responds with its own fancy_version if it supports them.
-        fancy_version: Some(1),
+        fancy_version: Some(fancy_version_encode(0, 2, 0)),
     });
     tcp.send(&version_msg).await?;
     info!("Version 1.5.0 sent");
@@ -321,7 +323,7 @@ async fn event_loop<H: EventHandler>(
                         // Encode as protobuf v2 format - the server negotiated
                         // this because we advertised version_v2 (1.5.0).
                         let tunnel_data =
-                            crate::transport::audio_codec::encode_protobuf_audio(audio);
+                            crate::transport::audio_codec::ProtobufAudioCodec::encode(audio);
                         debug!(
                             frame = audio.frame_number,
                             opus_len = audio.opus_data.len(),
@@ -376,7 +378,8 @@ fn handle_control_message<H: EventHandler>(
         ControlMessage::Version(v) => {
             state.apply_version(v);
             if let Some(fv) = v.fancy_version {
-                info!(fancy_version = fv, "server supports Fancy Mumble extensions");
+                let version_str = crate::state::fancy_version_string(fv);
+                info!(fancy_version = %version_str, "server supports Fancy Mumble extensions");
             }
         }
         ControlMessage::Ping(p) => {

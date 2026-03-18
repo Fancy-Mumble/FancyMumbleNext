@@ -11,8 +11,10 @@ pub struct Version {
     pub os: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag = "4")]
     pub os_version: ::core::option::Option<::prost::alloc::string::String>,
-    /// Fancy Mumble version identifier. When present, both sides
-    /// understand extensions (message_id, timestamp, etc.).
+    /// Fancy Mumble version identifier using v2 encoding:
+    /// (major << 48) | (minor << 32) | (patch << 16).
+    /// When present, both sides understand extensions
+    /// (message_id, timestamp, etc.).
     #[prost(uint64, optional, tag = "6")]
     pub fancy_version: ::core::option::Option<u64>,
 }
@@ -792,4 +794,225 @@ pub struct PluginDataTransmission {
     pub data: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
     #[prost(string, optional, tag = "4")]
     pub data_id: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// Encrypted persistent chat message sent from client to server for storage.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatMessage {
+    #[prost(string, optional, tag = "1")]
+    pub message_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint32, optional, tag = "2")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(uint64, optional, tag = "3")]
+    pub timestamp: ::core::option::Option<u64>,
+    #[prost(string, optional, tag = "4")]
+    pub sender_hash: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(enumeration = "PchatPersistenceMode", optional, tag = "5")]
+    pub mode: ::core::option::Option<i32>,
+    #[prost(bytes = "vec", optional, tag = "6")]
+    pub envelope: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(uint32, optional, tag = "7")]
+    pub epoch: ::core::option::Option<u32>,
+    #[prost(uint32, optional, tag = "8")]
+    pub chain_index: ::core::option::Option<u32>,
+    #[prost(bytes = "vec", optional, tag = "9")]
+    pub epoch_fingerprint: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(string, optional, tag = "10")]
+    pub replaces_id: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// Request stored messages from the server.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatFetch {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(string, optional, tag = "2")]
+    pub before_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint32, optional, tag = "3")]
+    pub limit: ::core::option::Option<u32>,
+    #[prost(string, optional, tag = "4")]
+    pub after_id: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// Server response to a PchatFetch request.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PchatFetchResponse {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(message, repeated, tag = "2")]
+    pub messages: ::prost::alloc::vec::Vec<PchatMessage>,
+    #[prost(bool, optional, tag = "3")]
+    pub has_more: ::core::option::Option<bool>,
+    #[prost(uint32, optional, tag = "4")]
+    pub total_stored: ::core::option::Option<u32>,
+}
+/// Server relays a new message to other clients in the channel.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatMessageDeliver {
+    #[prost(string, optional, tag = "1")]
+    pub message_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint32, optional, tag = "2")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(uint64, optional, tag = "3")]
+    pub timestamp: ::core::option::Option<u64>,
+    #[prost(string, optional, tag = "4")]
+    pub sender_hash: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(enumeration = "PchatPersistenceMode", optional, tag = "5")]
+    pub mode: ::core::option::Option<i32>,
+    #[prost(bytes = "vec", optional, tag = "6")]
+    pub envelope: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(string, optional, tag = "7")]
+    pub replaces_id: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// Client announcement of E2EE identity public keys.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatKeyAnnounce {
+    #[prost(uint32, optional, tag = "1")]
+    pub algorithm_version: ::core::option::Option<u32>,
+    #[prost(bytes = "vec", optional, tag = "2")]
+    pub identity_public: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "3")]
+    pub signing_public: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(string, optional, tag = "4")]
+    pub cert_hash: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint64, optional, tag = "5")]
+    pub timestamp: ::core::option::Option<u64>,
+    #[prost(bytes = "vec", optional, tag = "6")]
+    pub signature: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "7")]
+    pub tls_signature: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+}
+/// Peer-to-peer key exchange relayed through the server.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatKeyExchange {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(enumeration = "PchatPersistenceMode", optional, tag = "2")]
+    pub mode: ::core::option::Option<i32>,
+    #[prost(uint32, optional, tag = "3")]
+    pub epoch: ::core::option::Option<u32>,
+    #[prost(bytes = "vec", optional, tag = "4")]
+    pub encrypted_key: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(string, optional, tag = "5")]
+    pub sender_hash: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "6")]
+    pub recipient_hash: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "7")]
+    pub request_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint64, optional, tag = "8")]
+    pub timestamp: ::core::option::Option<u64>,
+    #[prost(uint32, optional, tag = "9")]
+    pub algorithm_version: ::core::option::Option<u32>,
+    #[prost(bytes = "vec", optional, tag = "10")]
+    pub signature: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "11")]
+    pub parent_fingerprint: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "12")]
+    pub epoch_fingerprint: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "13")]
+    pub countersignature: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(string, optional, tag = "14")]
+    pub countersigner_hash: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// Server-broadcast key request when a new member joins a persistent channel.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatKeyRequest {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(enumeration = "PchatPersistenceMode", optional, tag = "2")]
+    pub mode: ::core::option::Option<i32>,
+    #[prost(string, optional, tag = "3")]
+    pub requester_hash: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(bytes = "vec", optional, tag = "4")]
+    pub requester_public: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(string, optional, tag = "5")]
+    pub request_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint64, optional, tag = "6")]
+    pub timestamp: ::core::option::Option<u64>,
+    #[prost(uint32, optional, tag = "7")]
+    pub relay_cap: ::core::option::Option<u32>,
+}
+/// Server acknowledgement of message storage.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatAck {
+    #[prost(string, optional, tag = "1")]
+    pub message_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(enumeration = "PchatAckStatus", optional, tag = "2")]
+    pub status: ::core::option::Option<i32>,
+    #[prost(string, optional, tag = "3")]
+    pub reason: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// Key custodian countersignature on an epoch transition.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatEpochCountersig {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(uint32, optional, tag = "2")]
+    pub epoch: ::core::option::Option<u32>,
+    #[prost(bytes = "vec", optional, tag = "3")]
+    pub epoch_fingerprint: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "4")]
+    pub parent_fingerprint: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(string, optional, tag = "5")]
+    pub signer_hash: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "6")]
+    pub distributor_hash: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint64, optional, tag = "7")]
+    pub timestamp: ::core::option::Option<u64>,
+    #[prost(bytes = "vec", optional, tag = "8")]
+    pub countersignature: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+}
+/// Persistence mode used in pchat runtime messages.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum PchatPersistenceMode {
+    PchatModePostJoin = 0,
+    PchatModeFullArchive = 1,
+}
+impl PchatPersistenceMode {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::PchatModePostJoin => "PCHAT_MODE_POST_JOIN",
+            Self::PchatModeFullArchive => "PCHAT_MODE_FULL_ARCHIVE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PCHAT_MODE_POST_JOIN" => Some(Self::PchatModePostJoin),
+            "PCHAT_MODE_FULL_ARCHIVE" => Some(Self::PchatModeFullArchive),
+            _ => None,
+        }
+    }
+}
+/// Ack status for PchatAck.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum PchatAckStatus {
+    PchatAckStored = 0,
+    PchatAckRejected = 1,
+    PchatAckQuotaExceeded = 2,
+}
+impl PchatAckStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::PchatAckStored => "PCHAT_ACK_STORED",
+            Self::PchatAckRejected => "PCHAT_ACK_REJECTED",
+            Self::PchatAckQuotaExceeded => "PCHAT_ACK_QUOTA_EXCEEDED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PCHAT_ACK_STORED" => Some(Self::PchatAckStored),
+            "PCHAT_ACK_REJECTED" => Some(Self::PchatAckRejected),
+            "PCHAT_ACK_QUOTA_EXCEEDED" => Some(Self::PchatAckQuotaExceeded),
+            _ => None,
+        }
+    }
 }

@@ -3,7 +3,23 @@
 
 use std::collections::HashMap;
 
-use serde::Serialize;
+use serde::{Serialize, Serializer};
+
+use mumble_protocol::state::PchatMode;
+
+// --- Serialization helpers ----------------------------------------
+
+fn serialize_pchat_mode<S: Serializer>(mode: &Option<PchatMode>, s: S) -> Result<S::Ok, S::Error> {
+    match mode {
+        Some(m) => s.serialize_str(match m {
+            PchatMode::None => "none",
+            PchatMode::PostJoin => "post_join",
+            PchatMode::FullArchive => "full_archive",
+            PchatMode::ServerManaged => "server_managed",
+        }),
+        _ => s.serialize_none(),
+    }
+}
 
 // --- UI value types (serializable to the frontend) ----------------
 
@@ -21,6 +37,24 @@ pub struct ChannelEntry {
     /// Server-reported permission bitmask for this channel.
     /// `None` until a `PermissionQuery` response is received.
     pub permissions: Option<u32>,
+    /// Whether the channel is temporary.
+    pub temporary: bool,
+    /// Channel sort position.
+    pub position: i32,
+    /// Maximum users allowed (0 = unlimited).
+    pub max_users: u32,
+    /// Persistent-chat mode.  `None` if not announced by the server.
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "serialize_pchat_mode")]
+    pub pchat_mode: Option<PchatMode>,
+    /// Maximum stored messages (0 = unlimited).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pchat_max_history: Option<u32>,
+    /// Auto-delete after N days (0 = forever).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pchat_retention_days: Option<u32>,
+    /// Key custodian cert hashes (Section 5.7).
+    #[serde(skip)]
+    pub pchat_key_custodians: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -42,6 +76,10 @@ pub struct UserEntry {
     pub self_deaf: bool,
     /// Priority speaker status.
     pub priority_speaker: bool,
+    /// TLS certificate hash (hex-encoded SHA-1). Used as stable identity
+    /// for persistent chat key management.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hash: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -215,6 +253,9 @@ pub(crate) struct NewDmPayload {
 #[derive(Clone, Serialize)]
 pub(crate) struct RejectedPayload {
     pub reason: String,
+    /// Protobuf `Reject.RejectType` value, if available.
+    /// `3` = `WrongUserPW`, `4` = `WrongServerPW`.
+    pub reject_type: Option<i32>,
 }
 
 #[derive(Clone, Serialize)]
@@ -270,6 +311,21 @@ pub(crate) struct PluginDataPayload {
 #[derive(Clone, Serialize)]
 pub(crate) struct CurrentChannelPayload {
     pub channel_id: u32,
+}
+
+/// Payload emitted when pchat history loading starts or finishes for a channel.
+#[derive(Clone, Serialize)]
+pub(crate) struct PchatHistoryLoadingPayload {
+    pub channel_id: u32,
+    pub loading: bool,
+}
+
+/// Payload emitted when a PchatFetchResponse has been fully processed.
+#[derive(Clone, Serialize)]
+pub(crate) struct PchatFetchCompletePayload {
+    pub channel_id: u32,
+    pub has_more: bool,
+    pub total_stored: u32,
 }
 
 // --- Audio types --------------------------------------------------

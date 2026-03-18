@@ -21,6 +21,7 @@ impl AppState {
         port: u16,
         username: String,
         cert_label: Option<String>,
+        password: Option<String>,
     ) -> Result<(), String> {
         let inner = self.inner.clone();
         let app_handle = self.app_handle().ok_or("App not initialized")?;
@@ -54,6 +55,31 @@ impl AppState {
             state.unread_counts.clear();
             state.server_config = ServerConfig::default();
             state.voice_state = VoiceState::Inactive;
+            state.pchat = None;
+            state.pchat_seed = None;
+            state.tauri_app_handle = Some(app_handle.clone());
+        }
+
+        // Migrate legacy storage layout (certs/ + pchat/) to per-identity
+        // folders on first connect after the update.  Idempotent.
+        if let Ok(data_dir) = app_handle.path().app_data_dir() {
+            super::pchat::migrate_legacy_storage(&data_dir);
+        }
+
+        // Load (or generate) the persistent chat identity seed
+        // scoped to this certificate / identity label.
+        let identity_label = cert_label.clone().unwrap_or_else(|| "default".to_string());
+        if let Ok(data_dir) = app_handle.path().app_data_dir() {
+            match super::pchat::load_or_generate_seed(&data_dir, &identity_label) {
+                Ok(seed) => {
+                    if let Ok(mut state) = inner.lock() {
+                        state.pchat_seed = Some(seed);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("failed to load pchat seed: {e}");
+                }
+            }
         }
 
         // Emit status change so the frontend can show a loading screen immediately.
@@ -62,20 +88,14 @@ impl AppState {
         // Spawn the actual connection work in the background so we don't
         // block the Tauri command (which freezes the webview).
         tokio::spawn(async move {
-            // Load client certificate from disk when a label is provided.
+            // Load client certificate from the per-identity folder.
             let (client_cert_pem, client_key_pem) = if let Some(ref label) = cert_label {
-                let certs_dir = app_handle
+                app_handle
                     .path()
                     .app_data_dir()
                     .ok()
-                    .map(|d| d.join("certs"));
-                if let Some(dir) = certs_dir {
-                    let cert = std::fs::read(dir.join(format!("{label}.cert.pem"))).ok();
-                    let key = std::fs::read(dir.join(format!("{label}.key.pem"))).ok();
-                    (cert, key)
-                } else {
-                    (None, None)
-                }
+                    .map(|d| super::pchat::load_identity_cert(&d, label))
+                    .unwrap_or((None, None))
             } else {
                 (None, None)
             };
@@ -117,7 +137,7 @@ impl AppState {
                     if let Err(e) = handle
                         .send(command::Authenticate {
                             username,
-                            password: None,
+                            password,
                             tokens: vec![],
                         })
                         .await
@@ -132,6 +152,7 @@ impl AppState {
                             "connection-rejected",
                             RejectedPayload {
                                 reason: format!("Failed to authenticate: {e}"),
+                                reject_type: None,
                             },
                         );
                         return;
@@ -159,6 +180,7 @@ impl AppState {
                         "connection-rejected",
                         RejectedPayload {
                             reason: format!("Connection failed: {e}"),
+                            reject_type: None,
                         },
                     );
                 }
@@ -211,6 +233,8 @@ impl AppState {
             state.unread_counts.clear();
             state.server_config = ServerConfig::default();
             state.voice_state = VoiceState::Inactive;
+            state.pchat = None;
+            state.pchat_seed = None;
         }
 
         Ok(())

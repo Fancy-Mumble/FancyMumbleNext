@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect } from "react";
+import { useCallback, useRef, useEffect, useState } from "react";
 import { useAppStore } from "../store";
 import type { PersistenceMode } from "../types";
 import styles from "./PersistenceBanner.module.css";
@@ -32,6 +32,13 @@ function formatCount(count: number): string {
 export default function PersistenceBanner({ channelId }: PersistenceBannerProps) {
   const persistence = useAppStore((s) => s.channelPersistence[channelId]);
   const fetchHistory = useAppStore((s) => s.fetchHistory);
+  const isLoadingKeys = useAppStore((s) => s.pchatHistoryLoading.has(channelId));
+  const [dismissed, setDismissed] = useState(false);
+
+  // Reset dismissed state when switching channels.
+  useEffect(() => {
+    setDismissed(false);
+  }, [channelId]);
 
   // Intersection observer for "load more" scroll-to-top trigger.
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -57,40 +64,75 @@ export default function PersistenceBanner({ channelId }: PersistenceBannerProps)
     return () => observer.disconnect();
   }, [persistence?.hasMore, handleLoadMore]);
 
+  // Show loading indicator even before persistence config is known.
+  if (isLoadingKeys && (!persistence || persistence.mode === "NONE")) {
+    return (
+      <div className={styles.stickyWrapper}>
+        <div className={styles.loadMore}>
+          <div className={styles.loadingSpinner} aria-label="Loading message history" />
+          <span className={styles.loadingText}>Loading message history...</span>
+        </div>
+      </div>
+    );
+  }
+
   if (!persistence || persistence.mode === "NONE") return null;
 
   return (
     <>
-      <div className={styles.banner}>
-        {/* Shield/lock icon */}
-        <svg className={styles.icon} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-        </svg>
-        <div className={styles.content}>
-          <p className={styles.description}>
-            {modeDescription(persistence.mode)}
-          </p>
-          <div className={styles.meta}>
-            {persistence.retentionDays > 0 && (
-              <span className={styles.metaItem}>
-                Retention: {formatRetention(persistence.retentionDays)}
-              </span>
-            )}
-            {persistence.totalStored > 0 && (
-              <span className={styles.metaItem}>
-                Stored: {formatCount(persistence.totalStored)} messages
-              </span>
-            )}
+      {!dismissed && (
+        <div className={styles.stickyWrapper}>
+          <div className={styles.banner}>
+            {/* Shield/lock icon */}
+            <svg className={styles.icon} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+            <div className={styles.content}>
+              <p className={styles.description}>
+                {modeDescription(persistence.mode)}
+              </p>
+              <div className={styles.meta}>
+                {persistence.retentionDays > 0 && (
+                  <span className={styles.metaItem}>
+                    Retention: {formatRetention(persistence.retentionDays)}
+                  </span>
+                )}
+                {persistence.totalStored > 0 && (
+                  <span className={styles.metaItem}>
+                    Stored: {formatCount(persistence.totalStored)} messages
+                  </span>
+                )}
+              </div>
+            </div>
+            <button
+              className={styles.closeButton}
+              onClick={() => setDismissed(true)}
+              aria-label="Dismiss banner"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
           </div>
+
+          {/* Key exchange / initial loading indicator */}
+          {isLoadingKeys && (
+            <div className={styles.loadMore}>
+              <div className={styles.loadingSpinner} aria-label="Loading message history" />
+              <span className={styles.loadingText}>Loading message history...</span>
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       {/* Invisible sentinel for intersection-observer-based pagination */}
       {persistence.hasMore && (
         <div ref={loadMoreRef} className={styles.loadMore}>
           {persistence.isFetching && (
-            <div className={styles.loadingSpinner} aria-label="Loading history" />
+            <div className={styles.loadingSpinner} aria-label="Loading older messages" />
           )}
         </div>
       )}

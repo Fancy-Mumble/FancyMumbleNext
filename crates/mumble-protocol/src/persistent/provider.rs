@@ -77,9 +77,8 @@ impl VolatileMessageProvider {
 
 impl MessageProvider for VolatileMessageProvider {
     fn get_messages(&self, channel_id: u32, range: &MessageRange) -> Result<Vec<StoredMessage>> {
-        let msgs = match self.messages.get(&channel_id) {
-            Some(v) => v,
-            None => return Ok(Vec::new()),
+        let Some(msgs) = self.messages.get(&channel_id) else {
+            return Ok(Vec::new());
         };
 
         Ok(apply_range(msgs, range))
@@ -184,9 +183,8 @@ impl PersistentProviderBackend for InMemoryPersistentBackend {
         channel_id: u32,
         range: &MessageRange,
     ) -> Result<Vec<StoredMessage>> {
-        let msgs = match self.cache.get(&channel_id) {
-            Some(v) => v,
-            None => return Ok(Vec::new()),
+        let Some(msgs) = self.cache.get(&channel_id) else {
+            return Ok(Vec::new());
         };
         Ok(apply_range(msgs, range))
     }

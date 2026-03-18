@@ -15,8 +15,10 @@ message Version {
 	optional string release = 2;
 	optional string os = 3;
 	optional string os_version = 4;
-	// Fancy Mumble version identifier. When present, both sides
-	// understand extensions (message_id, timestamp, etc.).
+	// Fancy Mumble version identifier using v2 encoding:
+	// (major << 48) | (minor << 32) | (patch << 16).
+	// When present, both sides understand extensions
+	// (message_id, timestamp, etc.).
 	optional uint64 fancy_version = 6;
 }
 
@@ -361,4 +363,119 @@ message PluginDataTransmission {
 	repeated uint32 receiverSessions = 2 [packed = true];
 	optional bytes data = 3;
 	optional string dataID = 4;
+}
+
+// ---- Persistent Chat (pchat) native protocol messages ----
+
+// Persistence mode used in pchat runtime messages.
+enum PchatPersistenceMode {
+	PCHAT_MODE_POST_JOIN = 0;
+	PCHAT_MODE_FULL_ARCHIVE = 1;
+}
+
+// Ack status for PchatAck.
+enum PchatAckStatus {
+	PCHAT_ACK_STORED = 0;
+	PCHAT_ACK_REJECTED = 1;
+	PCHAT_ACK_QUOTA_EXCEEDED = 2;
+}
+
+// Encrypted persistent chat message sent from client to server for storage.
+message PchatMessage {
+	optional string message_id = 1;
+	optional uint32 channel_id = 2;
+	optional uint64 timestamp = 3;
+	optional string sender_hash = 4;
+	optional PchatPersistenceMode mode = 5;
+	optional bytes envelope = 6;
+	optional uint32 epoch = 7;
+	optional uint32 chain_index = 8;
+	optional bytes epoch_fingerprint = 9;
+	optional string replaces_id = 10;
+}
+
+// Request stored messages from the server.
+message PchatFetch {
+	optional uint32 channel_id = 1;
+	optional string before_id = 2;
+	optional uint32 limit = 3;
+	optional string after_id = 4;
+}
+
+// Server response to a PchatFetch request.
+message PchatFetchResponse {
+	optional uint32 channel_id = 1;
+	repeated PchatMessage messages = 2;
+	optional bool has_more = 3;
+	optional uint32 total_stored = 4;
+}
+
+// Server relays a new message to other clients in the channel.
+message PchatMessageDeliver {
+	optional string message_id = 1;
+	optional uint32 channel_id = 2;
+	optional uint64 timestamp = 3;
+	optional string sender_hash = 4;
+	optional PchatPersistenceMode mode = 5;
+	optional bytes envelope = 6;
+	optional string replaces_id = 7;
+}
+
+// Client announcement of E2EE identity public keys.
+message PchatKeyAnnounce {
+	optional uint32 algorithm_version = 1;
+	optional bytes identity_public = 2;
+	optional bytes signing_public = 3;
+	optional string cert_hash = 4;
+	optional uint64 timestamp = 5;
+	optional bytes signature = 6;
+	optional bytes tls_signature = 7;
+}
+
+// Peer-to-peer key exchange relayed through the server.
+message PchatKeyExchange {
+	optional uint32 channel_id = 1;
+	optional PchatPersistenceMode mode = 2;
+	optional uint32 epoch = 3;
+	optional bytes encrypted_key = 4;
+	optional string sender_hash = 5;
+	optional string recipient_hash = 6;
+	optional string request_id = 7;
+	optional uint64 timestamp = 8;
+	optional uint32 algorithm_version = 9;
+	optional bytes signature = 10;
+	optional bytes parent_fingerprint = 11;
+	optional bytes epoch_fingerprint = 12;
+	optional bytes countersignature = 13;
+	optional string countersigner_hash = 14;
+}
+
+// Server-broadcast key request when a new member joins a persistent channel.
+message PchatKeyRequest {
+	optional uint32 channel_id = 1;
+	optional PchatPersistenceMode mode = 2;
+	optional string requester_hash = 3;
+	optional bytes requester_public = 4;
+	optional string request_id = 5;
+	optional uint64 timestamp = 6;
+	optional uint32 relay_cap = 7;
+}
+
+// Server acknowledgement of message storage.
+message PchatAck {
+	optional string message_id = 1;
+	optional PchatAckStatus status = 2;
+	optional string reason = 3;
+}
+
+// Key custodian countersignature on an epoch transition.
+message PchatEpochCountersig {
+	optional uint32 channel_id = 1;
+	optional uint32 epoch = 2;
+	optional bytes epoch_fingerprint = 3;
+	optional bytes parent_fingerprint = 4;
+	optional string signer_hash = 5;
+	optional string distributor_hash = 6;
+	optional uint64 timestamp = 7;
+	optional bytes countersignature = 8;
 }

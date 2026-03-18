@@ -166,6 +166,9 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
   /** Used to detect message count increases. */
   const prevMsgCountRef = useRef(0);
 
+  /** Track the first message ID to detect history-prepend vs new-message-append. */
+  const prevFirstMsgIdRef = useRef<string | null>(null);
+
   /** Instant scroll-to-bottom, updating the programmatic-scroll timestamp. */
   const scrollToBottom = useCallback((el: HTMLElement) => {
     stickToBottomRef.current = true;
@@ -319,13 +322,36 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
   useEffect(() => {
     const count = allMessages.length;
     const delta = count - prevMsgCountRef.current;
-    prevMsgCountRef.current = count;
-    if (delta <= 0) return; // channel switch or first load - no action
+    const prevFirstId = prevFirstMsgIdRef.current;
+    const curFirstId = count > 0 ? (allMessages[0].message_id ?? null) : null;
 
-    // Re-check the scroll position right now (not from the cached ref)
-    // because the DOM may not have processed a scroll event yet.
+    prevMsgCountRef.current = count;
+    prevFirstMsgIdRef.current = curFirstId;
+
+    if (delta <= 0) return; // channel switch or deletion — no action
+
+    // Detect if older messages were prepended (first message ID changed while
+    // user was scrolled up).  In that case, preserve the scroll position so
+    // the viewport doesn't jump.
+    if (prevFirstId !== null && curFirstId !== prevFirstId) {
+      const el = messagesContainerRef.current;
+      if (el) {
+        const prevScrollHeight = el.scrollHeight;
+        requestAnimationFrame(() => {
+          el.scrollTop += el.scrollHeight - prevScrollHeight;
+        });
+      }
+      return;
+    }
+
+    // On the initial message batch (container was empty, prevFirstId null)
+    // trust stickToBottomRef — the viewport check would fail because the
+    // DOM was just populated and scrollTop is still 0.
+    const isInitialBatch = prevFirstId === null;
     const el = messagesContainerRef.current;
-    const atBottom = el ? isWithinHalfViewport(el) : stickToBottomRef.current;
+    const atBottom = isInitialBatch
+      ? stickToBottomRef.current
+      : el ? isWithinHalfViewport(el) : stickToBottomRef.current;
 
     if (atBottom) {
       // User is at bottom - auto-scroll after the DOM updates.
@@ -436,6 +462,7 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
     setNewMsgCount(0);
     setLastReadIdx(null);
     prevMsgCountRef.current = allMessages.length;
+    prevFirstMsgIdRef.current = allMessages.length > 0 ? (allMessages[0].message_id ?? null) : null;
     stickToBottomRef.current = true;
     requestAnimationFrame(() => {
       const el = messagesContainerRef.current;

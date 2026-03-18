@@ -7,6 +7,7 @@
 mod channel_remove;
 mod channel_state;
 mod codec_version;
+mod pchat;
 mod permission_denied;
 mod permission_query;
 mod ping;
@@ -91,6 +92,12 @@ pub(crate) fn dispatch(msg: &ControlMessage, ctx: &HandlerContext) {
         ControlMessage::PermissionQuery(m) => m.handle(ctx),
         ControlMessage::CodecVersion(m) => m.handle(ctx),
         ControlMessage::UserStats(m) => m.handle(ctx),
+        ControlMessage::PchatMessageDeliver(m) => m.handle(ctx),
+        ControlMessage::PchatFetchResponse(m) => m.handle(ctx),
+        ControlMessage::PchatKeyAnnounce(m) => m.handle(ctx),
+        ControlMessage::PchatKeyExchange(m) => m.handle(ctx),
+        ControlMessage::PchatKeyRequest(m) => m.handle(ctx),
+        ControlMessage::PchatAck(m) => m.handle(ctx),
         _ => {}
     }
 }

@@ -103,7 +103,7 @@ impl AudioCapture for CpalCapture {
             .map_err(|e| Error::InvalidState(e.to_string()))?;
 
         if buf.len() < self.frame_size {
-            return Err(Error::InvalidState("Not enough samples".into()));
+            return Err(Error::NotEnoughSamples);
         }
 
         let vol = f32::from_bits(self.volume.load(Ordering::Relaxed));

@@ -1,0 +1,327 @@
+import { useState, useCallback, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
+import type { ChannelEntry, PchatMode } from "../types";
+import { useAppStore } from "../store";
+import styles from "./ChannelEditorDialog.module.css";
+
+/** Mumble permission bitmask constants. */
+const PERM_WRITE = 0x02;
+const PERM_MAKE_CHANNEL = 0x40;
+const PERM_MAKE_TEMP_CHANNEL = 0x4000;
+
+/** Check whether a channel's cached permissions include a specific bit.
+ *  Returns `true` optimistically when permissions have not been queried yet. */
+export function hasPermission(channel: ChannelEntry | undefined, bit: number): boolean {
+  if (!channel) return false;
+  if (channel.permissions == null) return true;
+  return (channel.permissions & bit) !== 0;
+}
+
+/** Can the user edit this channel? (requires Write permission) */
+export function canEditChannel(channel: ChannelEntry | undefined): boolean {
+  return hasPermission(channel, PERM_WRITE);
+}
+
+/** Can the user create a sub-channel? (requires MakeChannel or MakeTempChannel) */
+export function canCreateChannel(channel: ChannelEntry | undefined): boolean {
+  return (
+    hasPermission(channel, PERM_MAKE_CHANNEL) ||
+    hasPermission(channel, PERM_MAKE_TEMP_CHANNEL)
+  );
+}
+
+/** Can only create temporary channels (has MakeTempChannel but not MakeChannel). */
+export function canOnlyCreateTemp(channel: ChannelEntry | undefined): boolean {
+  return (
+    !hasPermission(channel, PERM_MAKE_CHANNEL) &&
+    hasPermission(channel, PERM_MAKE_TEMP_CHANNEL)
+  );
+}
+
+/** Can the user delete this channel? (requires Write permission; root channel 0 cannot be deleted) */
+export function canDeleteChannel(channel: ChannelEntry | undefined): boolean {
+  if (!channel) return false;
+  if (channel.id === 0) return false;
+  return hasPermission(channel, PERM_WRITE);
+}
+
+// ---- Dialog types ------------------------------------------------
+
+interface ChannelEditorProps {
+  /** The channel being edited, or `null` when creating a new one. */
+  readonly channel: ChannelEntry | null;
+  /** Parent channel ID (required when creating). */
+  readonly parentId: number;
+  /** Whether the user can only create temporary channels. */
+  readonly tempOnly?: boolean;
+  readonly onClose: () => void;
+}
+
+// ---- Component ---------------------------------------------------
+
+export default function ChannelEditorDialog({
+  channel,
+  parentId,
+  tempOnly = false,
+  onClose,
+}: ChannelEditorProps) {
+  const isCreate = channel === null;
+  const createChannel = useAppStore((s) => s.createChannel);
+  const updateChannel = useAppStore((s) => s.updateChannel);
+
+  // Form state - initialised from existing channel or defaults.
+  const [name, setName] = useState(channel?.name ?? "");
+  const [description, setDescription] = useState(channel?.description ?? "");
+  const [position, setPosition] = useState(channel?.position ?? 0);
+  const [temporary, setTemporary] = useState(
+    tempOnly ? true : (channel?.temporary ?? false),
+  );
+  const [maxUsers, setMaxUsers] = useState(channel?.max_users ?? 0);
+
+  // Persistence settings
+  const [pchatMode, setPchatMode] = useState<PchatMode>(
+    channel?.pchat_mode ?? "none",
+  );
+  const [pchatMaxHistory, setPchatMaxHistory] = useState(
+    channel?.pchat_max_history ?? 0,
+  );
+  const [pchatRetentionDays, setPchatRetentionDays] = useState(
+    channel?.pchat_retention_days ?? 0,
+  );
+
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+
+  // Close on Escape.
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  // Close on backdrop click.
+  const handleBackdropClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.target === backdropRef.current) onClose();
+    },
+    [onClose],
+  );
+
+  const handleSubmit = useCallback(async () => {
+    if (!name.trim()) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const pchatOpts =
+        pchatMode !== "none"
+          ? {
+              pchatMode,
+              pchatMaxHistory: pchatMaxHistory || undefined,
+              pchatRetentionDays: pchatRetentionDays || undefined,
+            }
+          : { pchatMode };
+
+      if (isCreate) {
+        await createChannel(parentId, name.trim(), {
+          description: description || undefined,
+          position: position || undefined,
+          temporary: temporary || undefined,
+          maxUsers: maxUsers || undefined,
+          ...pchatOpts,
+        });
+      } else {
+        await updateChannel(channel.id, {
+          name: name.trim() !== channel.name ? name.trim() : undefined,
+          description:
+            description !== channel.description ? description : undefined,
+          position: position !== channel.position ? position : undefined,
+          temporary: temporary !== channel.temporary ? temporary : undefined,
+          maxUsers: maxUsers !== channel.max_users ? maxUsers : undefined,
+          ...pchatOpts,
+        });
+      }
+      onClose();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [
+    name,
+    description,
+    position,
+    temporary,
+    maxUsers,
+    pchatMode,
+    pchatMaxHistory,
+    pchatRetentionDays,
+    isCreate,
+    channel,
+    parentId,
+    createChannel,
+    updateChannel,
+    onClose,
+  ]);
+
+  return createPortal(
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
+    <div
+      ref={backdropRef}
+      className={styles.backdrop}
+      onClick={handleBackdropClick}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+      }}
+    >
+      <div className={styles.dialog} role="dialog" aria-modal="true" aria-label={isCreate ? "Create Channel" : "Edit Channel"}>
+        <h3 className={styles.title}>{isCreate ? "Create Channel" : "Edit Channel"}</h3>
+
+        {/* Name */}
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="ch-ed-name">Name</label>
+          <input
+            id="ch-ed-name"
+            className={styles.input}
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Channel name"
+            autoFocus
+          />
+        </div>
+
+        {/* Description */}
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="ch-ed-desc">Description</label>
+          <textarea
+            id="ch-ed-desc"
+            className={styles.textarea}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Optional description"
+            rows={3}
+          />
+        </div>
+
+        {/* Position & Max Users */}
+        <div className={styles.row}>
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="ch-ed-pos">Position</label>
+            <input
+              id="ch-ed-pos"
+              className={styles.input}
+              type="number"
+              value={position}
+              onChange={(e) => setPosition(Number(e.target.value))}
+              min={0}
+            />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="ch-ed-max">Max Users</label>
+            <input
+              id="ch-ed-max"
+              className={styles.input}
+              type="number"
+              value={maxUsers}
+              onChange={(e) => setMaxUsers(Number(e.target.value))}
+              min={0}
+            />
+            <span className={styles.hint}>0 = unlimited</span>
+          </div>
+        </div>
+
+        {/* Temporary */}
+        <div className={styles.checkboxRow}>
+          <input
+            id="ch-ed-temp"
+            className={styles.checkbox}
+            type="checkbox"
+            checked={temporary}
+            onChange={(e) => setTemporary(e.target.checked)}
+            disabled={tempOnly}
+          />
+          <label className={styles.checkboxLabel} htmlFor="ch-ed-temp">
+            Temporary channel
+          </label>
+        </div>
+
+        {/* Persistence settings */}
+        <div className={styles.section}>
+          <h4 className={styles.sectionTitle}>Persistence</h4>
+
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="ch-ed-pchat">Mode</label>
+            <select
+              id="ch-ed-pchat"
+              className={styles.select}
+              value={pchatMode}
+              onChange={(e) => setPchatMode(e.target.value as PchatMode)}
+            >
+              <option value="none">None (standard volatile chat)</option>
+              <option value="post_join">Post-Join (history from first join)</option>
+              <option value="full_archive">Full Archive (all messages)</option>
+              <option value="server_managed">Server Managed</option>
+            </select>
+          </div>
+
+          {pchatMode !== "none" && (
+            <div className={styles.row}>
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor="ch-ed-maxhist">
+                  Max History
+                </label>
+                <input
+                  id="ch-ed-maxhist"
+                  className={styles.input}
+                  type="number"
+                  value={pchatMaxHistory}
+                  onChange={(e) => setPchatMaxHistory(Number(e.target.value))}
+                  min={0}
+                />
+                <span className={styles.hint}>0 = unlimited</span>
+              </div>
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor="ch-ed-ret">
+                  Retention (days)
+                </label>
+                <input
+                  id="ch-ed-ret"
+                  className={styles.input}
+                  type="number"
+                  value={pchatRetentionDays}
+                  onChange={(e) => setPchatRetentionDays(Number(e.target.value))}
+                  min={0}
+                />
+                <span className={styles.hint}>0 = forever</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {error && <p className={styles.error}>{error}</p>}
+
+        <div className={styles.actions}>
+          <button className={styles.cancelBtn} onClick={onClose} type="button">
+            Cancel
+          </button>
+          <button
+            className={styles.submitBtn}
+            onClick={handleSubmit}
+            disabled={submitting || !name.trim()}
+            type="button"
+          >
+            {submitting
+              ? "Saving..."
+              : isCreate
+                ? "Create"
+                : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}

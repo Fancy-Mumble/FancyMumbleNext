@@ -66,6 +66,8 @@ interface UserListItemProps {
   readonly channelName?: string;
   /** Whether this item is currently active/selected. */
   readonly active?: boolean;
+  /** Whether this item represents the current user. */
+  readonly isSelf?: boolean;
   /** Called on left click. */
   readonly onClick?: () => void;
   /** Called on right click to open context menu. */
@@ -76,6 +78,7 @@ export function UserListItem({
   user,
   channelName,
   active,
+  isSelf,
   onClick,
   onContextMenu,
 }: UserListItemProps) {
@@ -117,7 +120,7 @@ export function UserListItem({
     <button
       ref={itemRef}
       type="button"
-      className={`${styles.userItem} ${active ? styles.userItemActive : ""}`}
+      className={`${styles.userItem} ${active ? styles.userItemActive : ""} ${isSelf ? styles.selfUser : ""}`}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
       onClick={onClick}
@@ -137,7 +140,7 @@ export function UserListItem({
         <span className={styles.onlineDot} />
       </div>
       <span className={styles.userName}>{user.name}</span>
-      {(isMuted || isDeafened || isPriority) && (
+      {!isSelf && (isMuted || isDeafened || isPriority) && (
         <span className={styles.statusIcons}>
           {isMuted && !isDeafened && (
             <span className={`${styles.statusIcon} ${styles.muted}`} title={user.mute ? "Server muted" : "Self muted"}>

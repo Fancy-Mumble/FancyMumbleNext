@@ -129,7 +129,8 @@ All `PluginDataTransmission` messages where `dataID` starts with
 ### Detection of Fancy Mumble Clients
 
 A connecting client that supports persistent chat sends
-`Version.fancy_version >= 2`. The server should track which connected
+`Version.fancy_version >= 0x0000_0002_0000_0000` (v2-encoded 0.2.0).
+The server should track which connected
 sessions are Fancy Mumble v2+ and only send `fancy-pchat-*` messages
 to those sessions.
 

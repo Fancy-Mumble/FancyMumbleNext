@@ -47,7 +47,7 @@ impl HandleMessage for mumble_tcp::UserRemove {
                     state.inbound_pipeline = None;
                 }
             }
-            ctx.emit("connection-rejected", RejectedPayload { reason });
+            ctx.emit("connection-rejected", RejectedPayload { reason, reject_type: None });
             ctx.emit_empty("server-disconnected");
         } else {
             if let Ok(mut state) = ctx.shared.lock() {

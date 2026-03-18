@@ -32,6 +32,13 @@
   background: var(--color-glass-active, rgba(99, 102, 241, 0.15));
 }
 
+.selfUser {
+  background: linear-gradient(135deg, rgba(42, 171, 238, 0.08), rgba(122, 58, 237, 0.06));
+  border: 1px solid rgba(42, 171, 238, 0.15);
+  cursor: default;
+  pointer-events: none;
+}
+
 /* ─── Avatar ───────────────────────────────────────────────────── */
 
 .avatarWrap {

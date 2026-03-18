@@ -2323,8 +2323,8 @@ When both Fancy Mumble and legacy clients are in the same channel:
 ### 9.4 Feature Detection
 
 ```
-[Client] Connects, sends Version { fancy_version: Some(2) }
-        |      (v2 = supports persistent chat)
+[Client] Connects, sends Version { fancy_version: Some(0x0000_0002_0000_0000) }
+        |      (v2-encoded 0.2.0 = supports persistent chat)
         v
 [Client] Receives ChannelState for all channels
         |      (standard Mumble handshake)
@@ -2332,7 +2332,7 @@ When both Fancy Mumble and legacy clients are in the same channel:
 [Client] Reads pchat_mode / pchat_max_history / pchat_retention_days
         |      from each ChannelState to discover persistent channels
         v
-[Server Companion] Sees fancy_version >= 2
+[Server Companion] Sees fancy_version >= 0x0000_0002_0000_0000 (v2-encoded 0.2.0)
         v
 [Server Companion] Begins accepting fancy-pchat-* messages
 ```
@@ -2342,9 +2342,12 @@ editing a channel name or description: the admin sends a `ChannelState`
 with the desired `pchat_*` fields set. Murmur persists them in its
 database and re-broadcasts to all clients.
 
-- `fancy_version: 1` = original Fancy Mumble (message_id, timestamp,
-  profiles, polls)
-- `fancy_version: 2` = adds persistent chat support
+- `fancy_version` uses the same v2 encoding as `version_v2`:
+  `(major << 48) | (minor << 32) | (patch << 16)`.
+- `fancy_version: 0x0000_0001_0000_0000` (0.1.0) = original Fancy Mumble
+  (message_id, timestamp, profiles, polls)
+- `fancy_version: 0x0000_0002_0000_0000` (0.2.0) = adds persistent chat
+  support
 
 If no `ChannelState` contains `pchat_mode` fields, the
 client treats all channels as volatile (no persistence). This is

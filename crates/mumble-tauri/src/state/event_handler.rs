@@ -124,6 +124,8 @@ impl EventHandler for TauriEventHandler {
             state.max_users = None;
             state.max_bandwidth = None;
             state.opus = false;
+            state.pchat = None;
+            state.pchat_seed = None;
         }
         let _ = self.app.emit("server-disconnected", ());
     }

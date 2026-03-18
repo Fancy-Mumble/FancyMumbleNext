@@ -140,6 +140,26 @@
   cursor: not-allowed;
 }
 
+/* --- New-cert inline row ---------------------------------------- */
+
+.newCertRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.newCertRow .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.newCertRow .buttonGhost {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
 /* --- Button ----------------------------------------------------- */
 
 .button {

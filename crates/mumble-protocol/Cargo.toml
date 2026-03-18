@@ -62,6 +62,9 @@ tokio-rustls = "0.26"
 rustls = { version = "0.23", features = ["ring"] }
 minimp3 = "0.6.1"
 hound = "3.5"
+uuid = { version = "1", features = ["v4"] }
+rand = "0.10"
+rcgen = "0.13"
 
 [lints]
 workspace = true

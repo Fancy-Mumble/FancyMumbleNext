@@ -1,7 +1,7 @@
-//! MessagePack wire format for all `fancy-pchat-*` payloads.
+//! `MessagePack` wire format for all `fancy-pchat-*` payloads.
 //!
 //! Each struct corresponds to one `PluginDataTransmission` payload
-//! identified by its `dataID`. Serialization uses MessagePack (compact
+//! identified by its `dataID`. Serialization uses `MessagePack` (compact
 //! binary, schema-flexible).
 
 use serde::{Deserialize, Serialize};
@@ -24,14 +24,14 @@ pub struct PchatMsg {
     /// Encrypted [`MessageEnvelope`] bytes (version byte + nonce + AEAD ciphertext).
     #[serde(with = "serde_bytes")]
     pub envelope: Vec<u8>,
-    /// Epoch number (POST_JOIN only).
+    /// Epoch number (`POST_JOIN` only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub epoch: Option<u32>,
-    /// Chain ratchet index within the epoch (POST_JOIN only).
+    /// Chain ratchet index within the epoch (`POST_JOIN` only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chain_index: Option<u32>,
     /// `SHA-256(epoch_key)[0..8]` for key cross-verification.
-    #[serde(with = "serde_bytes")]
+    #[serde(default, with = "serde_bytes")]
     pub epoch_fingerprint: Vec<u8>,
     /// If set, this message replaces a previous message by ID
     /// (epoch fork re-send). See design doc section 6.2.
@@ -43,7 +43,7 @@ pub struct PchatMsg {
 
 /// Plaintext message content before encryption.
 ///
-/// Serialized to MessagePack, then padded, then encrypted.
+/// Serialized to `MessagePack`, then padded, then encrypted.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageEnvelope {
     /// Message body (HTML).
@@ -124,7 +124,7 @@ pub struct PchatKeyExchange {
     /// Ed25519 signature over the canonical signed data.
     #[serde(with = "serde_bytes")]
     pub signature: Vec<u8>,
-    /// `SHA-256(previous_epoch_key)[0..8]`, POST_JOIN only.
+    /// `SHA-256(previous_epoch_key)[0..8]`, `POST_JOIN` only.
     #[serde(
         skip_serializing_if = "Option::is_none",
         default,
@@ -237,7 +237,7 @@ pub mod ack_status {
 
 /// Trait for serializing and deserializing wire format payloads.
 ///
-/// Provides a default MessagePack implementation. Consumers can
+/// Provides a default `MessagePack` implementation. Consumers can
 /// override for testing or alternative encodings.
 pub trait WireCodec: Send + Sync {
     /// Serialize a payload to bytes.
@@ -247,7 +247,7 @@ pub trait WireCodec: Send + Sync {
     fn decode<'a, T: Deserialize<'a>>(&self, data: &'a [u8]) -> crate::error::Result<T>;
 }
 
-/// Default MessagePack codec.
+/// Default `MessagePack` codec.
 #[derive(Debug, Clone, Default)]
 pub struct MsgPackCodec;
 
@@ -276,7 +276,7 @@ mod option_serde_bytes {
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<u8>>, D::Error> {
         let opt: Option<serde_bytes::ByteBuf> = Option::deserialize(d)?;
-        Ok(opt.map(|b| b.into_vec()))
+        Ok(opt.map(serde_bytes::ByteBuf::into_vec))
     }
 }
 

@@ -30,6 +30,9 @@ pub enum Error {
     #[error("Invalid state: {0}")]
     InvalidState(String),
 
+    #[error("Not enough samples")]
+    NotEnoughSamples,
+
     #[error("Opus codec error: {0}")]
     OpusCodec(String),
 

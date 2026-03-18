@@ -16,6 +16,7 @@ mod connection;
 mod event_handler;
 mod handler;
 pub mod offload;
+pub(crate) mod pchat;
 mod search;
 pub mod types;
 
@@ -40,8 +41,20 @@ use offload::OffloadStore;
 use mumble_protocol::audio::pipeline::InboundPipeline;
 use mumble_protocol::client::ClientHandle;
 use mumble_protocol::command;
+use mumble_protocol::persistent::PersistenceMode;
+use mumble_protocol::state::PchatMode;
 
 use types::*;
+
+/// Parse a frontend pchat mode string into the protobuf i32 value.
+fn parse_pchat_mode_str(s: &str) -> PchatMode {
+    match s {
+        "post_join" => PchatMode::PostJoin,
+        "full_archive" => PchatMode::FullArchive,
+        "server_managed" => PchatMode::ServerManaged,
+        _ => PchatMode::None,
+    }
+}
 
 // --- Shared interior state ----------------------------------------
 
@@ -128,6 +141,15 @@ pub(super) struct SharedState {
     /// Handle to the background latency-test task (sends periodic pings). Desktop only.
     #[cfg(not(target_os = "android"))]
     pub latency_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
+    /// Persistent encrypted chat state (identity, key manager, codec).
+    /// Initialised on connect when a cert hash is available.
+    pub pchat: Option<pchat::PchatState>,
+    /// Pre-loaded identity seed for pchat, set during `connect()`.
+    /// Consumed by the `ServerSync` handler to build `PchatState`.
+    pub pchat_seed: Option<[u8; 32]>,
+    /// Tauri app handle for emitting events from spawned async tasks
+    /// (e.g. pchat key exchange / history loading notifications).
+    pub tauri_app_handle: Option<AppHandle>,
 }
 
 // --- Tauri-managed application state ------------------------------
@@ -412,14 +434,34 @@ impl AppState {
 
     // -- Messaging -------------------------------------------------
 
-    pub async fn send_message(&self, channel_id: u32, body: String) -> Result<(), String> {
-        let (handle, own_session, own_name, is_fancy) = {
+    /// Send a PchatFetch request to load older messages (pagination).
+    pub async fn fetch_older_messages(
+        &self,
+        channel_id: u32,
+        before_id: Option<String>,
+        limit: u32,
+    ) -> Result<(), String> {
+        let handle = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        let handle = handle.ok_or("Not connected")?;
+        pchat::send_fetch(&handle, channel_id, before_id, limit).await
+    }
+
+    pub async fn send_message(&self, channel_id: u32, body: String) -> Result<(), String> {
+        let (handle, own_session, own_name, is_fancy, pchat_mode) = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let mode = state
+                .channels
+                .get(&channel_id)
+                .and_then(|ch| ch.pchat_mode);
             (
                 state.client_handle.clone(),
                 state.own_session,
                 state.own_name.clone(),
                 state.server_fancy_version.is_some(),
+                mode,
             )
         };
 
@@ -438,6 +480,7 @@ impl AppState {
         };
         let timestamp = if is_fancy { Some(now_ms) } else { None };
 
+        // Always send the plain TextMessage (backward compat / real-time path).
         handle
             .send(command::SendTextMessage {
                 channel_ids: vec![channel_id],
@@ -449,6 +492,61 @@ impl AppState {
             })
             .await
             .map_err(|e| format!("Failed to send message: {e}"))?;
+
+        // If the channel has persistent chat enabled, also send the encrypted
+        // PchatMessage proto for server storage (dual-path per spec section 7.1).
+        let persistence_mode = pchat_mode.map(PersistenceMode::from);
+        tracing::debug!(
+            channel_id,
+            ?pchat_mode,
+            ?persistence_mode,
+            ?message_id,
+            now_ms,
+            "send_message: checking pchat path"
+        );
+        if let Some(mode) = persistence_mode {
+            if mode.is_encrypted() {
+                if let Some(ref msg_id) = message_id {
+                    let session = own_session.unwrap_or(0);
+                    // Build encrypted payload inside the lock, then send outside.
+                    let send_result = {
+                        let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+                        let client = state.client_handle.clone();
+                        if let (Some(ref mut pchat_state), Some(client)) =
+                            (&mut state.pchat, client)
+                        {
+                            match pchat::build_encrypted_pchat_message(
+                                pchat_state,
+                                channel_id,
+                                mode,
+                                msg_id,
+                                &body,
+                                &own_name,
+                                session,
+                                now_ms,
+                            ) {
+                                Ok(proto_msg) => Some((proto_msg, client)),
+                                Err(e) => {
+                                    tracing::warn!("pchat encrypt failed: {e}");
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        }
+                    };
+                    // Send outside the lock
+                    if let Some((proto_msg, client)) = send_result {
+                        if let Err(e) = client
+                            .send(command::SendPchatMessage { message: proto_msg })
+                            .await
+                        {
+                            tracing::warn!("send pchat-msg failed: {e}");
+                        }
+                    }
+                }
+            }
+        }
 
         // Add locally - the server does not echo our own messages back.
         if let Ok(mut state) = self.inner.lock() {
@@ -1056,12 +1154,21 @@ impl AppState {
             .and_then(|s| s.welcome_text.clone())
     }
 
-    /// Update a channel's name and/or description on the server.
+    /// Update a channel on the server.
+    ///
+    /// All optional fields: only `Some(...)` values are sent.
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_channel(
         &self,
         channel_id: u32,
         name: Option<String>,
         description: Option<String>,
+        position: Option<i32>,
+        temporary: Option<bool>,
+        max_users: Option<u32>,
+        pchat_mode: Option<String>,
+        pchat_max_history: Option<u32>,
+        pchat_retention_days: Option<u32>,
     ) -> Result<(), String> {
         let handle = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;
@@ -1070,9 +1177,76 @@ impl AppState {
         match handle {
             Some(h) => {
                 h.send(command::SetChannelState {
-                    channel_id,
+                    channel_id: Some(channel_id),
+                    parent: None,
                     name,
                     description,
+                    position,
+                    temporary,
+                    max_users,
+                    pchat_mode: pchat_mode.map(|s| parse_pchat_mode_str(&s)),
+                    pchat_max_history,
+                    pchat_retention_days,
+                })
+                .await
+                .map_err(|e| e.to_string())
+            }
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Delete a channel on the server.
+    ///
+    /// Sends `ChannelRemove` to the server.  The server will reject the
+    /// request if the user lacks Write permission on the channel.  On
+    /// success the server broadcasts `ChannelRemove` to all clients and
+    /// (for FancyMumble servers) deletes all persistent-chat messages
+    /// stored for that channel.
+    pub async fn delete_channel(&self, channel_id: u32) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::DeleteChannel { channel_id })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Create a new sub-channel on the server.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_channel(
+        &self,
+        parent_id: u32,
+        name: String,
+        description: Option<String>,
+        position: Option<i32>,
+        temporary: Option<bool>,
+        max_users: Option<u32>,
+        pchat_mode: Option<String>,
+        pchat_max_history: Option<u32>,
+        pchat_retention_days: Option<u32>,
+    ) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => {
+                h.send(command::SetChannelState {
+                    channel_id: None,
+                    parent: Some(parent_id),
+                    name: Some(name),
+                    description,
+                    position,
+                    temporary,
+                    max_users,
+                    pchat_mode: pchat_mode.map(|s| parse_pchat_mode_str(&s)),
+                    pchat_max_history,
+                    pchat_retention_days,
                 })
                 .await
                 .map_err(|e| e.to_string())

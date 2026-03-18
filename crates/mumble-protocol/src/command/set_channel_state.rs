@@ -1,9 +1,13 @@
 use crate::command::core::{CommandAction, CommandOutput};
 use crate::message::ControlMessage;
 use crate::proto::mumble_tcp;
-use crate::state::ServerState;
+use crate::state::{PchatMode, ServerState};
 
-/// Update a channel's name and/or description on the server.
+/// Update or create a channel on the server.
+///
+/// For **editing** an existing channel, set `channel_id` to `Some(id)`.
+/// For **creating** a new sub-channel, set `channel_id` to `None` and
+/// `parent` to `Some(parent_id)`.
 ///
 /// Only fields set to `Some(...)` are included in the message;
 /// the server ignores absent fields.  The caller must ensure the
@@ -11,17 +15,35 @@ use crate::state::ServerState;
 /// sending.
 #[derive(Debug)]
 pub struct SetChannelState {
-    pub channel_id: u32,
+    /// Target channel ID.  `None` when creating a new channel.
+    pub channel_id: Option<u32>,
+    pub parent: Option<u32>,
     pub name: Option<String>,
     pub description: Option<String>,
+    pub position: Option<i32>,
+    pub temporary: Option<bool>,
+    pub max_users: Option<u32>,
+    /// Persistent-chat mode for this channel.
+    pub pchat_mode: Option<PchatMode>,
+    /// Max stored messages (0 = unlimited).
+    pub pchat_max_history: Option<u32>,
+    /// Auto-delete after N days (0 = forever).
+    pub pchat_retention_days: Option<u32>,
 }
 
 impl CommandAction for SetChannelState {
     fn execute(&self, _state: &ServerState) -> CommandOutput {
         let msg = mumble_tcp::ChannelState {
-            channel_id: Some(self.channel_id),
+            channel_id: self.channel_id,
+            parent: self.parent,
             name: self.name.clone(),
             description: self.description.clone(),
+            position: self.position,
+            temporary: self.temporary,
+            max_users: self.max_users,
+            pchat_mode: self.pchat_mode.map(PchatMode::to_proto),
+            pchat_max_history: self.pchat_max_history,
+            pchat_retention_days: self.pchat_retention_days,
             ..Default::default()
         };
         CommandOutput {

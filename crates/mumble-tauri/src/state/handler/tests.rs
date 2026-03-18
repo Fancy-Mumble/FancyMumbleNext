@@ -1,9 +1,10 @@
-﻿use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
 use mumble_protocol::message::ControlMessage;
 use mumble_protocol::proto::mumble_tcp;
+use mumble_protocol::state::PchatMode;
 
 use super::{dispatch, EventEmitter, HandleMessage, HandlerContext};
 use crate::state::types::*;
@@ -91,6 +92,7 @@ fn make_user(session: u32, name: &str) -> UserEntry {
         self_mute: false,
         self_deaf: false,
         priority_speaker: false,
+        hash: None,
     }
 }
 
@@ -131,12 +133,15 @@ fn version_updates_state() {
         os_version: Some("5.15".into()),
         version_v1: Some(0x0001_0500),
         version_v2: Some(42),
-        fancy_version: Some(1),
+        fancy_version: Some(mumble_protocol::state::fancy_version_encode(0, 1, 0)),
     };
     version.handle(&ctx);
 
     let state = ctx.shared.lock().unwrap();
-    assert_eq!(state.server_fancy_version, Some(1));
+    assert_eq!(
+        state.server_fancy_version,
+        Some(mumble_protocol::state::fancy_version_encode(0, 1, 0))
+    );
     assert_eq!(
         state.server_version_info.release.as_deref(),
         Some("Mumble 1.5")
@@ -497,7 +502,13 @@ async fn channel_state_updates_existing_channel() {
                 description_hash: None,
                 user_count: 0,
                 permissions: None,
-            },
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
         );
     }
 
@@ -574,7 +585,13 @@ fn channel_remove_clears_channel_and_messages() {
                 description_hash: None,
                 user_count: 0,
                 permissions: None,
-            },
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
         );
         state.messages.insert(5, vec![]);
     }
@@ -1222,7 +1239,13 @@ fn permission_query_stores_permissions() {
                 description_hash: None,
                 user_count: 0,
                 permissions: None,
-            },
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
         );
     }
 
@@ -1255,7 +1278,13 @@ fn permission_query_flush_clears_all() {
                 description_hash: None,
                 user_count: 0,
                 permissions: Some(0x01),
-            },
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
         );
         state.channels.insert(
             2,
@@ -1267,7 +1296,13 @@ fn permission_query_flush_clears_all() {
                 description_hash: None,
                 user_count: 0,
                 permissions: Some(0x02),
-            },
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
         );
     }
 
@@ -1351,4 +1386,253 @@ async fn dispatch_routes_server_sync() {
     });
     dispatch(&msg, &ctx);
     assert!(emitter.event_names().contains(&"server-connected".to_string()));
+}
+
+// -- TextMessage + pchat interaction ----------------------------------
+
+#[test]
+fn text_message_skipped_for_pchat_enabled_channel() {
+    let (ctx, emitter) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.own_session = Some(1);
+        state.users.insert(10, make_user(10, "Alice"));
+        // Channel 5 has pchat enabled (PostJoin mode).
+        state.channels.insert(
+            5,
+            ChannelEntry {
+                id: 5,
+                parent_id: Some(0),
+                name: "pchat-room".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: Some(PchatMode::PostJoin),
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
+        );
+    }
+
+    let tm = mumble_tcp::TextMessage {
+        actor: Some(10),
+        channel_id: vec![5],
+        message: "Hello pchat!".into(),
+        ..Default::default()
+    };
+    tm.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    // TextMessage should NOT be stored for pchat-enabled channels.
+    assert!(
+        state.messages.get(&5).map(|m| m.is_empty()).unwrap_or(true),
+        "TextMessage should be skipped for pchat-enabled channel"
+    );
+    drop(state);
+
+    // No new-message event should be emitted for the skipped channel.
+    let names = emitter.event_names();
+    assert!(
+        !names.contains(&"new-message".to_string()),
+        "no new-message event for pchat channel"
+    );
+}
+
+#[test]
+fn text_message_stored_for_non_pchat_channel() {
+    let (ctx, _) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.own_session = Some(1);
+        state.users.insert(10, make_user(10, "Bob"));
+        // Channel 3 with pchat_mode = None (explicitly disabled).
+        state.channels.insert(
+            3,
+            ChannelEntry {
+                id: 3,
+                parent_id: Some(0),
+                name: "regular-room".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: Some(PchatMode::None),
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
+        );
+    }
+
+    let tm = mumble_tcp::TextMessage {
+        actor: Some(10),
+        channel_id: vec![3],
+        message: "Regular message".into(),
+        ..Default::default()
+    };
+    tm.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let msgs = state.messages.get(&3).unwrap();
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(msgs[0].body, "Regular message");
+}
+
+#[test]
+fn text_message_stored_when_pchat_mode_absent() {
+    let (ctx, _) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.own_session = Some(1);
+        state.users.insert(10, make_user(10, "Carol"));
+        // Channel 7 without pchat_mode (legacy channel, no pchat support).
+        state.channels.insert(
+            7,
+            ChannelEntry {
+                id: 7,
+                parent_id: Some(0),
+                name: "legacy-room".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
+        );
+    }
+
+    let tm = mumble_tcp::TextMessage {
+        actor: Some(10),
+        channel_id: vec![7],
+        message: "Legacy message".into(),
+        ..Default::default()
+    };
+    tm.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let msgs = state.messages.get(&7).unwrap();
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(msgs[0].body, "Legacy message");
+}
+
+#[test]
+fn text_message_skipped_for_full_archive_channel() {
+    let (ctx, _) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.own_session = Some(1);
+        state.users.insert(10, make_user(10, "Dave"));
+        // Channel 9 with FullArchive mode.
+        state.channels.insert(
+            9,
+            ChannelEntry {
+                id: 9,
+                parent_id: Some(0),
+                name: "archive-room".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: Some(PchatMode::FullArchive),
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
+        );
+    }
+
+    let tm = mumble_tcp::TextMessage {
+        actor: Some(10),
+        channel_id: vec![9],
+        message: "Archived message".into(),
+        ..Default::default()
+    };
+    tm.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    assert!(
+        state.messages.get(&9).map(|m| m.is_empty()).unwrap_or(true),
+        "TextMessage should be skipped for FullArchive channel"
+    );
+}
+
+#[test]
+fn text_message_mixed_pchat_and_regular_channels() {
+    let (ctx, _) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.own_session = Some(1);
+        state.users.insert(10, make_user(10, "Eve"));
+        // Channel 2: pchat enabled
+        state.channels.insert(
+            2,
+            ChannelEntry {
+                id: 2,
+                parent_id: Some(0),
+                name: "pchat".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: Some(PchatMode::PostJoin),
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
+        );
+        // Channel 4: no pchat
+        state.channels.insert(
+            4,
+            ChannelEntry {
+                id: 4,
+                parent_id: Some(0),
+                name: "regular".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
+        );
+    }
+
+    // Message targets both channels.
+    let tm = mumble_tcp::TextMessage {
+        actor: Some(10),
+        channel_id: vec![2, 4],
+        message: "Multi-channel".into(),
+        ..Default::default()
+    };
+    tm.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    // Channel 2 (pchat) should have no message.
+    assert!(
+        state.messages.get(&2).map(|m| m.is_empty()).unwrap_or(true),
+        "pchat channel should not store TextMessage"
+    );
+    // Channel 4 (regular) should have the message.
+    let msgs = state.messages.get(&4).unwrap();
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(msgs[0].body, "Multi-channel");
 }

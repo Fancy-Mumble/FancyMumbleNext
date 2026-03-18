@@ -87,6 +87,15 @@ fn serialize_control_message(msg: &ControlMessage) -> Result<(u16, Vec<u8>)> {
         ServerConfig(m) => (TcpMessageType::ServerConfig as u16, m.encode_to_vec()),
         SuggestConfig(m) => (TcpMessageType::SuggestConfig as u16, m.encode_to_vec()),
         PluginDataTransmission(m) => (TcpMessageType::PluginDataTransmission as u16, m.encode_to_vec()),
+        PchatMessage(m) => (TcpMessageType::PchatMessage as u16, m.encode_to_vec()),
+        PchatFetch(m) => (TcpMessageType::PchatFetch as u16, m.encode_to_vec()),
+        PchatFetchResponse(m) => (TcpMessageType::PchatFetchResponse as u16, m.encode_to_vec()),
+        PchatMessageDeliver(m) => (TcpMessageType::PchatMessageDeliver as u16, m.encode_to_vec()),
+        PchatKeyAnnounce(m) => (TcpMessageType::PchatKeyAnnounce as u16, m.encode_to_vec()),
+        PchatKeyExchange(m) => (TcpMessageType::PchatKeyExchange as u16, m.encode_to_vec()),
+        PchatKeyRequest(m) => (TcpMessageType::PchatKeyRequest as u16, m.encode_to_vec()),
+        PchatAck(m) => (TcpMessageType::PchatAck as u16, m.encode_to_vec()),
+        PchatEpochCountersig(m) => (TcpMessageType::PchatEpochCountersig as u16, m.encode_to_vec()),
         UdpTunnel(data) => (TcpMessageType::UdpTunnel as u16, data.clone()),
     };
 
@@ -125,6 +134,15 @@ fn deserialize_control_message(type_id: u16, payload: &[u8]) -> Result<ControlMe
         ServerConfig => ControlMessage::ServerConfig(mumble_tcp::ServerConfig::decode(payload)?),
         SuggestConfig => ControlMessage::SuggestConfig(mumble_tcp::SuggestConfig::decode(payload)?),
         PluginDataTransmission => ControlMessage::PluginDataTransmission(mumble_tcp::PluginDataTransmission::decode(payload)?),
+        PchatMessage => ControlMessage::PchatMessage(mumble_tcp::PchatMessage::decode(payload)?),
+        PchatFetch => ControlMessage::PchatFetch(mumble_tcp::PchatFetch::decode(payload)?),
+        PchatFetchResponse => ControlMessage::PchatFetchResponse(mumble_tcp::PchatFetchResponse::decode(payload)?),
+        PchatMessageDeliver => ControlMessage::PchatMessageDeliver(mumble_tcp::PchatMessageDeliver::decode(payload)?),
+        PchatKeyAnnounce => ControlMessage::PchatKeyAnnounce(mumble_tcp::PchatKeyAnnounce::decode(payload)?),
+        PchatKeyExchange => ControlMessage::PchatKeyExchange(mumble_tcp::PchatKeyExchange::decode(payload)?),
+        PchatKeyRequest => ControlMessage::PchatKeyRequest(mumble_tcp::PchatKeyRequest::decode(payload)?),
+        PchatAck => ControlMessage::PchatAck(mumble_tcp::PchatAck::decode(payload)?),
+        PchatEpochCountersig => ControlMessage::PchatEpochCountersig(mumble_tcp::PchatEpochCountersig::decode(payload)?),
     };
     Ok(msg)
 }

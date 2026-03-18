@@ -4,7 +4,80 @@
 //! External consumers can query it through the public API.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::{Arc, Mutex};
+
+/// Persistent-chat mode for a channel.
+///
+/// Maps 1:1 to the `ChannelState.PchatMode` protobuf enum.
+/// Lives in core (no feature gate) so all consumers can use it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum PchatMode {
+    /// No persistence.  Standard volatile Mumble chat.
+    #[default]
+    None,
+    /// Messages accessible from the moment a user first joined.
+    PostJoin,
+    /// All stored messages accessible to any channel member.
+    FullArchive,
+    /// Server stores messages (no client-side key management).
+    ServerManaged,
+}
+
+impl PchatMode {
+    /// Parse from the protobuf `pchat_mode` i32 value.
+    #[must_use]
+    pub fn from_proto(value: i32) -> Self {
+        match value {
+            1 => Self::PostJoin,
+            2 => Self::FullArchive,
+            3 => Self::ServerManaged,
+            _ => Self::None,
+        }
+    }
+
+    /// Convert to the protobuf `pchat_mode` i32 value.
+    #[must_use]
+    pub fn to_proto(self) -> i32 {
+        match self {
+            Self::None => 0,
+            Self::PostJoin => 1,
+            Self::FullArchive => 2,
+            Self::ServerManaged => 3,
+        }
+    }
+}
+
+impl fmt::Display for PchatMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::None => write!(f, "None"),
+            Self::PostJoin => write!(f, "PostJoin"),
+            Self::FullArchive => write!(f, "FullArchive"),
+            Self::ServerManaged => write!(f, "ServerManaged"),
+        }
+    }
+}
+
+/// Encode a Fancy Mumble version using the Mumble v2 scheme:
+/// `(major << 48) | (minor << 32) | (patch << 16)`.
+pub const fn fancy_version_encode(major: u16, minor: u16, patch: u16) -> u64 {
+    ((major as u64) << 48) | ((minor as u64) << 32) | ((patch as u64) << 16)
+}
+
+/// Decode a Fancy Mumble v2-encoded version into (major, minor, patch).
+pub const fn fancy_version_decode(v: u64) -> (u16, u16, u16) {
+    let major = ((v >> 48) & 0xFFFF) as u16;
+    let minor = ((v >> 32) & 0xFFFF) as u16;
+    let patch = ((v >> 16) & 0xFFFF) as u16;
+    (major, minor, patch)
+}
+
+/// Format a v2-encoded Fancy Mumble version as `"major.minor.patch"`.
+pub fn fancy_version_string(v: u64) -> String {
+    let (major, minor, patch) = fancy_version_decode(v);
+    format!("{major}.{minor}.{patch}")
+}
 
 /// Snapshot of a connected user.
 #[derive(Debug, Clone)]
@@ -88,6 +161,12 @@ pub struct Channel {
     /// Whether the server reports the current user can enter
     /// this channel (`ChannelState.can_enter`).
     pub can_enter: bool,
+    /// Persistent-chat mode.  `None` if not announced by the server.
+    pub pchat_mode: Option<PchatMode>,
+    /// Maximum stored messages (0 = unlimited).  `None` if not set.
+    pub pchat_max_history: Option<u32>,
+    /// Auto-delete after N days (0 = forever).  `None` if not set.
+    pub pchat_retention_days: Option<u32>,
 }
 
 /// Connection-level metadata received during handshake.
@@ -192,6 +271,9 @@ impl ServerState {
             permissions: None,
             is_enter_restricted: false,
             can_enter: true,
+            pchat_mode: None,
+            pchat_max_history: None,
+            pchat_retention_days: None,
         });
 
         if let Some(parent) = state.parent {
@@ -220,6 +302,15 @@ impl ServerState {
         }
         if let Some(can) = state.can_enter {
             channel.can_enter = can;
+        }
+        if let Some(mode) = state.pchat_mode {
+            channel.pchat_mode = Some(PchatMode::from_proto(mode));
+        }
+        if let Some(max_hist) = state.pchat_max_history {
+            channel.pchat_max_history = Some(max_hist);
+        }
+        if let Some(ret) = state.pchat_retention_days {
+            channel.pchat_retention_days = Some(ret);
         }
     }
 

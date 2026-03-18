@@ -66,7 +66,7 @@ impl EpochKey {
     }
 }
 
-/// A static channel key (FULL_ARCHIVE mode).
+/// A static channel key (`FULL_ARCHIVE` mode).
 #[derive(Debug, Clone)]
 pub struct ChannelKey {
     pub key: [u8; 32],
@@ -111,7 +111,7 @@ pub struct EpochCandidate {
 pub struct ConsensusCollector {
     /// When the collection window started (first response received).
     pub window_start: Instant,
-    /// Collected responses: sender_hash -> decrypted key bytes.
+    /// Collected responses: `sender_hash` -> decrypted key bytes.
     pub responses: HashMap<String, Vec<u8>>,
     /// Request timestamp from `fancy-pchat-key-request`.
     pub request_timestamp: u64,
@@ -165,9 +165,9 @@ impl CustodianPinState {
 pub struct EncryptedPayload {
     /// Version byte + nonce + AEAD ciphertext + tag.
     pub ciphertext: Vec<u8>,
-    /// Epoch number (POST_JOIN).
+    /// Epoch number (`POST_JOIN`).
     pub epoch: Option<u32>,
-    /// Chain index within epoch (POST_JOIN).
+    /// Chain index within epoch (`POST_JOIN`).
     pub chain_index: Option<u32>,
     /// `SHA-256(key)[0..8]`.
     pub epoch_fingerprint: [u8; 8],
@@ -281,24 +281,24 @@ pub struct KeyManager {
     encryptor: Box<dyn Encryptor>,
     /// Key deriver for HKDF operations.
     deriver: Box<dyn KeyDeriver>,
-    /// Known peer public keys: cert_hash -> record.
+    /// Known peer public keys: `cert_hash` -> record.
     peer_keys: HashMap<String, PeerKeyRecord>,
-    /// POST_JOIN epoch keys: channel_id -> epoch -> (key, trust).
+    /// `POST_JOIN` epoch keys: `channel_id` -> epoch -> (key, trust).
     epoch_keys: HashMap<u32, BTreeMap<u32, (EpochKey, KeyTrustLevel)>>,
-    /// FULL_ARCHIVE channel keys: channel_id -> (key, trust).
+    /// `FULL_ARCHIVE` channel keys: `channel_id` -> (key, trust).
     archive_keys: HashMap<u32, (ChannelKey, KeyTrustLevel)>,
     /// Key requests processed this connection.
     requests_processed: u32,
     /// Max key requests per connection.
     max_requests_per_connection: u32,
-    /// Pending consensus collectors: request_id -> collector.
+    /// Pending consensus collectors: `request_id` -> collector.
     pending_consensus: HashMap<String, ConsensusCollector>,
-    /// Channel key originators: channel_id -> cert_hash.
+    /// Channel key originators: `channel_id` -> `cert_hash`.
     channel_originators: HashMap<u32, String>,
     /// Pinned custodian lists per channel.
     pinned_custodians: HashMap<u32, CustodianPinState>,
-    /// Pending epoch fork candidates (POST_JOIN).
-    /// Key: (channel_id, epoch) -> candidates.
+    /// Pending epoch fork candidates (`POST_JOIN`).
+    /// Key: (`channel_id`, epoch) -> candidates.
     pending_epoch_candidates: HashMap<(u32, u32), Vec<EpochCandidate>>,
 }
 
@@ -329,6 +329,15 @@ impl KeyManager {
             channel_originators: HashMap::new(),
             pinned_custodians: HashMap::new(),
             pending_epoch_candidates: HashMap::new(),
+        }
+    }
+
+    /// Returns `true` if we already hold a key for the given channel and mode.
+    pub fn has_key(&self, channel_id: u32, mode: PersistenceMode) -> bool {
+        match mode {
+            PersistenceMode::PostJoin => self.epoch_keys.contains_key(&channel_id),
+            PersistenceMode::FullArchive => self.archive_keys.contains_key(&channel_id),
+            _ => false,
         }
     }
 
@@ -381,6 +390,14 @@ impl KeyManager {
         }
 
         if announce.identity_public.len() != 32 || announce.signing_public.len() != 32 {
+            tracing::warn!(
+                cert_hash = %announce.cert_hash,
+                id_pub_len = announce.identity_public.len(),
+                sign_pub_len = announce.signing_public.len(),
+                sig_len = announce.signature.len(),
+                "key-announce has invalid key lengths (expected 32, 32, 64) \
+                 -- possible BLOB truncation by server DB"
+            );
             return Err(Error::InvalidState("invalid key lengths".into()));
         }
 
@@ -403,7 +420,19 @@ impl KeyManager {
 
         verifying_key
             .verify(&signed_data, &signature)
-            .map_err(|e| Error::InvalidState(format!("signature verification failed: {e}")))?;
+            .map_err(|e| {
+                let sig_hex: String = announce.signature.iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+                tracing::warn!(
+                    cert_hash = %announce.cert_hash,
+                    timestamp = announce.timestamp,
+                    signed_data_len = signed_data.len(),
+                    sig_hex,
+                    "key-announce signature verification failed: {e}"
+                );
+                Error::InvalidState(format!("signature verification failed: {e}"))
+            })?;
 
         // Anti-rollback check
         if let Some(existing) = self.peer_keys.get(&announce.cert_hash) {
@@ -592,16 +621,16 @@ impl KeyManager {
     /// 1. Verifies Ed25519 signature.
     /// 2. Checks timestamp freshness.
     /// 3. Decrypts the key via DH shared secret.
-    /// 4. Verifies epoch_fingerprint matches.
-    /// 5. For POST_JOIN: verifies parent_fingerprint, stores as candidate.
-    /// 6. For FULL_ARCHIVE: adds to consensus collector.
+    /// 4. Verifies `epoch_fingerprint` matches.
+    /// 5. For `POST_JOIN`: verifies `parent_fingerprint`, stores as candidate.
+    /// 6. For `FULL_ARCHIVE`: adds to consensus collector.
     pub fn receive_key_exchange(
         &mut self,
-        exchange: PchatKeyExchange,
+        exchange: &PchatKeyExchange,
         request_timestamp: Option<u64>,
     ) -> Result<()> {
         // 1. Verify signature
-        self.verify_key_exchange_signature(&exchange)?;
+        self.verify_key_exchange_signature(exchange)?;
 
         // 2. Timestamp freshness
         if let Some(req_ts) = request_timestamp {
@@ -821,7 +850,7 @@ impl KeyManager {
     /// Resolve epoch fork candidates for a (channel, epoch) pair.
     ///
     /// Applies the deterministic tie-breaker: the candidate from the
-    /// sender with the lexicographically smallest cert_hash wins.
+    /// sender with the lexicographically smallest `cert_hash` wins.
     pub fn resolve_epoch_fork(
         &mut self,
         channel_id: u32,
@@ -882,6 +911,7 @@ impl KeyManager {
     // ---- Key distribution -------------------------------------------
 
     /// Generate a key-exchange payload for distributing a key to a new member.
+    #[allow(clippy::too_many_arguments)]
     pub fn distribute_key(
         &self,
         channel_id: u32,
@@ -1036,6 +1066,7 @@ impl KeyManager {
     // ---- Countersignature verification ------------------------------
 
     /// Verify an epoch countersignature (standalone or inline).
+    #[allow(clippy::too_many_arguments)]
     pub fn verify_countersignature(
         &mut self,
         channel_id: u32,
@@ -1076,6 +1107,7 @@ impl KeyManager {
         Ok(KeyTrustLevel::Verified)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn verify_countersignature_internal(
         &self,
         channel_id: u32,
@@ -1120,7 +1152,7 @@ impl KeyManager {
     /// Check if a sender is a trusted authority for a channel.
     ///
     /// Returns true only when all conditions from section 5.7 are met:
-    /// 1. Sender appears in key_custodians or is the channel originator.
+    /// 1. Sender appears in `key_custodians` or is the channel originator.
     /// 2. Sender appears in the TOFU-pinned list.
     /// 3. The pinned list has been confirmed by the user.
     pub fn is_trusted_authority(
@@ -1201,6 +1233,11 @@ impl KeyManager {
         if let Some(pin_state) = self.pinned_custodians.get_mut(&channel_id) {
             pin_state.confirmed = true;
         }
+    }
+
+    /// Get the current custodian pin state for a channel.
+    pub fn get_custodian_pin(&self, channel_id: u32) -> Option<&CustodianPinState> {
+        self.pinned_custodians.get(&channel_id)
     }
 
     // ---- Key trial decryption (supplementary check) -----------------
