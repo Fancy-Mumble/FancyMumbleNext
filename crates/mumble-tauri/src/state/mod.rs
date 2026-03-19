@@ -15,6 +15,7 @@ mod audio;
 mod connection;
 mod event_handler;
 mod handler;
+pub(crate) mod hash_names;
 pub mod offload;
 pub(crate) mod pchat;
 mod search;
@@ -147,6 +148,19 @@ pub(super) struct SharedState {
     /// Pre-loaded identity seed for pchat, set during `connect()`.
     /// Consumed by the `ServerSync` handler to build `PchatState`.
     pub pchat_seed: Option<[u8; 32]>,
+    /// Per-identity directory path for persisting pchat keys etc.
+    /// Set during `connect()`, consumed by `ServerSync` handler.
+    pub pchat_identity_dir: Option<std::path::PathBuf>,
+    /// Set to `true` when the user explicitly triggers a disconnect.
+    /// Cleared by `on_disconnected()` after reading.
+    pub user_initiated_disconnect: bool,
+    /// Pending key-share requests waiting for user approval.
+    /// Keyed by `(channel_id, peer_cert_hash)` encoded as string "channel_id:cert_hash".
+    pub pending_key_shares: Vec<PendingKeyShare>,
+    /// Server-tracked key holders per channel: `channel_id -> entries`.
+    pub key_holders: HashMap<u32, Vec<KeyHolderEntry>>,
+    /// Resolves cert hashes to human-readable names (persisted across sessions).
+    pub hash_name_resolver: Option<Arc<dyn hash_names::HashNameResolver>>,
     /// Tauri app handle for emitting events from spawned async tasks
     /// (e.g. pchat key exchange / history loading notifications).
     pub tauri_app_handle: Option<AppHandle>,

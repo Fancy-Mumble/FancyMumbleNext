@@ -30,15 +30,9 @@ pub const HKDF_SALT_ARCHIVE_KEY: &[u8] = b"fancy-pchat-archive-key-v1";
 
 /// Derive a deterministic archive key from the identity seed and channel ID.
 ///
-/// Uses HKDF-SHA256 so the same user always generates the same key for
-/// a given channel, allowing them to decrypt their own messages across
-/// reconnections without key-exchange.
+/// Convenience wrapper around [`HkdfArchiveKeyDeriver`].
 pub fn derive_archive_key(seed: &[u8; 32], channel_id: u32) -> [u8; 32] {
-    let hkdf = Hkdf::<Sha256>::new(Some(HKDF_SALT_ARCHIVE_KEY), seed);
-    let mut key = [0u8; 32];
-    hkdf.expand(&channel_id.to_be_bytes(), &mut key)
-        .expect("HKDF expand for archive key");
-    key
+    HkdfArchiveKeyDeriver.derive_archive_key(seed, channel_id)
 }
 
 /// Block size for ciphertext padding (bytes).
@@ -75,6 +69,106 @@ pub trait Encryptor: Send + Sync {
 pub trait KeyDeriver: Send + Sync {
     /// Derive a fixed-length key from input key material.
     fn derive(&self, ikm: &[u8], salt: &[u8], info: &[u8]) -> Result<[u8; KEY_LEN]>;
+}
+
+// ---- Trait: ChainRatchet --------------------------------------------
+
+/// Trait abstracting the symmetric ratchet used to derive chain keys
+/// and per-message keys from an epoch key.
+///
+/// Enables alternative ratchet strategies (e.g. skip-ahead, Double Ratchet).
+pub trait ChainRatchet: Send + Sync {
+    /// Derive the next chain key from the current one.
+    fn derive_chain_key(&self, current: &[u8; KEY_LEN]) -> Result<[u8; KEY_LEN]>;
+
+    /// Derive a per-message encryption key from a chain key.
+    fn derive_message_key(&self, chain_key: &[u8; KEY_LEN]) -> Result<[u8; KEY_LEN]>;
+
+    /// Derive the message key at a specific ratchet index by advancing
+    /// from the epoch key. The default implementation ratchets forward
+    /// sequentially.
+    fn derive_key_at_index(
+        &self,
+        epoch_key: &[u8; KEY_LEN],
+        target_index: u32,
+    ) -> Result<[u8; KEY_LEN]> {
+        let mut chain_key = *epoch_key;
+        for _ in 0..target_index {
+            chain_key = self.derive_chain_key(&chain_key)?;
+        }
+        self.derive_message_key(&chain_key)
+    }
+}
+
+// ---- Trait: AadBuilder ----------------------------------------------
+
+/// Trait abstracting the construction of AEAD Associated Authenticated Data.
+pub trait AadBuilder: Send + Sync {
+    /// Build AAD bytes from channel metadata.
+    ///
+    /// `AAD = channel_id(4B BE) || message_id(16B UUID) || timestamp(8B BE)`
+    fn build_aad(&self, channel_id: u32, message_id: &[u8; 16], timestamp: u64) -> Vec<u8>;
+
+    /// Parse a UUID string into 16 raw bytes.
+    fn uuid_to_bytes(&self, uuid_str: &str) -> Result<[u8; 16]>;
+}
+
+// ---- Trait: SignedDataBuilder ----------------------------------------
+
+/// Trait abstracting the byte-level layout of data that gets signed
+/// in protocol messages.
+pub trait SignedDataBuilder: Send + Sync {
+    /// Build data for epoch countersignatures.
+    fn build_countersig_data(
+        &self,
+        channel_id: u32,
+        epoch: u32,
+        epoch_fp: &[u8],
+        parent_fp: &[u8],
+        timestamp: u64,
+        distributor_hash: &str,
+    ) -> Vec<u8>;
+
+    /// Build data signed in a key-exchange message.
+    #[allow(clippy::too_many_arguments)]
+    fn build_key_exchange_signed_data(
+        &self,
+        algorithm_version: u8,
+        channel_id: u32,
+        mode: &crate::persistent::PersistenceMode,
+        epoch: u32,
+        encrypted_key: &[u8],
+        recipient_hash: &str,
+        request_id: Option<&str>,
+        timestamp: u64,
+    ) -> Vec<u8>;
+
+    /// Build data signed in a key-announce message.
+    fn build_key_announce_signed_data(
+        &self,
+        algorithm_version: u8,
+        cert_hash: &str,
+        timestamp: u64,
+        identity_public: &[u8],
+        signing_public: &[u8],
+    ) -> Vec<u8>;
+}
+
+// ---- Trait: Fingerprinter -------------------------------------------
+
+/// Trait abstracting epoch key fingerprint computation.
+pub trait Fingerprinter: Send + Sync {
+    /// Compute a short fingerprint of a key.
+    fn epoch_fingerprint(&self, key: &[u8]) -> [u8; 8];
+}
+
+// ---- Trait: ArchiveKeyDeriver ----------------------------------------
+
+/// Trait abstracting deterministic archive key derivation from
+/// an identity seed and channel ID.
+pub trait ArchiveKeyDeriver: Send + Sync {
+    /// Derive a deterministic archive key.
+    fn derive_archive_key(&self, seed: &[u8; 32], channel_id: u32) -> [u8; 32];
 }
 
 // ---- XChaCha20-Poly1305 implementation ------------------------------
@@ -179,24 +273,174 @@ impl KeyDeriver for HkdfSha256Deriver {
     }
 }
 
+// ---- HkdfChainRatchet -----------------------------------------------
+
+/// Chain ratchet using HKDF-SHA256 key derivation.
+#[derive(Debug, Clone, Default)]
+pub struct HkdfChainRatchet;
+
+impl ChainRatchet for HkdfChainRatchet {
+    fn derive_chain_key(&self, current: &[u8; KEY_LEN]) -> Result<[u8; KEY_LEN]> {
+        HkdfSha256Deriver.derive(current, HKDF_SALT_IDENTITY, HKDF_INFO_CHAIN)
+    }
+
+    fn derive_message_key(&self, chain_key: &[u8; KEY_LEN]) -> Result<[u8; KEY_LEN]> {
+        HkdfSha256Deriver.derive(chain_key, HKDF_SALT_IDENTITY, HKDF_INFO_MSG)
+    }
+}
+
+// ---- StandardAadBuilder ---------------------------------------------
+
+/// Standard AAD builder: `channel_id(4B) || message_id(16B) || timestamp(8B)`.
+#[derive(Debug, Clone, Default)]
+pub struct StandardAadBuilder;
+
+impl AadBuilder for StandardAadBuilder {
+    fn build_aad(&self, channel_id: u32, message_id: &[u8; 16], timestamp: u64) -> Vec<u8> {
+        let mut aad = Vec::with_capacity(4 + 16 + 8);
+        aad.extend_from_slice(&channel_id.to_be_bytes());
+        aad.extend_from_slice(message_id);
+        aad.extend_from_slice(&timestamp.to_be_bytes());
+        aad
+    }
+
+    fn uuid_to_bytes(&self, uuid_str: &str) -> Result<[u8; 16]> {
+        let id = uuid::Uuid::parse_str(uuid_str)
+            .map_err(|e| Error::InvalidState(format!("invalid UUID: {e}")))?;
+        Ok(*id.as_bytes())
+    }
+}
+
+// ---- StandardSignedDataBuilder --------------------------------------
+
+/// Standard byte-layout for signed protocol messages.
+#[derive(Debug, Clone, Default)]
+pub struct StandardSignedDataBuilder;
+
+impl SignedDataBuilder for StandardSignedDataBuilder {
+    fn build_countersig_data(
+        &self,
+        channel_id: u32,
+        epoch: u32,
+        epoch_fp: &[u8],
+        parent_fp: &[u8],
+        timestamp: u64,
+        distributor_hash: &str,
+    ) -> Vec<u8> {
+        let mut data = Vec::with_capacity(4 + 4 + 8 + 8 + 8 + distributor_hash.len());
+        data.extend_from_slice(&channel_id.to_be_bytes());
+        data.extend_from_slice(&epoch.to_be_bytes());
+        data.extend_from_slice(epoch_fp);
+        data.extend_from_slice(parent_fp);
+        data.extend_from_slice(&timestamp.to_be_bytes());
+        data.extend_from_slice(distributor_hash.as_bytes());
+        data
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build_key_exchange_signed_data(
+        &self,
+        algorithm_version: u8,
+        channel_id: u32,
+        mode: &crate::persistent::PersistenceMode,
+        epoch: u32,
+        encrypted_key: &[u8],
+        recipient_hash: &str,
+        request_id: Option<&str>,
+        timestamp: u64,
+    ) -> Vec<u8> {
+        let mode_byte: u8 = match mode {
+            crate::persistent::PersistenceMode::PostJoin => 1,
+            crate::persistent::PersistenceMode::FullArchive => 2,
+            _ => 0,
+        };
+
+        let req_id_bytes = request_id.unwrap_or("").as_bytes();
+        let capacity = 1 + 4 + 1 + 4 + encrypted_key.len()
+            + recipient_hash.len() + req_id_bytes.len() + 8;
+        let mut data = Vec::with_capacity(capacity);
+        data.push(algorithm_version);
+        data.extend_from_slice(&channel_id.to_be_bytes());
+        data.push(mode_byte);
+        data.extend_from_slice(&epoch.to_be_bytes());
+        data.extend_from_slice(encrypted_key);
+        data.extend_from_slice(recipient_hash.as_bytes());
+        data.extend_from_slice(req_id_bytes);
+        data.extend_from_slice(&timestamp.to_be_bytes());
+        data
+    }
+
+    fn build_key_announce_signed_data(
+        &self,
+        algorithm_version: u8,
+        cert_hash: &str,
+        timestamp: u64,
+        identity_public: &[u8],
+        signing_public: &[u8],
+    ) -> Vec<u8> {
+        let capacity = 1 + cert_hash.len() + 8 + identity_public.len() + signing_public.len();
+        let mut data = Vec::with_capacity(capacity);
+        data.push(algorithm_version);
+        data.extend_from_slice(cert_hash.as_bytes());
+        data.extend_from_slice(&timestamp.to_be_bytes());
+        data.extend_from_slice(identity_public);
+        data.extend_from_slice(signing_public);
+        data
+    }
+}
+
+// ---- Sha256Fingerprinter --------------------------------------------
+
+/// Epoch fingerprinter using SHA-256.
+#[derive(Debug, Clone, Default)]
+pub struct Sha256Fingerprinter;
+
+impl Fingerprinter for Sha256Fingerprinter {
+    fn epoch_fingerprint(&self, key: &[u8]) -> [u8; 8] {
+        use sha2::Digest;
+        let hash = Sha256::digest(key);
+        let mut fp = [0u8; 8];
+        fp.copy_from_slice(&hash[..8]);
+        fp
+    }
+}
+
+// ---- HkdfArchiveKeyDeriver ------------------------------------------
+
+/// Archive key deriver using HKDF-SHA256.
+#[derive(Debug, Clone, Default)]
+pub struct HkdfArchiveKeyDeriver;
+
+impl ArchiveKeyDeriver for HkdfArchiveKeyDeriver {
+    fn derive_archive_key(&self, seed: &[u8; 32], channel_id: u32) -> [u8; 32] {
+        let hkdf = Hkdf::<Sha256>::new(Some(HKDF_SALT_ARCHIVE_KEY), seed);
+        let mut key = [0u8; 32];
+        hkdf.expand(&channel_id.to_be_bytes(), &mut key)
+            .expect("HKDF expand for archive key");
+        key
+    }
+}
+
+// ---- Backward-compatible free functions ------------------------------
+//
+// These delegate to the default trait implementations above and are kept
+// for callers that have not yet adopted the trait-based API.
+// ---------------------------------------------------------------------
+
 // ---- AAD construction -----------------------------------------------
 
 /// Build the Associated Authenticated Data for AEAD.
 ///
-/// `AAD = channel_id(4B BE) || message_id(16B UUID bytes) || timestamp(8B BE)`
+/// Convenience wrapper around [`StandardAadBuilder`].
 pub fn build_aad(channel_id: u32, message_id: &[u8; 16], timestamp: u64) -> Vec<u8> {
-    let mut aad = Vec::with_capacity(4 + 16 + 8);
-    aad.extend_from_slice(&channel_id.to_be_bytes());
-    aad.extend_from_slice(message_id);
-    aad.extend_from_slice(&timestamp.to_be_bytes());
-    aad
+    StandardAadBuilder.build_aad(channel_id, message_id, timestamp)
 }
 
 /// Parse a UUID string into 16 raw bytes.
+///
+/// Convenience wrapper around [`StandardAadBuilder`].
 pub fn uuid_to_bytes(uuid_str: &str) -> Result<[u8; 16]> {
-    let id = uuid::Uuid::parse_str(uuid_str)
-        .map_err(|e| Error::InvalidState(format!("invalid UUID: {e}")))?;
-    Ok(*id.as_bytes())
+    StandardAadBuilder.uuid_to_bytes(uuid_str)
 }
 
 // ---- Chain ratchet --------------------------------------------------
@@ -235,12 +479,10 @@ pub fn derive_key_at_index(
 // ---- Epoch fingerprint ----------------------------------------------
 
 /// Compute the epoch fingerprint: `SHA-256(key)[0..8]`.
+///
+/// Convenience wrapper around [`Sha256Fingerprinter`].
 pub fn epoch_fingerprint(key: &[u8]) -> [u8; 8] {
-    use sha2::Digest;
-    let hash = Sha256::digest(key);
-    let mut fp = [0u8; 8];
-    fp.copy_from_slice(&hash[..8]);
-    fp
+    Sha256Fingerprinter.epoch_fingerprint(key)
 }
 
 // ---- Padding --------------------------------------------------------
@@ -298,11 +540,7 @@ fn unpad_plaintext(padded: &[u8]) -> Result<Vec<u8>> {
 
 /// Build the data that a key custodian signs for epoch countersignatures.
 ///
-/// ```text
-/// countersig_data = channel_id(4B BE) || epoch(4B BE)
-///                || epoch_fingerprint(8B) || parent_fingerprint(8B)
-///                || timestamp(8B BE) || distributor_hash(UTF-8 bytes)
-/// ```
+/// Convenience wrapper around [`StandardSignedDataBuilder`].
 pub fn build_countersig_data(
     channel_id: u32,
     epoch: u32,
@@ -311,24 +549,14 @@ pub fn build_countersig_data(
     timestamp: u64,
     distributor_hash: &str,
 ) -> Vec<u8> {
-    let mut data = Vec::with_capacity(4 + 4 + 8 + 8 + 8 + distributor_hash.len());
-    data.extend_from_slice(&channel_id.to_be_bytes());
-    data.extend_from_slice(&epoch.to_be_bytes());
-    data.extend_from_slice(epoch_fp);
-    data.extend_from_slice(parent_fp);
-    data.extend_from_slice(&timestamp.to_be_bytes());
-    data.extend_from_slice(distributor_hash.as_bytes());
-    data
+    StandardSignedDataBuilder.build_countersig_data(
+        channel_id, epoch, epoch_fp, parent_fp, timestamp, distributor_hash,
+    )
 }
 
 /// Build the data signed in a key-exchange message (section 6.6).
 ///
-/// ```text
-/// signed_data = algorithm_version(1B) || channel_id(4B BE)
-///            || mode(1B) || epoch(4B BE) || encrypted_key
-///            || recipient_hash(UTF-8) || request_id(UTF-8 or empty)
-///            || timestamp(8B BE)
-/// ```
+/// Convenience wrapper around [`StandardSignedDataBuilder`].
 #[allow(clippy::too_many_arguments)]
 pub fn build_key_exchange_signed_data(
     algorithm_version: u8,
@@ -340,32 +568,15 @@ pub fn build_key_exchange_signed_data(
     request_id: Option<&str>,
     timestamp: u64,
 ) -> Vec<u8> {
-    let mode_byte: u8 = match mode {
-        crate::persistent::PersistenceMode::PostJoin => 1,
-        crate::persistent::PersistenceMode::FullArchive => 2,
-        _ => 0,
-    };
-
-    let req_id_bytes = request_id.unwrap_or("").as_bytes();
-    let capacity = 1 + 4 + 1 + 4 + encrypted_key.len() + recipient_hash.len() + req_id_bytes.len() + 8;
-    let mut data = Vec::with_capacity(capacity);
-    data.push(algorithm_version);
-    data.extend_from_slice(&channel_id.to_be_bytes());
-    data.push(mode_byte);
-    data.extend_from_slice(&epoch.to_be_bytes());
-    data.extend_from_slice(encrypted_key);
-    data.extend_from_slice(recipient_hash.as_bytes());
-    data.extend_from_slice(req_id_bytes);
-    data.extend_from_slice(&timestamp.to_be_bytes());
-    data
+    StandardSignedDataBuilder.build_key_exchange_signed_data(
+        algorithm_version, channel_id, mode, epoch,
+        encrypted_key, recipient_hash, request_id, timestamp,
+    )
 }
 
 /// Build the data signed in a key-announce message (section 6.8).
 ///
-/// ```text
-/// signed_data = algorithm_version(1B) || cert_hash(UTF-8)
-///            || timestamp(8B BE) || identity_public || signing_public
-/// ```
+/// Convenience wrapper around [`StandardSignedDataBuilder`].
 pub fn build_key_announce_signed_data(
     algorithm_version: u8,
     cert_hash: &str,
@@ -373,14 +584,9 @@ pub fn build_key_announce_signed_data(
     identity_public: &[u8],
     signing_public: &[u8],
 ) -> Vec<u8> {
-    let capacity = 1 + cert_hash.len() + 8 + identity_public.len() + signing_public.len();
-    let mut data = Vec::with_capacity(capacity);
-    data.push(algorithm_version);
-    data.extend_from_slice(cert_hash.as_bytes());
-    data.extend_from_slice(&timestamp.to_be_bytes());
-    data.extend_from_slice(identity_public);
-    data.extend_from_slice(signing_public);
-    data
+    StandardSignedDataBuilder.build_key_announce_signed_data(
+        algorithm_version, cert_hash, timestamp, identity_public, signing_public,
+    )
 }
 
 #[cfg(test)]

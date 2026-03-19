@@ -134,7 +134,7 @@ impl HandleMessage for mumble_tcp::ServerSync {
 
         // ---- Persistent chat: initialise PchatState and send key-announce ----
         {
-            let (seed, cert_hash, handle, is_fancy) = {
+            let (seed, cert_hash, handle, is_fancy, id_dir) = {
                 let state = ctx.shared.lock().ok();
                 if let Some(ref s) = state {
                     let own_hash = s
@@ -146,9 +146,10 @@ impl HandleMessage for mumble_tcp::ServerSync {
                         own_hash,
                         s.client_handle.clone(),
                         s.server_fancy_version.is_some(),
+                        s.pchat_identity_dir.clone(),
                     )
                 } else {
-                    (None, None, None, false)
+                    (None, None, None, false, None)
                 }
             };
 
@@ -163,8 +164,31 @@ impl HandleMessage for mumble_tcp::ServerSync {
             if let (Some(seed), Some(cert_hash), Some(_handle), true) =
                 (seed, cert_hash, handle, is_fancy)
             {
-                match pchat::PchatState::new(seed, cert_hash.clone()) {
-                    Ok(pchat_state) => {
+                match pchat::PchatState::new(seed, cert_hash.clone(), id_dir) {
+                    Ok(mut pchat_state) => {
+                        // Restore archive keys persisted from a previous session
+                        // so the client can decrypt history without a new key exchange.
+                        if let Some(ref dir) = pchat_state.identity_dir {
+                            let persisted = pchat::load_persisted_archive_keys(dir);
+                            for (ch, key, originator) in persisted {
+                                use mumble_protocol::persistent::KeyTrustLevel;
+                                pchat_state.key_manager.store_archive_key(
+                                    ch,
+                                    key,
+                                    KeyTrustLevel::Verified,
+                                );
+                                if let Some(orig) = originator {
+                                    pchat_state
+                                        .key_manager
+                                        .set_channel_originator(ch, orig);
+                                }
+                                info!(
+                                    channel_id = ch,
+                                    "restored persisted archive key"
+                                );
+                            }
+                        }
+
                         info!(cert_hash = %cert_hash, "pchat initialised");
 
                         // Store pchat state
@@ -252,6 +276,7 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                                 }
                                             }
                                         }
+                                        pchat::send_key_holder_report_async(&shared, ch).await;
                                     }
 
                                     // Check if we already have a key.
@@ -304,6 +329,7 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                                 }
                                             }
                                         }
+                                        pchat::send_key_holder_report_async(&shared, ch).await;
                                     }
 
                                     // NOW fetch history — key is guaranteed to exist.

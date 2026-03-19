@@ -57,7 +57,19 @@ impl AppState {
             state.voice_state = VoiceState::Inactive;
             state.pchat = None;
             state.pchat_seed = None;
+            state.pchat_identity_dir = None;
+            state.pending_key_shares.clear();
             state.tauri_app_handle = Some(app_handle.clone());
+        }
+
+        // Initialise the cert-hash-to-username resolver (persisted across sessions).
+        if let Ok(data_dir) = app_handle.path().app_data_dir() {
+            let hash_names_path = data_dir.join("hash_names.json");
+            let resolver = super::hash_names::DefaultHashNameResolver::new(hash_names_path);
+            if let Ok(mut state) = inner.lock() {
+                state.hash_name_resolver =
+                    Some(std::sync::Arc::new(resolver));
+            }
         }
 
         // Migrate legacy storage layout (certs/ + pchat/) to per-identity
@@ -74,6 +86,8 @@ impl AppState {
                 Ok(seed) => {
                     if let Ok(mut state) = inner.lock() {
                         state.pchat_seed = Some(seed);
+                        state.pchat_identity_dir =
+                            Some(super::pchat::identity_dir(&data_dir, &identity_label));
                     }
                 }
                 Err(e) => {
@@ -196,6 +210,7 @@ impl AppState {
 
         let (handle, join) = {
             let mut guard = self.inner.lock().map_err(|e| e.to_string())?;
+            guard.user_initiated_disconnect = true;
             (guard.client_handle.take(), guard.event_loop_handle.take())
         };
 
@@ -235,6 +250,8 @@ impl AppState {
             state.voice_state = VoiceState::Inactive;
             state.pchat = None;
             state.pchat_seed = None;
+            state.pchat_identity_dir = None;
+            state.pending_key_shares.clear();
         }
 
         Ok(())

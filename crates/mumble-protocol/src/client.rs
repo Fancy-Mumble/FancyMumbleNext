@@ -189,7 +189,7 @@ async fn event_loop<H: EventHandler>(
 
     // Spawn TCP reader task
     let tcp_wq = wq_sender.clone();
-    let tcp_reader_task = tokio::spawn(async move {
+    let mut tcp_reader_task = tokio::spawn(async move {
         loop {
             match tcp_reader.recv().await {
                 Ok(msg) => {
@@ -257,8 +257,17 @@ async fn event_loop<H: EventHandler>(
 
     // Main dispatch loop
     info!("entering main event loop");
+    let mut tcp_reader_alive = true;
     loop {
-        let item = wq_receiver.recv().await;
+        let item = tokio::select! {
+            biased;
+            item = wq_receiver.recv() => item,
+            result = &mut tcp_reader_task, if tcp_reader_alive => {
+                tcp_reader_alive = false;
+                warn!("TCP reader ended unexpectedly: {result:?}");
+                WorkItem::Shutdown
+            }
+        };
 
         match item {
             WorkItem::ServerMessage(server_msg) => {
@@ -359,7 +368,9 @@ async fn event_loop<H: EventHandler>(
     // keeps the TCP writer alive, so the connection never closes.
     ping_task.abort();
     cmd_forwarder_task.abort();
-    tcp_reader_task.abort();
+    if tcp_reader_alive {
+        tcp_reader_task.abort();
+    }
     tcp_writer_task.abort();
     debug!("all sub-tasks aborted");
 

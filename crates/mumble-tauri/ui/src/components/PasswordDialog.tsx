@@ -7,6 +7,7 @@ interface PasswordDialogProps {
   readonly onCancel: () => void;
   readonly serverHost?: string;
   readonly username?: string;
+  readonly error?: string | null;
 }
 
 export default function PasswordDialog({
@@ -15,6 +16,7 @@ export default function PasswordDialog({
   onCancel,
   serverHost,
   username,
+  error,
 }: PasswordDialogProps) {
   const [password, setPassword] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -57,9 +59,13 @@ export default function PasswordDialog({
         </div>
 
         <form className={styles.body} onSubmit={handleSubmit}>
+          {error && (
+            <p className={styles.error}>{error}</p>
+          )}
           <p className={styles.message}>
-            The server requires a password for <strong>{target}</strong>.
-            Enter the password to continue connecting.
+            {error
+              ? <>Try again for <strong>{target}</strong>.</>
+              : <>The server requires a password for <strong>{target}</strong>. Enter the password to continue connecting.</>}
           </p>
 
           <div className={styles.field}>

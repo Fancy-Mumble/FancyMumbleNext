@@ -7,6 +7,7 @@ import ChatHeader from "./ChatHeader";
 import MessageItem from "./MessageItem";
 import ChatComposer from "./ChatComposer";
 import { usePersistentChat } from "./PersistentChatOverlays";
+import { BannerStack } from "./InfoBanner";
 import type { PollPayload, PollVotePayload } from "./PollCreator";
 import { registerVote, registerLocalVote, getPoll } from "./PollCard";
 import { mediaKind, fileToDataUrl, fitImage, fitVideo, mediaToHtml } from "../utils/media";
@@ -780,6 +781,7 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
         isInChannel={isDmMode || isGroupMode || isInChannel}
         isDm={isDmMode}
         isGroup={isGroupMode}
+        isPersisted={persistent.isPersisted}
         onJoin={showJoinButton ? () => joinChannel(selectedChannel!) : undefined}
         onChannelInfoToggle={onChannelInfoToggle}
         keyTrustLevel={persistent.trustLevel}
@@ -789,11 +791,13 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
       {/* Messages */}
       <div ref={messagesContainerRef} className={styles.messages}>
         <div ref={messagesInnerRef} className={styles.messagesInner}>
-          {/* Persistent chat banners */}
-          {persistent.banner}
-
-          {/* Disputed key banner */}
-          {persistent.disputeBanner}
+          {/* All banners in a single sticky container */}
+          <BannerStack>
+            {persistent.banner}
+            {persistent.keyShareBanner}
+            {persistent.disputeBanner}
+            {persistent.revokedBanner}
+          </BannerStack>
 
           {allMessages.length === 0 ? (
             <div className={styles.empty}>
@@ -866,7 +870,7 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
         onFileSelected={sendMediaFile}
         onGifSelect={handleGifSelect}
         onPollCreate={handlePollCreate}
-        disabled={sending}
+        disabled={sending || persistent.keyRevoked}
       />
 
       {/* Persistent chat dialogs (key verification, custodian prompt) */}

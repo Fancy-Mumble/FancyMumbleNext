@@ -1,4 +1,4 @@
-/* --- Password Dialog -------------------------------------------- */
+/* -- Key Share Warning Dialog -------------------------------------- */
 
 .overlay {
   position: fixed;
@@ -19,7 +19,7 @@
 }
 
 .dialog {
-  width: 400px;
+  width: 440px;
   max-width: 95vw;
   background: var(--color-surface, #1e1e2e);
   border: 1px solid var(--color-glass-border);
@@ -65,54 +65,30 @@
   padding: 16px 20px 20px;
 }
 
-.error {
+.warningBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(250, 204, 21, 0.1);
+  border: 1px solid rgba(250, 204, 21, 0.25);
+  color: var(--color-warning, #facc15);
   font-size: 13px;
-  color: var(--color-error, #f38ba8);
-  background: rgba(243, 139, 168, 0.1);
-  border: 1px solid rgba(243, 139, 168, 0.25);
-  border-radius: 6px;
-  padding: 8px 12px;
-  margin: 0 0 10px;
   line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+.warningIcon {
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 
 .message {
   font-size: 13px;
   color: var(--color-text-secondary, #aaa);
-  margin: 0 0 14px;
+  margin: 0 0 18px;
   line-height: 1.5;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 16px;
-}
-
-.label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--color-text-muted, #999);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.input {
-  width: 100%;
-  padding: 10px 12px;
-  font-size: 14px;
-  background: var(--color-background, #11111b);
-  border: 1px solid var(--color-glass-border);
-  border-radius: 8px;
-  color: var(--color-text, #cdd6f4);
-  outline: none;
-  transition: border-color 0.15s;
-  box-sizing: border-box;
-}
-
-.input:focus {
-  border-color: var(--color-primary, #89b4fa);
 }
 
 .actions {
@@ -137,23 +113,18 @@
   background: var(--color-glass-hover, rgba(255, 255, 255, 0.08));
 }
 
-.connectBtn {
+.confirmBtn {
   padding: 8px 20px;
   font-size: 13px;
   font-weight: 600;
   border: none;
   border-radius: 8px;
-  background: var(--color-primary, #89b4fa);
-  color: var(--color-surface, #1e1e2e);
+  background: var(--color-success, #22c55e);
+  color: #fff;
   cursor: pointer;
   transition: opacity 0.15s;
 }
 
-.connectBtn:hover {
+.confirmBtn:hover {
   opacity: 0.9;
-}
-
-.connectBtn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }

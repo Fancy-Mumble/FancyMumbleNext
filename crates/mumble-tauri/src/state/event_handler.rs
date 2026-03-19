@@ -94,6 +94,7 @@ impl EventHandler for TauriEventHandler {
     }
 
     fn on_disconnected(&mut self) {
+        let mut user_initiated = false;
         if let Ok(mut state) = self.shared.lock() {
             // If the epoch has moved on, a newer `connect()` call has already
             // claimed the shared state.  Silently bail - this callback comes
@@ -126,7 +127,12 @@ impl EventHandler for TauriEventHandler {
             state.opus = false;
             state.pchat = None;
             state.pchat_seed = None;
+            state.pchat_identity_dir = None;
+            state.pending_key_shares.clear();
+            user_initiated = state.user_initiated_disconnect;
+            state.user_initiated_disconnect = false;
         }
-        let _ = self.app.emit("server-disconnected", ());
+        let reason = if user_initiated { None } else { Some("Connection to server was lost.") };
+        let _ = self.app.emit("server-disconnected", reason);
     }
 }

@@ -14,9 +14,10 @@ impl HandleMessage for mumble_tcp::UserState {
     fn handle(&self, ctx: &HandlerContext) {
         let Some(session) = self.session else { return };
 
-        let (is_synced, own_channel_changed) = {
+        let (is_synced, own_channel_changed, remote_channel_move) = {
             let mut state_guard = ctx.shared.lock().ok();
             if let Some(ref mut state) = state_guard {
+                let resolver = state.hash_name_resolver.clone();
                 let user = state.users.entry(session).or_insert_with(|| UserEntry {
                     session,
                     name: String::new(),
@@ -69,20 +70,45 @@ impl HandleMessage for mumble_tcp::UserState {
                 if let Some(ref hash) = self.hash {
                     user.hash = Some(hash.clone());
                 }
+
+                // Persist cert_hash -> username mapping for offline display.
+                if let (Some(ref hash), name) = (&user.hash, &user.name) {
+                    if !hash.is_empty() && !name.is_empty() {
+                        if let Some(ref resolver) = resolver {
+                            resolver.record(hash, name);
+                        }
+                    }
+                }
+
                 let mut own_ch = false;
+                let mut remote_ch: Option<u32> = None;
                 if let Some(ch) = self.channel_id {
+                    let prev_channel = user.channel_id;
                     user.channel_id = ch;
                     // Track when our own user moves channels.
                     if state.own_session == Some(session) {
                         state.current_channel = Some(ch);
                         own_ch = true;
+                    } else if ch != prev_channel {
+                        // Only trigger re-evaluation when the channel actually
+                        // changed, not on repeated state announcements.
+                        remote_ch = Some(ch);
                     }
                 }
-                (state.synced, own_ch)
+                (state.synced, own_ch, remote_ch)
             } else {
-                (false, false)
+                (false, false, None)
             }
         };
+
+        // When a remote peer moves into a channel, re-evaluate whether
+        // we should offer to share our channel key with them.
+        if is_synced {
+            if let Some(ch) = remote_channel_move {
+                pchat::check_key_share_for_channel(&ctx.shared, ch);
+            }
+        }
+
         // Notify frontend about current-channel change.
         if own_channel_changed {
             if let Some(ch) = self.channel_id {
@@ -128,6 +154,8 @@ impl HandleMessage for mumble_tcp::UserState {
 
                         // For FullArchive, derive the key immediately (deterministic
                         // from seed) so we can skip the 2-second peer-exchange wait.
+                        // If an archive key was restored from disk on init,
+                        // has_key() will already be true and derivation is skipped.
                         {
                             let mode = {
                                 let s = shared.lock().ok();
@@ -137,17 +165,30 @@ impl HandleMessage for mumble_tcp::UserState {
                             };
                             if mode == Some(PersistenceMode::FullArchive) {
                                 use mumble_protocol::persistent::KeyTrustLevel;
-                                if let Ok(mut s) = shared.lock() {
-                                    if let Some(ref mut p) = s.pchat {
-                                        if !p.key_manager.has_key(ch, PersistenceMode::FullArchive) {
-                                            let cert = p.own_cert_hash.clone();
-                                            let key = mumble_protocol::persistent::encryption::derive_archive_key(&p.seed, ch);
-                                            p.key_manager.store_archive_key(ch, key, KeyTrustLevel::Verified);
-                                            p.key_manager.set_channel_originator(ch, cert.clone());
-                                            info!(channel_id = ch, cert_hash = %cert, "derived archive key immediately on join");
+                                let persist_info = {
+                                    if let Ok(mut s) = shared.lock() {
+                                        if let Some(ref mut p) = s.pchat {
+                                            if !p.key_manager.has_key(ch, PersistenceMode::FullArchive) {
+                                                let cert = p.own_cert_hash.clone();
+                                                let key = mumble_protocol::persistent::encryption::derive_archive_key(&p.seed, ch);
+                                                p.key_manager.store_archive_key(ch, key, KeyTrustLevel::Verified);
+                                                p.key_manager.set_channel_originator(ch, cert.clone());
+                                                info!(channel_id = ch, cert_hash = %cert, "derived archive key immediately on join");
+                                                p.identity_dir.clone().map(|dir| (dir, key, cert))
+                                            } else {
+                                                None
+                                            }
+                                        } else {
+                                            None
                                         }
+                                    } else {
+                                        None
                                     }
+                                };
+                                if let Some((dir, key, cert)) = persist_info {
+                                    pchat::persist_archive_key(&dir, ch, &key, Some(&cert));
                                 }
+                                pchat::send_key_holder_report_async(&shared, ch).await;
                             }
                         }
 
@@ -198,7 +239,7 @@ impl HandleMessage for mumble_tcp::UserState {
                             }
                         };
                         if needs_key {
-                            if let Ok(mut s) = shared.lock() {
+                            let persist_info = if let Ok(mut s) = shared.lock() {
                                 let mode = s
                                     .channels
                                     .get(&ch)
@@ -216,6 +257,7 @@ impl HandleMessage for mumble_tcp::UserState {
                                             );
                                             pchat.key_manager.set_channel_originator(ch, cert.clone());
                                             info!(channel_id = ch, cert_hash = %cert, "derived archive key (originator)");
+                                            pchat.identity_dir.clone().map(|dir| (dir, key, cert))
                                         }
                                         Some(PersistenceMode::PostJoin) => {
                                             let key: [u8; 32] = rand::random();
@@ -227,11 +269,20 @@ impl HandleMessage for mumble_tcp::UserState {
                                             );
                                             pchat.key_manager.set_channel_originator(ch, cert.clone());
                                             info!(channel_id = ch, cert_hash = %cert, "self-generated epoch key (originator)");
+                                            None
                                         }
-                                        _ => {}
+                                        _ => None,
                                     }
+                                } else {
+                                    None
                                 }
+                            } else {
+                                None
+                            };
+                            if let Some((dir, key, cert)) = persist_info {
+                                pchat::persist_archive_key(&dir, ch, &key, Some(&cert));
                             }
+                            pchat::send_key_holder_report_async(&shared, ch).await;
                         }
 
                         // NOW send fetch -- key is guaranteed to exist

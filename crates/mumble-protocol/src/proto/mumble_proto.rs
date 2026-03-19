@@ -959,6 +959,76 @@ pub struct PchatEpochCountersig {
     #[prost(bytes = "vec", optional, tag = "8")]
     pub countersignature: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
+/// Client reports to the server that a cert_hash now holds the E2EE key
+/// for a channel.  Sent after distributing or receiving a key.
+/// Wire type ID = 109.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatKeyHolderReport {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    /// The cert hash of the user that now holds the key.
+    #[prost(string, optional, tag = "2")]
+    pub cert_hash: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// Client asks the server for all known key holders of a channel.
+/// Wire type ID = 110.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatKeyHoldersQuery {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+}
+/// Server responds with the full list of key holders for a channel.
+/// Wire type ID = 111.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PchatKeyHoldersList {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(message, repeated, tag = "2")]
+    pub holders: ::prost::alloc::vec::Vec<pchat_key_holders_list::Entry>,
+}
+/// Nested message and enum types in `PchatKeyHoldersList`.
+pub mod pchat_key_holders_list {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Entry {
+        /// TLS certificate hash (hex-encoded SHA-1).
+        #[prost(string, optional, tag = "1")]
+        pub cert_hash: ::core::option::Option<::prost::alloc::string::String>,
+        /// Last known username (server fills from UserState if available).
+        #[prost(string, optional, tag = "2")]
+        pub name: ::core::option::Option<::prost::alloc::string::String>,
+    }
+}
+/// Server sends a challenge to a client after it reports as a key holder.
+/// The client must prove it holds the correct key by computing
+/// HMAC-SHA256(channel_key, challenge) and returning it.
+/// Wire type ID = 112.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatKeyChallenge {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    /// 32-byte random challenge nonce.
+    #[prost(bytes = "vec", optional, tag = "2")]
+    pub challenge: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+}
+/// Client response to PchatKeyChallenge with the HMAC proof.
+/// Wire type ID = 113.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatKeyChallengeResponse {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    /// HMAC-SHA256(channel_key, challenge).
+    #[prost(bytes = "vec", optional, tag = "2")]
+    pub proof: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+}
+/// Server informs the client whether the challenge was passed.
+/// Wire type ID = 114.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatKeyChallengeResult {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(bool, optional, tag = "2")]
+    pub passed: ::core::option::Option<bool>,
+}
 /// Persistence mode used in pchat runtime messages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

@@ -61,6 +61,14 @@ export default function ConnectPage() {
   const { connect, status, error, passwordRequired, pendingConnect, retryWithPassword, dismissPasswordPrompt } = useAppStore();
   const isConnecting = status === "connecting";
 
+  /* -- which server card is actively connecting ------------------- */
+  const [connectingServerId, setConnectingServerId] = useState<string | null>(null);
+
+  // Clear the connecting indicator when we leave the "connecting" state
+  useEffect(() => {
+    if (!isConnecting) setConnectingServerId(null);
+  }, [isConnecting]);
+
   /* -- user mode ------------------------------------------------- */
   const [userMode, setUserMode] = useState<UserMode>("normal");
   const [defaultUsername, setDefaultUsername] = useState("");
@@ -207,6 +215,7 @@ export default function ConnectPage() {
   };
 
   const handleQuickConnect = async (server: SavedServer) => {
+    setConnectingServerId(server.id);
     await connect(server.host, server.port, server.username, server.cert_label);
   };
 
@@ -282,6 +291,7 @@ export default function ConnectPage() {
               onDelete={handleDelete}
               onAddNew={handleShowWizard}
               disabled={isConnecting}
+              connectingId={connectingServerId}
             />
             <button
               className={styles.publicLink}
@@ -548,6 +558,7 @@ export default function ConnectPage() {
         onCancel={dismissPasswordPrompt}
         serverHost={pendingConnect?.host}
         username={pendingConnect?.username}
+        error={error}
       />
     </div>
   );

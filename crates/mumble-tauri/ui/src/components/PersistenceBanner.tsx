@@ -1,7 +1,9 @@
 import { useCallback, useRef, useEffect, useState } from "react";
 import { useAppStore } from "../store";
 import type { PersistenceMode } from "../types";
-import styles from "./PersistenceBanner.module.css";
+import { getDismissedBanners, dismissBanner } from "../preferencesStorage";
+import { InfoBanner } from "./InfoBanner";
+import styles from "./InfoBanner.module.css";
 
 interface PersistenceBannerProps {
   readonly channelId: number;
@@ -35,9 +37,18 @@ export default function PersistenceBanner({ channelId }: PersistenceBannerProps)
   const isLoadingKeys = useAppStore((s) => s.pchatHistoryLoading.has(channelId));
   const [dismissed, setDismissed] = useState(false);
 
-  // Reset dismissed state when switching channels.
+  // Load persisted dismissal state on channel change.
   useEffect(() => {
-    setDismissed(false);
+    let cancelled = false;
+    getDismissedBanners().then((ids) => {
+      if (!cancelled) setDismissed(ids.includes(channelId));
+    });
+    return () => { cancelled = true; };
+  }, [channelId]);
+
+  const handleDismiss = useCallback(() => {
+    setDismissed(true);
+    dismissBanner(channelId);
   }, [channelId]);
 
   // Intersection observer for "load more" scroll-to-top trigger.
@@ -64,14 +75,19 @@ export default function PersistenceBanner({ channelId }: PersistenceBannerProps)
     return () => observer.disconnect();
   }, [persistence?.hasMore, handleLoadMore]);
 
+  const shieldIcon = (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  );
+
   // Show loading indicator even before persistence config is known.
   if (isLoadingKeys && (!persistence || persistence.mode === "NONE")) {
     return (
-      <div className={styles.stickyWrapper}>
-        <div className={styles.loadMore}>
-          <div className={styles.loadingSpinner} aria-label="Loading message history" />
-          <span className={styles.loadingText}>Loading message history...</span>
-        </div>
+      <div className={styles.loadMore}>
+        <div className={styles.loadingSpinner} aria-label="Loading message history" />
+        <span className={styles.loadingText}>Loading message history...</span>
       </div>
     );
   }
@@ -81,50 +97,30 @@ export default function PersistenceBanner({ channelId }: PersistenceBannerProps)
   return (
     <>
       {!dismissed && (
-        <div className={styles.stickyWrapper}>
-          <div className={styles.banner}>
-            {/* Shield/lock icon */}
-            <svg className={styles.icon} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
-            <div className={styles.content}>
-              <p className={styles.description}>
-                {modeDescription(persistence.mode)}
-              </p>
-              <div className={styles.meta}>
-                {persistence.retentionDays > 0 && (
-                  <span className={styles.metaItem}>
-                    Retention: {formatRetention(persistence.retentionDays)}
-                  </span>
-                )}
-                {persistence.totalStored > 0 && (
-                  <span className={styles.metaItem}>
-                    Stored: {formatCount(persistence.totalStored)} messages
-                  </span>
-                )}
-              </div>
-            </div>
-            <button
-              className={styles.closeButton}
-              onClick={() => setDismissed(true)}
-              aria-label="Dismiss banner"
-            >
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
-                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
+        <InfoBanner icon={shieldIcon} onDismiss={handleDismiss}>
+          <p className={styles.description}>
+            {modeDescription(persistence.mode)}
+          </p>
+          <div className={styles.meta}>
+            {persistence.retentionDays > 0 && (
+              <span className={styles.metaItem}>
+                Retention: {formatRetention(persistence.retentionDays)}
+              </span>
+            )}
+            {persistence.totalStored > 0 && (
+              <span className={styles.metaItem}>
+                Stored: {formatCount(persistence.totalStored)} messages
+              </span>
+            )}
           </div>
+        </InfoBanner>
+      )}
 
-          {/* Key exchange / initial loading indicator */}
-          {isLoadingKeys && (
-            <div className={styles.loadMore}>
-              <div className={styles.loadingSpinner} aria-label="Loading message history" />
-              <span className={styles.loadingText}>Loading message history...</span>
-            </div>
-          )}
+      {/* Key exchange / initial loading indicator */}
+      {isLoadingKeys && (
+        <div className={styles.loadMore}>
+          <div className={styles.loadingSpinner} aria-label="Loading message history" />
+          <span className={styles.loadingText}>Loading message history...</span>
         </div>
       )}
 

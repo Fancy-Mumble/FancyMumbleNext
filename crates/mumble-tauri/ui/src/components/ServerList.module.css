@@ -203,3 +203,43 @@
     padding: 14px;
   }
 }
+
+/* ─── Connecting state ─────────────────────────────────────────── */
+
+.serverCardConnecting {
+  border-color: var(--color-accent);
+  background: var(--color-glass-hover);
+  cursor: wait;
+  overflow: hidden;
+}
+
+/* Spinner replacing the avatar letter */
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Animated loading bar along the bottom of the card */
+.connectingBar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  width: 40%;
+  background: var(--color-accent);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  animation: slide 1.2s ease-in-out infinite;
+}
+
+@keyframes slide {
+  0%   { left: -40%; }
+  100% { left: 100%; }
+}

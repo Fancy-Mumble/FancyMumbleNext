@@ -44,5 +44,8 @@ mumble-protocol = { path = "../mumble-protocol", features = ["persistent-chat"] 
 [lints]
 workspace = true
 
+[dev-dependencies]
+tempfile = "3"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

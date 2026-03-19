@@ -51,7 +51,47 @@ impl HandleMessage for mumble_tcp::UserRemove {
             ctx.emit_empty("server-disconnected");
         } else {
             if let Ok(mut state) = ctx.shared.lock() {
+                // Look up the departing user's cert hash before removing them.
+                let cert_hash = state
+                    .users
+                    .get(&self.session)
+                    .and_then(|u| u.hash.clone());
+
                 state.users.remove(&self.session);
+
+                // Remove any pending key-share requests from the departing user.
+                if let Some(ref hash) = cert_hash {
+                    let before_len = state.pending_key_shares.len();
+                    let removed: Vec<_> = state
+                        .pending_key_shares
+                        .iter()
+                        .filter(|p| p.peer_cert_hash == *hash)
+                        .map(|p| p.channel_id)
+                        .collect();
+                    state
+                        .pending_key_shares
+                        .retain(|p| p.peer_cert_hash != *hash);
+                    if state.pending_key_shares.len() != before_len {
+                        // Emit change events for each affected channel.
+                        let affected_channels: std::collections::HashSet<u32> =
+                            removed.into_iter().collect();
+                        for ch_id in affected_channels {
+                            let remaining: Vec<_> = state
+                                .pending_key_shares
+                                .iter()
+                                .filter(|p| p.channel_id == ch_id)
+                                .cloned()
+                                .collect();
+                            ctx.emit(
+                                "pchat-key-share-requests-changed",
+                                KeyShareRequestsChangedPayload {
+                                    channel_id: ch_id,
+                                    pending: remaining,
+                                },
+                            );
+                        }
+                    }
+                }
             }
             ctx.emit_empty("state-changed");
         }

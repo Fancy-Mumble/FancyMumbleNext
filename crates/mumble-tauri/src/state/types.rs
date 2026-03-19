@@ -328,7 +328,57 @@ pub(crate) struct PchatFetchCompletePayload {
     pub total_stored: u32,
 }
 
-// --- Audio types --------------------------------------------------
+/// A pending key-share request waiting for user approval.
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct PendingKeyShare {
+    /// Channel that the key would be shared for.
+    pub channel_id: u32,
+    /// Certificate hash of the peer requesting the key.
+    pub peer_cert_hash: String,
+    /// Display name of the peer (resolved from current users).
+    pub peer_name: String,
+    /// Server-assigned request ID (present for consensus key-request path,
+    /// `None` for proactive key-announce path).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+}
+
+/// Payload for the "pchat-key-share-request" frontend event.
+#[derive(Clone, Serialize)]
+pub(crate) struct KeyShareRequestPayload {
+    pub channel_id: u32,
+    pub peer_name: String,
+    pub peer_cert_hash: String,
+}
+/// Payload for the \"pchat-key-share-requests-changed\" event (after approve/dismiss).
+#[derive(Clone, Serialize)]
+pub(crate) struct KeyShareRequestsChangedPayload {
+    pub channel_id: u32,
+    pub pending: Vec<PendingKeyShare>,
+}
+/// A user known to hold the encryption key for a channel.
+#[derive(Clone, Debug, Serialize)]
+pub struct KeyHolderEntry {
+    /// TLS certificate hash (stable identity).
+    pub cert_hash: String,
+    /// Display name (resolved from online users or last known).
+    pub name: String,
+    /// Whether the user is currently online.
+    pub is_online: bool,
+}
+
+/// Payload for the "pchat-key-holders-changed" event.
+#[derive(Clone, Serialize)]
+pub(crate) struct KeyHoldersChangedPayload {
+    pub channel_id: u32,
+    pub holders: Vec<KeyHolderEntry>,
+}
+
+/// Payload for the "pchat-key-revoked" event.
+#[derive(Clone, Serialize)]
+pub(crate) struct PchatKeyRevokedPayload {
+    pub channel_id: u32,
+}// --- Audio types --------------------------------------------------
 
 /// Microphone amplitude payload emitted during mic test.
 #[cfg(not(target_os = "android"))]

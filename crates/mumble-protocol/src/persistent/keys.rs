@@ -8,7 +8,7 @@
 //! ([`Encryptor`], [`KeyDeriver`]) so that alternative algorithms or
 //! test mocks can be injected.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::Instant;
 
 use ed25519_dalek::{Signer, Verifier};
@@ -300,6 +300,9 @@ pub struct KeyManager {
     /// Pending epoch fork candidates (`POST_JOIN`).
     /// Key: (`channel_id`, epoch) -> candidates.
     pending_epoch_candidates: HashMap<(u32, u32), Vec<EpochCandidate>>,
+    /// Known key holders per channel: `channel_id` -> set of `cert_hash`.
+    /// Updated when we distribute a key or receive a key exchange.
+    key_holders: HashMap<u32, HashSet<String>>,
 }
 
 impl std::fmt::Debug for KeyManager {
@@ -329,6 +332,7 @@ impl KeyManager {
             channel_originators: HashMap::new(),
             pinned_custodians: HashMap::new(),
             pending_epoch_candidates: HashMap::new(),
+            key_holders: HashMap::new(),
         }
     }
 
@@ -339,6 +343,63 @@ impl KeyManager {
             PersistenceMode::FullArchive => self.archive_keys.contains_key(&channel_id),
             _ => false,
         }
+    }
+
+    /// Returns the raw archive key bytes and trust level for a channel.
+    pub fn get_archive_key(&self, channel_id: u32) -> Option<([u8; 32], KeyTrustLevel)> {
+        self.archive_keys
+            .get(&channel_id)
+            .map(|(k, t)| (k.key, *t))
+    }
+
+    /// Returns the originator cert hash for a channel key.
+    pub fn get_channel_originator(&self, channel_id: u32) -> Option<&str> {
+        self.channel_originators
+            .get(&channel_id)
+            .map(String::as_str)
+    }
+
+    /// Returns the set of cert hashes known to hold a key for `channel_id`.
+    pub fn key_holders(&self, channel_id: u32) -> &HashSet<String> {
+        static EMPTY: std::sync::LazyLock<HashSet<String>> =
+            std::sync::LazyLock::new(HashSet::new);
+        self.key_holders.get(&channel_id).unwrap_or(&EMPTY)
+    }
+
+    /// Record that `cert_hash` holds the key for `channel_id`.
+    pub fn record_key_holder(&mut self, channel_id: u32, cert_hash: String) {
+        self.key_holders
+            .entry(channel_id)
+            .or_default()
+            .insert(cert_hash);
+    }
+
+    /// Remove all state associated with a channel (keys, holders, originators, etc.).
+    ///
+    /// Call this when a channel is deleted to prevent stale keys from being
+    /// reused if the server recycles the channel ID.
+    pub fn remove_channel(&mut self, channel_id: u32) {
+        self.archive_keys.remove(&channel_id);
+        self.epoch_keys.remove(&channel_id);
+        self.key_holders.remove(&channel_id);
+        self.channel_originators.remove(&channel_id);
+        self.pinned_custodians.remove(&channel_id);
+    }
+
+    /// Compute `HMAC-SHA256(channel_key, challenge)` to prove possession of
+    /// the archive key for the given channel.
+    ///
+    /// Returns `None` if no archive key is stored for `channel_id`.
+    pub fn compute_challenge_proof(&self, channel_id: u32, challenge: &[u8]) -> Option<[u8; 32]> {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+
+        let (key, _trust) = self.archive_keys.get(&channel_id)?;
+        let mut mac = Hmac::<Sha256>::new_from_slice(&key.key)
+            .expect("HMAC-SHA256 accepts any key size");
+        mac.update(challenge);
+        let result = mac.finalize();
+        Some(result.into_bytes().into())
     }
 
     /// Create with custom encryptor and deriver (useful for testing).
@@ -360,6 +421,7 @@ impl KeyManager {
             channel_originators: HashMap::new(),
             pinned_custodians: HashMap::new(),
             pending_epoch_candidates: HashMap::new(),
+            key_holders: HashMap::new(),
         }
     }
 
@@ -1253,7 +1315,7 @@ impl KeyManager {
         mode: PersistenceMode,
         messages: &[StoredMessage],
     ) -> bool {
-        let mut successful_senders = std::collections::HashSet::new();
+        let mut successful_senders = HashSet::new();
 
         for msg in messages {
             if !msg.encrypted {
@@ -1635,5 +1697,93 @@ mod tests {
         let fp1 = channel_key_fingerprint(&key, 1, PersistenceMode::PostJoin);
         let fp2 = channel_key_fingerprint(&key, 1, PersistenceMode::FullArchive);
         assert_ne!(fp1, fp2);
+    }
+
+    // ---- compute_challenge_proof tests ----
+
+    #[test]
+    fn challenge_proof_returns_none_without_key() {
+        let km = make_key_manager();
+        assert!(km.compute_challenge_proof(42, b"random_challenge").is_none());
+    }
+
+    #[test]
+    fn challenge_proof_returns_32_bytes() {
+        let mut km = make_key_manager();
+        km.store_archive_key(1, [0x55; 32], KeyTrustLevel::Verified);
+        let proof = km.compute_challenge_proof(1, b"server_challenge").unwrap();
+        assert_eq!(proof.len(), 32);
+    }
+
+    #[test]
+    fn challenge_proof_deterministic() {
+        let mut km = make_key_manager();
+        km.store_archive_key(1, [0x55; 32], KeyTrustLevel::Verified);
+        let challenge = b"determinism_test";
+        let p1 = km.compute_challenge_proof(1, challenge).unwrap();
+        let p2 = km.compute_challenge_proof(1, challenge).unwrap();
+        assert_eq!(p1, p2);
+    }
+
+    #[test]
+    fn challenge_proof_differs_by_key() {
+        let mut km1 = make_key_manager();
+        km1.store_archive_key(1, [0x11; 32], KeyTrustLevel::Verified);
+
+        let mut km2 = make_key_manager();
+        km2.store_archive_key(1, [0x22; 32], KeyTrustLevel::Verified);
+
+        let challenge = b"same_challenge";
+        let p1 = km1.compute_challenge_proof(1, challenge).unwrap();
+        let p2 = km2.compute_challenge_proof(1, challenge).unwrap();
+        assert_ne!(p1, p2, "different keys must produce different proofs");
+    }
+
+    #[test]
+    fn challenge_proof_differs_by_challenge() {
+        let mut km = make_key_manager();
+        km.store_archive_key(1, [0x55; 32], KeyTrustLevel::Verified);
+        let p1 = km.compute_challenge_proof(1, b"challenge_a").unwrap();
+        let p2 = km.compute_challenge_proof(1, b"challenge_b").unwrap();
+        assert_ne!(p1, p2, "different challenges must produce different proofs");
+    }
+
+    #[test]
+    fn challenge_proof_wrong_channel_returns_none() {
+        let mut km = make_key_manager();
+        km.store_archive_key(1, [0x55; 32], KeyTrustLevel::Verified);
+        // Channel 2 has no key.
+        assert!(km.compute_challenge_proof(2, b"challenge").is_none());
+    }
+
+    #[test]
+    fn challenge_proof_after_remove_channel_returns_none() {
+        let mut km = make_key_manager();
+        km.store_archive_key(1, [0x55; 32], KeyTrustLevel::Verified);
+        assert!(km.compute_challenge_proof(1, b"c").is_some());
+        km.remove_channel(1);
+        assert!(km.compute_challenge_proof(1, b"c").is_none());
+    }
+
+    #[test]
+    fn challenge_proof_same_key_different_managers_match() {
+        // Two separate KeyManagers with the same archive key must produce
+        // identical proofs for the same challenge. This simulates two clients
+        // who received the same shared key.
+        let key = [0xAB; 32];
+        let challenge = b"server_nonce_12345";
+
+        let mut km_a = make_key_manager();
+        km_a.store_archive_key(5, key, KeyTrustLevel::Verified);
+
+        let mut km_b = {
+            let identity = SeedIdentity::from_seed(&[0xBB; 32]).unwrap();
+            KeyManager::new(Box::new(identity))
+        };
+        km_b.store_archive_key(5, key, KeyTrustLevel::Verified);
+
+        let pa = km_a.compute_challenge_proof(5, challenge).unwrap();
+        let pb = km_b.compute_challenge_proof(5, challenge).unwrap();
+        assert_eq!(pa, pb, "same key + same challenge must yield the same proof");
     }
 }

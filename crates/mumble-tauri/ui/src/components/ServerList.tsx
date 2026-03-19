@@ -9,6 +9,8 @@ interface Props {
   onDelete: (id: string) => void;
   onAddNew: () => void;
   disabled?: boolean;
+  /** ID of the server currently being connected to (shows spinner). */
+  connectingId?: string | null;
 }
 
 /** Quality tier based on latency. */
@@ -55,6 +57,7 @@ export default function ServerList({
   onDelete,
   onAddNew,
   disabled,
+  connectingId,
 }: Readonly<Props>) {
   return (
     <div>
@@ -79,49 +82,66 @@ export default function ServerList({
         </div>
       ) : (
         <div className={styles.list}>
-          {servers.map((s) => (
-            <div
-              key={s.id}
-              className={styles.serverCard}
-              onClick={() => !disabled && onConnect(s)}
-              role="button"
-              tabIndex={disabled ? -1 : 0}
-              onKeyDown={(e) => {
-                if (!disabled && (e.key === "Enter" || e.key === " ")) {
-                  e.preventDefault();
-                  onConnect(s);
-                }
-              }}
-              aria-disabled={disabled}
-            >
-              {/* Avatar with status dot */}
-              <div className={styles.avatarWrap}>
-                <div className={styles.avatar}>
-                  {(s.label || s.host).charAt(0)}
-                </div>
-                <PingDot ping={pings[s.id]} />
-              </div>
+          {servers.map((s) => {
+            const isThisConnecting = connectingId === s.id;
+            const cardClasses = [
+              styles.serverCard,
+              isThisConnecting && styles.serverCardConnecting,
+            ].filter(Boolean).join(" ");
 
-              {/* Info - just label and username */}
-              <div className={styles.info}>
-                <div className={styles.label}>{s.label || s.host}</div>
-                <div className={styles.meta}>{s.username}</div>
-              </div>
-
-              {/* Delete - visible on hover */}
-              <button
-                className={styles.deleteBtn}
-                title="Remove server"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!disabled) onDelete(s.id);
+            return (
+              <div
+                key={s.id}
+                className={cardClasses}
+                onClick={() => !disabled && onConnect(s)}
+                role="button"
+                tabIndex={disabled ? -1 : 0}
+                onKeyDown={(e) => {
+                  if (!disabled && (e.key === "Enter" || e.key === " ")) {
+                    e.preventDefault();
+                    onConnect(s);
+                  }
                 }}
-                type="button"
+                aria-disabled={disabled}
               >
-                ✕
-              </button>
-            </div>
-          ))}
+                {/* Avatar with status dot */}
+                <div className={styles.avatarWrap}>
+                  <div className={styles.avatar}>
+                    {isThisConnecting ? (
+                      <span className={styles.spinner} />
+                    ) : (
+                      (s.label || s.host).charAt(0)
+                    )}
+                  </div>
+                  <PingDot ping={pings[s.id]} />
+                </div>
+
+                {/* Info - just label and username */}
+                <div className={styles.info}>
+                  <div className={styles.label}>{s.label || s.host}</div>
+                  <div className={styles.meta}>
+                    {isThisConnecting ? "Connecting..." : s.username}
+                  </div>
+                </div>
+
+                {/* Delete - visible on hover */}
+                <button
+                  className={styles.deleteBtn}
+                  title="Remove server"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!disabled) onDelete(s.id);
+                  }}
+                  type="button"
+                >
+                  ✕
+                </button>
+
+                {/* Loading bar at the bottom of the card */}
+                {isThisConnecting && <div className={styles.connectingBar} />}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

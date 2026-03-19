@@ -479,3 +479,64 @@ message PchatEpochCountersig {
 	optional uint64 timestamp = 7;
 	optional bytes countersignature = 8;
 }
+
+// ---------------------------------------------------------------------------
+// Key-holder tracking (Fancy Mumble extension, IDs 109+)
+// ---------------------------------------------------------------------------
+
+// Client reports to the server that a cert_hash now holds the E2EE key
+// for a channel.  Sent after distributing or receiving a key.
+// Wire type ID = 109.
+message PchatKeyHolderReport {
+	optional uint32 channel_id = 1;
+	// The cert hash of the user that now holds the key.
+	optional string cert_hash = 2;
+}
+
+// Client asks the server for all known key holders of a channel.
+// Wire type ID = 110.
+message PchatKeyHoldersQuery {
+	optional uint32 channel_id = 1;
+}
+
+// Server responds with the full list of key holders for a channel.
+// Wire type ID = 111.
+message PchatKeyHoldersList {
+	message Entry {
+		// TLS certificate hash (hex-encoded SHA-1).
+		optional string cert_hash = 1;
+		// Last known username (server fills from UserState if available).
+		optional string name = 2;
+	}
+	optional uint32 channel_id = 1;
+	repeated Entry holders = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Key-possession challenge (Fancy Mumble extension, IDs 112-114)
+// ---------------------------------------------------------------------------
+
+// Server sends a challenge to a client after it reports as a key holder.
+// The client must prove it holds the correct key by computing
+// HMAC-SHA256(channel_key, challenge) and returning it.
+// Wire type ID = 112.
+message PchatKeyChallenge {
+	optional uint32 channel_id = 1;
+	// 32-byte random challenge nonce.
+	optional bytes challenge = 2;
+}
+
+// Client response to PchatKeyChallenge with the HMAC proof.
+// Wire type ID = 113.
+message PchatKeyChallengeResponse {
+	optional uint32 channel_id = 1;
+	// HMAC-SHA256(channel_key, challenge).
+	optional bytes proof = 2;
+}
+
+// Server informs the client whether the challenge was passed.
+// Wire type ID = 114.
+message PchatKeyChallengeResult {
+	optional uint32 channel_id = 1;
+	optional bool passed = 2;
+}

@@ -4,6 +4,7 @@
 //! wire structs, encryption) to the Tauri application state. Handles
 //! sending and receiving pchat messages using native protobuf message types.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -44,11 +45,17 @@ pub(crate) struct PchatState {
     pub provider: CompositeMessageProvider,
     /// Channels where we've already sent a fetch request (avoid duplicates).
     pub fetched_channels: std::collections::HashSet<u32>,
+    /// Path to the per-identity storage directory (for persisting archive keys).
+    pub identity_dir: Option<PathBuf>,
 }
 
 impl PchatState {
     /// Create a new pchat state from a 32-byte identity seed and our cert hash.
-    pub fn new(seed: [u8; 32], own_cert_hash: String) -> Result<Self, String> {
+    pub fn new(
+        seed: [u8; 32],
+        own_cert_hash: String,
+        identity_dir: Option<PathBuf>,
+    ) -> Result<Self, String> {
         let identity = SeedIdentity::from_seed(&seed)
             .map_err(|e| format!("Failed to derive pchat identity: {e}"))?;
         let key_manager = KeyManager::new(Box::new(identity));
@@ -65,6 +72,7 @@ impl PchatState {
             seed,
             provider,
             fetched_channels: std::collections::HashSet::new(),
+            identity_dir,
         })
     }
 }
@@ -87,7 +95,7 @@ const LEGACY_CERTS_DIR: &str = "certs";
 
 /// Return the directory for a given identity label:
 /// `<app_data>/identities/<label>/`
-pub(crate) fn identity_dir(app_data_dir: &std::path::Path, label: &str) -> std::path::PathBuf {
+pub(crate) fn identity_dir(app_data_dir: &std::path::Path, label: &str) -> PathBuf {
     app_data_dir.join(IDENTITIES_DIR).join(label)
 }
 
@@ -319,7 +327,8 @@ fn proto_to_wire_key_request(p: &mumble_tcp::PchatKeyRequest) -> WireKeyRequest 
     }
 }
 
-fn wire_key_exchange_to_proto(w: &WireKeyExchange) -> mumble_tcp::PchatKeyExchange {
+/// Convert a wire key-exchange to the protobuf representation.
+pub(crate) fn wire_key_exchange_to_proto_pub(w: &WireKeyExchange) -> mumble_tcp::PchatKeyExchange {
     mumble_tcp::PchatKeyExchange {
         channel_id: Some(w.channel_id),
         mode: Some(wire_mode_str_to_proto(&w.mode)),
@@ -539,13 +548,9 @@ pub(crate) async fn send_fetch(
 pub(crate) fn handle_proto_key_announce(shared: &Arc<Mutex<SharedState>>, msg: &mumble_tcp::PchatKeyAnnounce) {
     let wire = proto_to_wire_key_announce(msg);
 
-    info!(
+    debug!(
         cert_hash = %wire.cert_hash,
         algo = wire.algorithm_version,
-        id_pub_len = wire.identity_public.len(),
-        sign_pub_len = wire.signing_public.len(),
-        sig_len = wire.signature.len(),
-        timestamp = wire.timestamp,
         "received pchat key-announce"
     );
 
@@ -565,45 +570,70 @@ pub(crate) fn handle_proto_key_announce(shared: &Arc<Mutex<SharedState>>, msg: &
         }
     }
 
-    // After successfully recording a peer's public key, proactively push our
-    // FullArchive channel keys to them.  This unblocks decryption for peers
-    // whose DB key-announce was previously corrupted (pre-hex-encoding-fix):
-    // once the live announce arrives and we can authenticate them, we
-    // immediately distribute our channel key without requiring a channel rejoin.
+    // After successfully recording a peer's public key, instead of
+    // proactively pushing our channel keys, emit a consent request to
+    // the frontend so the user can decide whether to share.
     if should_push_keys {
-        let proactive = build_proactive_key_exchanges(&state, &peer_cert_hash);
-        if !proactive.is_empty() {
-            if let Some(handle) = state.client_handle.clone() {
-                tokio::spawn(async move {
-                    for exchange in proactive {
-                        if let Err(e) = handle
-                            .send(command::SendPchatKeyExchange { exchange })
-                            .await
-                        {
-                            warn!(cert_hash = %peer_cert_hash, "proactive key push failed: {e}");
-                        }
-                    }
+        let channels_for_peer = find_shareable_channels(&state, &peer_cert_hash);
+        if !channels_for_peer.is_empty() {
+            // Resolve peer name from current users.
+            let peer_name = state
+                .users
+                .values()
+                .find(|u| u.hash.as_deref() == Some(&peer_cert_hash))
+                .map(|u| u.name.clone())
+                .unwrap_or_else(|| peer_cert_hash.chars().take(8).collect());
+
+            let app = state.tauri_app_handle.clone();
+
+            for ch_id in channels_for_peer {
+                // Avoid duplicate pending requests.
+                let already_pending = state.pending_key_shares.iter().any(|p| {
+                    p.channel_id == ch_id && p.peer_cert_hash == peer_cert_hash
                 });
+                if already_pending {
+                    continue;
+                }
+
+                let pending = super::types::PendingKeyShare {
+                    channel_id: ch_id,
+                    peer_cert_hash: peer_cert_hash.clone(),
+                    peer_name: peer_name.clone(),
+                    request_id: None,
+                };
+                state.pending_key_shares.push(pending);
+
+                if let Some(ref app) = app {
+                    use tauri::Emitter;
+                    let _ = app.emit(
+                        "pchat-key-share-request",
+                        super::types::KeyShareRequestPayload {
+                            channel_id: ch_id,
+                            peer_name: peer_name.clone(),
+                            peer_cert_hash: peer_cert_hash.clone(),
+                        },
+                    );
+                }
+
+                info!(
+                    channel_id = ch_id,
+                    peer = %peer_cert_hash,
+                    "queued key-share consent request"
+                );
             }
         }
     }
 }
 
-/// Build direct (no `request_id`) key exchanges for every FullArchive channel
-/// that `peer_cert_hash` is currently in and for which we hold the key.
-///
-/// Sending these immediately after a successful `record_peer_key` call means
-/// the peer receives our channel key as soon as we can authenticate them,
-/// without needing a channel rejoin to trigger the server's pending-request flow.
-fn build_proactive_key_exchanges(
+/// Find FullArchive channel IDs where `peer_cert_hash` is present and we hold the key.
+fn find_shareable_channels(
     state: &SharedState,
     peer_cert_hash: &str,
-) -> Vec<mumble_tcp::PchatKeyExchange> {
+) -> Vec<u32> {
     let Some(ref pchat) = state.pchat else {
         return Vec::new();
     };
 
-    // Find the channel(s) the peer is currently present in.
     let peer_channel_ids: Vec<u32> = state
         .users
         .values()
@@ -611,60 +641,112 @@ fn build_proactive_key_exchanges(
         .map(|u| u.channel_id)
         .collect();
 
-    if peer_channel_ids.is_empty() {
-        return Vec::new();
+    peer_channel_ids
+        .into_iter()
+        .filter(|&ch_id| {
+            let is_full_archive = state
+                .channels
+                .get(&ch_id)
+                .and_then(|ch| ch.pchat_mode)
+                .map(PersistenceMode::from)
+                == Some(PersistenceMode::FullArchive);
+            let has_key = pchat.key_manager.has_key(ch_id, PersistenceMode::FullArchive);
+            let already_holder = pchat.key_manager.key_holders(ch_id).contains(peer_cert_hash);
+            is_full_archive && has_key && !already_holder
+        })
+        .collect()
+}
+
+/// Re-evaluate key sharing after a user moves into a channel.
+///
+/// Checks whether we hold the archive key for the given FullArchive channel
+/// and whether any peers in that channel have known public keys.  For each
+/// qualifying peer, a consent request is queued (if not already pending).
+///
+/// Call this:
+/// - When a remote peer moves into a channel (after updating their state).
+/// - When we move into a FullArchive channel (after deriving our key).
+pub(crate) fn check_key_share_for_channel(shared: &Arc<Mutex<SharedState>>, channel_id: u32) {
+    let Ok(mut state) = shared.lock() else { return };
+
+    let is_full_archive = state
+        .channels
+        .get(&channel_id)
+        .and_then(|c| c.pchat_mode)
+        .map(PersistenceMode::from)
+        == Some(PersistenceMode::FullArchive);
+    if !is_full_archive {
+        return;
     }
 
-    // Retrieve the peer's DH public key (just recorded above).
-    let Some(peer_record) = pchat.key_manager.get_peer(peer_cert_hash) else {
-        return Vec::new();
-    };
-    let peer_x25519 = peer_record.dh_public;
+    let Some(ref pchat) = state.pchat else { return };
 
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
+    if !pchat.key_manager.has_key(channel_id, PersistenceMode::FullArchive) {
+        return;
+    }
 
-    let mut exchanges = Vec::new();
+    let own_hash = pchat.own_cert_hash.clone();
+    let holders = pchat.key_manager.key_holders(channel_id);
 
-    for ch_id in peer_channel_ids {
-        let is_full_archive = state
-            .channels
-            .get(&ch_id)
-            .and_then(|ch| ch.pchat_mode)
-            .map(PersistenceMode::from)
-            == Some(PersistenceMode::FullArchive);
+    // Collect peers in this channel for which we hold a peer key.
+    let peers: Vec<(String, String)> = state
+        .users
+        .values()
+        .filter(|u| u.channel_id == channel_id)
+        .filter_map(|u| {
+            let hash = u.hash.as_deref()?;
+            if hash == own_hash {
+                return None;
+            }
+            // Skip peers who are already known key holders.
+            if holders.contains(hash) {
+                return None;
+            }
+            // Only consider peers whose public key we already recorded.
+            pchat.key_manager.get_peer(hash)?;
+            Some((hash.to_owned(), u.name.clone()))
+        })
+        .collect();
 
-        if !is_full_archive || !pchat.key_manager.has_key(ch_id, PersistenceMode::FullArchive) {
+    if peers.is_empty() {
+        return;
+    }
+
+    let app = state.tauri_app_handle.clone();
+
+    for (peer_cert_hash, peer_name) in peers {
+        if state.pending_key_shares.iter().any(|p| {
+            p.channel_id == channel_id && p.peer_cert_hash == peer_cert_hash
+        }) {
             continue;
         }
 
-        match pchat.key_manager.distribute_key(
-            ch_id,
-            PersistenceMode::FullArchive,
-            0,
-            peer_cert_hash,
-            &peer_x25519,
-            None, // no request_id: direct acceptance on recipient side
-            now_ms,
-        ) {
-            Ok(mut wire_exchange) => {
-                wire_exchange.sender_hash = pchat.own_cert_hash.clone();
-                exchanges.push(wire_key_exchange_to_proto(&wire_exchange));
-                info!(
-                    channel_id = ch_id,
-                    recipient = %peer_cert_hash,
-                    "queued proactive FullArchive key push"
-                );
-            }
-            Err(e) => {
-                warn!(channel_id = ch_id, "failed to build proactive key exchange: {e}");
-            }
-        }
-    }
+        let pending = super::types::PendingKeyShare {
+            channel_id,
+            peer_cert_hash: peer_cert_hash.clone(),
+            peer_name: peer_name.clone(),
+            request_id: None,
+        };
+        state.pending_key_shares.push(pending);
 
-    exchanges
+        if let Some(ref app) = app {
+            use tauri::Emitter;
+            let _ = app.emit(
+                "pchat-key-share-request",
+                super::types::KeyShareRequestPayload {
+                    channel_id,
+                    peer_name: peer_name.clone(),
+                    peer_cert_hash: peer_cert_hash.clone(),
+                },
+            );
+        }
+
+        info!(
+            channel_id,
+            peer = %peer_cert_hash,
+            "queued key-share consent on channel move"
+        );
+    }
 }
 
 pub(crate) fn handle_proto_key_request(
@@ -680,42 +762,83 @@ pub(crate) fn handle_proto_key_request(
         "received pchat key-request"
     );
 
-    let (exchange_proto, handle) = {
-        let Ok(mut state) = shared.lock() else { return };
+    let Ok(mut state) = shared.lock() else { return };
 
-        let Some(pchat) = state.pchat.as_mut() else { return };
+    let Some(ref pchat) = state.pchat else { return };
 
-        let wire_exchange = match pchat.key_manager.handle_key_request(
-            &wire_request,
-            &pchat.own_cert_hash,
-        ) {
-            Ok(Some(ex)) => ex,
-            Ok(None) => {
-                info!(channel_id = wire_request.channel_id, "no key to share for this channel");
-                return;
-            }
-            Err(e) => {
-                warn!(channel_id = wire_request.channel_id, "handle_key_request failed: {e}");
-                return;
-            }
-        };
-
-        let proto = wire_key_exchange_to_proto(&wire_exchange);
-        (proto, state.client_handle.clone())
-    };
-
-    if let Some(handle) = handle {
-        tokio::spawn(async move {
-            if let Err(e) = handle
-                .send(command::SendPchatKeyExchange { exchange: exchange_proto })
-                .await
-            {
-                warn!("failed to send key-exchange response: {e}");
-            } else {
-                info!("sent pchat key-exchange response");
-            }
-        });
+    // Check we actually have a key for this channel before queuing a
+    // consent banner.
+    if !pchat.key_manager.has_key(
+        wire_request.channel_id,
+        PersistenceMode::FullArchive,
+    ) {
+        info!(channel_id = wire_request.channel_id, "no key to share for this channel");
+        return;
     }
+
+    let peer_cert_hash = wire_request.requester_hash.clone();
+    let ch_id = wire_request.channel_id;
+    let request_id = wire_request.request_id.clone();
+
+    // Skip requests from users who are not currently online. When they
+    // reconnect the server will re-trigger the request for active holders.
+    let requester_online = state
+        .users
+        .values()
+        .any(|u| u.hash.as_deref() == Some(peer_cert_hash.as_str()));
+    if !requester_online {
+        info!(channel_id = ch_id, peer = %peer_cert_hash, "ignoring key-request from offline user");
+        return;
+    }
+
+    // Skip requests from users who are already known key holders.
+    if pchat.key_manager.key_holders(ch_id).contains(&peer_cert_hash) {
+        info!(channel_id = ch_id, peer = %peer_cert_hash, "ignoring key-request from existing holder");
+        return;
+    }
+
+    // Avoid duplicate pending requests for the same channel + peer.
+    let already_pending = state.pending_key_shares.iter().any(|p| {
+        p.channel_id == ch_id && p.peer_cert_hash == peer_cert_hash
+    });
+    if already_pending {
+        info!(channel_id = ch_id, peer = %peer_cert_hash, "key-request consent already pending");
+        return;
+    }
+
+    // Resolve peer name from current users.
+    let peer_name = state
+        .users
+        .values()
+        .find(|u| u.hash.as_deref() == Some(&peer_cert_hash))
+        .map(|u| u.name.clone())
+        .unwrap_or_else(|| peer_cert_hash.chars().take(8).collect());
+
+    let pending = super::types::PendingKeyShare {
+        channel_id: ch_id,
+        peer_cert_hash: peer_cert_hash.clone(),
+        peer_name: peer_name.clone(),
+        request_id: Some(request_id),
+    };
+    state.pending_key_shares.push(pending);
+
+    if let Some(ref app) = state.tauri_app_handle {
+        use tauri::Emitter;
+        let _ = app.emit(
+            "pchat-key-share-request",
+            super::types::KeyShareRequestPayload {
+                channel_id: ch_id,
+                peer_name: peer_name.clone(),
+                peer_cert_hash: peer_cert_hash.clone(),
+            },
+        );
+    }
+
+    info!(
+        channel_id = ch_id,
+        peer = %peer_cert_hash,
+        "queued key-share consent request (key-request path)"
+    );
 }
 
 pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &mumble_tcp::PchatKeyExchange) {
@@ -743,6 +866,13 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
                     channel_id = wire_exchange.channel_id,
                     epoch = wire_exchange.epoch,
                     "accepted key-exchange"
+                );
+
+                // The sender clearly holds the key -- record them as a holder
+                // so we don't prompt consent for them again.
+                pchat.key_manager.record_key_holder(
+                    channel_id,
+                    wire_exchange.sender_hash.clone(),
                 );
 
                 // For FullArchive, receive_key_exchange puts the key into
@@ -789,7 +919,75 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
     // were stored before the key arrived (race between fetch-resp /
     // msg-deliver and key-exchange).
     if key_accepted {
+        // We now hold the key -- record ourselves as a holder.
+        if let Some(ref mut pchat) = state.pchat {
+            pchat.key_manager.record_key_holder(
+                channel_id,
+                pchat.own_cert_hash.clone(),
+            );
+        }
+
+        // The sender already has the key, so remove any pending consent
+        // for sharing with them (they don't need it from us).
+        let before_len = state.pending_key_shares.len();
+        state.pending_key_shares.retain(|p| {
+            !(p.channel_id == channel_id && p.peer_cert_hash == wire_exchange.sender_hash)
+        });
+
+        // Notify the frontend so it drops the stale "Share Key" banner.
+        if state.pending_key_shares.len() != before_len {
+            if let Some(ref app) = state.tauri_app_handle {
+                use tauri::Emitter;
+                let remaining: Vec<_> = state
+                    .pending_key_shares
+                    .iter()
+                    .filter(|p| p.channel_id == channel_id)
+                    .cloned()
+                    .collect();
+                let _ = app.emit(
+                    "pchat-key-share-requests-changed",
+                    super::types::KeyShareRequestsChangedPayload {
+                        channel_id,
+                        pending: remaining,
+                    },
+                );
+            }
+        }
+
+        // Extract key data and identity_dir for disk persistence
+        // before we drop the lock.
+        let persist_info = if mode == PersistenceMode::FullArchive {
+            state.pchat.as_ref().and_then(|p| {
+                let (key, _trust) = p.key_manager.get_archive_key(channel_id)?;
+                let originator = p.key_manager.get_channel_originator(channel_id)
+                    .map(String::from);
+                let dir = p.identity_dir.clone()?;
+                Some((dir, key, originator))
+            })
+        } else {
+            None
+        };
+
+        // Notify the frontend that the revoked key has been replaced.
+        if let Some(ref app) = state.tauri_app_handle {
+            use tauri::Emitter;
+            let _ = app.emit(
+                "pchat-key-restored",
+                super::types::PchatKeyRevokedPayload { channel_id },
+            );
+        }
+
         retry_decrypt_pending_messages(&mut state, channel_id, mode);
+
+        // Drop the mutex before calling send_key_holder_report (which
+        // re-acquires it briefly to read cert_hash + client_handle).
+        drop(state);
+        send_key_holder_report(shared, channel_id);
+
+        // Persist the accepted archive key to disk (outside the lock).
+        if let Some((dir, key, originator)) = persist_info {
+            persist_archive_key(&dir, channel_id, &key, originator.as_deref());
+        }
     }
 }
 
@@ -1139,7 +1337,206 @@ pub(crate) fn handle_proto_ack(msg: &mumble_tcp::PchatAck) {
     }
 }
 
+// ---- Key-possession challenge handlers ------------------------------
+
+/// Handle a `PchatKeyChallenge` from the server.
+///
+/// The server asks us to prove we hold the real archive key for `channel_id`
+/// by computing `HMAC-SHA256(archive_key, challenge)` and sending the proof
+/// back as a `PchatKeyChallengeResponse`.
+pub(crate) fn handle_proto_key_challenge(
+    shared: &Arc<Mutex<SharedState>>,
+    msg: &mumble_tcp::PchatKeyChallenge,
+) {
+    let channel_id = msg.channel_id.unwrap_or(0);
+    let challenge = msg.challenge.as_deref().unwrap_or_default();
+
+    if challenge.is_empty() {
+        warn!(channel_id, "received empty challenge from server, ignoring");
+        return;
+    }
+
+    let (handle, proof) = {
+        let s = shared.lock().ok();
+        let h = s.as_ref().and_then(|s| s.client_handle.clone());
+        let proof = s
+            .as_ref()
+            .and_then(|s| s.pchat.as_ref())
+            .and_then(|p| p.key_manager.compute_challenge_proof(channel_id, challenge));
+        (h, proof)
+    };
+
+    match (handle, proof) {
+        (Some(handle), Some(proof)) => {
+            info!(channel_id, "responding to key-possession challenge");
+            tokio::spawn(async move {
+                let response = mumble_tcp::PchatKeyChallengeResponse {
+                    channel_id: Some(channel_id),
+                    proof: Some(proof.to_vec()),
+                };
+                if let Err(e) = handle
+                    .send(command::SendPchatKeyChallengeResponse { response })
+                    .await
+                {
+                    warn!(channel_id, "failed to send challenge response: {e}");
+                }
+            });
+        }
+        (_, None) => {
+            warn!(
+                channel_id,
+                "no archive key for channel, cannot respond to challenge"
+            );
+        }
+        (None, _) => {
+            warn!("no client handle, cannot respond to challenge");
+        }
+    }
+}
+
+/// Handle a `PchatKeyChallengeResult` from the server.
+///
+/// If `passed == true`, our key is verified and we are accepted as a holder.
+/// If `passed == false`, we hold a wrong key: remove it from memory and disk
+/// so we don't keep decrypting with invalid keying material.
+pub(crate) fn handle_proto_key_challenge_result(
+    shared: &Arc<Mutex<SharedState>>,
+    msg: &mumble_tcp::PchatKeyChallengeResult,
+) {
+    let channel_id = msg.channel_id.unwrap_or(0);
+    let passed = msg.passed.unwrap_or(false);
+
+    if passed {
+        info!(channel_id, "key-possession challenge passed");
+        return;
+    }
+
+    warn!(
+        channel_id,
+        "key-possession challenge FAILED - discarding archive key"
+    );
+
+    let (identity_dir, app) = {
+        let mut s = shared.lock().ok();
+        let dir = s
+            .as_ref()
+            .and_then(|s| s.pchat.as_ref())
+            .and_then(|p| p.identity_dir.clone());
+        let app_handle = s.as_ref().and_then(|s| s.tauri_app_handle.clone());
+        // Remove all keying material for the channel from memory.
+        if let Some(ref mut s) = s {
+            if let Some(ref mut pchat) = s.pchat {
+                pchat.key_manager.remove_channel(channel_id);
+            }
+            // Clear pending key-share requests for this channel
+            // (we can no longer share a key we don't have).
+            let before_len = s.pending_key_shares.len();
+            s.pending_key_shares.retain(|p| p.channel_id != channel_id);
+            if s.pending_key_shares.len() != before_len {
+                if let Some(ref app) = app_handle {
+                    use tauri::Emitter;
+                    let _ = app.emit(
+                        "pchat-key-share-requests-changed",
+                        super::types::KeyShareRequestsChangedPayload {
+                            channel_id,
+                            pending: vec![],
+                        },
+                    );
+                }
+            }
+        }
+        (dir, app_handle)
+    };
+
+    // Remove the persisted archive key from disk.
+    if let Some(dir) = identity_dir {
+        delete_persisted_archive_key(&dir, channel_id);
+    }
+
+    // Notify the frontend so it can disable input and hide stale UI.
+    if let Some(app) = app {
+        use tauri::Emitter;
+        let _ = app.emit(
+            "pchat-key-revoked",
+            super::types::PchatKeyRevokedPayload { channel_id },
+        );
+    }
+}
+
 // ---- Helper ---------------------------------------------------------
+
+/// Report to the server that we hold the E2EE key for a channel.
+///
+/// Extracts own cert hash and client handle from the shared state,
+/// records ourselves as a key holder locally, and returns the prepared
+/// report and handle. Returns `None` if state is unavailable.
+fn prepare_key_holder_report(
+    shared: &Arc<Mutex<SharedState>>,
+    channel_id: u32,
+) -> Option<(ClientHandle, mumble_tcp::PchatKeyHolderReport)> {
+    let (handle, hash) = {
+        let mut s = shared.lock().ok();
+        let h = s.as_ref().and_then(|s| s.client_handle.clone());
+        let hash = s.as_ref().and_then(|s| s.pchat.as_ref().map(|p| p.own_cert_hash.clone()));
+        // Record ourselves as holder locally so consent checks skip us.
+        if let (Some(ref mut s), Some(ref hash)) = (&mut s, &hash) {
+            if let Some(ref mut pchat) = s.pchat {
+                pchat.key_manager.record_key_holder(channel_id, hash.clone());
+            }
+        }
+        (h, hash)
+    };
+    match (handle, hash) {
+        (Some(handle), Some(hash)) => {
+            let report = mumble_tcp::PchatKeyHolderReport {
+                channel_id: Some(channel_id),
+                cert_hash: Some(hash),
+            };
+            Some((handle, report))
+        }
+        _ => None,
+    }
+}
+
+/// Report to the server that we hold the E2EE key for a channel.
+///
+/// Async variant: the caller `.await`s the network send so the report
+/// reaches the command queue before any subsequent commands (e.g. fetch).
+/// Use this in async contexts (server_sync, user_state handlers).
+pub(crate) async fn send_key_holder_report_async(
+    shared: &Arc<Mutex<SharedState>>,
+    channel_id: u32,
+) {
+    if let Some((handle, report)) = prepare_key_holder_report(shared, channel_id) {
+        if let Err(e) = handle
+            .send(command::SendPchatKeyHolderReport { report })
+            .await
+        {
+            warn!(channel_id, "failed to report key holder: {e}");
+        } else {
+            info!(channel_id, "reported self as key holder");
+        }
+    }
+}
+
+/// Report to the server that we hold the E2EE key for a channel.
+///
+/// Fire-and-forget variant: spawns a task for the send.
+/// Use this in synchronous contexts where `.await` is not possible.
+pub(crate) fn send_key_holder_report(shared: &Arc<Mutex<SharedState>>, channel_id: u32) {
+    if let Some((handle, report)) = prepare_key_holder_report(shared, channel_id) {
+        tokio::spawn(async move {
+            if let Err(e) = handle
+                .send(command::SendPchatKeyHolderReport { report })
+                .await
+            {
+                warn!(channel_id, "failed to report key holder: {e}");
+            } else {
+                info!(channel_id, "reported self as key holder");
+            }
+        });
+    }
+}
 
 pub(crate) fn now_millis() -> u64 {
     SystemTime::now()
@@ -1168,5 +1565,225 @@ pub(crate) fn emit_history_loading(
             "pchat-history-loading",
             PchatHistoryLoadingPayload { channel_id, loading },
         );
+    }
+}
+
+// ---- Archive key persistence ----------------------------------------
+
+/// File name for persisted archive keys inside the identity directory.
+const ARCHIVE_KEYS_FILE: &str = "archive_keys.json";
+
+/// On-disk representation of a single archive key.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PersistedArchiveKey {
+    /// 32-byte key encoded as 64-character hex string.
+    key_hex: String,
+    /// Cert hash of the key originator (who generated the key).
+    originator: Option<String>,
+}
+
+/// Persist a single archive key to disk.
+///
+/// Reads the existing JSON file, upserts the entry for `channel_id`,
+/// and writes back. Thread-safe via the file system (only one writer
+/// expected at a time since we hold the SharedState mutex while
+/// extracting the data).
+pub(crate) fn persist_archive_key(
+    identity_dir: &std::path::Path,
+    channel_id: u32,
+    key: &[u8; 32],
+    originator: Option<&str>,
+) {
+    let path = identity_dir.join(ARCHIVE_KEYS_FILE);
+
+    let mut keys: std::collections::HashMap<String, PersistedArchiveKey> =
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+
+    let key_hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+    keys.insert(
+        channel_id.to_string(),
+        PersistedArchiveKey {
+            key_hex,
+            originator: originator.map(String::from),
+        },
+    );
+
+    match serde_json::to_string_pretty(&keys) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&path, json) {
+                warn!("failed to persist archive key: {e}");
+            } else {
+                info!(channel_id, "persisted archive key to disk");
+            }
+        }
+        Err(e) => warn!("failed to serialize archive keys: {e}"),
+    }
+}
+
+/// Delete the persisted archive key for a single channel.
+pub(crate) fn delete_persisted_archive_key(
+    identity_dir: &std::path::Path,
+    channel_id: u32,
+) {
+    let path = identity_dir.join(ARCHIVE_KEYS_FILE);
+
+    let mut keys: std::collections::HashMap<String, PersistedArchiveKey> =
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+
+    if keys.remove(&channel_id.to_string()).is_some() {
+        match serde_json::to_string_pretty(&keys) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&path, json) {
+                    warn!("failed to update archive keys file: {e}");
+                } else {
+                    info!(channel_id, "removed persisted archive key from disk");
+                }
+            }
+            Err(e) => warn!("failed to serialize archive keys: {e}"),
+        }
+    }
+}
+
+/// Load all persisted archive keys from disk.
+///
+/// Returns `(channel_id, key_bytes, originator)` tuples. Entries with
+/// invalid hex or wrong key length are silently skipped.
+pub(crate) fn load_persisted_archive_keys(
+    identity_dir: &std::path::Path,
+) -> Vec<(u32, [u8; 32], Option<String>)> {
+    let path = identity_dir.join(ARCHIVE_KEYS_FILE);
+
+    let keys: std::collections::HashMap<String, PersistedArchiveKey> =
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+
+    keys.into_iter()
+        .filter_map(|(ch_str, entry)| {
+            let ch: u32 = ch_str.parse().ok()?;
+            let key_bytes = hex_decode(&entry.key_hex)?;
+            if key_bytes.len() != 32 {
+                return None;
+            }
+            let mut key = [0u8; 32];
+            key.copy_from_slice(&key_bytes);
+            Some((ch, key, entry.originator))
+        })
+        .collect()
+}
+
+/// Decode a hex string into bytes.
+fn hex_decode(s: &str) -> Option<Vec<u8>> {
+    if s.len() % 2 != 0 {
+        return None;
+    }
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_decode_basic() {
+        assert_eq!(hex_decode("deadbeef"), Some(vec![0xde, 0xad, 0xbe, 0xef]));
+    }
+
+    #[test]
+    fn hex_decode_empty() {
+        assert_eq!(hex_decode(""), Some(vec![]));
+    }
+
+    #[test]
+    fn hex_decode_odd_length_returns_none() {
+        assert_eq!(hex_decode("abc"), None);
+    }
+
+    #[test]
+    fn hex_decode_invalid_chars_returns_none() {
+        assert_eq!(hex_decode("gg"), None);
+    }
+
+    #[test]
+    fn persist_and_load_archive_key_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let key: [u8; 32] = [42u8; 32];
+        let originator = "abc123";
+
+        persist_archive_key(dir.path(), 5, &key, Some(originator));
+
+        let loaded = load_persisted_archive_keys(dir.path());
+        assert_eq!(loaded.len(), 1);
+        let (ch, loaded_key, loaded_orig) = &loaded[0];
+        assert_eq!(*ch, 5);
+        assert_eq!(*loaded_key, key);
+        assert_eq!(loaded_orig.as_deref(), Some(originator));
+    }
+
+    #[test]
+    fn persist_multiple_channels() {
+        let dir = tempfile::tempdir().unwrap();
+        let key1 = [1u8; 32];
+        let key2 = [2u8; 32];
+
+        persist_archive_key(dir.path(), 1, &key1, Some("orig1"));
+        persist_archive_key(dir.path(), 7, &key2, None);
+
+        let mut loaded = load_persisted_archive_keys(dir.path());
+        loaded.sort_by_key(|(ch, _, _)| *ch);
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0], (1, key1, Some("orig1".to_string())));
+        assert_eq!(loaded[1], (7, key2, None));
+    }
+
+    #[test]
+    fn persist_overwrites_existing_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let key_old = [10u8; 32];
+        let key_new = [20u8; 32];
+
+        persist_archive_key(dir.path(), 3, &key_old, Some("orig_old"));
+        persist_archive_key(dir.path(), 3, &key_new, Some("orig_new"));
+
+        let loaded = load_persisted_archive_keys(dir.path());
+        assert_eq!(loaded.len(), 1);
+        let (ch, key, orig) = &loaded[0];
+        assert_eq!(*ch, 3);
+        assert_eq!(*key, key_new);
+        assert_eq!(orig.as_deref(), Some("orig_new"));
+    }
+
+    #[test]
+    fn load_from_nonexistent_dir_returns_empty() {
+        let dir = std::path::Path::new("/nonexistent/path/12345");
+        let loaded = load_persisted_archive_keys(dir);
+        assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn load_ignores_corrupt_json() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(ARCHIVE_KEYS_FILE), "not valid json").unwrap();
+        let loaded = load_persisted_archive_keys(dir.path());
+        assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn load_ignores_wrong_key_length() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = r#"{"1": {"key_hex": "aabb", "originator": null}}"#;
+        std::fs::write(dir.path().join(ARCHIVE_KEYS_FILE), json).unwrap();
+        let loaded = load_persisted_archive_keys(dir.path());
+        assert!(loaded.is_empty());
     }
 }

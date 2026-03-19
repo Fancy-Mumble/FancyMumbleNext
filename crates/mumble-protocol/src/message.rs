@@ -42,6 +42,12 @@ pub enum TcpMessageType {
     PchatKeyRequest = 106,
     PchatAck = 107,
     PchatEpochCountersig = 108,
+    PchatKeyHolderReport = 109,
+    PchatKeyHoldersQuery = 110,
+    PchatKeyHoldersList = 111,
+    PchatKeyChallenge = 112,
+    PchatKeyChallengeResponse = 113,
+    PchatKeyChallengeResult = 114,
 }
 
 impl TryFrom<u16> for TcpMessageType {
@@ -85,6 +91,12 @@ impl TryFrom<u16> for TcpMessageType {
             106 => Ok(Self::PchatKeyRequest),
             107 => Ok(Self::PchatAck),
             108 => Ok(Self::PchatEpochCountersig),
+            109 => Ok(Self::PchatKeyHolderReport),
+            110 => Ok(Self::PchatKeyHoldersQuery),
+            111 => Ok(Self::PchatKeyHoldersList),
+            112 => Ok(Self::PchatKeyChallenge),
+            113 => Ok(Self::PchatKeyChallengeResponse),
+            114 => Ok(Self::PchatKeyChallengeResult),
             other => Err(crate::error::Error::UnknownMessageType(other)),
         }
     }
@@ -128,6 +140,12 @@ pub enum ControlMessage {
     PchatKeyRequest(mumble_tcp::PchatKeyRequest),
     PchatAck(mumble_tcp::PchatAck),
     PchatEpochCountersig(mumble_tcp::PchatEpochCountersig),
+    PchatKeyHolderReport(mumble_tcp::PchatKeyHolderReport),
+    PchatKeyHoldersQuery(mumble_tcp::PchatKeyHoldersQuery),
+    PchatKeyHoldersList(mumble_tcp::PchatKeyHoldersList),
+    PchatKeyChallenge(mumble_tcp::PchatKeyChallenge),
+    PchatKeyChallengeResponse(mumble_tcp::PchatKeyChallengeResponse),
+    PchatKeyChallengeResult(mumble_tcp::PchatKeyChallengeResult),
     /// UDP audio tunneled through TCP (fallback path).
     UdpTunnel(Vec<u8>),
 }
@@ -192,6 +210,12 @@ mod tests {
             (106, TcpMessageType::PchatKeyRequest),
             (107, TcpMessageType::PchatAck),
             (108, TcpMessageType::PchatEpochCountersig),
+            (109, TcpMessageType::PchatKeyHolderReport),
+            (110, TcpMessageType::PchatKeyHoldersQuery),
+            (111, TcpMessageType::PchatKeyHoldersList),
+            (112, TcpMessageType::PchatKeyChallenge),
+            (113, TcpMessageType::PchatKeyChallengeResponse),
+            (114, TcpMessageType::PchatKeyChallengeResult),
         ];
 
         for (id, expected_type) in &expected {
@@ -212,13 +236,25 @@ mod tests {
             let msg_type = TcpMessageType::try_from(id).unwrap();
             assert_eq!(msg_type as u16, id);
         }
+        // Key-holder IDs (109..=111)
+        for id in 109..=111u16 {
+            let msg_type = TcpMessageType::try_from(id).unwrap();
+            assert_eq!(msg_type as u16, id);
+        }
+        // Key-challenge IDs (112..=114)
+        for id in 112..=114u16 {
+            let msg_type = TcpMessageType::try_from(id).unwrap();
+            assert_eq!(msg_type as u16, id);
+        }
     }
 
     #[test]
     fn tcp_message_type_invalid_returns_error() {
         assert!(TcpMessageType::try_from(27u16).is_err());
         assert!(TcpMessageType::try_from(99u16).is_err());
-        assert!(TcpMessageType::try_from(109u16).is_err());
+        assert!(TcpMessageType::try_from(115u16).is_err());
+        assert!(TcpMessageType::try_from(199u16).is_err());
+        assert!(TcpMessageType::try_from(203u16).is_err());
         assert!(TcpMessageType::try_from(u16::MAX).is_err());
     }
 

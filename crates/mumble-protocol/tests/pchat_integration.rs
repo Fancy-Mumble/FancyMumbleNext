@@ -19,7 +19,10 @@
 
 use std::time::Duration;
 
-use mumble_protocol::command::{Authenticate, CommandAction, JoinChannel, SetChannelState};
+use mumble_protocol::command::{
+    Authenticate, CommandAction, JoinChannel, SendPchatKeyChallengeResponse,
+    SendPchatKeyHolderReport, SendPchatKeyHoldersQuery, SetChannelState,
+};
 use mumble_protocol::message::ControlMessage;
 use mumble_protocol::persistent::keys::{KeyManager, SeedIdentity};
 use mumble_protocol::persistent::wire::{
@@ -2397,4 +2400,539 @@ fn test_handle_key_request_no_key_returns_none() {
         result.unwrap().is_none(),
         "handle_key_request should return None when we have no key"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Key-holder report / query / list helpers and tests
+// ---------------------------------------------------------------------------
+
+/// Wait for a `PchatKeyHoldersList` message from the server.
+async fn wait_for_key_holders_list(
+    transport: &mut TcpTransport,
+    timeout: Duration,
+) -> Option<mumble_tcp::PchatKeyHoldersList> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_secs(3), transport.recv()).await {
+            Ok(Ok(ControlMessage::PchatKeyHoldersList(list))) => return Some(list),
+            Ok(Ok(_)) => continue,
+            Ok(Err(e)) => {
+                eprintln!("transport error while waiting for PchatKeyHoldersList: {e}");
+                return None;
+            }
+            Err(_) => continue,
+        }
+    }
+    None
+}
+
+/// Send a `PchatKeyHolderReport` directly on the transport.
+async fn send_key_holder_report(
+    transport: &mut TcpTransport,
+    channel_id: u32,
+    cert_hash: &str,
+) {
+    let report = mumble_tcp::PchatKeyHolderReport {
+        channel_id: Some(channel_id),
+        cert_hash: Some(cert_hash.to_string()),
+    };
+    transport
+        .send(&ControlMessage::PchatKeyHolderReport(report))
+        .await
+        .unwrap();
+}
+
+/// Send a `PchatKeyHoldersQuery` directly on the transport.
+async fn send_key_holders_query(transport: &mut TcpTransport, channel_id: u32) {
+    let query = mumble_tcp::PchatKeyHoldersQuery {
+        channel_id: Some(channel_id),
+    };
+    transport
+        .send(&ControlMessage::PchatKeyHoldersQuery(query))
+        .await
+        .unwrap();
+}
+
+/// Regression test: after reporting as a key holder, querying the server
+/// must return our cert hash in the holders list.
+///
+/// This is the core regression test for the bug where `PchatKeyHolderReport`
+/// was never sent after key derivation/generation (only on key exchange).
+#[tokio::test]
+async fn test_key_holder_report_then_query_returns_holder() {
+    if !ensure_server_available().await {
+        return;
+    }
+
+    let channel_id: u32 = 0;
+
+    // Set up FullArchive mode.
+    let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
+    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+
+    // Client A connects and reports itself as a key holder.
+    let (mut transport_a, _state_a, cert_hash_a) = connect_and_authenticate("HolderA").await;
+    drain(&mut transport_a).await;
+
+    send_key_holder_report(&mut transport_a, channel_id, &cert_hash_a).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Client A queries the key holders list.
+    send_key_holders_query(&mut transport_a, channel_id).await;
+
+    let list = wait_for_key_holders_list(&mut transport_a, Duration::from_secs(5)).await;
+    assert!(list.is_some(), "server must respond with PchatKeyHoldersList");
+
+    let list = list.unwrap();
+    assert_eq!(list.channel_id, Some(channel_id));
+    let hashes: Vec<&str> = list
+        .holders
+        .iter()
+        .filter_map(|e| e.cert_hash.as_deref())
+        .collect();
+    assert!(
+        hashes.contains(&cert_hash_a.as_str()),
+        "A's cert_hash must appear in the holders list; got: {hashes:?}"
+    );
+
+    // Cleanup.
+    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+}
+
+/// Test: multiple clients report as key holders, all appear in the list.
+#[tokio::test]
+async fn test_multiple_key_holders_reported() {
+    if !ensure_server_available().await {
+        return;
+    }
+
+    let channel_id: u32 = 0;
+
+    let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
+    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+
+    // Client A reports.
+    let (mut transport_a, _state_a, cert_hash_a) = connect_and_authenticate("MultiA").await;
+    drain(&mut transport_a).await;
+    send_key_holder_report(&mut transport_a, channel_id, &cert_hash_a).await;
+
+    // Client B reports.
+    let (mut transport_b, _state_b, cert_hash_b) = connect_and_authenticate("MultiB").await;
+    drain(&mut transport_b).await;
+    send_key_holder_report(&mut transport_b, channel_id, &cert_hash_b).await;
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Query from A.
+    send_key_holders_query(&mut transport_a, channel_id).await;
+
+    let list = wait_for_key_holders_list(&mut transport_a, Duration::from_secs(5)).await;
+    assert!(list.is_some(), "server must respond with PchatKeyHoldersList");
+
+    let list = list.unwrap();
+    let hashes: Vec<&str> = list
+        .holders
+        .iter()
+        .filter_map(|e| e.cert_hash.as_deref())
+        .collect();
+    assert!(
+        hashes.contains(&cert_hash_a.as_str()),
+        "A must be in the holders list; got: {hashes:?}"
+    );
+    assert!(
+        hashes.contains(&cert_hash_b.as_str()),
+        "B must be in the holders list; got: {hashes:?}"
+    );
+
+    // Cleanup.
+    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+}
+
+/// Test: the `SendPchatKeyHolderReport` command produces the correct
+/// `ControlMessage` with the right fields.
+#[test]
+fn test_send_key_holder_report_command_output() {
+    let report = mumble_tcp::PchatKeyHolderReport {
+        channel_id: Some(42),
+        cert_hash: Some("deadbeef".into()),
+    };
+    let cmd = SendPchatKeyHolderReport { report };
+    let state = ServerState::default();
+    let output = cmd.execute(&state);
+
+    assert_eq!(output.tcp_messages.len(), 1);
+    match &output.tcp_messages[0] {
+        ControlMessage::PchatKeyHolderReport(r) => {
+            assert_eq!(r.channel_id, Some(42));
+            assert_eq!(r.cert_hash.as_deref(), Some("deadbeef"));
+        }
+        other => panic!("expected PchatKeyHolderReport, got {other:?}"),
+    }
+}
+
+/// Test: the `SendPchatKeyHoldersQuery` command produces the correct
+/// `ControlMessage`.
+#[test]
+fn test_send_key_holders_query_command_output() {
+    let query = mumble_tcp::PchatKeyHoldersQuery {
+        channel_id: Some(7),
+    };
+    let cmd = SendPchatKeyHoldersQuery { query };
+    let state = ServerState::default();
+    let output = cmd.execute(&state);
+
+    assert_eq!(output.tcp_messages.len(), 1);
+    match &output.tcp_messages[0] {
+        ControlMessage::PchatKeyHoldersQuery(q) => {
+            assert_eq!(q.channel_id, Some(7));
+        }
+        other => panic!("expected PchatKeyHoldersQuery, got {other:?}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Key-possession challenge helpers
+// ---------------------------------------------------------------------------
+
+/// Wait for a `PchatKeyChallenge` from the server.
+async fn wait_for_key_challenge(
+    transport: &mut TcpTransport,
+    timeout: Duration,
+) -> Option<mumble_tcp::PchatKeyChallenge> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        match tokio::time::timeout_at(deadline, transport.recv()).await {
+            Ok(Ok(ControlMessage::PchatKeyChallenge(c))) => return Some(c),
+            Ok(Ok(_)) => continue,
+            Ok(Err(e)) => {
+                eprintln!("transport error while waiting for PchatKeyChallenge: {e}");
+                return None;
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
+/// Wait for a `PchatKeyChallengeResult` from the server.
+async fn wait_for_key_challenge_result(
+    transport: &mut TcpTransport,
+    timeout: Duration,
+) -> Option<mumble_tcp::PchatKeyChallengeResult> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        match tokio::time::timeout_at(deadline, transport.recv()).await {
+            Ok(Ok(ControlMessage::PchatKeyChallengeResult(r))) => return Some(r),
+            Ok(Ok(_)) => continue,
+            Ok(Err(e)) => {
+                eprintln!("transport error while waiting for PchatKeyChallengeResult: {e}");
+                return None;
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
+/// Send a `PchatKeyChallengeResponse` directly on the transport.
+async fn send_key_challenge_response(
+    transport: &mut TcpTransport,
+    channel_id: u32,
+    proof: &[u8],
+) {
+    let response = mumble_tcp::PchatKeyChallengeResponse {
+        channel_id: Some(channel_id),
+        proof: Some(proof.to_vec()),
+    };
+    transport
+        .send(&ControlMessage::PchatKeyChallengeResponse(response))
+        .await
+        .unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Key-possession challenge integration tests
+// ---------------------------------------------------------------------------
+
+/// After reporting as a key holder, the server must send back a challenge.
+#[tokio::test]
+async fn test_key_holder_report_triggers_challenge() {
+    if !ensure_server_available().await {
+        return;
+    }
+
+    let channel_id: u32 = 0;
+
+    let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
+    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+
+    let (mut transport_a, _state_a, cert_hash_a) = connect_and_authenticate("ChallengeA").await;
+    drain(&mut transport_a).await;
+
+    send_key_holder_report(&mut transport_a, channel_id, &cert_hash_a).await;
+
+    let challenge = wait_for_key_challenge(&mut transport_a, Duration::from_secs(5)).await;
+    assert!(
+        challenge.is_some(),
+        "server must send PchatKeyChallenge after key holder report"
+    );
+    let challenge = challenge.unwrap();
+    assert_eq!(challenge.channel_id, Some(channel_id));
+    let challenge_bytes = challenge.challenge.as_ref().unwrap();
+    assert_eq!(challenge_bytes.len(), 32, "challenge must be 32 bytes");
+
+    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+}
+
+/// Reporting as a holder and responding with the correct HMAC proof must result
+/// in `PchatKeyChallengeResult { passed: true }`.
+#[tokio::test]
+async fn test_challenge_correct_proof_passes() {
+    if !ensure_server_available().await {
+        return;
+    }
+
+    let channel_id: u32 = 0;
+
+    let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
+    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+
+    let (mut transport_a, _state_a, cert_hash_a) = connect_and_authenticate("CorrectA").await;
+    drain(&mut transport_a).await;
+
+    // Store an archive key in a local key manager and compute the proof.
+    let archive_key = [0x42; 32];
+    let mut km = make_key_manager();
+    km.store_archive_key(channel_id, archive_key, KeyTrustLevel::Verified);
+
+    // Report as holder.
+    send_key_holder_report(&mut transport_a, channel_id, &cert_hash_a).await;
+
+    // Wait for challenge.
+    let challenge = wait_for_key_challenge(&mut transport_a, Duration::from_secs(5)).await;
+    assert!(challenge.is_some(), "must receive a challenge");
+    let challenge = challenge.unwrap();
+
+    // Compute proof.
+    let proof = km
+        .compute_challenge_proof(channel_id, challenge.challenge.as_ref().unwrap())
+        .expect("must compute proof");
+
+    // Send response.
+    send_key_challenge_response(&mut transport_a, channel_id, &proof).await;
+
+    // Wait for result.
+    let result = wait_for_key_challenge_result(&mut transport_a, Duration::from_secs(5)).await;
+    assert!(result.is_some(), "must receive a challenge result");
+    let result = result.unwrap();
+    assert_eq!(result.channel_id, Some(channel_id));
+    assert_eq!(
+        result.passed,
+        Some(true),
+        "first prover must always pass (sets the reference)"
+    );
+
+    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+}
+
+/// Two clients with the same archive key must both pass the challenge.
+#[tokio::test]
+async fn test_challenge_two_clients_same_key_both_pass() {
+    if !ensure_server_available().await {
+        return;
+    }
+
+    let channel_id: u32 = 0;
+
+    let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
+    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+
+    let archive_key = [0x77; 32];
+
+    // --- Client A: first prover (sets reference) ---
+    let (mut transport_a, _state_a, cert_hash_a) = connect_and_authenticate("SameKeyA").await;
+    drain(&mut transport_a).await;
+
+    let mut km_a = make_key_manager();
+    km_a.store_archive_key(channel_id, archive_key, KeyTrustLevel::Verified);
+
+    send_key_holder_report(&mut transport_a, channel_id, &cert_hash_a).await;
+    let challenge_a = wait_for_key_challenge(&mut transport_a, Duration::from_secs(5))
+        .await
+        .expect("A must receive a challenge");
+
+    let proof_a = km_a
+        .compute_challenge_proof(channel_id, challenge_a.challenge.as_ref().unwrap())
+        .unwrap();
+    send_key_challenge_response(&mut transport_a, channel_id, &proof_a).await;
+
+    let result_a = wait_for_key_challenge_result(&mut transport_a, Duration::from_secs(5))
+        .await
+        .expect("A must receive result");
+    assert_eq!(result_a.passed, Some(true), "A (first prover) must pass");
+
+    // --- Client B: same key, should also pass ---
+    let (mut transport_b, _state_b, cert_hash_b) = connect_and_authenticate("SameKeyB").await;
+    drain(&mut transport_b).await;
+
+    let mut km_b = make_key_manager();
+    km_b.store_archive_key(channel_id, archive_key, KeyTrustLevel::Verified);
+
+    send_key_holder_report(&mut transport_b, channel_id, &cert_hash_b).await;
+    let challenge_b = wait_for_key_challenge(&mut transport_b, Duration::from_secs(5))
+        .await
+        .expect("B must receive a challenge");
+
+    let proof_b = km_b
+        .compute_challenge_proof(channel_id, challenge_b.challenge.as_ref().unwrap())
+        .unwrap();
+    send_key_challenge_response(&mut transport_b, channel_id, &proof_b).await;
+
+    let result_b = wait_for_key_challenge_result(&mut transport_b, Duration::from_secs(5))
+        .await
+        .expect("B must receive result");
+    assert_eq!(
+        result_b.passed,
+        Some(true),
+        "B (same key as A) must also pass"
+    );
+
+    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+}
+
+/// A second client with a different key must fail the challenge.
+#[tokio::test]
+async fn test_challenge_wrong_key_fails() {
+    if !ensure_server_available().await {
+        return;
+    }
+
+    let channel_id: u32 = 0;
+
+    let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
+    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+
+    // --- Client A: first prover with key_a ---
+    let (mut transport_a, _state_a, cert_hash_a) = connect_and_authenticate("WrongKeyA").await;
+    drain(&mut transport_a).await;
+
+    let key_a = [0xAA; 32];
+    let mut km_a = make_key_manager();
+    km_a.store_archive_key(channel_id, key_a, KeyTrustLevel::Verified);
+
+    send_key_holder_report(&mut transport_a, channel_id, &cert_hash_a).await;
+    let challenge_a = wait_for_key_challenge(&mut transport_a, Duration::from_secs(5))
+        .await
+        .expect("A must receive a challenge");
+    let proof_a = km_a
+        .compute_challenge_proof(channel_id, challenge_a.challenge.as_ref().unwrap())
+        .unwrap();
+    send_key_challenge_response(&mut transport_a, channel_id, &proof_a).await;
+
+    let result_a = wait_for_key_challenge_result(&mut transport_a, Duration::from_secs(5))
+        .await
+        .expect("A must receive result");
+    assert_eq!(result_a.passed, Some(true), "A (first prover) must pass");
+
+    // --- Client B: different key ---
+    let (mut transport_b, _state_b, cert_hash_b) = connect_and_authenticate("WrongKeyB").await;
+    drain(&mut transport_b).await;
+
+    let key_b = [0xBB; 32]; // different!
+    let mut km_b = make_key_manager();
+    km_b.store_archive_key(channel_id, key_b, KeyTrustLevel::Verified);
+
+    send_key_holder_report(&mut transport_b, channel_id, &cert_hash_b).await;
+    let challenge_b = wait_for_key_challenge(&mut transport_b, Duration::from_secs(5))
+        .await
+        .expect("B must receive a challenge");
+    let proof_b = km_b
+        .compute_challenge_proof(channel_id, challenge_b.challenge.as_ref().unwrap())
+        .unwrap();
+    send_key_challenge_response(&mut transport_b, channel_id, &proof_b).await;
+
+    let result_b = wait_for_key_challenge_result(&mut transport_b, Duration::from_secs(5))
+        .await
+        .expect("B must receive result");
+    assert_eq!(
+        result_b.passed,
+        Some(false),
+        "B (wrong key) must FAIL the challenge"
+    );
+
+    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+}
+
+/// Sending a fabricated (garbage) proof must fail.
+#[tokio::test]
+async fn test_challenge_garbage_proof_fails() {
+    if !ensure_server_available().await {
+        return;
+    }
+
+    let channel_id: u32 = 0;
+
+    let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
+    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+
+    // First prover sets the reference.
+    let (mut transport_a, _state_a, cert_hash_a) = connect_and_authenticate("GarbageRefA").await;
+    drain(&mut transport_a).await;
+
+    let mut km_a = make_key_manager();
+    km_a.store_archive_key(channel_id, [0xCC; 32], KeyTrustLevel::Verified);
+    send_key_holder_report(&mut transport_a, channel_id, &cert_hash_a).await;
+    let ch_a = wait_for_key_challenge(&mut transport_a, Duration::from_secs(5))
+        .await
+        .expect("must get challenge");
+    let proof_a = km_a
+        .compute_challenge_proof(channel_id, ch_a.challenge.as_ref().unwrap())
+        .unwrap();
+    send_key_challenge_response(&mut transport_a, channel_id, &proof_a).await;
+    let res_a = wait_for_key_challenge_result(&mut transport_a, Duration::from_secs(5))
+        .await
+        .expect("must get result");
+    assert_eq!(res_a.passed, Some(true));
+
+    // Second client sends garbage proof.
+    let (mut transport_b, _state_b, cert_hash_b) = connect_and_authenticate("GarbageB").await;
+    drain(&mut transport_b).await;
+
+    send_key_holder_report(&mut transport_b, channel_id, &cert_hash_b).await;
+    let _ch_b = wait_for_key_challenge(&mut transport_b, Duration::from_secs(5))
+        .await
+        .expect("must get challenge");
+    // Send completely fabricated 32-byte proof.
+    send_key_challenge_response(&mut transport_b, channel_id, &[0xFF; 32]).await;
+
+    let res_b = wait_for_key_challenge_result(&mut transport_b, Duration::from_secs(5))
+        .await
+        .expect("must get result");
+    assert_eq!(
+        res_b.passed,
+        Some(false),
+        "garbage proof must be rejected"
+    );
+
+    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+}
+
+/// Test: the `SendPchatKeyChallengeResponse` command produces the correct
+/// `ControlMessage`.
+#[test]
+fn test_send_key_challenge_response_command_output() {
+    let response = mumble_tcp::PchatKeyChallengeResponse {
+        channel_id: Some(5),
+        proof: Some(vec![0xAB; 32]),
+    };
+    let cmd = SendPchatKeyChallengeResponse { response };
+    let state = ServerState::default();
+    let output = cmd.execute(&state);
+
+    assert_eq!(output.tcp_messages.len(), 1);
+    match &output.tcp_messages[0] {
+        ControlMessage::PchatKeyChallengeResponse(r) => {
+            assert_eq!(r.channel_id, Some(5));
+            assert_eq!(r.proof.as_ref().unwrap().len(), 32);
+        }
+        other => panic!("expected PchatKeyChallengeResponse, got {other:?}"),
+    }
 }

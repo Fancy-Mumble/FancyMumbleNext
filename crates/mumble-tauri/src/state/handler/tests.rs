@@ -7,6 +7,7 @@ use mumble_protocol::proto::mumble_tcp;
 use mumble_protocol::state::PchatMode;
 
 use super::{dispatch, EventEmitter, HandleMessage, HandlerContext};
+use crate::state::hash_names::HashNameResolver;
 use crate::state::types::*;
 use crate::state::SharedState;
 
@@ -464,6 +465,46 @@ fn user_remove_self_default_reason() {
         rejected.unwrap().1["reason"].as_str().unwrap(),
         "Disconnected by server"
     );
+}
+
+#[test]
+fn user_remove_clears_pending_key_shares() {
+    let (ctx, emitter) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.own_session = Some(1);
+        let mut alice = make_user(10, "Alice");
+        alice.hash = Some("abc123".into());
+        state.users.insert(10, alice);
+        state.pending_key_shares.push(PendingKeyShare {
+            channel_id: 5,
+            peer_cert_hash: "abc123".into(),
+            peer_name: "Alice".into(),
+            request_id: None,
+        });
+        state.pending_key_shares.push(PendingKeyShare {
+            channel_id: 7,
+            peer_cert_hash: "other_hash".into(),
+            peer_name: "Bob".into(),
+            request_id: None,
+        });
+    }
+
+    let ur = mumble_tcp::UserRemove {
+        session: 10,
+        ..Default::default()
+    };
+    ur.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    // Alice's pending share removed, Bob's remains.
+    assert_eq!(state.pending_key_shares.len(), 1);
+    assert_eq!(state.pending_key_shares[0].peer_cert_hash, "other_hash");
+    drop(state);
+
+    let names = emitter.event_names();
+    assert!(names.contains(&"pchat-key-share-requests-changed".to_string()));
+    assert!(names.contains(&"state-changed".to_string()));
 }
 
 // -- ChannelState --------------------------------------------------
@@ -1635,4 +1676,182 @@ fn text_message_mixed_pchat_and_regular_channels() {
     let msgs = state.messages.get(&4).unwrap();
     assert_eq!(msgs.len(), 1);
     assert_eq!(msgs[0].body, "Multi-channel");
+}
+
+// -- PchatKeyHoldersList -------------------------------------------
+
+#[test]
+fn key_holders_online_user_gets_live_name() {
+    let (ctx, _emitter) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let mut user = make_user(1, "Alice");
+        user.hash = Some("aabb".into());
+        state.users.insert(1, user);
+    }
+
+    let msg = mumble_tcp::PchatKeyHoldersList {
+        channel_id: Some(42),
+        holders: vec![mumble_tcp::pchat_key_holders_list::Entry {
+            cert_hash: Some("aabb".into()),
+            name: Some("OldAlice".into()),
+        }],
+    };
+    msg.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let holders = state.key_holders.get(&42).unwrap();
+    assert_eq!(holders.len(), 1);
+    assert_eq!(holders[0].name, "Alice", "should use the live online name");
+    assert!(holders[0].is_online);
+}
+
+#[test]
+fn key_holders_server_name_used_when_offline_and_not_hash() {
+    let (ctx, _emitter) = make_ctx();
+
+    let msg = mumble_tcp::PchatKeyHoldersList {
+        channel_id: Some(42),
+        holders: vec![mumble_tcp::pchat_key_holders_list::Entry {
+            cert_hash: Some("ccdd".into()),
+            name: Some("Bob".into()),
+        }],
+    };
+    msg.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let holders = state.key_holders.get(&42).unwrap();
+    assert_eq!(holders[0].name, "Bob", "server-provided name should be used");
+    assert!(!holders[0].is_online);
+}
+
+#[test]
+fn key_holders_hash_as_name_falls_through_to_resolver() {
+    let (ctx, _emitter) = make_ctx();
+    let hash = "76688b569fb4519ef37da57900682ee3a55b02d2";
+
+    // Set up resolver so it returns a fallback name.
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        state.hash_name_resolver = Some(Arc::new(
+            crate::state::hash_names::DefaultHashNameResolver::new(
+                tmp.path().to_path_buf(),
+            ),
+        ));
+    }
+
+    // Server sends the hash as the name (the bug scenario).
+    let msg = mumble_tcp::PchatKeyHoldersList {
+        channel_id: Some(42),
+        holders: vec![mumble_tcp::pchat_key_holders_list::Entry {
+            cert_hash: Some(hash.into()),
+            name: Some(hash.into()),
+        }],
+    };
+    msg.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let holders = state.key_holders.get(&42).unwrap();
+    assert_ne!(
+        holders[0].name, hash,
+        "hash should not be used as display name"
+    );
+    assert!(
+        holders[0].name.contains(' '),
+        "fallback name should be 'Adjective Animal', got: {}",
+        holders[0].name
+    );
+}
+
+#[test]
+fn key_holders_resolver_returns_recorded_name() {
+    let (ctx, _emitter) = make_ctx();
+    let hash = "deadbeef01234567";
+
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let resolver = crate::state::hash_names::DefaultHashNameResolver::new(
+            tmp.path().to_path_buf(),
+        );
+        resolver.record(hash, "Charlie");
+        state.hash_name_resolver = Some(Arc::new(resolver));
+    }
+
+    let msg = mumble_tcp::PchatKeyHoldersList {
+        channel_id: Some(42),
+        holders: vec![mumble_tcp::pchat_key_holders_list::Entry {
+            cert_hash: Some(hash.into()),
+            name: None,
+        }],
+    };
+    msg.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let holders = state.key_holders.get(&42).unwrap();
+    assert_eq!(
+        holders[0].name, "Charlie",
+        "resolver should return previously recorded name"
+    );
+}
+
+#[test]
+fn key_holders_no_resolver_falls_back_to_hash() {
+    let (ctx, _emitter) = make_ctx();
+    let hash = "aabbccddee";
+
+    // No resolver set (hash_name_resolver is None).
+    let msg = mumble_tcp::PchatKeyHoldersList {
+        channel_id: Some(42),
+        holders: vec![mumble_tcp::pchat_key_holders_list::Entry {
+            cert_hash: Some(hash.into()),
+            name: None,
+        }],
+    };
+    msg.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let holders = state.key_holders.get(&42).unwrap();
+    assert_eq!(
+        holders[0].name, hash,
+        "without a resolver the raw hash should be used"
+    );
+}
+
+#[test]
+fn key_holders_empty_server_name_uses_resolver() {
+    let (ctx, _emitter) = make_ctx();
+    let hash = "1122334455";
+
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        state.hash_name_resolver = Some(Arc::new(
+            crate::state::hash_names::DefaultHashNameResolver::new(
+                tmp.path().to_path_buf(),
+            ),
+        ));
+    }
+
+    let msg = mumble_tcp::PchatKeyHoldersList {
+        channel_id: Some(42),
+        holders: vec![mumble_tcp::pchat_key_holders_list::Entry {
+            cert_hash: Some(hash.into()),
+            name: Some(String::new()),
+        }],
+    };
+    msg.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let holders = state.key_holders.get(&42).unwrap();
+    assert_ne!(
+        holders[0].name, hash,
+        "empty server name should fall through to resolver"
+    );
+    assert!(
+        holders[0].name.contains(' '),
+        "fallback name should be 'Adjective Animal', got: {}",
+        holders[0].name
+    );
 }

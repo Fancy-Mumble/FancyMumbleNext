@@ -1,16 +1,91 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { useAppStore } from "../store";
-import type { KeyTrustLevel } from "../types";
+import type { KeyTrustLevel, PendingKeyShareRequest, PersistenceMode } from "../types";
 import PersistenceBanner from "./PersistenceBanner";
+import { InfoBanner } from "./InfoBanner";
+import infoBannerStyles from "./InfoBanner.module.css";
 import KeyVerificationDialog from "./KeyVerificationDialog";
 import CustodianPrompt from "./CustodianPrompt";
+import KeyShareWarningDialog from "./KeyShareWarningDialog";
 
 interface PersistentChatResult {
   trustLevel: KeyTrustLevel | undefined;
   onVerifyClick: (() => void) | undefined;
+  isPersisted: boolean;
   banner: ReactNode;
   disputeBanner: ReactNode;
+  keyShareBanner: ReactNode;
+  revokedBanner: ReactNode;
+  keyRevoked: boolean;
   dialogs: ReactNode;
+}
+
+const keyIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+  </svg>
+);
+
+const warningIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+    <line x1="12" y1="9" x2="12" y2="13" />
+    <line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+);
+
+function buildKeyShareBanner(
+  channelId: number | null,
+  requests: PendingKeyShareRequest[],
+  onShareClick: (peerCertHash: string, peerName: string) => void,
+  onDismiss: (channelId: number, hash: string) => void,
+): ReactNode {
+  if (channelId === null || requests.length === 0) return null;
+  return (
+    <>
+      {requests.map((req) => (
+        <InfoBanner
+          key={req.peer_cert_hash}
+          icon={keyIcon}
+          actions={
+            <button
+              className={infoBannerStyles.approveButton}
+              onClick={() => onShareClick(req.peer_cert_hash, req.peer_name)}
+            >
+              Share Key
+            </button>
+          }
+          onDismiss={() => onDismiss(channelId, req.peer_cert_hash)}
+        >
+          <p className={infoBannerStyles.description}>
+            <strong>{req.peer_name}</strong> joined and needs the encryption key.
+          </p>
+        </InfoBanner>
+      ))}
+    </>
+  );
+}
+
+function buildDisputeBanner(
+  onCompareClick: () => void,
+): ReactNode {
+  return (
+    <InfoBanner
+      variant="danger"
+      icon={warningIcon}
+      actions={
+        <button className={infoBannerStyles.dangerAction} onClick={onCompareClick}>
+          Compare fingerprints
+        </button>
+      }
+    >
+      <p className={infoBannerStyles.description}>
+        Conflicting encryption keys detected.
+      </p>
+    </InfoBanner>
+  );
 }
 
 /**
@@ -30,15 +105,33 @@ export function usePersistentChat(
   const verifyKeyFingerprint = useAppStore((s) => s.verifyKeyFingerprint);
   const acceptCustodianChanges = useAppStore((s) => s.acceptCustodianChanges);
   const confirmCustodians = useAppStore((s) => s.confirmCustodians);
+  const pendingKeyShares = useAppStore((s) => s.pendingKeyShares);
+  const approveKeyShare = useAppStore((s) => s.approveKeyShare);
+  const dismissKeyShare = useAppStore((s) => s.dismissKeyShare);
+  const pchatKeyRevoked = useAppStore((s) => s.pchatKeyRevoked);
 
   const [showVerifyDialog, setShowVerifyDialog] = useState(false);
   const [showCustodianPrompt, setShowCustodianPrompt] = useState(false);
+  const [keyShareConfirm, setKeyShareConfirm] = useState<{ hash: string; name: string } | null>(null);
 
   const persistence = channelId === null ? undefined : channelPersistence[channelId];
   const isLoading = channelId !== null && pchatHistoryLoading.has(channelId);
   const trust = channelId === null ? undefined : keyTrust[channelId];
   const custodian = channelId === null ? undefined : custodianPins[channelId];
   const dispute = channelId === null ? undefined : pendingDisputes[channelId];
+  const keyRevoked = channelId !== null && pchatKeyRevoked.has(channelId);
+  const persistenceMode: PersistenceMode = persistence?.mode ?? "NONE";
+
+  const handleShareClick = useCallback((peerCertHash: string, peerName: string) => {
+    setKeyShareConfirm({ hash: peerCertHash, name: peerName });
+  }, []);
+
+  const handleShareConfirm = useCallback(() => {
+    if (channelId !== null && keyShareConfirm) {
+      approveKeyShare(channelId, keyShareConfirm.hash);
+    }
+    setKeyShareConfirm(null);
+  }, [channelId, keyShareConfirm, approveKeyShare]);
 
   // Auto-show custodian prompt when unconfirmed or pending changes detected.
   useEffect(() => {
@@ -52,29 +145,30 @@ export function usePersistentChat(
     (persistence && persistence.mode !== "NONE") || isLoading
   );
 
+  const keyShareRequests = (channelId !== null && pendingKeyShares[channelId]) || [];
+
   return {
     trustLevel: trust?.trustLevel,
     onVerifyClick: trust ? () => setShowVerifyDialog(true) : undefined,
+    isPersisted: !!persistence && persistence.mode !== "NONE",
     banner: showBanner ? (
       <PersistenceBanner channelId={channelId} />
     ) : null,
-    disputeBanner: dispute ? (
-      <div style={{
-        padding: "8px 16px",
-        background: "rgba(231, 76, 60, 0.12)",
-        borderBottom: "1px solid rgba(231, 76, 60, 0.3)",
-        color: "var(--color-text-secondary)",
-        fontSize: "0.85rem",
-      }}>
-        Conflicting encryption keys detected.{" "}
-        <button
-          onClick={() => setShowVerifyDialog(true)}
-          style={{ background: "none", border: "none", color: "var(--color-accent)", textDecoration: "underline", cursor: "pointer", padding: 0, fontSize: "inherit" }}
-        >
-          Compare fingerprints
-        </button>{" "}to resolve.
-      </div>
+    disputeBanner: dispute
+      ? buildDisputeBanner(() => setShowVerifyDialog(true))
+      : null,
+    keyShareBanner: keyRevoked
+      ? null
+      : buildKeyShareBanner(channelId, keyShareRequests, handleShareClick, dismissKeyShare),
+    revokedBanner: keyRevoked ? (
+      <InfoBanner variant="danger" icon={warningIcon}>
+        <p className={infoBannerStyles.description}>
+          Your encryption key for this channel was rejected by the server.
+          You cannot send or read messages until you receive the correct key from another user.
+        </p>
+      </InfoBanner>
     ) : null,
+    keyRevoked,
     dialogs: (
       <>
         {trust && channelId !== null && (
@@ -118,6 +212,14 @@ export function usePersistentChat(
             }
           />
         )}
+        <KeyShareWarningDialog
+          open={keyShareConfirm !== null}
+          peerName={keyShareConfirm?.name ?? ""}
+          persistenceMode={persistenceMode}
+          totalStored={persistence?.totalStored ?? 0}
+          onConfirm={handleShareConfirm}
+          onCancel={() => setKeyShareConfirm(null)}
+        />
       </>
     ),
   };

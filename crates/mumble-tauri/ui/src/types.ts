@@ -45,6 +45,8 @@ export interface UserEntry {
   self_deaf: boolean;
   /** Priority speaker status. */
   priority_speaker: boolean;
+  /** TLS certificate hash (hex-encoded SHA-1). Used as stable identity. */
+  hash?: string;
 }
 
 export interface ChatMessage {
@@ -380,4 +382,18 @@ export interface FetchHistoryResponse {
   messages: StoredMessage[];
   hasMore: boolean;
   totalStored: number;
+}
+
+/** A pending key-share request waiting for user approval. */
+export interface PendingKeyShareRequest {
+  channel_id: number;
+  peer_cert_hash: string;
+  peer_name: string;
+}
+
+/** A user known to hold the E2EE key for a channel. */
+export interface KeyHolderEntry {
+  cert_hash: string;
+  name: string;
+  is_online: boolean;
 }

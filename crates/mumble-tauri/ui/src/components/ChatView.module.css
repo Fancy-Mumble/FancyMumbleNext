@@ -33,6 +33,14 @@
   font-weight: 600;
 }
 
+.persistedIcon {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-left: 6px;
+  color: var(--color-text-muted, #888);
+  opacity: 0.7;
+}
+
 .memberCount {
   font-size: 13px;
   color: var(--color-text-secondary);

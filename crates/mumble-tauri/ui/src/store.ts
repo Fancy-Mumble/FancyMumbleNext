@@ -23,6 +23,8 @@ import type {
   PendingDispute,
   ChannelPersistConfig,
   PchatMode,
+  PendingKeyShareRequest,
+  KeyHolderEntry,
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/PollCreator";
 import { registerPoll, registerVote } from "./components/PollCard";
@@ -84,9 +86,17 @@ interface AppState {
   pendingDisputes: Record<number, PendingDispute>;
   /** Channels currently loading history (awaiting key exchange + fetch). */
   pchatHistoryLoading: Set<number>;
+  /** Pending key-share consent requests per channel. */
+  pendingKeyShares: Record<number, PendingKeyShareRequest[]>;
+  /** Server-tracked key holders per channel. */
+  keyHolders: Record<number, KeyHolderEntry[]>;
+  /** Channels where the key-possession challenge failed (key revoked). */
+  pchatKeyRevoked: Set<number>;
 
   /** Set when the server rejects with WrongUserPW/WrongServerPW - prompts the UI for a password. */
   passwordRequired: boolean;
+  /** True after the user has submitted a password at least once (so we can show rejection errors on retries). */
+  passwordAttempted: boolean;
   /** Connection params stored when a password prompt is needed so the user can retry. */
   pendingConnect: { host: string; port: number; username: string; certLabel: string | null } | null;
 
@@ -156,6 +166,9 @@ interface AppState {
   confirmCustodians: (channelId: number) => Promise<void>;
   resolveKeyDispute: (channelId: number, trustedSenderHash: string) => Promise<void>;
   updateChannelPersistenceConfig: (channelId: number, config: ChannelPersistConfig) => void;
+  approveKeyShare: (channelId: number, peerCertHash: string) => Promise<void>;
+  dismissKeyShare: (channelId: number, peerCertHash: string) => Promise<void>;
+  queryKeyHolders: (channelId: number) => Promise<void>;
 }
 
 const INITIAL: Pick<
@@ -187,7 +200,11 @@ const INITIAL: Pick<
   | "custodianPins"
   | "pendingDisputes"
   | "pchatHistoryLoading"
+  | "pendingKeyShares"
+  | "keyHolders"
+  | "pchatKeyRevoked"
   | "passwordRequired"
+  | "passwordAttempted"
   | "pendingConnect"
 > = {
   status: "disconnected",
@@ -221,7 +238,11 @@ const INITIAL: Pick<
   custodianPins: {},
   pendingDisputes: {},
   pchatHistoryLoading: new Set(),
+  pendingKeyShares: {},
+  keyHolders: {},
+  pchatKeyRevoked: new Set(),
   passwordRequired: false,
+  passwordAttempted: false,
   pendingConnect: null,
 };
 
@@ -561,12 +582,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   retryWithPassword: async (password) => {
     const pending = get().pendingConnect;
     if (!pending) return;
-    set({ passwordRequired: false, pendingConnect: null });
+    set({ passwordRequired: false, passwordAttempted: true, pendingConnect: null });
     await get().connect(pending.host, pending.port, pending.username, pending.certLabel, password);
   },
 
   dismissPasswordPrompt: () => {
-    set({ passwordRequired: false, pendingConnect: null });
+    set({ passwordRequired: false, passwordAttempted: false, pendingConnect: null });
   },
 
   // -- Persistent chat actions ------------------------------------
@@ -702,6 +723,30 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
     }));
   },
+
+  approveKeyShare: async (channelId, peerCertHash) => {
+    try {
+      await invoke("approve_key_share", { channelId, peerCertHash });
+    } catch (e) {
+      console.error("approve_key_share error:", e);
+    }
+  },
+
+  dismissKeyShare: async (channelId, peerCertHash) => {
+    try {
+      await invoke("dismiss_key_share", { channelId, peerCertHash });
+    } catch (e) {
+      console.error("dismiss_key_share error:", e);
+    }
+  },
+
+  queryKeyHolders: async (channelId) => {
+    try {
+      await invoke("query_key_holders", { channelId });
+    } catch (e) {
+      console.error("query_key_holders error:", e);
+    }
+  },
 }));
 
 // --- Tauri event bridge -------------------------------------------
@@ -763,12 +808,15 @@ export async function initEventListeners(
 
   // Connection dropped.
   unlisteners.push(
-    await listen("server-disconnected", () => {
+    await listen<string | null>("server-disconnected", (event) => {
       // Clean up offloaded temp files.
       offloadManager.dispose().catch(() => {});
       // Preserve error / password-prompt state that was set by connection-rejected.
       const { error: currentError, passwordRequired: pwRequired, pendingConnect: pending } = useAppStore.getState();
-      useAppStore.setState({ ...INITIAL, error: currentError, passwordRequired: pwRequired, pendingConnect: pending });
+      // If a password prompt is already pending, keep the rejection error
+      // instead of overwriting it with a generic disconnect message.
+      const reason = pwRequired ? currentError : (event.payload ?? currentError);
+      useAppStore.setState({ ...INITIAL, error: reason, passwordRequired: pwRequired, pendingConnect: pending });
       invoke("update_badge_count", { count: null }).catch(() => {});
       navigate("/");
     }),
@@ -875,9 +923,10 @@ export async function initEventListeners(
       // WrongUserPW = 3, WrongServerPW = 4
       const isPasswordError = rt === 3 || rt === 4;
       if (isPasswordError) {
+        const { passwordAttempted } = useAppStore.getState();
         useAppStore.setState({
           status: "disconnected",
-          error: event.payload.reason,
+          error: passwordAttempted ? event.payload.reason : null,
           passwordRequired: true,
           // pendingConnect was set by the connect action - keep it.
         });
@@ -993,9 +1042,15 @@ export async function initEventListeners(
       "key-trust-changed",
       (event) => {
         const { channel_id, trust } = event.payload;
-        useAppStore.setState((prev) => ({
-          keyTrust: { ...prev.keyTrust, [channel_id]: trust },
-        }));
+        useAppStore.setState((prev) => {
+          // Receiving a new key clears the revoked flag for this channel.
+          const next = new Set(prev.pchatKeyRevoked);
+          next.delete(channel_id);
+          return {
+            keyTrust: { ...prev.keyTrust, [channel_id]: trust },
+            pchatKeyRevoked: next,
+          };
+        });
       },
     ),
 
@@ -1048,7 +1103,7 @@ export async function initEventListeners(
       },
     ),
 
-    // Pchat fetch complete — update pagination metadata.
+    // Pchat fetch complete -- update pagination metadata.
     await listen<{ channel_id: number; has_more: boolean; total_stored: number }>(
       "pchat-fetch-complete",
       (event) => {
@@ -1064,6 +1119,96 @@ export async function initEventListeners(
             },
           },
         }));
+      },
+    ),
+
+    // A new key-share consent request from the backend.
+    await listen<PendingKeyShareRequest>(
+      "pchat-key-share-request",
+      (event) => {
+        const req = event.payload;
+        useAppStore.setState((prev) => {
+          const existing = prev.pendingKeyShares[req.channel_id] ?? [];
+          // Avoid duplicates.
+          if (existing.some((p) => p.peer_cert_hash === req.peer_cert_hash)) {
+            return {};
+          }
+          return {
+            pendingKeyShares: {
+              ...prev.pendingKeyShares,
+              [req.channel_id]: [...existing, req],
+            },
+          };
+        });
+      },
+    ),
+
+    // Key-share requests changed (after approve/dismiss).
+    await listen<{ channel_id: number; pending: PendingKeyShareRequest[] }>(
+      "pchat-key-share-requests-changed",
+      (event) => {
+        const { channel_id, pending } = event.payload;
+        useAppStore.setState((prev) => {
+          if (pending.length === 0) {
+            const { [channel_id]: _removed, ...rest } = prev.pendingKeyShares;
+            return { pendingKeyShares: rest };
+          }
+          return {
+            pendingKeyShares: {
+              ...prev.pendingKeyShares,
+              [channel_id]: pending,
+            },
+          };
+        });
+      },
+    ),
+
+    // Key holders list updated by the server.
+    await listen<{ channel_id: number; holders: KeyHolderEntry[] }>(
+      "pchat-key-holders-changed",
+      (event) => {
+        const { channel_id, holders } = event.payload;
+        useAppStore.setState((prev) => ({
+          keyHolders: {
+            ...prev.keyHolders,
+            [channel_id]: holders,
+          },
+        }));
+      },
+    ),
+
+    // Key restored: a new key was received after a previous revocation.
+    await listen<{ channel_id: number }>(
+      "pchat-key-restored",
+      (event) => {
+        const { channel_id } = event.payload;
+        useAppStore.setState((prev) => {
+          const next = new Set(prev.pchatKeyRevoked);
+          next.delete(channel_id);
+          return { pchatKeyRevoked: next };
+        });
+      },
+    ),
+
+    // Key-possession challenge failed: our key was wrong/outdated.
+    await listen<{ channel_id: number }>(
+      "pchat-key-revoked",
+      (event) => {
+        const { channel_id } = event.payload;
+        useAppStore.setState((prev) => {
+          const next = new Set(prev.pchatKeyRevoked);
+          next.add(channel_id);
+          // Clear stale key-trust for this channel.
+          const { [channel_id]: _removedTrust, ...restTrust } = prev.keyTrust;
+          // Clear any messages that were decrypted before the challenge
+          // result arrived (prevents flash of unauthorized content).
+          const clearMessages = prev.selectedChannel === channel_id;
+          return {
+            pchatKeyRevoked: next,
+            keyTrust: restTrust,
+            ...(clearMessages ? { messages: [] } : {}),
+          };
+        });
       },
     ),
   );
