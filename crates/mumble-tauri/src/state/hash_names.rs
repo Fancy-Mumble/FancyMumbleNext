@@ -153,7 +153,7 @@ impl DefaultHashNameResolver {
 
 impl HashNameResolver for DefaultHashNameResolver {
     fn resolve(&self, cert_hash: &str) -> String {
-        let guard = self.mappings.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = self.mappings.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(name) = guard.get(cert_hash) {
             return name.clone();
         }
@@ -164,7 +164,7 @@ impl HashNameResolver for DefaultHashNameResolver {
         if cert_hash.is_empty() || username.is_empty() {
             return;
         }
-        let mut guard = self.mappings.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.mappings.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let existing = guard.get(cert_hash);
         if existing.is_some_and(|n| n == username) {
             return;

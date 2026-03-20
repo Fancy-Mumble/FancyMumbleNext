@@ -155,7 +155,7 @@ pub(super) struct SharedState {
     /// Cleared by `on_disconnected()` after reading.
     pub user_initiated_disconnect: bool,
     /// Pending key-share requests waiting for user approval.
-    /// Keyed by `(channel_id, peer_cert_hash)` encoded as string "channel_id:cert_hash".
+    /// Keyed by `(channel_id, peer_cert_hash)` encoded as string "`channel_id:cert_hash`".
     pub pending_key_shares: Vec<PendingKeyShare>,
     /// Server-tracked key holders per channel: `channel_id -> entries`.
     pub key_holders: HashMap<u32, Vec<KeyHolderEntry>>,
@@ -164,6 +164,8 @@ pub(super) struct SharedState {
     /// Tauri app handle for emitting events from spawned async tasks
     /// (e.g. pchat key exchange / history loading notifications).
     pub tauri_app_handle: Option<AppHandle>,
+    /// Whether native OS notifications are enabled (user preference).
+    pub notifications_enabled: bool,
 }
 
 // --- Tauri-managed application state ------------------------------
@@ -178,7 +180,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(SharedState::default())),
+            inner: Arc::new(Mutex::new(SharedState { notifications_enabled: true, ..Default::default() })),
             app_handle: Mutex::new(None),
             start_time: Instant::now(),
         }
@@ -448,7 +450,7 @@ impl AppState {
 
     // -- Messaging -------------------------------------------------
 
-    /// Send a PchatFetch request to load older messages (pagination).
+    /// Send a `PchatFetch` request to load older messages (pagination).
     pub async fn fetch_older_messages(
         &self,
         channel_id: u32,
@@ -1217,7 +1219,7 @@ impl AppState {
     /// Sends `ChannelRemove` to the server.  The server will reject the
     /// request if the user lacks Write permission on the channel.  On
     /// success the server broadcasts `ChannelRemove` to all clients and
-    /// (for FancyMumble servers) deletes all persistent-chat messages
+    /// (for `FancyMumble` servers) deletes all persistent-chat messages
     /// stored for that channel.
     pub async fn delete_channel(&self, channel_id: u32) -> Result<(), String> {
         let handle = {

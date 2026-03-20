@@ -336,7 +336,7 @@ pub(crate) struct PchatHistoryLoadingPayload {
     pub loading: bool,
 }
 
-/// Payload emitted when a PchatFetchResponse has been fully processed.
+/// Payload emitted when a `PchatFetchResponse` has been fully processed.
 #[derive(Clone, Serialize)]
 pub(crate) struct PchatFetchCompletePayload {
     pub channel_id: u32,

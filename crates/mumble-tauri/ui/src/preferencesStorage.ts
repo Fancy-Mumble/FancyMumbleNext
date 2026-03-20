@@ -17,6 +17,7 @@ const DEFAULTS: UserPreferences = {
   klipyApiKey: "",
   timeFormat: "auto",
   convertToLocalTime: true,
+  enableNotifications: true,
 };
 
 async function getStore() {

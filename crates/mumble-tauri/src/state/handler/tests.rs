@@ -56,6 +56,10 @@ impl EventEmitter for MockEmitter {
     fn request_user_attention(&self) {
         *self.attention_count.lock().unwrap() += 1;
     }
+
+    fn send_notification(&self, _title: &str, _body: &str) {
+        // No-op in tests.
+    }
 }
 
 /// Wrapper so we can share the mock emitter between test code and the handler.
@@ -68,6 +72,10 @@ impl EventEmitter for ArcEmitter {
 
     fn request_user_attention(&self) {
         self.0.request_user_attention();
+    }
+
+    fn send_notification(&self, title: &str, body: &str) {
+        self.0.send_notification(title, body);
     }
 }
 
@@ -94,7 +102,16 @@ fn make_user(session: u32, name: &str) -> UserEntry {
         self_deaf: false,
         priority_speaker: false,
         hash: None,
+        client_features: Vec::new(),
     }
+}
+
+/// Create a user that advertises E2EE persistent chat support.
+fn make_e2ee_user(session: u32, name: &str) -> UserEntry {
+    use mumble_protocol::proto::mumble_tcp::user_state::ClientFeature;
+    let mut u = make_user(session, name);
+    u.client_features = vec![ClientFeature::FeaturePchatE2ee as i32];
+    u
 }
 
 // -- Ping ----------------------------------------------------------
@@ -1437,7 +1454,7 @@ fn text_message_skipped_for_pchat_enabled_channel() {
     {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
-        state.users.insert(10, make_user(10, "Alice"));
+        state.users.insert(10, make_e2ee_user(10, "Alice"));
         // Channel 5 has pchat enabled (PostJoin mode).
         state.channels.insert(
             5,
@@ -1470,7 +1487,7 @@ fn text_message_skipped_for_pchat_enabled_channel() {
     let state = ctx.shared.lock().unwrap();
     // TextMessage should NOT be stored for pchat-enabled channels.
     assert!(
-        state.messages.get(&5).map(|m| m.is_empty()).unwrap_or(true),
+        state.messages.get(&5).map(Vec::is_empty).unwrap_or(true),
         "TextMessage should be skipped for pchat-enabled channel"
     );
     drop(state);
@@ -1573,7 +1590,7 @@ fn text_message_skipped_for_full_archive_channel() {
     {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
-        state.users.insert(10, make_user(10, "Dave"));
+        state.users.insert(10, make_e2ee_user(10, "Dave"));
         // Channel 9 with FullArchive mode.
         state.channels.insert(
             9,
@@ -1605,7 +1622,7 @@ fn text_message_skipped_for_full_archive_channel() {
 
     let state = ctx.shared.lock().unwrap();
     assert!(
-        state.messages.get(&9).map(|m| m.is_empty()).unwrap_or(true),
+        state.messages.get(&9).map(Vec::is_empty).unwrap_or(true),
         "TextMessage should be skipped for FullArchive channel"
     );
 }
@@ -1616,7 +1633,7 @@ fn text_message_mixed_pchat_and_regular_channels() {
     {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
-        state.users.insert(10, make_user(10, "Eve"));
+        state.users.insert(10, make_e2ee_user(10, "Eve"));
         // Channel 2: pchat enabled
         state.channels.insert(
             2,
@@ -1669,7 +1686,7 @@ fn text_message_mixed_pchat_and_regular_channels() {
     let state = ctx.shared.lock().unwrap();
     // Channel 2 (pchat) should have no message.
     assert!(
-        state.messages.get(&2).map(|m| m.is_empty()).unwrap_or(true),
+        state.messages.get(&2).map(Vec::is_empty).unwrap_or(true),
         "pchat channel should not store TextMessage"
     );
     // Channel 4 (regular) should have the message.

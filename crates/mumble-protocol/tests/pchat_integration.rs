@@ -63,7 +63,7 @@ fn tcp_config() -> TcpConfig {
     tcp_config_with_cert(None, None)
 }
 
-/// Generate a self-signed TLS client certificate and return (cert_pem, key_pem).
+/// Generate a self-signed TLS client certificate and return (`cert_pem`, `key_pem`).
 fn generate_test_cert(username: &str) -> (Vec<u8>, Vec<u8>) {
     let certified = rcgen::generate_simple_self_signed(vec![username.to_string()])
         .expect("failed to generate test certificate");
@@ -76,13 +76,13 @@ fn codec() -> MsgPackCodec {
     MsgPackCodec
 }
 
-/// Check if the test server is reachable. Skip tests gracefully if not.
+/// Check if the test server is reachable (including TLS handshake). Skip tests gracefully if not.
 async fn ensure_server_available() -> bool {
-    let addr = format!("{HOST}:{}", port());
-    match tokio::time::timeout(Duration::from_secs(3), tokio::net::TcpStream::connect(&addr)).await
+    match tokio::time::timeout(Duration::from_secs(5), TcpTransport::connect(&tcp_config())).await
     {
         Ok(Ok(_)) => true,
         _ => {
+            let addr = format!("{HOST}:{}", port());
             eprintln!(
                 "WARNING: Mumble pchat test server not available at {addr}. \
                  Skipping integration test. Start the pchat-enabled server first."
@@ -1185,11 +1185,11 @@ async fn test_reconnect_decrypt_with_derived_key() {
 /// server-side invariant that the client's `is_own` logic relies on.
 ///
 /// Scenario:
-///   1. SuperUser sets channel to FullArchive.
+///   1. `SuperUser` sets channel to `FullArchive`.
 ///   2. Alice connects, announces key, stores archive key, sends a message.
 ///   3. Bob connects, announces key, stores (same) archive key, fetches.
-///   4. Assert: `sender_hash` of Alice's message == Alice's cert_hash
-///   5. Assert: `sender_hash` of Alice's message != Bob's cert_hash
+///   4. Assert: `sender_hash` of Alice's message == Alice's `cert_hash`
+///   5. Assert: `sender_hash` of Alice's message != Bob's `cert_hash`
 ///   6. Assert: `is_own` logic (as used in the Tauri client) would be `false`
 ///      for Bob.
 #[tokio::test]
@@ -1610,7 +1610,7 @@ async fn wait_for_user_in_channel(
 ///   4. Both clients record each other's peer keys
 ///
 /// Note: key-announces sent before the other client connects may arrive
-/// during the ServerSync handshake and get consumed by `connect_and_authenticate`.
+/// during the `ServerSync` handshake and get consumed by `connect_and_authenticate`.
 /// This test sends announces AFTER both clients are connected to ensure
 /// they are received as live relays.
 #[tokio::test]
@@ -1679,7 +1679,7 @@ async fn test_two_clients_exchange_key_announces() {
     let b_ann = b_ann.unwrap();
 
     // A records B's peer key.
-    let wire_b = proto_key_announce_to_wire(&b_ann);
+    let wire_b = proto_key_announce_to_wire(b_ann);
     let recorded = km_a.record_peer_key(&wire_b);
     assert!(
         recorded.is_ok() && recorded.unwrap(),
@@ -1701,8 +1701,8 @@ async fn test_two_clients_exchange_key_announces() {
 /// and therefore cannot decrypt each other's messages.
 ///
 /// This reproduces the core race condition bug:
-///   - Client A derives key from seed_A for channel X
-///   - Client B derives key from seed_B for channel X
+///   - Client A derives key from `seed_A` for channel X
+///   - Client B derives key from `seed_B` for channel X
 ///   - They get different keys, so B cannot decrypt messages A encrypted
 #[test]
 fn test_different_seeds_produce_incompatible_keys() {
@@ -1769,7 +1769,7 @@ fn test_different_seeds_produce_incompatible_keys() {
 
 /// Test: key exchange resolves the different-seeds problem.
 ///
-/// Simulates the correct key exchange flow at the KeyManager level:
+/// Simulates the correct key exchange flow at the `KeyManager` level:
 ///   1. A derives archive key and stores it
 ///   2. B has A's peer key (from key-announce exchange)
 ///   3. A distributes its key to B via key-exchange
@@ -1845,7 +1845,7 @@ fn test_key_exchange_overwrites_self_derived_key() {
 
     // B receives the key-exchange (should overwrite its self-derived key).
     let result = km_b.receive_key_exchange(&exchange, None);
-    assert!(result.is_ok(), "B should accept A's key-exchange: {:?}", result);
+    assert!(result.is_ok(), "B should accept A's key-exchange: {result:?}");
 
     // Now B should be able to decrypt A's message.
     let decrypted = km_b
@@ -1855,14 +1855,14 @@ fn test_key_exchange_overwrites_self_derived_key() {
     assert_eq!(env.body, "shared secret");
 }
 
-/// Test: key exchange via consensus (with request_id) also resolves different keys.
+/// Test: key exchange via consensus (with `request_id`) also resolves different keys.
 ///
 /// Simulates the full server-mediated flow:
 ///   1. A has archive key
 ///   2. B joins the channel, server broadcasts key-request
-///   3. A responds with key-exchange (including request_id)
+///   3. A responds with key-exchange (including `request_id`)
 ///   4. B receives the exchange, adds to pending consensus
-///   5. B evaluates consensus, which promotes the key to archive_keys
+///   5. B evaluates consensus, which promotes the key to `archive_keys`
 ///   6. B can decrypt A's messages
 #[test]
 fn test_key_exchange_via_consensus_resolves_key() {
@@ -1970,7 +1970,7 @@ fn test_key_exchange_via_consensus_resolves_key() {
 /// Integration test: full key-exchange flow between two clients via the server.
 ///
 /// This is the end-to-end test that exercises the actual server relay:
-///   1. SuperUser sets channel to FullArchive
+///   1. `SuperUser` sets channel to `FullArchive`
 ///   2. Client A connects, announces key, stores archive key, sends a message
 ///   3. Client B connects, announces key
 ///   4. Client B joins the encrypted channel
@@ -2224,7 +2224,7 @@ async fn test_full_key_exchange_via_server() {
     set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
 }
 
-/// Test: server generates key-request when a user joins a FullArchive channel.
+/// Test: server generates key-request when a user joins a `FullArchive` channel.
 ///
 /// Verifies that the server broadcasts a `PchatKeyRequest` to existing
 /// channel members when a new user joins.
@@ -2296,7 +2296,7 @@ async fn test_server_generates_key_request_on_join() {
     set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
 }
 
-/// Test: handle_key_request correctly builds an exchange when we hold the key.
+/// Test: `handle_key_request` correctly builds an exchange when we hold the key.
 ///
 /// Unit-level test verifying that `KeyManager::handle_key_request` produces
 /// a valid `PchatKeyExchange` that the recipient can process.
@@ -2349,7 +2349,7 @@ fn test_handle_key_request_produces_valid_exchange() {
 
     // B receives and processes the exchange.
     let recv_result = km_b.receive_key_exchange(&exchange, Some(now));
-    assert!(recv_result.is_ok(), "B should accept the exchange: {:?}", recv_result);
+    assert!(recv_result.is_ok(), "B should accept the exchange: {recv_result:?}");
 
     // The exchange had a request_id, so it went to pending_consensus.
     let (trust, key_out) = km_b
@@ -2363,7 +2363,7 @@ fn test_handle_key_request_produces_valid_exchange() {
     );
 }
 
-/// Test: handle_key_request returns None when we don't hold the key.
+/// Test: `handle_key_request` returns None when we don't hold the key.
 #[test]
 fn test_handle_key_request_no_key_returns_none() {
     let seed_a: [u8; 32] = [0x99; 32];

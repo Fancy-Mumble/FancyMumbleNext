@@ -156,6 +156,8 @@ export interface UserPreferences {
   timeFormat: TimeFormat;
   /** Convert UTC timestamps to the local timezone before displaying. */
   convertToLocalTime: boolean;
+  /** Whether native OS notifications are enabled. */
+  enableNotifications?: boolean;
   /** Collapsed/expanded state of sidebar sections. */
   sidebarSections?: SidebarSections;
 }

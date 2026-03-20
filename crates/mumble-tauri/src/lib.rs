@@ -804,6 +804,16 @@ fn mark_group_read(state: tauri::State<'_, AppState>, group_id: String) {
     state.mark_group_read(&group_id);
 }
 
+/// Enable or disable native OS notifications.
+#[tauri::command]
+fn set_notifications_enabled(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    state.inner.lock().map_err(|e| e.to_string())?.notifications_enabled = enabled;
+    Ok(())
+}
+
 /// Reset all app data to factory defaults (preferences, saved servers, certs).
 #[tauri::command]
 async fn reset_app_data(app: tauri::AppHandle) -> Result<(), String> {
@@ -908,7 +918,7 @@ fn clear_offloaded_messages(state: tauri::State<'_, AppState>) {
     state.clear_offloaded();
 }
 
-/// Send a PchatFetch request for older messages (pagination).
+/// Send a `PchatFetch` request for older messages (pagination).
 /// The response arrives asynchronously via the `PchatFetchResponse` handler
 /// which emits `"pchat-fetch-complete"` and `"new-message"` events.
 #[tauri::command]
@@ -1217,7 +1227,8 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init());
 
     // Window state persistence is desktop-only.
     #[cfg(not(target_os = "android"))]
@@ -1295,6 +1306,7 @@ pub fn run() {
             get_group_unread_counts,
             mark_group_read,
             reset_app_data,
+            set_notifications_enabled,
             update_badge_count,
             get_system_clock_format,
             offload_message,

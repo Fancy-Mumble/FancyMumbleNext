@@ -8,6 +8,13 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import {
+  isPermissionGranted,
+  requestPermission,
+  createChannel,
+  Importance,
+  Visibility,
+} from "@tauri-apps/plugin-notification";
 import type {
   ChannelEntry,
   UserEntry,
@@ -773,6 +780,37 @@ export async function initEventListeners(
   navigate: (path: string) => void,
 ): Promise<UnlistenFn[]> {
   const unlisteners: UnlistenFn[] = [];
+
+  // Ensure notification permissions and channel are set up (Android 8+ / 13+).
+  try {
+    let granted = await isPermissionGranted();
+    if (!granted) {
+      const result = await requestPermission();
+      granted = result === "granted";
+    }
+    if (granted) {
+      await createChannel({
+        id: "messages",
+        name: "Messages",
+        description: "Chat message notifications",
+        importance: Importance.Default,
+        visibility: Visibility.Public,
+      });
+    }
+  } catch {
+    // Notification API may not be available on all platforms.
+  }
+
+  // Sync the notification preference to the Rust backend.
+  try {
+    const { getPreferences } = await import("./preferencesStorage");
+    const prefs = await getPreferences();
+    await invoke("set_notifications_enabled", {
+      enabled: prefs.enableNotifications ?? true,
+    });
+  } catch {
+    // Preference store may not be ready yet - backend defaults to enabled.
+  }
 
   // Server fully connected (ServerSync received).
   unlisteners.push(

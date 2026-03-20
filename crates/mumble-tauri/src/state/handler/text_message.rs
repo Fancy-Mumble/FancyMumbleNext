@@ -47,10 +47,23 @@ fn classify(tm: &mumble_tcp::TextMessage) -> MessageKind {
 // -- Deferred events emitted after releasing the lock --------------
 
 enum DeferredEvent {
-    GroupMessage { group_id: String },
+    GroupMessage {
+        group_id: String,
+        sender_name: String,
+        body: String,
+    },
     GroupUnreads,
-    DirectMessage { sender_session: u32 },
+    DirectMessage {
+        sender_session: u32,
+        sender_name: String,
+        body: String,
+    },
     DmUnreads,
+    ChannelMessage {
+        channel_id: u32,
+        sender_name: String,
+        body: String,
+    },
     ChannelUnreads,
 }
 
@@ -74,18 +87,31 @@ impl<'a> DeferredEmitter<'a> {
     fn flush(self) {
         for event in &self.events {
             match event {
-                DeferredEvent::GroupMessage { group_id } => self.emit_group_message(group_id),
+                DeferredEvent::GroupMessage {
+                    group_id,
+                    sender_name,
+                    body,
+                } => self.emit_group_message(group_id, sender_name, body),
                 DeferredEvent::GroupUnreads => self.emit_group_unreads(),
-                DeferredEvent::DirectMessage { sender_session } => {
-                    self.emit_direct_message(*sender_session);
+                DeferredEvent::DirectMessage {
+                    sender_session,
+                    sender_name,
+                    body,
+                } => {
+                    self.emit_direct_message(*sender_session, sender_name, body);
                 }
                 DeferredEvent::DmUnreads => self.emit_dm_unreads(),
+                DeferredEvent::ChannelMessage {
+                    channel_id,
+                    sender_name,
+                    body,
+                } => self.emit_channel_notification(*channel_id, sender_name, body),
                 DeferredEvent::ChannelUnreads => self.emit_channel_unreads(),
             }
         }
     }
 
-    fn emit_group_message(&self, group_id: &str) {
+    fn emit_group_message(&self, group_id: &str, sender_name: &str, body: &str) {
         self.ctx.emit(
             "new-group-message",
             NewGroupMessagePayload {
@@ -93,6 +119,8 @@ impl<'a> DeferredEmitter<'a> {
             },
         );
         self.ctx.request_user_attention();
+        self.ctx
+            .send_notification(sender_name, &strip_html_tags(body));
     }
 
     fn emit_group_unreads(&self) {
@@ -106,7 +134,7 @@ impl<'a> DeferredEmitter<'a> {
             .emit("group-unread-changed", GroupUnreadPayload { unreads });
     }
 
-    fn emit_direct_message(&self, sender_session: u32) {
+    fn emit_direct_message(&self, sender_session: u32, sender_name: &str, body: &str) {
         self.ctx.emit(
             "new-dm",
             NewDmPayload {
@@ -114,6 +142,8 @@ impl<'a> DeferredEmitter<'a> {
             },
         );
         self.ctx.request_user_attention();
+        self.ctx
+            .send_notification(sender_name, &strip_html_tags(body));
     }
 
     fn emit_dm_unreads(&self) {
@@ -137,6 +167,38 @@ impl<'a> DeferredEmitter<'a> {
         self.ctx
             .emit("unread-changed", UnreadPayload { unreads });
     }
+
+    fn emit_channel_notification(&self, channel_id: u32, sender_name: &str, body: &str) {
+        let channel_name = self
+            .ctx
+            .shared
+            .lock()
+            .ok()
+            .and_then(|s| s.channels.get(&channel_id).map(|c| c.name.clone()));
+        let title = match channel_name {
+            Some(name) => format!("{sender_name} in #{name}"),
+            None => sender_name.to_owned(),
+        };
+        self.ctx
+            .send_notification(&title, &strip_html_tags(body));
+    }
+}
+
+// -- Helpers -------------------------------------------------------
+
+/// Crude HTML tag stripper for notification body text.
+fn strip_html_tags(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut inside_tag = false;
+    for ch in html.chars() {
+        match ch {
+            '<' => inside_tag = true,
+            '>' => inside_tag = false,
+            _ if !inside_tag => out.push(ch),
+            _ => {}
+        }
+    }
+    out
 }
 
 // -- Per-kind handlers ---------------------------------------------
@@ -188,6 +250,8 @@ fn handle_group_message(
 
     deferred.push(DeferredEvent::GroupMessage {
         group_id: marker.group_id.clone(),
+        sender_name: resolve_sender_name(state, tm.actor),
+        body: marker.body.clone(),
     });
 }
 
@@ -228,7 +292,11 @@ fn handle_direct_message(
         deferred.push(DeferredEvent::DmUnreads);
     }
 
-    deferred.push(DeferredEvent::DirectMessage { sender_session });
+    deferred.push(DeferredEvent::DirectMessage {
+        sender_session,
+        sender_name: resolve_sender_name(state, tm.actor),
+        body: tm.message.clone(),
+    });
 }
 
 fn handle_channel_message(
@@ -261,7 +329,7 @@ fn handle_channel_message(
         let sender_has_e2ee = tm
             .actor
             .and_then(|sid| state.users.get(&sid))
-            .is_some_and(|u| u.has_pchat_e2ee());
+            .is_some_and(UserEntry::has_pchat_e2ee);
 
         if has_pchat && sender_has_e2ee {
             // Fancy sender — PchatMessageDeliver is the authoritative source.
@@ -296,6 +364,15 @@ fn handle_channel_message(
         // message while it is not the viewed channel.
         if state.permanently_listened.contains(&ch_id) && selected != Some(ch_id) {
             ctx.request_user_attention();
+        }
+
+        // Native notification for messages arriving in non-viewed channels.
+        if selected != Some(ch_id) {
+            deferred.push(DeferredEvent::ChannelMessage {
+                channel_id: ch_id,
+                sender_name: sender_name.clone(),
+                body: tm.message.clone(),
+            });
         }
     }
 

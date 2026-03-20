@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 #[cfg(target_os = "windows")]
 use tauri::Manager;
+use tauri_plugin_notification::NotificationExt;
 use tracing::info;
 #[cfg(not(target_os = "android"))]
 use tracing::warn;
@@ -41,6 +42,17 @@ impl EventEmitter for TauriEmitter {
                 tauri::UserAttentionType::Informational,
             ));
         }
+    }
+
+    fn send_notification(&self, title: &str, body: &str) {
+        let _ = self
+            .app
+            .notification()
+            .builder()
+            .channel_id("messages")
+            .title(title)
+            .body(body)
+            .show();
     }
 }
 

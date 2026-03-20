@@ -133,10 +133,7 @@ pub(crate) fn migrate_legacy_storage(app_data_dir: &std::path::Path) {
     });
 
     // Enumerate all *.cert.pem in the legacy certs directory.
-    let entries = match std::fs::read_dir(&legacy_certs) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
+    let Ok(entries) = std::fs::read_dir(&legacy_certs) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -625,7 +622,7 @@ pub(crate) fn handle_proto_key_announce(shared: &Arc<Mutex<SharedState>>, msg: &
     }
 }
 
-/// Find FullArchive channel IDs where `peer_cert_hash` is present and we hold the key.
+/// Find `FullArchive` channel IDs where `peer_cert_hash` is present and we hold the key.
 fn find_shareable_channels(
     state: &SharedState,
     peer_cert_hash: &str,
@@ -659,13 +656,13 @@ fn find_shareable_channels(
 
 /// Re-evaluate key sharing after a user moves into a channel.
 ///
-/// Checks whether we hold the archive key for the given FullArchive channel
+/// Checks whether we hold the archive key for the given `FullArchive` channel
 /// and whether any peers in that channel have known public keys.  For each
 /// qualifying peer, a consent request is queued (if not already pending).
 ///
 /// Call this:
 /// - When a remote peer moves into a channel (after updating their state).
-/// - When we move into a FullArchive channel (after deriving our key).
+/// - When we move into a `FullArchive` channel (after deriving our key).
 pub(crate) fn check_key_share_for_channel(shared: &Arc<Mutex<SharedState>>, channel_id: u32) {
     let Ok(mut state) = shared.lock() else { return };
 
@@ -1504,7 +1501,7 @@ fn prepare_key_holder_report(
 ///
 /// Async variant: the caller `.await`s the network send so the report
 /// reaches the command queue before any subsequent commands (e.g. fetch).
-/// Use this in async contexts (server_sync, user_state handlers).
+/// Use this in async contexts (`server_sync`, `user_state` handlers).
 pub(crate) async fn send_key_holder_report_async(
     shared: &Arc<Mutex<SharedState>>,
     channel_id: u32,
@@ -1588,7 +1585,7 @@ struct PersistedArchiveKey {
 ///
 /// Reads the existing JSON file, upserts the entry for `channel_id`,
 /// and writes back. Thread-safe via the file system (only one writer
-/// expected at a time since we hold the SharedState mutex while
+/// expected at a time since we hold the `SharedState` mutex while
 /// extracting the data).
 pub(crate) fn persist_archive_key(
     identity_dir: &std::path::Path,
@@ -1683,7 +1680,7 @@ pub(crate) fn load_persisted_archive_keys(
 
 /// Decode a hex string into bytes.
 fn hex_decode(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return None;
     }
     (0..s.len())

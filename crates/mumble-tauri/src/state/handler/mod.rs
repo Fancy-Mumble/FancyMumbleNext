@@ -42,6 +42,9 @@ pub(crate) trait EventEmitter: Send + Sync {
 
     /// Flash the taskbar / request user attention (desktop-only, no-op elsewhere).
     fn request_user_attention(&self);
+
+    /// Send a native OS notification (e.g. Android notification when backgrounded).
+    fn send_notification(&self, title: &str, body: &str);
 }
 
 /// Context passed to each message handler.
@@ -66,6 +69,18 @@ impl HandlerContext {
     /// Flash the taskbar / request user attention.
     pub fn request_user_attention(&self) {
         self.emitter.request_user_attention();
+    }
+
+    /// Send a native OS notification (only if notifications are enabled).
+    pub fn send_notification(&self, title: &str, body: &str) {
+        let enabled = self
+            .shared
+            .lock()
+            .map(|s| s.notifications_enabled)
+            .unwrap_or(true);
+        if enabled {
+            self.emitter.send_notification(title, body);
+        }
     }
 }
 
