@@ -57,7 +57,7 @@ impl HandleMessage for mumble_tcp::UserRemove {
                     .get(&self.session)
                     .and_then(|u| u.hash.clone());
 
-                state.users.remove(&self.session);
+                let _ = state.users.remove(&self.session);
 
                 // Remove any pending key-share requests from the departing user.
                 if let Some(ref hash) = cert_hash {

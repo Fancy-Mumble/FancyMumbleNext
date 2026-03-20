@@ -30,11 +30,13 @@ pub trait AudioPlayback: Send + 'static {
 // -- Null playback (testing / headless) -----------------------------
 
 /// A playback sink that discards all audio. Useful for testing or bots.
+#[derive(Debug)]
 pub struct NullPlayback {
     format: AudioFormat,
 }
 
 impl NullPlayback {
+    /// Create a new null playback sink with the given format.
     pub fn new(format: AudioFormat) -> Self {
         Self { format }
     }

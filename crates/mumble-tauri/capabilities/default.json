@@ -23,6 +23,9 @@
     "notification:allow-get-active",
     "notification:allow-remove-active",
     "notification:allow-create-channel",
-    "notification:allow-delete-channel"
+    "notification:allow-delete-channel",
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save"
   ]
 }

@@ -36,6 +36,7 @@ pub trait CryptState: Send + Sync {
 }
 
 /// A no-op crypt state for testing or when encryption is handled externally.
+#[derive(Debug)]
 pub struct PlaintextCryptState;
 
 impl CryptState for PlaintextCryptState {
@@ -55,7 +56,9 @@ impl CryptState for PlaintextCryptState {
 /// Configuration for the UDP transport.
 #[derive(Debug, Clone)]
 pub struct UdpConfig {
+    /// Hostname or IP address of the Mumble server.
     pub server_host: String,
+    /// UDP port the server listens on (default 64738).
     pub server_port: u16,
 }
 
@@ -74,6 +77,14 @@ pub struct UdpTransport<C: CryptState> {
     server_addr: SocketAddr,
     crypt: C,
     recv_buf: Vec<u8>,
+}
+
+impl<C: CryptState + std::fmt::Debug> std::fmt::Debug for UdpTransport<C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UdpTransport")
+            .field("server_addr", &self.server_addr)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<C: CryptState> UdpTransport<C> {
@@ -113,7 +124,7 @@ impl<C: CryptState> UdpTransport<C> {
     pub async fn send(&mut self, msg: &UdpMessage) -> Result<()> {
         let payload = encode_udp_message(msg);
         let encrypted = self.crypt.encrypt(&payload)?;
-        self.socket.send(&encrypted).await?;
+        let _ = self.socket.send(&encrypted).await?;
         trace!("sent UDP packet ({} bytes)", encrypted.len());
         Ok(())
     }

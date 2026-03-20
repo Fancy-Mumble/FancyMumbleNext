@@ -20,12 +20,13 @@ import { ProfilePanel } from "./ProfilePanel";
 import { AudioPanel } from "./AudioPanel";
 import { ShortcutsPanel } from "./ShortcutsPanel";
 import { AdvancedPanel } from "./AdvancedPanel";
+import { IdentitiesPanel } from "./IdentitiesPanel";
 import { ProfilePreviewCard } from "./ProfilePreviewCard";
 import styles from "./SettingsPage.module.css";
 
 // -- Types & constants ----------------------------------------------
 
-type Tab = "profile" | "voice" | "shortcuts" | "advanced";
+type Tab = "profile" | "voice" | "shortcuts" | "identities" | "advanced";
 
 const DEFAULT_AUDIO: AudioSettings = {
   selected_device: null,
@@ -49,6 +50,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "profile", label: "Profile", icon: "👤" },
   { id: "voice", label: "Voice", icon: "🎙️" },
   { id: "shortcuts", label: "Shortcuts", icon: "⌨️" },
+  { id: "identities", label: "Identities", icon: "🔑" },
   { id: "advanced", label: "Advanced", icon: "⚙️" },
 ];
 
@@ -84,6 +86,9 @@ export default function SettingsPage() {
   const [profile, setProfile] = useState<FancyProfile>({});
   const [bio, setBio] = useState("");
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null);
+
+  // Identities
+  const [identities, setIdentities] = useState<string[]>([]);
 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -130,6 +135,13 @@ export default function SettingsPage() {
       try {
         const sc = await loadShortcuts();
         setShortcuts(sc);
+      } catch {
+        /* keep defaults */
+      }
+
+      try {
+        const certs = await invoke<string[]>("list_certificates");
+        setIdentities(certs);
       } catch {
         /* keep defaults */
       }
@@ -295,6 +307,15 @@ export default function SettingsPage() {
     await updatePreferences({ userMode: next });
   }, [userMode]);
 
+  const refreshIdentities = useCallback(async () => {
+    try {
+      const certs = await invoke<string[]>("list_certificates");
+      setIdentities(certs);
+    } catch (e) {
+      console.error("Failed to refresh identities:", e);
+    }
+  }, []);
+
   const handleReset = useCallback(async () => {
     try {
       // Clear all tauri-plugin-store caches so the in-memory data is gone.
@@ -403,6 +424,13 @@ export default function SettingsPage() {
             <ShortcutsPanel
               shortcuts={shortcuts}
               onChangeShortcut={handleChangeShortcut}
+            />
+          )}
+
+          {tab === "identities" && (
+            <IdentitiesPanel
+              identities={identities}
+              onRefresh={refreshIdentities}
             />
           )}
 

@@ -10,6 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tracing::{debug, info, warn};
 
+use fancy_utils::hex::{bytes_to_hex, hex_decode};
 use mumble_protocol::client::ClientHandle;
 use mumble_protocol::command;
 use mumble_protocol::persistent::keys::{KeyManager, SeedIdentity};
@@ -31,7 +32,7 @@ use super::types::ChatMessage;
 use super::SharedState;
 
 /// Persistent chat manager — lives inside `SharedState`.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "pchat feature is under development; fields will be used when pchat commands are wired up")]
 pub(crate) struct PchatState {
     /// Our E2EE key manager (identity + peer keys + epoch/archive keys).
     pub key_manager: KeyManager,
@@ -270,6 +271,95 @@ pub(crate) fn delete_identity(app_data_dir: &std::path::Path, label: &str) -> Re
     Ok(())
 }
 
+/// Export an identity to a JSON bundle at the given `dest` path.
+///
+/// The bundle is a JSON object with `_label`, PEM text fields, and the
+/// pchat seed as a hex string.
+pub(crate) fn export_identity(
+    app_data_dir: &std::path::Path,
+    label: &str,
+    dest: &std::path::Path,
+) -> Result<(), String> {
+    use serde_json::{json, Map, Value};
+
+    let dir = identity_dir(app_data_dir, label);
+    if !dir.exists() {
+        return Err(format!("Identity '{label}' not found"));
+    }
+
+    let mut bundle = Map::new();
+    let _ = bundle.insert("_label".to_string(), Value::String(label.to_string()));
+
+    // PEM files are UTF-8 text - store directly.
+    for name in [TLS_CERT_FILE, TLS_KEY_FILE] {
+        let path = dir.join(name);
+        if path.exists() {
+            let text = std::fs::read_to_string(&path)
+                .map_err(|e| format!("Failed to read {name}: {e}"))?;
+            let _ = bundle.insert(name.to_string(), Value::String(text));
+        }
+    }
+
+    // Seed is binary - hex-encode it.
+    let seed_path = dir.join(SEED_FILE);
+    if seed_path.exists() {
+        let data = std::fs::read(&seed_path)
+            .map_err(|e| format!("Failed to read seed: {e}"))?;
+        let hex: String = bytes_to_hex(&data);
+        let _ = bundle.insert(SEED_FILE.to_string(), Value::String(hex));
+    }
+
+    let json = serde_json::to_string_pretty(&json!(bundle))
+        .map_err(|e| format!("Serialisation error: {e}"))?;
+    std::fs::write(dest, json).map_err(|e| format!("Failed to write export file: {e}"))?;
+    info!(label, ?dest, "exported identity");
+    Ok(())
+}
+
+/// Import an identity from a JSON bundle at `src`.
+///
+/// Returns the label embedded in the bundle.
+pub(crate) fn import_identity(
+    app_data_dir: &std::path::Path,
+    src: &std::path::Path,
+) -> Result<String, String> {
+    use serde_json::Value;
+
+    let json = std::fs::read_to_string(src)
+        .map_err(|e| format!("Failed to read import file: {e}"))?;
+    let bundle: serde_json::Map<String, Value> = serde_json::from_str(&json)
+        .map_err(|e| format!("Invalid identity file: {e}"))?;
+
+    let label = bundle
+        .get("_label")
+        .and_then(Value::as_str)
+        .ok_or("Missing _label in identity file")?
+        .to_string();
+
+    let dir = identity_dir(app_data_dir, &label);
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create identity dir: {e}"))?;
+
+    // PEM files are text - write directly.
+    for name in [TLS_CERT_FILE, TLS_KEY_FILE] {
+        if let Some(text) = bundle.get(name).and_then(Value::as_str) {
+            std::fs::write(dir.join(name), text)
+                .map_err(|e| format!("Failed to write {name}: {e}"))?;
+        }
+    }
+
+    // Seed is hex-encoded - decode back to bytes.
+    if let Some(hex_str) = bundle.get(SEED_FILE).and_then(Value::as_str) {
+        let data = hex_decode(hex_str)
+            .ok_or("Invalid hex for seed")?;
+        std::fs::write(dir.join(SEED_FILE), data)
+            .map_err(|e| format!("Failed to write seed: {e}"))?;
+    }
+
+    info!(label, ?src, "imported identity");
+    Ok(label)
+}
+
 // ---- Proto <-> Wire conversion helpers ------------------------------
 
 fn persistence_mode_to_proto(mode: PersistenceMode) -> i32 {
@@ -379,7 +469,7 @@ fn wire_mode_str_to_proto(s: &str) -> i32 {
 // ---- Outbound: send key announce ------------------------------------
 
 /// Send a key-announce to the server using native proto.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "pchat feature is under development; will be called when key exchange is implemented")]
 pub(crate) async fn send_key_announce(
     handle: &ClientHandle,
     key_manager: &KeyManager,
@@ -403,7 +493,7 @@ pub(crate) async fn send_key_announce(
 /// Encrypt a message and build a `PchatMessage` proto struct ready to send.
 /// This is a synchronous operation (no network I/O) so it can be called
 /// while holding the state lock.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "pchat message construction requires all security and routing fields")]
 pub(crate) fn build_encrypted_pchat_message(
     pchat: &mut PchatState,
     channel_id: u32,
@@ -461,8 +551,8 @@ pub(crate) fn build_encrypted_pchat_message(
 /// backwards compat / real-time display) AND a `PchatMessage` proto
 /// (for server storage). The `TextMessage` is sent by the caller;
 /// this function handles only the encrypted proto path.
-#[allow(dead_code)]
-#[allow(clippy::too_many_arguments)]
+#[allow(dead_code, reason = "pchat feature is under development; will be called when encrypted send is wired up")]
+#[allow(clippy::too_many_arguments, reason = "pchat message construction requires all security and routing fields")]
 pub(crate) async fn send_encrypted_message(
     handle: &ClientHandle,
     pchat: &mut PchatState,
@@ -517,7 +607,7 @@ pub(crate) async fn send_encrypted_message(
 // ---- Outbound: send fetch request -----------------------------------
 
 /// Send a `PchatFetch` proto to request stored messages.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "pchat feature is under development; will be called when server-side fetch is implemented")]
 pub(crate) async fn send_fetch(
     handle: &ClientHandle,
     channel_id: u32,
@@ -700,7 +790,7 @@ pub(crate) fn check_key_share_for_channel(shared: &Arc<Mutex<SharedState>>, chan
                 return None;
             }
             // Only consider peers whose public key we already recorded.
-            pchat.key_manager.get_peer(hash)?;
+            let _ = pchat.key_manager.get_peer(hash)?;
             Some((hash.to_owned(), u.name.clone()))
         })
         .collect();
@@ -838,6 +928,7 @@ pub(crate) fn handle_proto_key_request(
     );
 }
 
+#[allow(clippy::too_many_lines, reason = "key exchange handler covers unencrypted fetch, archive key derivation, peer challenge, and epoch resolution")]
 pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &mumble_tcp::PchatKeyExchange) {
     let wire_exchange = proto_to_wire_key_exchange(msg);
 
@@ -1022,13 +1113,13 @@ fn retry_decrypt_pending_messages(
 
     // Allow re-fetching this channel's history.
     if let Some(ref mut pchat) = state.pchat {
-        pchat.fetched_channels.remove(&channel_id);
+        let _ = pchat.fetched_channels.remove(&channel_id);
     }
 
     // Spawn an async re-fetch so the messages are pulled now with the correct key.
     let handle = state.client_handle.clone();
     if let Some(handle) = handle {
-        tokio::spawn(async move {
+        let _refetch_task = tokio::spawn(async move {
             let fetch = mumble_tcp::PchatFetch {
                 channel_id: Some(channel_id),
                 before_id: None,
@@ -1163,6 +1254,7 @@ pub(crate) fn handle_proto_msg_deliver(shared: &Arc<Mutex<SharedState>>, msg: &m
         .push(chat_msg);
 }
 
+#[allow(clippy::too_many_lines, reason = "fetch response handler decrypts, decodes, deduplicates, and stores messages then updates UI")]
 pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mumble_tcp::PchatFetchResponse) {
     let channel_id = msg.channel_id.unwrap_or(0);
     let has_more = msg.has_more.unwrap_or(false);
@@ -1368,7 +1460,7 @@ pub(crate) fn handle_proto_key_challenge(
     match (handle, proof) {
         (Some(handle), Some(proof)) => {
             info!(channel_id, "responding to key-possession challenge");
-            tokio::spawn(async move {
+            let _challenge_response_task = tokio::spawn(async move {
                 let response = mumble_tcp::PchatKeyChallengeResponse {
                     channel_id: Some(channel_id),
                     proof: Some(proof.to_vec()),
@@ -1524,7 +1616,7 @@ pub(crate) async fn send_key_holder_report_async(
 /// Use this in synchronous contexts where `.await` is not possible.
 pub(crate) fn send_key_holder_report(shared: &Arc<Mutex<SharedState>>, channel_id: u32) {
     if let Some((handle, report)) = prepare_key_holder_report(shared, channel_id) {
-        tokio::spawn(async move {
+        let _key_holder_report_task = tokio::spawn(async move {
             if let Err(e) = handle
                 .send(command::SendPchatKeyHolderReport { report })
                 .await
@@ -1601,8 +1693,8 @@ pub(crate) fn persist_archive_key(
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
 
-    let key_hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
-    keys.insert(
+    let key_hex: String = bytes_to_hex(key);
+    let _ = keys.insert(
         channel_id.to_string(),
         PersistedArchiveKey {
             key_hex,
@@ -1678,40 +1770,10 @@ pub(crate) fn load_persisted_archive_keys(
         .collect()
 }
 
-/// Decode a hex string into bytes.
-fn hex_decode(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(2) {
-        return None;
-    }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
-
-    #[test]
-    fn hex_decode_basic() {
-        assert_eq!(hex_decode("deadbeef"), Some(vec![0xde, 0xad, 0xbe, 0xef]));
-    }
-
-    #[test]
-    fn hex_decode_empty() {
-        assert_eq!(hex_decode(""), Some(vec![]));
-    }
-
-    #[test]
-    fn hex_decode_odd_length_returns_none() {
-        assert_eq!(hex_decode("abc"), None);
-    }
-
-    #[test]
-    fn hex_decode_invalid_chars_returns_none() {
-        assert_eq!(hex_decode("gg"), None);
-    }
 
     #[test]
     fn persist_and_load_archive_key_roundtrip() {

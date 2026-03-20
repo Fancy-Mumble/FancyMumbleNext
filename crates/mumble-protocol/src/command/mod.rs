@@ -114,6 +114,7 @@ mod core {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
     use crate::message::{ControlMessage, UdpMessage};
     use crate::proto::mumble_tcp;

@@ -114,7 +114,7 @@ impl HandleMessage for mumble_tcp::PchatKeyHoldersList {
                 })
                 .collect();
 
-            state.key_holders.insert(channel_id, holders.clone());
+            let _ = state.key_holders.insert(channel_id, holders.clone());
 
             // Sync server-provided holder list into key_manager so that
             // consent checks can skip peers who already hold the key.

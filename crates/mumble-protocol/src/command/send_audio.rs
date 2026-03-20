@@ -6,10 +6,15 @@ use crate::state::ServerState;
 /// Send encoded audio data to the server.
 #[derive(Debug)]
 pub struct SendAudio {
+    /// Opus-compressed audio payload.
     pub opus_data: Vec<u8>,
+    /// Voice target ID (0 = normal, others = whisper/shout targets).
     pub target: u32,
+    /// Monotonically increasing frame sequence number.
     pub frame_number: u64,
+    /// Optional 3D position of the speaker (x, y, z).
     pub positional_data: Option<[f32; 3]>,
+    /// When `true`, this is the final frame of a speech segment.
     pub is_terminator: bool,
 }
 

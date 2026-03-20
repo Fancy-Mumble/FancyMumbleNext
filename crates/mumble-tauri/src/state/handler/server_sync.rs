@@ -10,6 +10,7 @@ use crate::state::pchat;
 use crate::state::types::{ConnectionStatus, CurrentChannelPayload};
 
 impl HandleMessage for mumble_tcp::ServerSync {
+    #[allow(clippy::too_many_lines, reason = "server sync handler bootstraps full connection state: user blobs, channel descriptions, permissions, and pchat init")]
     fn handle(&self, ctx: &HandlerContext) {
         let sessions: Vec<u32>;
         let initial_channel: Option<u32>;
@@ -50,7 +51,7 @@ impl HandleMessage for mumble_tcp::ServerSync {
         // Request full texture & comment blobs for every user.
         if !sessions.is_empty() {
             let shared = Arc::clone(&ctx.shared);
-            tokio::spawn(async move {
+            let _blob_request_task = tokio::spawn(async move {
                 let handle = {
                     let state = shared.lock().ok();
                     state.and_then(|s| s.client_handle.clone())
@@ -88,7 +89,7 @@ impl HandleMessage for mumble_tcp::ServerSync {
             }
             if !channel_ids_needing_desc.is_empty() {
                 let shared = Arc::clone(&ctx.shared);
-                tokio::spawn(async move {
+                let _desc_blob_task = tokio::spawn(async move {
                     let handle = {
                         let state = shared.lock().ok();
                         state.and_then(|s| s.client_handle.clone())
@@ -117,7 +118,7 @@ impl HandleMessage for mumble_tcp::ServerSync {
                     .unwrap_or_default();
             }
             let shared = Arc::clone(&ctx.shared);
-            tokio::spawn(async move {
+            let _permissions_task = tokio::spawn(async move {
                 let handle = {
                     let state = shared.lock().ok();
                     state.and_then(|s| s.client_handle.clone())
@@ -198,7 +199,7 @@ impl HandleMessage for mumble_tcp::ServerSync {
 
                         // Send key-announce asynchronously
                         let shared = Arc::clone(&ctx.shared);
-                        tokio::spawn(async move {
+                        let _key_announce_task = tokio::spawn(async move {
                             let (announce_proto, cert, h) = {
                                 let state = shared.lock().ok();
                                 if let Some(ref s) = state {
@@ -345,7 +346,7 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                     }
                                     if let Ok(mut s) = shared.lock() {
                                         if let Some(ref mut p) = s.pchat {
-                                            p.fetched_channels.insert(ch);
+                                            let _ = p.fetched_channels.insert(ch);
                                         }
                                     }
                                     let fetch = mumble_tcp::PchatFetch {

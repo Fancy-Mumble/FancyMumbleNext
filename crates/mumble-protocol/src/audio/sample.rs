@@ -5,6 +5,10 @@
 //! stages decoupled: they only depend on this shared vocabulary, never on
 //! each other.
 
+// Re-export audio sample conversion utilities from fancy-utils so
+// existing `crate::audio::sample::i16_to_f32` paths keep working.
+pub use fancy_utils::audio::{f32_to_i16, i16_to_f32};
+
 /// PCM sample format used throughout the pipeline.
 ///
 /// Mumble/Opus operates on 16-bit signed integer PCM internally, but
@@ -40,12 +44,14 @@ pub struct AudioFormat {
 }
 
 impl AudioFormat {
+    /// Mono 48 kHz 32-bit float format (used throughout the filter chain).
     pub const MONO_48KHZ_F32: Self = Self {
         sample_rate: 48_000,
         channels: 1,
         sample_format: SampleFormat::F32,
     };
 
+    /// Mono 48 kHz 16-bit signed integer format (native Opus I/O).
     pub const MONO_48KHZ_I16: Self = Self {
         sample_rate: 48_000,
         channels: 1,
@@ -121,30 +127,18 @@ impl AudioFrame {
 
 // -- Minimal safe byte-casting (avoids adding a `bytemuck` dep) -----
 
-#[allow(unsafe_code)]
+#[allow(unsafe_code, reason = "safe byte-reinterpretation guarded by length and alignment assertions")]
 fn bytemuck_cast_slice<T: Copy>(bytes: &[u8]) -> &[T] {
     let len = bytes.len() / size_of::<T>();
     assert_eq!(bytes.len() % size_of::<T>(), 0);
     unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const T, len) }
 }
 
-#[allow(unsafe_code)]
+#[allow(unsafe_code, reason = "safe byte-reinterpretation guarded by length and alignment assertions")]
 fn bytemuck_cast_slice_mut<T: Copy>(bytes: &mut [u8]) -> &mut [T] {
     let len = bytes.len() / size_of::<T>();
     assert_eq!(bytes.len() % size_of::<T>(), 0);
     unsafe { std::slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut T, len) }
-}
-
-// -- Conversion helpers ---------------------------------------------
-
-/// Convert an `i16` PCM sample to `f32` normalised to [-1.0, 1.0].
-pub fn i16_to_f32(sample: i16) -> f32 {
-    sample as f32 / i16::MAX as f32
-}
-
-/// Convert a normalised `f32` sample back to `i16`.
-pub fn f32_to_i16(sample: f32) -> i16 {
-    (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
 }
 
 #[cfg(test)]

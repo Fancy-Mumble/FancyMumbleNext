@@ -91,3 +91,11 @@ impl Default for FilterChain {
         Self::new()
     }
 }
+
+impl std::fmt::Debug for FilterChain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FilterChain")
+            .field("filter_count", &self.filters.len())
+            .finish_non_exhaustive()
+    }
+}

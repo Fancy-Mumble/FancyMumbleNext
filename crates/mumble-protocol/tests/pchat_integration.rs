@@ -1,4 +1,15 @@
 #![cfg(feature = "persistent-chat")]
+// Integration tests are separate crate compilation units and will trigger
+// `unused_crate_dependencies` for every transitive dep of mumble-protocol
+// that is not directly imported in this file.
+#![allow(
+    unused_crate_dependencies,
+    unused_results,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::too_many_lines,
+    reason = "integration test: transitive deps are not directly imported; unwrap/expect, long functions, and discarded bool results are idiomatic"
+)]
 //! Integration tests for persistent encrypted chat (pchat).
 //!
 //! These tests require the custom mumble-server Docker container with
@@ -351,7 +362,7 @@ fn persistence_mode_to_proto(mode: PersistenceMode) -> i32 {
 }
 
 /// Helper: send a pchat-msg (encrypted) using native proto and return the `message_id`.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "pchat send helper mirrors the full message parameter surface")]
 async fn send_pchat_msg(
     transport: &mut TcpTransport,
     _state: &ServerState,
@@ -1555,7 +1566,7 @@ fn proto_key_request_to_wire(p: &mumble_tcp::PchatKeyRequest) -> WireKeyRequest 
 }
 
 /// Join a channel (send `UserState` with `channel_id`).
-#[allow(dead_code)]
+#[allow(dead_code, reason = "helper kept for completeness; not every test needs to move users")]
 async fn join_channel(
     transport: &mut TcpTransport,
     state: &ServerState,
@@ -1569,7 +1580,7 @@ async fn join_channel(
 }
 
 /// Wait for a `UserState` that confirms a user moved into a specific channel.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "helper kept for completeness; not every test exercises channel moves")]
 async fn wait_for_user_in_channel(
     transport: &mut TcpTransport,
     state: &mut ServerState,

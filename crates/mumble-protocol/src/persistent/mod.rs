@@ -134,12 +134,16 @@ pub enum MessageRange {
     Latest(usize),
     /// Messages before a cursor (pagination backwards).
     Before {
+        /// Message ID cursor to paginate before.
         message_id: String,
+        /// Maximum number of messages to return.
         limit: usize,
     },
     /// Messages after a cursor (pagination forwards).
     After {
+        /// Message ID cursor to paginate after.
         message_id: String,
+        /// Maximum number of messages to return.
         limit: usize,
     },
 }

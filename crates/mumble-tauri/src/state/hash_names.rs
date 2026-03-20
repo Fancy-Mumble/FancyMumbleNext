@@ -13,7 +13,7 @@ use std::sync::Mutex;
 
 use tracing::warn;
 
-use crate::utils::hex_to_bytes;
+use fancy_utils::hex::hex_to_bytes;
 
 // --- Word lists (inspired by Docker's names-generator) ---
 
@@ -169,13 +169,14 @@ impl HashNameResolver for DefaultHashNameResolver {
         if existing.is_some_and(|n| n == username) {
             return;
         }
-        guard.insert(cert_hash.to_owned(), username.to_owned());
+        let _ = guard.insert(cert_hash.to_owned(), username.to_owned());
         Self::save_to_file(&self.storage_path, &guard);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
     use std::io::Write;
     use tempfile::NamedTempFile;

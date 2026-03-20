@@ -50,6 +50,7 @@ impl TryFrom<u8> for AudioType {
 ///
 /// Mumble varints are *not* the same as protobuf LEB128 varints.
 /// They encode 7 bits per byte with the continuation bit as the MSB.
+#[derive(Debug)]
 pub struct MumbleVarint;
 
 impl MumbleVarint {
@@ -190,6 +191,7 @@ pub trait AudioPacketCodec {
 // -- LegacyAudioCodec -----------------------------------------------
 
 /// Legacy binary Opus codec used by Mumble < 1.5.
+#[derive(Debug)]
 pub struct LegacyAudioCodec;
 
 impl AudioPacketCodec for LegacyAudioCodec {
@@ -283,6 +285,7 @@ impl AudioPacketCodec for LegacyAudioCodec {
 // -- ProtobufAudioCodec ---------------------------------------------
 
 /// Protobuf v2 audio codec introduced in Mumble 1.5.
+#[derive(Debug)]
 pub struct ProtobufAudioCodec;
 
 impl AudioPacketCodec for ProtobufAudioCodec {
@@ -350,6 +353,7 @@ pub fn decode_tunnel_audio(data: &[u8]) -> Result<mumble_udp::Audio> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
 
     #[test]

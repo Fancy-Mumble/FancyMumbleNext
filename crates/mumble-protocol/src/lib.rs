@@ -32,3 +32,12 @@ pub mod proto;
 pub mod state;
 pub mod transport;
 pub mod work_queue;
+
+// Suppress `unused_crate_dependencies` for crates that are only used in
+// the integration / audio-quality test binaries under tests/, not in lib.rs.
+#[cfg(test)]
+mod _dev_deps {
+    use hound as _;
+    use minimp3 as _;
+    use rcgen as _;
+}

@@ -66,7 +66,7 @@ impl VolatileMessageProvider {
 
     /// Remove all messages for a channel.
     pub fn clear_channel(&mut self, channel_id: u32) {
-        self.messages.remove(&channel_id);
+        let _ = self.messages.remove(&channel_id);
     }
 
     /// Remove all messages.
@@ -162,18 +162,19 @@ pub struct InMemoryPersistentBackend {
 }
 
 impl InMemoryPersistentBackend {
+    /// Create a new, empty in-memory persistent backend.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Register a channel's persistence mode.
     pub fn set_mode(&mut self, channel_id: u32, mode: PersistenceMode) {
-        self.modes.insert(channel_id, mode);
+        let _ = self.modes.insert(channel_id, mode);
     }
 
     /// Mark whether the server has more history for a channel.
     pub fn set_has_more(&mut self, channel_id: u32, has_more: bool) {
-        self.has_more.insert(channel_id, has_more);
+        let _ = self.has_more.insert(channel_id, has_more);
     }
 }
 
@@ -236,6 +237,7 @@ pub struct PersistentMessageProvider {
 }
 
 impl PersistentMessageProvider {
+    /// Create a new persistent provider wrapping the given backend.
     pub fn new(backend: Box<dyn PersistentProviderBackend>) -> Self {
         Self { backend }
     }
@@ -297,6 +299,7 @@ pub struct CompositeMessageProvider {
 }
 
 impl CompositeMessageProvider {
+    /// Create a new composite provider with the given volatile and persistent sub-providers.
     pub fn new(
         volatile: VolatileMessageProvider,
         persistent: PersistentMessageProvider,
@@ -424,6 +427,7 @@ fn apply_range(msgs: &[StoredMessage], range: &MessageRange) -> Vec<StoredMessag
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
 
     fn make_message(id: &str, channel: u32, sender: &str) -> StoredMessage {

@@ -6,6 +6,7 @@ use crate::state::ServerState;
 /// Report to the server that a `cert_hash` now holds the E2EE key for a channel.
 #[derive(Debug)]
 pub struct SendPchatKeyHolderReport {
+    /// The key-holder report payload.
     pub report: mumble_tcp::PchatKeyHolderReport,
 }
 

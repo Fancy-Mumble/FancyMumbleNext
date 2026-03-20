@@ -1,3 +1,7 @@
+//! Build script for the `mumble-tauri` crate.
+//!
+//! Invokes `tauri-build` and configures Windows-specific linker flags to
+//! delay-load `comctl32.dll`, preventing startup failures in test binaries.
 fn main() {
     tauri_build::build();
 
@@ -12,7 +16,10 @@ fn main() {
     // functions, so the lazy load never fires and startup succeeds.
     #[cfg(windows)]
     {
-        println!("cargo:rustc-link-lib=delayimp");
-        println!("cargo:rustc-link-arg=/DELAYLOAD:comctl32.dll");
+        let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+        if target_os == "windows" {
+            println!("cargo:rustc-link-lib=delayimp");
+            println!("cargo:rustc-link-arg=/DELAYLOAD:comctl32.dll");
+        }
     }
 }

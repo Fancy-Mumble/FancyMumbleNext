@@ -6,6 +6,7 @@ use crate::state::ServerState;
 /// Ask the server for the list of key holders for a channel.
 #[derive(Debug)]
 pub struct SendPchatKeyHoldersQuery {
+    /// The key-holders query payload.
     pub query: mumble_tcp::PchatKeyHoldersQuery,
 }
 

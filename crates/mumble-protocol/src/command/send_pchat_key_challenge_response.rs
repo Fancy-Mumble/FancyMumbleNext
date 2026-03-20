@@ -6,6 +6,7 @@ use crate::state::ServerState;
 /// Reply to the server's key-possession challenge with an HMAC proof.
 #[derive(Debug)]
 pub struct SendPchatKeyChallengeResponse {
+    /// The HMAC challenge response payload.
     pub response: mumble_tcp::PchatKeyChallengeResponse,
 }
 

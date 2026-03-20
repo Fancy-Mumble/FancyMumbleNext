@@ -66,6 +66,10 @@ pub(super) struct SharedState {
     /// Used to detect stale `on_disconnected` callbacks from orphaned tasks.
     pub connection_epoch: u64,
     pub client_handle: Option<ClientHandle>,
+    /// `JoinHandle` for the connecting-phase task (the outer `tokio::spawn`
+    /// in `connect()`).  Stored so `disconnect()` can abort it while the
+    /// TCP handshake is still in progress before the event loop starts.
+    pub connect_task_handle: Option<tokio::task::JoinHandle<()>>,
     /// `JoinHandle` for the event-loop task so we can await a clean shutdown.
     pub event_loop_handle: Option<tokio::task::JoinHandle<()>>,
     pub users: HashMap<u32, UserEntry>,
@@ -188,7 +192,7 @@ impl AppState {
 
     /// Inject the Tauri `AppHandle` during setup.
     pub fn set_app_handle(&self, handle: AppHandle) {
-        *self.app_handle.lock().unwrap() = Some(handle);
+        *self.app_handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(handle);
     }
 
     pub(super) fn app_handle(&self) -> Option<AppHandle> {
@@ -361,7 +365,7 @@ impl AppState {
         for (key, result) in &results {
             if let Ok(body) = result {
                 store.remove(key);
-                restored.insert(key.clone(), body.clone());
+                let _ = restored.insert(key.clone(), body.clone());
             }
         }
 
@@ -465,6 +469,7 @@ impl AppState {
         pchat::send_fetch(&handle, channel_id, before_id, limit).await
     }
 
+    #[allow(clippy::too_many_lines, reason = "message send path covers legacy text, fancy extensions, pchat encryption, and local storage")]
     pub async fn send_message(&self, channel_id: u32, body: String) -> Result<(), String> {
         let (handle, own_session, own_name, is_fancy, pchat_mode) = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;
@@ -682,7 +687,7 @@ impl AppState {
             state.selected_dm_user = None;
             state.selected_group = None;
             // Mark the channel as read.
-            state.unread_counts.remove(&channel_id);
+            let _ = state.unread_counts.remove(&channel_id);
         }
         self.emit_unreads();
         Ok(())
@@ -746,7 +751,7 @@ impl AppState {
 
             if state.permanently_listened.contains(&channel_id) {
                 // Unlisten - but keep listening if it's the selected channel.
-                state.permanently_listened.remove(&channel_id);
+                let _ = state.permanently_listened.remove(&channel_id);
                 let is_selected = state.selected_channel == Some(channel_id);
                 if is_selected {
                     // Still auto-listened, don't remove from server.
@@ -756,7 +761,7 @@ impl AppState {
                 }
             } else {
                 // Start permanent listen.
-                state.permanently_listened.insert(channel_id);
+                let _ = state.permanently_listened.insert(channel_id);
                 // If not already selected (and thus already listened), add.
                 let is_selected = state.selected_channel == Some(channel_id);
                 if is_selected {
@@ -811,7 +816,7 @@ impl AppState {
     /// Mark a channel as read (clear unread count).
     pub fn mark_read(&self, channel_id: u32) {
         if let Ok(mut state) = self.inner.lock() {
-            state.unread_counts.remove(&channel_id);
+            let _ = state.unread_counts.remove(&channel_id);
         }
         self.emit_unreads();
     }
@@ -834,7 +839,7 @@ impl AppState {
             state.selected_channel = None;
             state.selected_group = None;
             // Mark DMs with this user as read.
-            state.dm_unread_counts.remove(&session);
+            let _ = state.dm_unread_counts.remove(&session);
         }
         self.emit_dm_unreads();
         Ok(())
@@ -851,7 +856,7 @@ impl AppState {
     /// Mark DMs with a specific user as read.
     pub fn mark_dm_read(&self, session: u32) {
         if let Ok(mut state) = self.inner.lock() {
-            state.dm_unread_counts.remove(&session);
+            let _ = state.dm_unread_counts.remove(&session);
         }
         self.emit_dm_unreads();
     }
@@ -892,7 +897,7 @@ impl AppState {
 
         // Store locally.
         if let Ok(mut state) = self.inner.lock() {
-            state.group_chats.insert(group.id.clone(), group.clone());
+            let _ = state.group_chats.insert(group.id.clone(), group.clone());
         }
 
         // Announce to other members via plugin data.
@@ -943,7 +948,7 @@ impl AppState {
             state.selected_group = Some(group_id.clone());
             state.selected_channel = None;
             state.selected_dm_user = None;
-            state.group_unread_counts.remove(&group_id);
+            let _ = state.group_unread_counts.remove(&group_id);
         }
         self.emit_group_unreads();
         Ok(())
@@ -960,7 +965,7 @@ impl AppState {
     /// Mark a group chat as read.
     pub fn mark_group_read(&self, group_id: &str) {
         if let Ok(mut state) = self.inner.lock() {
-            state.group_unread_counts.remove(group_id);
+            let _ = state.group_unread_counts.remove(group_id);
         }
         self.emit_group_unreads();
     }
@@ -1176,7 +1181,7 @@ impl AppState {
     /// Update a channel on the server.
     ///
     /// All optional fields: only `Some(...)` values are sent.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "channel update mirrors the full server-side parameter surface as optional fields")]
     pub async fn update_channel(
         &self,
         channel_id: u32,
@@ -1236,7 +1241,7 @@ impl AppState {
     }
 
     /// Create a new sub-channel on the server.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "channel creation mirrors the full server-side parameter surface as optional fields")]
     pub async fn create_channel(
         &self,
         parent_id: u32,

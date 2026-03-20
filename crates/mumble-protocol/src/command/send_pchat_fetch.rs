@@ -6,6 +6,7 @@ use crate::state::ServerState;
 /// Request stored persistent chat messages from the server.
 #[derive(Debug)]
 pub struct SendPchatFetch {
+    /// The fetch request payload.
     pub fetch: mumble_tcp::PchatFetch,
 }
 

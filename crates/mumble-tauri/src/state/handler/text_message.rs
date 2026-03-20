@@ -1,3 +1,4 @@
+use fancy_utils::html::strip_html_tags;
 use mumble_protocol::proto::mumble_tcp;
 use mumble_protocol::state::PchatMode;
 
@@ -185,21 +186,6 @@ impl<'a> DeferredEmitter<'a> {
 }
 
 // -- Helpers -------------------------------------------------------
-
-/// Crude HTML tag stripper for notification body text.
-fn strip_html_tags(html: &str) -> String {
-    let mut out = String::with_capacity(html.len());
-    let mut inside_tag = false;
-    for ch in html.chars() {
-        match ch {
-            '<' => inside_tag = true,
-            '>' => inside_tag = false,
-            _ if !inside_tag => out.push(ch),
-            _ => {}
-        }
-    }
-    out
-}
 
 // -- Per-kind handlers ---------------------------------------------
 

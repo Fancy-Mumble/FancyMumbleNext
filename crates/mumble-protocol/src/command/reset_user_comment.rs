@@ -8,6 +8,7 @@ use crate::state::ServerState;
 /// Requires appropriate server permissions.
 #[derive(Debug)]
 pub struct ResetUserComment {
+    /// Session ID of the user whose comment to reset.
     pub session: u32,
 }
 

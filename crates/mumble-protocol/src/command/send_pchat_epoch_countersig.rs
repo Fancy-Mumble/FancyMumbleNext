@@ -6,6 +6,7 @@ use crate::state::ServerState;
 /// Send a key custodian countersignature for an epoch transition.
 #[derive(Debug)]
 pub struct SendPchatEpochCountersig {
+    /// The countersignature payload.
     pub countersig: mumble_tcp::PchatEpochCountersig,
 }
 

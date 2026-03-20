@@ -6,6 +6,7 @@ use crate::state::ServerState;
 /// Send an encrypted persistent chat message to the server for storage and relay.
 #[derive(Debug)]
 pub struct SendPchatMessage {
+    /// The encrypted persistent chat message to send.
     pub message: mumble_tcp::PchatMessage,
 }
 

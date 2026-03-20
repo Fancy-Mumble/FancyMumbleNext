@@ -2,12 +2,14 @@
 //!
 // All public command functions receive `tauri::State` by value, which is
 // required by the `#[tauri::command]` macro - suppress the lint crate-wide.
-#![allow(clippy::needless_pass_by_value)]
+#![allow(clippy::needless_pass_by_value, reason = "tauri::command requires State<T> to be taken by value")]
+// This is an application crate; pub items inside private modules are
+// intentional (proc-macro visibility, Tauri command system, internal APIs).
+#![allow(unreachable_pub, reason = "application crate: pub items in private modules are intentional for Tauri command system")]
 
 #[cfg(not(target_os = "android"))]
 mod audio;
 mod state;
-mod utils;
 
 use state::{
     AppState, AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus,
@@ -29,7 +31,7 @@ extern "system" {
 ///
 /// Reads `LOCALE_ITIME` ("0" = 12-hour, "1" = 24-hour) via `GetLocaleInfoW`.
 #[cfg(target_os = "windows")]
-#[allow(unsafe_code)]
+#[allow(unsafe_code, reason = "GetLocaleInfoW is a safe Windows API call wrapped with an unsafe extern block")]
 fn system_uses_24h() -> Option<bool> {
     const LOCALE_USER_DEFAULT: u32 = 0x0400;
     const LOCALE_ITIME: u32 = 0x0019;
@@ -220,6 +222,34 @@ async fn delete_certificate(
     state::pchat::delete_identity(&data_dir, &label)
 }
 
+/// Export an identity to a user-chosen file via the native save dialog.
+#[tauri::command]
+async fn export_certificate(
+    app: tauri::AppHandle,
+    label: String,
+    dest_path: String,
+) -> Result<(), String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    state::pchat::export_identity(&data_dir, &label, std::path::Path::new(&dest_path))
+}
+
+/// Import an identity from a user-chosen file via the native open dialog.
+/// Returns the label of the imported identity.
+#[tauri::command]
+async fn import_certificate(
+    app: tauri::AppHandle,
+    src_path: String,
+) -> Result<String, String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    state::pchat::import_identity(&data_dir, std::path::Path::new(&src_path))
+}
+
 #[tauri::command]
 async fn disconnect(state: tauri::State<'_, AppState>) -> Result<(), String> {
     state.disconnect().await
@@ -322,7 +352,7 @@ fn get_welcome_text(state: tauri::State<'_, AppState>) -> Option<String> {
 
 /// Update a channel on the server.
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "Tauri command mirrors the full channel update parameter surface")]
 async fn update_channel(
     state: tauri::State<'_, AppState>,
     channel_id: u32,
@@ -361,7 +391,7 @@ async fn delete_channel(
 
 /// Create a new sub-channel on the server.
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "Tauri command mirrors the full channel creation parameter surface")]
 async fn create_channel(
     state: tauri::State<'_, AppState>,
     parent_id: u32,
@@ -1219,6 +1249,12 @@ fn get_key_holders(
 
 // --- Application bootstrap ---------------------------------------
 
+/// Entry point for the Tauri application.
+///
+/// Initialises the TLS crypto provider, sets up logging, registers all
+/// Tauri commands, and starts the application event loop.
+#[allow(clippy::too_many_lines, reason = "application bootstrap registers all Tauri commands, plugins, and event handlers")]
+#[allow(clippy::expect_used, reason = "Tauri builder failure during startup is unrecoverable")]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Install the ring TLS crypto provider before anything touches rustls.
@@ -1228,7 +1264,8 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_notification::init());
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init());
 
     // Window state persistence is desktop-only.
     #[cfg(not(target_os = "android"))]
@@ -1255,6 +1292,8 @@ pub fn run() {
             generate_certificate,
             list_certificates,
             delete_certificate,
+            export_certificate,
+            import_certificate,
             disconnect,
             get_status,
             get_channels,
@@ -1345,6 +1384,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
 
     #[test]

@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::Instant;
 
 use ed25519_dalek::{Signer, Verifier};
+use fancy_utils::hex::bytes_to_hex;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
 
 use crate::error::{Error, Result};
@@ -69,10 +70,12 @@ impl EpochKey {
 /// A static channel key (`FULL_ARCHIVE` mode).
 #[derive(Debug, Clone)]
 pub struct ChannelKey {
+    /// The raw 32-byte channel key.
     pub key: [u8; 32],
 }
 
 impl ChannelKey {
+    /// Compute the fingerprint for this channel key.
     pub fn fingerprint(&self) -> [u8; 8] {
         epoch_fingerprint(&self.key)
     }
@@ -148,6 +151,7 @@ impl CustodianPinState {
     }
 
     /// Create from a first-observed custodian list.
+    /// The list is auto-confirmed when empty (no custodians means no confirmation needed).
     pub fn first_observation(custodians: Vec<String>) -> Self {
         let confirmed = custodians.is_empty();
         Self {
@@ -368,7 +372,8 @@ impl KeyManager {
 
     /// Record that `cert_hash` holds the key for `channel_id`.
     pub fn record_key_holder(&mut self, channel_id: u32, cert_hash: String) {
-        self.key_holders
+        let _ = self
+            .key_holders
             .entry(channel_id)
             .or_default()
             .insert(cert_hash);
@@ -379,11 +384,11 @@ impl KeyManager {
     /// Call this when a channel is deleted to prevent stale keys from being
     /// reused if the server recycles the channel ID.
     pub fn remove_channel(&mut self, channel_id: u32) {
-        self.archive_keys.remove(&channel_id);
-        self.epoch_keys.remove(&channel_id);
-        self.key_holders.remove(&channel_id);
-        self.channel_originators.remove(&channel_id);
-        self.pinned_custodians.remove(&channel_id);
+        let _ = self.archive_keys.remove(&channel_id);
+        let _ = self.epoch_keys.remove(&channel_id);
+        let _ = self.key_holders.remove(&channel_id);
+        let _ = self.channel_originators.remove(&channel_id);
+        let _ = self.pinned_custodians.remove(&channel_id);
     }
 
     /// Compute `HMAC-SHA256(channel_key, challenge)` to prove possession of
@@ -395,6 +400,7 @@ impl KeyManager {
         use sha2::Sha256;
 
         let (key, _trust) = self.archive_keys.get(&channel_id)?;
+        #[allow(clippy::expect_used, reason = "HMAC-SHA256 accepts any key length; InvalidLength is unreachable")]
         let mut mac = Hmac::<Sha256>::new_from_slice(&key.key)
             .expect("HMAC-SHA256 accepts any key size");
         mac.update(challenge);
@@ -483,9 +489,7 @@ impl KeyManager {
         verifying_key
             .verify(&signed_data, &signature)
             .map_err(|e| {
-                let sig_hex: String = announce.signature.iter()
-                    .map(|b| format!("{b:02x}"))
-                    .collect();
+                let sig_hex = bytes_to_hex(&announce.signature);
                 tracing::warn!(
                     cert_hash = %announce.cert_hash,
                     timestamp = announce.timestamp,
@@ -507,7 +511,7 @@ impl KeyManager {
             .try_into()
             .map_err(|_| Error::InvalidState("invalid DH key".into()))?;
 
-        self.peer_keys.insert(
+        let _ = self.peer_keys.insert(
             announce.cert_hash.clone(),
             PeerKeyRecord {
                 algorithm_version: announce.algorithm_version,
@@ -686,6 +690,7 @@ impl KeyManager {
     /// 4. Verifies `epoch_fingerprint` matches.
     /// 5. For `POST_JOIN`: verifies `parent_fingerprint`, stores as candidate.
     /// 6. For `FULL_ARCHIVE`: adds to consensus collector.
+    #[allow(clippy::too_many_lines, reason = "key exchange verification encompasses multiple security checks that must be atomic")]
     pub fn receive_key_exchange(
         &mut self,
         exchange: &PchatKeyExchange,
@@ -778,12 +783,12 @@ impl KeyManager {
                                 request_timestamp: request_timestamp.unwrap_or(0),
                                 observed_members: 0,
                             });
-                    collector
+                    let _ = collector
                         .responses
                         .insert(exchange.sender_hash.clone(), key_bytes.to_vec());
                 } else {
                     // Direct key acceptance (no request_id, e.g. key custodian shortcut)
-                    self.archive_keys.insert(
+                    let _ = self.archive_keys.insert(
                         exchange.channel_id,
                         (ChannelKey { key: key_bytes }, KeyTrustLevel::Unverified),
                     );
@@ -844,7 +849,7 @@ impl KeyManager {
             if self.is_trusted_authority_internal(sender_hash, channel_id, key_custodians) {
                 let mut key = [0u8; 32];
                 key.copy_from_slice(key_bytes);
-                self.archive_keys
+                let _ = self.archive_keys
                     .insert(channel_id, (ChannelKey { key }, KeyTrustLevel::Verified));
                 return Ok((KeyTrustLevel::Verified, Some(key)));
             }
@@ -864,7 +869,10 @@ impl KeyManager {
 
         if key_groups.len() == 1 {
             // All agree
-            let (key_bytes, senders) = key_groups.into_iter().next().unwrap();
+            let (key_bytes, senders) = key_groups
+                .into_iter()
+                .next()
+                .ok_or_else(|| Error::InvalidState("key_groups unexpectedly empty after len == 1 check".into()))?;
             let mut key = [0u8; 32];
             key.copy_from_slice(&key_bytes);
 
@@ -874,7 +882,7 @@ impl KeyManager {
                 KeyTrustLevel::Unverified
             };
 
-            self.archive_keys
+            let _ = self.archive_keys
                 .insert(channel_id, (ChannelKey { key }, trust));
             Ok((trust, Some(key)))
         } else {
@@ -884,7 +892,7 @@ impl KeyManager {
                     if self.is_trusted_authority_internal(sender, channel_id, key_custodians) {
                         let mut key = [0u8; 32];
                         key.copy_from_slice(key_bytes);
-                        self.archive_keys.insert(
+                        let _ = self.archive_keys.insert(
                             channel_id,
                             (ChannelKey { key }, KeyTrustLevel::Verified),
                         );
@@ -898,10 +906,10 @@ impl KeyManager {
             let (majority_key, _) = key_groups
                 .iter()
                 .max_by_key(|(_, senders)| senders.len())
-                .unwrap();
+                .ok_or_else(|| Error::InvalidState("key_groups unexpectedly empty during majority resolution".into()))?;
             let mut key = [0u8; 32];
             key.copy_from_slice(majority_key);
-            self.archive_keys
+            let _ = self.archive_keys
                 .insert(channel_id, (ChannelKey { key }, KeyTrustLevel::Disputed));
             Ok((KeyTrustLevel::Disputed, Some(key)))
         }
@@ -950,12 +958,12 @@ impl KeyManager {
         let winner = valid_candidates
             .iter()
             .min_by(|a, b| a.sender_hash.to_lowercase().cmp(&b.sender_hash.to_lowercase()))
-            .unwrap();
+            .ok_or_else(|| Error::InvalidState("valid_candidates unexpectedly empty after non-empty check".into()))?;
 
         let winner_hash = winner.sender_hash.clone();
         let winner_key = winner.epoch_key.clone();
 
-        self.epoch_keys
+        let _ = self.epoch_keys
             .entry(channel_id)
             .or_default()
             .insert(epoch, (winner_key, KeyTrustLevel::Unverified));
@@ -973,7 +981,7 @@ impl KeyManager {
     // ---- Key distribution -------------------------------------------
 
     /// Generate a key-exchange payload for distributing a key to a new member.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "key distribution requires all cryptographic parameters")]
     pub fn distribute_key(
         &self,
         channel_id: u32,
@@ -1128,7 +1136,7 @@ impl KeyManager {
     // ---- Countersignature verification ------------------------------
 
     /// Verify an epoch countersignature (standalone or inline).
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "countersignature verification requires all cryptographic parameters")]
     pub fn verify_countersignature(
         &mut self,
         channel_id: u32,
@@ -1169,7 +1177,7 @@ impl KeyManager {
         Ok(KeyTrustLevel::Verified)
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "internal verification helper requires all cryptographic parameters")]
     fn verify_countersignature_internal(
         &self,
         channel_id: u32,
@@ -1273,7 +1281,7 @@ impl KeyManager {
             true
         } else {
             // First observation
-            self.pinned_custodians
+            let _ = self.pinned_custodians
                 .insert(channel_id, CustodianPinState::first_observation(new_custodians));
             // Needs confirmation if list is non-empty
             self.pinned_custodians.get(&channel_id).is_some_and(|s| !s.confirmed)
@@ -1331,7 +1339,7 @@ impl KeyManager {
                 .decrypt(mode, channel_id, &msg.message_id, msg.timestamp, &payload)
                 .is_ok()
             {
-                successful_senders.insert(&msg.sender_hash);
+                let _ = successful_senders.insert(&msg.sender_hash);
             }
         }
 
@@ -1426,7 +1434,7 @@ impl KeyManager {
         key: [u8; 32],
         trust: KeyTrustLevel,
     ) {
-        self.epoch_keys
+        let _ = self.epoch_keys
             .entry(channel_id)
             .or_default()
             .insert(epoch, (EpochKey::new(key), trust));
@@ -1439,13 +1447,13 @@ impl KeyManager {
         key: [u8; 32],
         trust: KeyTrustLevel,
     ) {
-        self.archive_keys
+        let _ = self.archive_keys
             .insert(channel_id, (ChannelKey { key }, trust));
     }
 
     /// Record a channel key originator.
     pub fn set_channel_originator(&mut self, channel_id: u32, cert_hash: String) {
-        self.channel_originators.insert(channel_id, cert_hash);
+        let _ = self.channel_originators.insert(channel_id, cert_hash);
     }
 }
 
@@ -1460,6 +1468,7 @@ fn compute_consensus_threshold(observed_members: u32) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
 
     fn test_seed() -> [u8; 32] {
@@ -1605,7 +1614,7 @@ mod tests {
         let custodians = vec!["alice_hash".to_string()];
 
         // Pin without confirmation
-        km.update_custodian_pin(1, custodians.clone());
+        let _ = km.update_custodian_pin(1, custodians.clone());
         assert!(!km.is_trusted_authority("alice_hash", 1, &custodians));
 
         // Confirm
@@ -1670,7 +1679,7 @@ mod tests {
             },
         ];
 
-        km.pending_epoch_candidates.insert((1, 0), candidates);
+        let _ = km.pending_epoch_candidates.insert((1, 0), candidates);
         let winner = km.resolve_epoch_fork(1, 0).unwrap();
         assert_eq!(winner, Some("aaa_hash".to_string()));
     }

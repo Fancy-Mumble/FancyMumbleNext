@@ -6,6 +6,7 @@ use crate::state::ServerState;
 /// Move self to a different channel.
 #[derive(Debug)]
 pub struct JoinChannel {
+    /// The channel to move into.
     pub channel_id: u32,
 }
 

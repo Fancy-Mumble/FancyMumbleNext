@@ -6,9 +6,13 @@ use crate::state::ServerState;
 /// Send a text message to channels, users, or channel trees.
 #[derive(Debug)]
 pub struct SendTextMessage {
+    /// Channel IDs to send the message to.
     pub channel_ids: Vec<u32>,
+    /// User session IDs to send the message to directly.
     pub user_sessions: Vec<u32>,
+    /// Channel tree roots to broadcast the message to (recursive).
     pub tree_ids: Vec<u32>,
+    /// The HTML message body.
     pub message: String,
     /// Unique identifier for this message (Fancy Mumble extension).
     /// Ignored by legacy servers that don't recognise the field.

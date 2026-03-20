@@ -50,6 +50,7 @@ impl Default for NoiseGateConfig {
 }
 
 /// A simple noise gate with hysteresis.
+#[derive(Debug)]
 pub struct NoiseGate {
     config: NoiseGateConfig,
     state: GateState,
@@ -58,6 +59,7 @@ pub struct NoiseGate {
 }
 
 impl NoiseGate {
+    /// Create a new noise gate with the given configuration.
     pub fn new(config: NoiseGateConfig) -> Self {
         Self {
             config,

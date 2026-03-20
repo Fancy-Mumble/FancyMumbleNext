@@ -58,7 +58,7 @@ const STEPS_NORMAL: StepDef[] = [
 ];
 
 export default function ConnectPage() {
-  const { connect, status, error, passwordRequired, pendingConnect, retryWithPassword, dismissPasswordPrompt } = useAppStore();
+  const { connect, disconnect, status, error, passwordRequired, pendingConnect, retryWithPassword, dismissPasswordPrompt } = useAppStore();
   const isConnecting = status === "connecting";
 
   /* -- which server card is actively connecting ------------------- */
@@ -219,6 +219,11 @@ export default function ConnectPage() {
     await connect(server.host, server.port, server.username, server.cert_label);
   };
 
+  const handleCancelConnect = useCallback(async () => {
+    await disconnect();
+    setConnectingServerId(null);
+  }, [disconnect]);
+
   const handleDelete = async (id: string) => {
     await removeServer(id);
     setSavedServers((prev) => {
@@ -290,6 +295,7 @@ export default function ConnectPage() {
               onConnect={handleQuickConnect}
               onDelete={handleDelete}
               onAddNew={handleShowWizard}
+              onCancelConnect={handleCancelConnect}
               disabled={isConnecting}
               connectingId={connectingServerId}
             />

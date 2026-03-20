@@ -60,8 +60,11 @@ pub struct MessageEnvelope {
 /// A file attachment inside a [`MessageEnvelope`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Attachment {
+    /// Original file name.
     pub name: String,
+    /// MIME type (e.g. `"image/png"`).
     pub mime: String,
+    /// Raw file bytes.
     #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
 }
@@ -71,6 +74,7 @@ pub struct Attachment {
 /// Request stored messages from the server companion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PchatFetch {
+    /// Target channel.
     pub channel_id: u32,
     /// Pagination cursor: fetch messages before this UUID.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -87,6 +91,7 @@ pub struct PchatFetch {
 /// Server response to a fetch request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PchatFetchResp {
+    /// Target channel.
     pub channel_id: u32,
     /// Array of [`PchatMsg`] payloads.
     pub messages: Vec<PchatMsg>,
@@ -101,6 +106,7 @@ pub struct PchatFetchResp {
 /// Peer-to-peer key exchange, relayed through the server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PchatKeyExchange {
+    /// Target channel.
     pub channel_id: u32,
     /// `"POST_JOIN"` or `"FULL_ARCHIVE"`.
     pub mode: String,
@@ -151,6 +157,7 @@ pub struct PchatKeyExchange {
 /// Server-broadcast key request when a new member joins.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PchatKeyRequest {
+    /// Target channel.
     pub channel_id: u32,
     /// `"POST_JOIN"` or `"FULL_ARCHIVE"`.
     pub mode: String,
@@ -197,11 +204,15 @@ pub struct PchatKeyAnnounce {
 /// Key custodian countersignature on an epoch transition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PchatEpochCountersig {
+    /// Target channel.
     pub channel_id: u32,
+    /// Epoch number being countersigned.
     pub epoch: u32,
     #[serde(with = "serde_bytes")]
+    /// `SHA-256(epoch_key)[0..8]` fingerprint of the endorsed key.
     pub epoch_fingerprint: Vec<u8>,
     #[serde(with = "serde_bytes")]
+    /// `SHA-256(previous_epoch_key)[0..8]` fingerprint of the parent epoch.
     pub parent_fingerprint: Vec<u8>,
     /// Cert hash of the signer (key custodian).
     pub signer_hash: String,
@@ -219,17 +230,22 @@ pub struct PchatEpochCountersig {
 /// Server acknowledgement of message storage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PchatAck {
+    /// The message ID being acknowledged.
     pub message_id: String,
     /// `"stored"`, `"rejected"`, or `"quota_exceeded"`.
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional human-readable reason for rejection.
     pub reason: Option<String>,
 }
 
 /// Status values for [`PchatAck`].
 pub mod ack_status {
+    /// Message was successfully stored.
     pub const STORED: &str = "stored";
+    /// Message was rejected by the server.
     pub const REJECTED: &str = "rejected";
+    /// Server storage quota was exceeded.
     pub const QUOTA_EXCEEDED: &str = "quota_exceeded";
 }
 
@@ -267,14 +283,14 @@ impl WireCodec for MsgPackCodec {
 mod option_serde_bytes {
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-    pub fn serialize<S: Serializer>(val: &Option<Vec<u8>>, s: S) -> Result<S::Ok, S::Error> {
+    pub(super) fn serialize<S: Serializer>(val: &Option<Vec<u8>>, s: S) -> Result<S::Ok, S::Error> {
         match val {
             Some(bytes) => serde_bytes::Bytes::new(bytes).serialize(s),
             None => s.serialize_none(),
         }
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<u8>>, D::Error> {
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<u8>>, D::Error> {
         let opt: Option<serde_bytes::ByteBuf> = Option::deserialize(d)?;
         Ok(opt.map(serde_bytes::ByteBuf::into_vec))
     }
@@ -282,6 +298,7 @@ mod option_serde_bytes {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
 
     #[test]

@@ -11,6 +11,7 @@ use crate::state::ServerState;
 /// to all clients.
 #[derive(Debug)]
 pub struct DeleteChannel {
+    /// The ID of the channel to delete.
     pub channel_id: u32,
 }
 

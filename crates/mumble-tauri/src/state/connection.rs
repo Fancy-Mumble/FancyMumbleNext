@@ -15,6 +15,7 @@ use super::types::*;
 use super::AppState;
 
 impl AppState {
+    #[allow(clippy::too_many_lines, reason = "connection setup spans auth, TLS, state init, and event loop spawn")]
     pub async fn connect(
         &self,
         host: String,
@@ -36,6 +37,11 @@ impl AppState {
             // Abort the old event-loop task (if any).
             if let Some(handle) = state.event_loop_handle.take() {
                 handle.abort();
+            }
+            // Abort any stale connecting-phase task (in case a previous
+            // connect() was cancelled before the handshake completed).
+            if let Some(task) = state.connect_task_handle.take() {
+                task.abort();
             }
 
             state.connection_epoch += 1;
@@ -101,7 +107,7 @@ impl AppState {
 
         // Spawn the actual connection work in the background so we don't
         // block the Tauri command (which freezes the webview).
-        tokio::spawn(async move {
+        let connect_task = tokio::spawn(async move {
             // Load client certificate from the per-identity folder.
             let (client_cert_pem, client_key_pem) = if let Some(ref label) = cert_label {
                 app_handle
@@ -142,9 +148,11 @@ impl AppState {
                 Ok((handle, join)) => {
                     // Store the client handle and event-loop JoinHandle for later
                     // commands and for awaiting a clean shutdown on disconnect.
+                    // Clear connect_task_handle - the connecting phase is done.
                     if let Ok(mut state) = inner.lock() {
                         state.client_handle = Some(handle.clone());
                         state.event_loop_handle = Some(join);
+                        state.connect_task_handle = None;
                     }
 
                     // Send Authenticate command.
@@ -161,6 +169,7 @@ impl AppState {
                             state.status = ConnectionStatus::Disconnected;
                             state.client_handle = None;
                             state.event_loop_handle = None;
+                            state.connect_task_handle = None;
                         }
                         let _ = app_handle.emit(
                             "connection-rejected",
@@ -189,6 +198,7 @@ impl AppState {
                         state.status = ConnectionStatus::Disconnected;
                         state.client_handle = None;
                         state.event_loop_handle = None;
+                        state.connect_task_handle = None;
                     }
                     let _ = app_handle.emit(
                         "connection-rejected",
@@ -201,6 +211,12 @@ impl AppState {
             }
         });
 
+        // Store the task handle so disconnect() can abort it if the user
+        // cancels before the TCP handshake completes.
+        if let Ok(mut state) = self.inner.lock() {
+            state.connect_task_handle = Some(connect_task);
+        }
+
         Ok(())
     }
 
@@ -208,11 +224,21 @@ impl AppState {
         // Stop audio before disconnecting.
         self.stop_audio();
 
-        let (handle, join) = {
+        let (handle, join, connect_task) = {
             let mut guard = self.inner.lock().map_err(|e| e.to_string())?;
             guard.user_initiated_disconnect = true;
-            (guard.client_handle.take(), guard.event_loop_handle.take())
+            (
+                guard.client_handle.take(),
+                guard.event_loop_handle.take(),
+                guard.connect_task_handle.take(),
+            )
         };
+
+        // If we are still in the connecting phase (TCP handshake not done yet)
+        // abort the outer spawn so the attempt is cancelled immediately.
+        if let Some(task) = connect_task {
+            task.abort();
+        }
 
         if let Some(handle) = handle {
             let _ = handle.send(command::Disconnect).await;
@@ -236,6 +262,7 @@ impl AppState {
         if let Ok(mut state) = self.inner.lock() {
             state.status = ConnectionStatus::Disconnected;
             state.client_handle = None;
+            state.connect_task_handle = None;
             state.event_loop_handle = None;
             state.users.clear();
             state.channels.clear();

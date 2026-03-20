@@ -41,7 +41,7 @@ pub struct CpalCapture {
 // SAFETY: On Windows / WASAPI the underlying COM objects use the MTA
 // model and are safe to send between threads.  The `!Send` marker in
 // cpal is a conservative cross-platform guard that does not apply here.
-#[allow(unsafe_code)]
+#[allow(unsafe_code, reason = "WASAPI COM objects are MTA-safe; cpal's !Send is a conservative cross-platform guard")]
 unsafe impl Send for CpalCapture {}
 
 impl CpalCapture {
@@ -154,7 +154,7 @@ impl AudioCapture for CpalCapture {
                         if buf.len() > 96_000 {
                             warn!("cpal capture buffer overflow, discarding oldest samples");
                             while buf.len() > 96_000 {
-                                buf.pop_front();
+                                let _ = buf.pop_front();
                             }
                         }
                     }
@@ -198,7 +198,7 @@ pub struct CpalPlayback {
 }
 
 // SAFETY: See `CpalCapture` - same justification applies.
-#[allow(unsafe_code)]
+#[allow(unsafe_code, reason = "WASAPI COM objects are MTA-safe; cpal's !Send is a conservative cross-platform guard")]
 unsafe impl Send for CpalPlayback {}
 
 impl CpalPlayback {
@@ -249,7 +249,7 @@ impl AudioPlayback for CpalPlayback {
         if buf.len() > 96_000 {
             warn!("cpal playback buffer overflow, discarding oldest samples");
             while buf.len() > 96_000 {
-                buf.pop_front();
+                let _ = buf.pop_front();
             }
         }
         Ok(())

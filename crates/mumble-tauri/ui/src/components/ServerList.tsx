@@ -8,8 +8,10 @@ interface Props {
   onConnect: (server: SavedServer) => void;
   onDelete: (id: string) => void;
   onAddNew: () => void;
+  /** Called when the user cancels an in-progress connection attempt. */
+  onCancelConnect?: (id: string) => void;
   disabled?: boolean;
-  /** ID of the server currently being connected to (shows spinner). */
+  /** ID of the server currently being connected to (shows pause button). */
   connectingId?: string | null;
 }
 
@@ -56,6 +58,7 @@ export default function ServerList({
   onConnect,
   onDelete,
   onAddNew,
+  onCancelConnect,
   disabled,
   connectingId,
 }: Readonly<Props>) {
@@ -108,7 +111,21 @@ export default function ServerList({
                 <div className={styles.avatarWrap}>
                   <div className={styles.avatar}>
                     {isThisConnecting ? (
-                      <span className={styles.spinner} />
+                      <button
+                        type="button"
+                        className={styles.cancelBtn}
+                        title="Cancel connection"
+                        aria-label="Cancel connection"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onCancelConnect?.(s.id);
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+                          <rect x="2" y="1" width="4" height="12" rx="1" />
+                          <rect x="8" y="1" width="4" height="12" rx="1" />
+                        </svg>
+                      </button>
                     ) : (
                       (s.label || s.host).charAt(0)
                     )}

@@ -6,6 +6,7 @@ use crate::state::ServerState;
 /// Announce E2EE identity public keys to the server for relay to other clients.
 #[derive(Debug)]
 pub struct SendPchatKeyAnnounce {
+    /// The key announcement payload.
     pub announce: mumble_tcp::PchatKeyAnnounce,
 }
 

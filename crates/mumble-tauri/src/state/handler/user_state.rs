@@ -11,6 +11,7 @@ use crate::state::pchat;
 use crate::state::types::{CurrentChannelPayload, UserEntry};
 
 impl HandleMessage for mumble_tcp::UserState {
+    #[allow(clippy::too_many_lines, reason = "user state handler covers channel moves, profile updates, pchat key exchange, and history fetch")]
     fn handle(&self, ctx: &HandlerContext) {
         let Some(session) = self.session else { return };
 
@@ -147,12 +148,12 @@ impl HandleMessage for mumble_tcp::UserState {
                     // Mark as fetched and send the request
                     if let Ok(mut state) = ctx.shared.lock() {
                         if let Some(ref mut pchat) = state.pchat {
-                            pchat.fetched_channels.insert(ch);
+                            let _ = pchat.fetched_channels.insert(ch);
                         }
                     }
 
                     let shared = Arc::clone(&ctx.shared);
-                    tokio::spawn(async move {
+                    let _pchat_init_task = tokio::spawn(async move {
                         // Notify frontend that history loading has started.
                         pchat::emit_history_loading(&shared, ch, true);
 

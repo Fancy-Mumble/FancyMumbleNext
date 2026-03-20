@@ -6,6 +6,7 @@ use crate::state::ServerState;
 /// Send key exchange material to another client via the server relay.
 #[derive(Debug)]
 pub struct SendPchatKeyExchange {
+    /// The key exchange material payload.
     pub exchange: mumble_tcp::PchatKeyExchange,
 }
 

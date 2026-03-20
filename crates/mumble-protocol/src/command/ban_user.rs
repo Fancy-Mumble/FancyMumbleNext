@@ -6,7 +6,9 @@ use crate::state::ServerState;
 /// Ban a user from the server.
 #[derive(Debug)]
 pub struct BanUser {
+    /// Session ID of the user to ban.
     pub session: u32,
+    /// Optional human-readable ban reason.
     pub reason: Option<String>,
 }
 

@@ -9,7 +9,9 @@ use crate::state::ServerState;
 /// Requires appropriate server permissions.
 #[derive(Debug)]
 pub struct SetUserMute {
+    /// Session ID of the target user.
     pub session: u32,
+    /// `true` to mute, `false` to unmute.
     pub muted: bool,
 }
 

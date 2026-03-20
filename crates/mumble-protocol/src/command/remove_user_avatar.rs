@@ -9,6 +9,7 @@ use crate::state::ServerState;
 /// Requires appropriate server permissions.
 #[derive(Debug)]
 pub struct RemoveUserAvatar {
+    /// Session ID of the user whose avatar to clear.
     pub session: u32,
 }
 

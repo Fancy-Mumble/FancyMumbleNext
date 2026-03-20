@@ -8,6 +8,7 @@ use crate::audio::filter::AudioFilter;
 use crate::error::Result;
 
 /// Configurable software volume (linear gain).
+#[derive(Debug)]
 pub struct VolumeFilter {
     /// Linear gain factor (1.0 = unity, 0.0 = mute).
     gain: f32,

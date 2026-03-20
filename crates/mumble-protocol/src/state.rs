@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
+
 /// Persistent-chat mode for a channel.
 ///
 /// Maps 1:1 to the `ChannelState.PchatMode` protobuf enum.
@@ -59,38 +60,33 @@ impl fmt::Display for PchatMode {
     }
 }
 
-/// Encode a Fancy Mumble version using the Mumble v2 scheme:
-/// `(major << 48) | (minor << 32) | (patch << 16)`.
-pub const fn fancy_version_encode(major: u16, minor: u16, patch: u16) -> u64 {
-    ((major as u64) << 48) | ((minor as u64) << 32) | ((patch as u64) << 16)
-}
+// Re-export version utilities from fancy-utils so existing
+// `mumble_protocol::state::fancy_version_*` paths keep working.
+pub use fancy_utils::version::{fancy_version_decode, fancy_version_encode, fancy_version_string};
 
-/// Decode a Fancy Mumble v2-encoded version into (major, minor, patch).
-pub const fn fancy_version_decode(v: u64) -> (u16, u16, u16) {
-    let major = ((v >> 48) & 0xFFFF) as u16;
-    let minor = ((v >> 32) & 0xFFFF) as u16;
-    let patch = ((v >> 16) & 0xFFFF) as u16;
-    (major, minor, patch)
-}
-
-/// Format a v2-encoded Fancy Mumble version as `"major.minor.patch"`.
-pub fn fancy_version_string(v: u64) -> String {
-    let (major, minor, patch) = fancy_version_decode(v);
-    format!("{major}.{minor}.{patch}")
-}
 
 /// Snapshot of a connected user.
 #[derive(Debug, Clone)]
 pub struct User {
+    /// The session ID assigned by the server to this user.
     pub session: u32,
+    /// Display name.
     pub name: String,
+    /// ID of the channel the user is currently in.
     pub channel_id: u32,
+    /// Whether this user has been server-muted.
     pub mute: bool,
+    /// Whether this user has been server-deafened.
     pub deaf: bool,
+    /// Whether this user has self-muted.
     pub self_mute: bool,
+    /// Whether this user has self-deafened.
     pub self_deaf: bool,
+    /// The user's comment (may be HTML or a Fancy Mumble profile blob).
     pub comment: String,
+    /// The user's avatar texture bytes (typically PNG/JPEG).
     pub texture: Vec<u8>,
+    /// SHA-256 hash of the user's certificate.
     pub hash: String,
 }
 
@@ -141,16 +137,23 @@ pub type SharedPingStats = Arc<Mutex<PingStats>>;
 /// Snapshot of a channel on the server.
 #[derive(Debug, Clone)]
 pub struct Channel {
+    /// The channel's unique identifier.
     pub channel_id: u32,
+    /// Parent channel ID (`None` for the root channel).
     pub parent_id: Option<u32>,
+    /// Display name of the channel.
     pub name: String,
+    /// Channel description (may contain HTML).
     pub description: String,
     /// SHA-256 hash of the description blob.  When the server sends
     /// only the hash (no inline `description`), the client must
     /// request the full blob via `RequestBlob::channel_description`.
     pub description_hash: Option<Vec<u8>>,
+    /// Display order hint relative to sibling channels.
     pub position: i32,
+    /// Whether the channel is temporary (auto-deleted when empty).
     pub temporary: bool,
+    /// Maximum number of users allowed (0 = unlimited).
     pub max_users: u32,
     /// Server-reported permission bitmask for this channel.
     /// `None` until a `PermissionQuery` response is received.
@@ -187,8 +190,11 @@ pub struct ConnectionInfo {
 /// Aggregated server state maintained by the client.
 #[derive(Debug, Default)]
 pub struct ServerState {
+    /// Connection-level metadata (session ID, welcome text, etc.).
     pub connection: ConnectionInfo,
+    /// All currently connected users, keyed by session ID.
     pub users: HashMap<u32, User>,
+    /// All known channels, keyed by channel ID.
     pub channels: HashMap<u32, Channel>,
     /// Shared ping statistics - updated on every Ping echo from the server,
     /// read by the periodic ping task to populate outbound Ping messages.
@@ -196,6 +202,7 @@ pub struct ServerState {
 }
 
 impl ServerState {
+    /// Create a new, empty server state.
     pub fn new() -> Self {
         Self::default()
     }
@@ -250,7 +257,7 @@ impl ServerState {
 
     /// Remove a user from state.
     pub fn remove_user(&mut self, session: u32) {
-        self.users.remove(&session);
+        let _ = self.users.remove(&session);
     }
 
     /// Apply a `ChannelState` update from the server.
@@ -333,7 +340,7 @@ impl ServerState {
 
     /// Remove a channel from state.
     pub fn remove_channel(&mut self, channel_id: u32) {
-        self.channels.remove(&channel_id);
+        let _ = self.channels.remove(&channel_id);
     }
 
     /// Apply an incoming `Version` message from the server.

@@ -72,18 +72,19 @@ pub struct ConfigRegistry {
 }
 
 impl ConfigRegistry {
+    /// Create a new, empty configuration registry.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Insert or update the config for a channel.
     pub fn upsert(&mut self, config: ChannelPersistConfig) {
-        self.configs.insert(config.channel_id, config);
+        let _ = self.configs.insert(config.channel_id, config);
     }
 
     /// Remove config when a channel is deleted.
     pub fn remove(&mut self, channel_id: u32) {
-        self.configs.remove(&channel_id);
+        let _ = self.configs.remove(&channel_id);
     }
 
     /// Iterate over all persistent channels.

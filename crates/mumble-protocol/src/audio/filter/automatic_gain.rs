@@ -38,6 +38,7 @@ impl Default for AgcConfig {
 }
 
 /// A simple envelope-follower AGC.
+#[derive(Debug)]
 pub struct AutomaticGainControl {
     config: AgcConfig,
     current_gain: f32,
@@ -45,6 +46,7 @@ pub struct AutomaticGainControl {
 }
 
 impl AutomaticGainControl {
+    /// Create a new AGC with the given configuration.
     pub fn new(config: AgcConfig) -> Self {
         Self {
             config,

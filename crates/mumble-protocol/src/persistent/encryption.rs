@@ -130,7 +130,7 @@ pub trait SignedDataBuilder: Send + Sync {
     ) -> Vec<u8>;
 
     /// Build data signed in a key-exchange message.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "protocol message construction requires all fields to be present")]
     fn build_key_exchange_signed_data(
         &self,
         algorithm_version: u8,
@@ -337,7 +337,7 @@ impl SignedDataBuilder for StandardSignedDataBuilder {
         data
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "protocol message construction requires all fields to be present")]
     fn build_key_exchange_signed_data(
         &self,
         algorithm_version: u8,
@@ -415,6 +415,7 @@ impl ArchiveKeyDeriver for HkdfArchiveKeyDeriver {
     fn derive_archive_key(&self, seed: &[u8; 32], channel_id: u32) -> [u8; 32] {
         let hkdf = Hkdf::<Sha256>::new(Some(HKDF_SALT_ARCHIVE_KEY), seed);
         let mut key = [0u8; 32];
+        #[allow(clippy::expect_used, reason = "HKDF-SHA256 expand with a 32-byte output can never fail")]
         hkdf.expand(&channel_id.to_be_bytes(), &mut key)
             .expect("HKDF expand for archive key");
         key
@@ -557,7 +558,7 @@ pub fn build_countersig_data(
 /// Build the data signed in a key-exchange message (section 6.6).
 ///
 /// Convenience wrapper around [`StandardSignedDataBuilder`].
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "protocol message construction requires all fields to be present")]
 pub fn build_key_exchange_signed_data(
     algorithm_version: u8,
     channel_id: u32,
@@ -591,6 +592,7 @@ pub fn build_key_announce_signed_data(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
 
     #[test]

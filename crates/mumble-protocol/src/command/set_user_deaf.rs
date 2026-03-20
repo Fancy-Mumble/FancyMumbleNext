@@ -9,7 +9,9 @@ use crate::state::ServerState;
 /// Requires appropriate server permissions.
 #[derive(Debug)]
 pub struct SetUserDeaf {
+    /// Session ID of the target user.
     pub session: u32,
+    /// `true` to deafen, `false` to undeafen.
     pub deafened: bool,
 }
 

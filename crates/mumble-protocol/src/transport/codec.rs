@@ -161,6 +161,7 @@ fn deserialize_control_message(type_id: u16, payload: &[u8]) -> Result<ControlMe
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
 
     #[test]

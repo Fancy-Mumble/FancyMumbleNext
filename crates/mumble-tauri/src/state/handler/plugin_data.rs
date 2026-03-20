@@ -38,7 +38,7 @@ fn handle_group_create(data: &[u8], ctx: &HandlerContext) {
     info!(group_id = %group.id, name = %group.name, "group chat created via plugin data");
 
     if let Ok(mut state) = ctx.shared.lock() {
-        state.group_chats.insert(group.id.clone(), group.clone());
+        let _ = state.group_chats.insert(group.id.clone(), group.clone());
     }
 
     ctx.emit("group-created", GroupCreatedPayload { group });
@@ -56,7 +56,7 @@ impl HandleMessage for mumble_tcp::PluginDataTransmission {
         );
 
         if let Some(data) = &self.data {
-            #[allow(clippy::single_match)] // will grow as new data_ids are added
+            #[allow(clippy::single_match, reason = "match will grow as new data_ids are added")]
             match self.data_id.as_deref() {
                 Some("fancy-group") => handle_fancy_group(data, ctx),
                 _ => {}

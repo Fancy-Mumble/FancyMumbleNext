@@ -57,6 +57,16 @@ pub struct OpusDecoder {
 }
 
 #[cfg(feature = "opus-codec")]
+impl std::fmt::Debug for OpusDecoder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpusDecoder")
+            .field("format", &self.format)
+            .field("frame_size", &self.frame_size)
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "opus-codec")]
 impl OpusDecoder {
     /// Construct a new Opus decoder.
     ///
@@ -178,7 +188,18 @@ pub struct OpusDecoder {
 }
 
 #[cfg(not(feature = "opus-codec"))]
+impl std::fmt::Debug for OpusDecoder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpusDecoder")
+            .field("format", &self.format)
+            .finish()
+    }
+}
+
+#[cfg(not(feature = "opus-codec"))]
 impl OpusDecoder {
+    /// Create a no-op decoder for the given audio format
+    /// (used when the `opus-codec` feature is disabled).
     pub fn new(format: AudioFormat) -> Result<Self> {
         Ok(Self { format })
     }

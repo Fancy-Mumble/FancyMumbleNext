@@ -6,7 +6,9 @@ use crate::state::ServerState;
 /// Kick a user from the server.
 #[derive(Debug)]
 pub struct KickUser {
+    /// Session ID of the user to kick.
     pub session: u32,
+    /// Optional human-readable kick reason.
     pub reason: Option<String>,
 }
 

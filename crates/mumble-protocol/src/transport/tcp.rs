@@ -19,7 +19,9 @@ use crate::transport::codec;
 /// Configuration for establishing a TCP connection to a Mumble server.
 #[derive(Debug, Clone)]
 pub struct TcpConfig {
+    /// Hostname or IP address of the Mumble server.
     pub server_host: String,
+    /// TCP port the server listens on (default 64738).
     pub server_port: u16,
     /// Accept invalid TLS certificates (self-signed). Defaults to `true`
     /// because most Mumble servers use self-signed certs.
@@ -49,6 +51,12 @@ pub struct TcpTransport {
     read_buf: BytesMut,
 }
 
+impl std::fmt::Debug for TcpTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TcpTransport").finish_non_exhaustive()
+    }
+}
+
 impl TcpTransport {
     /// Connect to a Mumble server over TLS.
     pub async fn connect(config: &TcpConfig) -> Result<Self> {
@@ -64,11 +72,16 @@ impl TcpTransport {
         )?;
         let connector = TlsConnector::from(Arc::new(tls_config));
 
-        let server_name = rustls::pki_types::ServerName::try_from(config.server_host.clone())
-            .unwrap_or_else(|_| {
-                let ip: std::net::IpAddr = config.server_host.parse().expect("invalid server address");
+        let server_name = match rustls::pki_types::ServerName::try_from(config.server_host.clone()) {
+            Ok(name) => name,
+            Err(_) => {
+                let ip: std::net::IpAddr = config
+                    .server_host
+                    .parse()
+                    .map_err(|e| Error::Other(format!("invalid server address '{}': {e}", config.server_host)))?;
                 rustls::pki_types::ServerName::IpAddress(ip.into())
-            });
+            }
+        };
 
         let tls_stream = connector.connect(server_name, tcp_stream).await?;
         debug!("TLS handshake complete");
@@ -122,7 +135,14 @@ pub struct TcpReader {
     read_buf: BytesMut,
 }
 
+impl std::fmt::Debug for TcpReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TcpReader").finish_non_exhaustive()
+    }
+}
+
 impl TcpReader {
+    /// Receive the next control message from the server.
     pub async fn recv(&mut self) -> Result<ControlMessage> {
         loop {
             if let Some(msg) = codec::decode(&mut self.read_buf)? {
@@ -142,7 +162,14 @@ pub struct TcpWriter {
     writer: tokio::io::WriteHalf<TlsStream<TcpStream>>,
 }
 
+impl std::fmt::Debug for TcpWriter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TcpWriter").finish_non_exhaustive()
+    }
+}
+
 impl TcpWriter {
+    /// Send a single control message over the TCP transport.
     pub async fn send(&mut self, msg: &ControlMessage) -> Result<()> {
         let frame = codec::encode(msg)?;
         self.writer.write_all(&frame).await?;

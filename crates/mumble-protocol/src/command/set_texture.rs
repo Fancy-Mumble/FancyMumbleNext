@@ -8,6 +8,7 @@ use crate::state::ServerState;
 /// Sends an empty `texture` to clear the avatar.
 #[derive(Debug)]
 pub struct SetTexture {
+    /// Raw image bytes (typically PNG or JPEG). Empty to clear the avatar.
     pub texture: Vec<u8>,
 }
 

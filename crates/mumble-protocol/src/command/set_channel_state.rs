@@ -17,11 +17,17 @@ use crate::state::{PchatMode, ServerState};
 pub struct SetChannelState {
     /// Target channel ID.  `None` when creating a new channel.
     pub channel_id: Option<u32>,
+    /// Parent channel ID (required when creating a new channel).
     pub parent: Option<u32>,
+    /// New channel name.
     pub name: Option<String>,
+    /// New channel description (HTML).
     pub description: Option<String>,
+    /// Display order hint for the channel in the tree.
     pub position: Option<i32>,
+    /// Whether the channel is temporary (auto-deleted when empty).
     pub temporary: Option<bool>,
+    /// Maximum number of users allowed in the channel (0 = unlimited).
     pub max_users: Option<u32>,
     /// Persistent-chat mode for this channel.
     pub pchat_mode: Option<PchatMode>,

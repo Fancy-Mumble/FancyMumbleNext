@@ -1,11 +1,13 @@
 [package]
 name = "mumble-protocol"
-version = "0.1.3"
+version = "0.2.0"
 edition = "2021"
 description = "Async Mumble protocol client library with priority-based work queue"
 license = "MIT"
 
 [dependencies]
+fancy-utils = { path = "../fancy-utils" }
+
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "time", "io-util"] }
 

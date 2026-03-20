@@ -12,6 +12,7 @@ use super::{HandleMessage, HandlerContext};
 use crate::state::types::ChannelEntry;
 
 impl HandleMessage for mumble_tcp::ChannelState {
+    #[allow(clippy::too_many_lines, reason = "channel state handler covers sync, description fetch, pchat mode changes, and custodian events")]
     fn handle(&self, ctx: &HandlerContext) {
         let Some(id) = self.channel_id else { return };
 
@@ -138,7 +139,7 @@ impl HandleMessage for mumble_tcp::ChannelState {
         if pchat_changed_for_current {
             debug!(channel_id = id, "pchat: mode changed on current channel, spawning key-gen + fetch");
             let shared = Arc::clone(&ctx.shared);
-            tokio::spawn(async move {
+            let _pchat_key_gen_task = tokio::spawn(async move {
                 let mode = {
                     let s = shared.lock().ok();
                     s.and_then(|s| {
@@ -196,7 +197,7 @@ impl HandleMessage for mumble_tcp::ChannelState {
                     debug!(channel_id = id, "pchat: sending fetch after mode change");
                     if let Ok(mut s) = shared.lock() {
                         if let Some(ref mut p) = s.pchat {
-                            p.fetched_channels.insert(id);
+                            let _ = p.fetched_channels.insert(id);
                         }
                     }
                     let codec = MsgPackCodec;
@@ -225,7 +226,7 @@ impl HandleMessage for mumble_tcp::ChannelState {
         // was provided (large descriptions are deferred).
         if needs_description {
             let shared = Arc::clone(&ctx.shared);
-            tokio::spawn(async move {
+            let _description_fetch_task = tokio::spawn(async move {
                 let handle = {
                     let state = shared.lock().ok();
                     state.and_then(|s| s.client_handle.clone())
@@ -246,7 +247,7 @@ impl HandleMessage for mumble_tcp::ChannelState {
         // so the cached bitmask stays up-to-date (ACL changes, etc.).
         if is_synced {
             let shared = Arc::clone(&ctx.shared);
-            tokio::spawn(async move {
+            let _permissions_query_task = tokio::spawn(async move {
                 let handle = {
                     let state = shared.lock().ok();
                     state.and_then(|s| s.client_handle.clone())
