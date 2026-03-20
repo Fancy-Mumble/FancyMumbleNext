@@ -152,6 +152,12 @@ message UserState {
 	repeated uint32 listening_channel_add = 21;
 	repeated uint32 listening_channel_remove = 22;
 	repeated VolumeAdjustment listening_volume_adjustment = 23;
+
+	// Extended client capabilities advertised by the server.
+	enum ClientFeature {
+		FEATURE_PCHAT_E2EE = 0;
+	}
+	repeated ClientFeature client_features = 24;
 }
 
 message BanList {

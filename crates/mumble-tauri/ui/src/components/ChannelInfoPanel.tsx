@@ -42,6 +42,7 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
   // Key holder state
   const keyHolders = useAppStore((s) => s.keyHolders);
   const queryKeyHolders = useAppStore((s) => s.queryKeyHolders);
+  const getPersistenceMode = useAppStore((s) => s.getPersistenceMode);
 
   useEffect(() => {
     if (selectedChannel != null) {
@@ -73,6 +74,9 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
     () => users.filter((u) => u.channel_id === selectedChannel),
     [users, selectedChannel],
   );
+
+  const isPersisted =
+    selectedChannel != null && getPersistenceMode(selectedChannel) !== "NONE";
 
   const [userCtxMenu, setUserCtxMenu] = useState<UserContextMenuState | null>(
     null,
@@ -261,6 +265,12 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
                   {u.hash && holderHashes.has(u.hash) && (
                     <svg className={styles.memberKeyIcon} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Has encryption key">
                       <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                    </svg>
+                  )}
+                  {isPersisted && (!u.hash || !holderHashes.has(u.hash)) && (
+                    <svg className={styles.memberWarningIcon} width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-label="Legacy client - cannot read encrypted messages">
+                      <title>Legacy client - cannot read encrypted messages</title>
+                      <path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 16h2v2h-2zm0-6h2v4h-2z" />
                     </svg>
                   )}
                 </div>

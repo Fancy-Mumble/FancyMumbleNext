@@ -574,6 +574,7 @@ impl AppState {
                 group_id: None,
                 message_id,
                 timestamp,
+                is_legacy: false,
             };
             msg.ensure_id();
             state.messages.entry(channel_id).or_default().push(msg);
@@ -631,6 +632,7 @@ impl AppState {
                 group_id: None,
                 message_id,
                 timestamp,
+                is_legacy: false,
             };
             msg.ensure_id();
             state.dm_messages.entry(target_session).or_default().push(msg);
@@ -1042,6 +1044,7 @@ impl AppState {
                 group_id: Some(group_id),
                 message_id,
                 timestamp,
+                is_legacy: false,
             };
             msg.ensure_id();
             state

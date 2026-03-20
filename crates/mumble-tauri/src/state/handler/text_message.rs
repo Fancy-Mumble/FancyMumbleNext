@@ -169,6 +169,7 @@ fn handle_group_message(
         group_id: Some(marker.group_id.clone()),
         message_id: tm.message_id.clone(),
         timestamp: tm.timestamp,
+        is_legacy: false,
     };
     msg.ensure_id();
     state
@@ -210,6 +211,7 @@ fn handle_direct_message(
         group_id: None,
         message_id: tm.message_id.clone(),
         timestamp: tm.timestamp,
+        is_legacy: false,
     };
     msg.ensure_id();
     state
@@ -246,18 +248,27 @@ fn handle_channel_message(
     let mut unreads_changed = false;
 
     for &ch_id in &target_channels {
-        // For pchat-enabled channels, PchatMessageDeliver is the
-        // authoritative source.  Skip TextMessage storage to avoid
-        // duplicates (the server overwrites message_id on TextMessage,
-        // so dedup by id cannot work).
+        // For pchat-enabled channels, check whether the sender supports E2EE.
+        // If they do, skip — the authoritative PchatMessageDeliver will arrive
+        // separately.  If they don't (legacy client), accept the TextMessage
+        // and mark it as legacy so the UI can style it differently.
         let has_pchat = state
             .channels
             .get(&ch_id)
             .and_then(|c| c.pchat_mode)
             .is_some_and(|m| !matches!(m, PchatMode::None));
-        if has_pchat {
+
+        let sender_has_e2ee = tm
+            .actor
+            .and_then(|sid| state.users.get(&sid))
+            .is_some_and(|u| u.has_pchat_e2ee());
+
+        if has_pchat && sender_has_e2ee {
+            // Fancy sender — PchatMessageDeliver is the authoritative source.
             continue;
         }
+
+        let is_legacy = has_pchat && !sender_has_e2ee;
 
         let mut msg = ChatMessage {
             sender_session: tm.actor,
@@ -269,6 +280,7 @@ fn handle_channel_message(
             group_id: None,
             message_id: tm.message_id.clone(),
             timestamp: tm.timestamp,
+            is_legacy,
         };
         msg.ensure_id();
         state.messages.entry(ch_id).or_default().push(msg);

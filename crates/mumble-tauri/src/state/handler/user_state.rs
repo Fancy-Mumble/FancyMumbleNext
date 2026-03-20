@@ -31,6 +31,7 @@ impl HandleMessage for mumble_tcp::UserState {
                     self_deaf: false,
                     priority_speaker: false,
                     hash: None,
+                    client_features: Vec::new(),
                 });
                 if let Some(ref name) = self.name {
                     user.name = name.clone();
@@ -69,6 +70,9 @@ impl HandleMessage for mumble_tcp::UserState {
                 }
                 if let Some(ref hash) = self.hash {
                     user.hash = Some(hash.clone());
+                }
+                if !self.client_features.is_empty() {
+                    user.client_features = self.client_features.clone();
                 }
 
                 // Persist cert_hash -> username mapping for offline display.

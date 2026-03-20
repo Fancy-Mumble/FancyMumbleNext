@@ -80,6 +80,18 @@ pub struct UserEntry {
     /// for persistent chat key management.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,
+    /// Server-advertised client capabilities (see `UserState.ClientFeature`).
+    #[serde(skip)]
+    pub client_features: Vec<i32>,
+}
+
+impl UserEntry {
+    /// Returns `true` if this user advertises E2EE persistent chat support.
+    pub fn has_pchat_e2ee(&self) -> bool {
+        use mumble_protocol::proto::mumble_tcp::user_state::ClientFeature;
+        self.client_features
+            .contains(&(ClientFeature::FeaturePchatE2ee as i32))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -105,6 +117,10 @@ pub struct ChatMessage {
     /// `None` when the server/sender does not support extensions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<u64>,
+    /// `true` when the message came from a legacy (non-E2EE) client on a
+    /// pchat-enabled channel and was therefore sent in plaintext.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_legacy: bool,
 }
 
 impl ChatMessage {

@@ -336,6 +336,28 @@
   color: white;
 }
 
+/* --- Legacy (non-E2EE) message indicator ------------------------ */
+
+.legacyBubble {
+  border-left: 3px solid var(--color-warning, #e8a838);
+}
+
+.legacyBadge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-warning, #e8a838);
+  background: color-mix(in srgb, var(--color-warning, #e8a838) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning, #e8a838) 30%, transparent);
+  border-radius: 4px;
+  padding: 0 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+  line-height: 1.5;
+}
+
 /* --- Offloaded message skeleton --------------------------------- */
 
 .skeleton {

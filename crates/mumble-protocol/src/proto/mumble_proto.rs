@@ -308,6 +308,13 @@ pub struct UserState {
     pub listening_volume_adjustment: ::prost::alloc::vec::Vec<
         user_state::VolumeAdjustment,
     >,
+    #[prost(
+        enumeration = "user_state::ClientFeature",
+        repeated,
+        packed = "false",
+        tag = "24"
+    )]
+    pub client_features: ::prost::alloc::vec::Vec<i32>,
 }
 /// Nested message and enum types in `UserState`.
 pub mod user_state {
@@ -317,6 +324,40 @@ pub mod user_state {
         pub listening_channel: ::core::option::Option<u32>,
         #[prost(float, optional, tag = "2")]
         pub volume_adjustment: ::core::option::Option<f32>,
+    }
+    /// Extended client capabilities advertised by the server.
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum ClientFeature {
+        FeaturePchatE2ee = 0,
+    }
+    impl ClientFeature {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::FeaturePchatE2ee => "FEATURE_PCHAT_E2EE",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "FEATURE_PCHAT_E2EE" => Some(Self::FeaturePchatE2ee),
+                _ => None,
+            }
+        }
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -1135,6 +1135,7 @@ pub(crate) fn handle_proto_msg_deliver(shared: &Arc<Mutex<SharedState>>, msg: &m
         group_id: None,
         message_id: Some(message_id.clone()),
         timestamp: Some(timestamp),
+        is_legacy: false,
     };
 
     if let Some(ref replaces_id) = replaces_id {
@@ -1275,6 +1276,7 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
             group_id: None,
             message_id: Some(msg_id.clone()),
             timestamp: Some(msg_timestamp),
+            is_legacy: false,
         });
     }
 

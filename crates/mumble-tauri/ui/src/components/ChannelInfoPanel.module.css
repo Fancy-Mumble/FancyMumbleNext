@@ -330,6 +330,11 @@
   color: var(--color-success, #22c55e);
 }
 
+.memberWarningIcon {
+  flex-shrink: 0;
+  color: var(--color-warning, #f59e0b);
+}
+
 .emptyMembers {
   font-size: 13px;
   color: var(--color-text-secondary);

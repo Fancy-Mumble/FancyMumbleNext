@@ -63,6 +63,8 @@ export interface ChatMessage {
   message_id?: string | null;
   /** Unix epoch milliseconds (Fancy Mumble extension). Absent on legacy servers. */
   timestamp?: number | null;
+  /** When true the message was sent by a legacy (non-E2EE) client on a pchat channel. */
+  is_legacy?: boolean;
 }
 
 /** A multi-member group chat, identified by a UUID. */
