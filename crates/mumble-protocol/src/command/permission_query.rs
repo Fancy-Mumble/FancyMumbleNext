@@ -13,6 +13,7 @@ use super::core::{CommandAction, CommandOutput};
 /// Ask the server what permissions the current user has on `channel_id`.
 #[derive(Debug)]
 pub struct PermissionQuery {
+    /// The channel whose permissions to query.
     pub channel_id: u32,
 }
 

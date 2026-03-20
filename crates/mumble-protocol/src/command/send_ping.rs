@@ -6,6 +6,7 @@ use crate::state::ServerState;
 /// Send a TCP ping with a specific timestamp for latency measurement.
 #[derive(Debug)]
 pub struct SendPing {
+    /// Echoed timestamp used for round-trip latency calculation.
     pub timestamp: u64,
 }
 

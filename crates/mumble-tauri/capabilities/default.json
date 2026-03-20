@@ -14,6 +14,18 @@
     "store:default",
     "core:window:allow-request-user-attention",
     "core:webview:allow-set-webview-focus",
-    "core:window:allow-set-badge-count"
+    "core:window:allow-set-badge-count",
+    "notification:default",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "notification:allow-notify",
+    "notification:allow-register-action-types",
+    "notification:allow-get-active",
+    "notification:allow-remove-active",
+    "notification:allow-create-channel",
+    "notification:allow-delete-channel",
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save"
   ]
 }

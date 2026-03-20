@@ -8,6 +8,13 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import {
+  isPermissionGranted,
+  requestPermission,
+  createChannel,
+  Importance,
+  Visibility,
+} from "@tauri-apps/plugin-notification";
 import type {
   ChannelEntry,
   UserEntry,
@@ -16,6 +23,15 @@ import type {
   MumbleServerConfig,
   VoiceState,
   GroupChat,
+  PersistenceMode,
+  ChannelPersistenceState,
+  KeyTrustState,
+  CustodianPinState,
+  PendingDispute,
+  ChannelPersistConfig,
+  PchatMode,
+  PendingKeyShareRequest,
+  KeyHolderEntry,
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/PollCreator";
 import { registerPoll, registerVote } from "./components/PollCard";
@@ -66,13 +82,61 @@ interface AppState {
   /** Synthetic local-only messages for rendering polls in the chat flow. */
   pollMessages: ChatMessage[];
 
+  // -- Persistent chat state -------------------------------------
+  /** Persistence metadata per channel (mode, retention, fetch state). */
+  channelPersistence: Record<number, ChannelPersistenceState>;
+  /** Key trust state per channel (trust level, fingerprints, distributor). */
+  keyTrust: Record<number, KeyTrustState>;
+  /** Custodian pin state per channel (TOFU pinning). */
+  custodianPins: Record<number, CustodianPinState>;
+  /** Pending key disputes per channel. */
+  pendingDisputes: Record<number, PendingDispute>;
+  /** Channels currently loading history (awaiting key exchange + fetch). */
+  pchatHistoryLoading: Set<number>;
+  /** Pending key-share consent requests per channel. */
+  pendingKeyShares: Record<number, PendingKeyShareRequest[]>;
+  /** Server-tracked key holders per channel. */
+  keyHolders: Record<number, KeyHolderEntry[]>;
+  /** Channels where the key-possession challenge failed (key revoked). */
+  pchatKeyRevoked: Set<number>;
+
+  /** Set when the server rejects with WrongUserPW/WrongServerPW - prompts the UI for a password. */
+  passwordRequired: boolean;
+  /** True after the user has submitted a password at least once (so we can show rejection errors on retries). */
+  passwordAttempted: boolean;
+  /** Connection params stored when a password prompt is needed so the user can retry. */
+  pendingConnect: { host: string; port: number; username: string; certLabel: string | null } | null;
+
   // Actions
-  connect: (host: string, port: number, username: string, certLabel?: string | null) => Promise<void>;
+  connect: (host: string, port: number, username: string, certLabel?: string | null, password?: string | null) => Promise<void>;
   disconnect: () => Promise<void>;
   selectChannel: (id: number) => Promise<void>;
   joinChannel: (id: number) => Promise<void>;
   sendMessage: (channelId: number, body: string) => Promise<void>;
   toggleListen: (channelId: number) => Promise<void>;
+
+  // Channel management
+  createChannel: (parentId: number, name: string, opts?: {
+    description?: string;
+    position?: number;
+    temporary?: boolean;
+    maxUsers?: number;
+    pchatMode?: PchatMode;
+    pchatMaxHistory?: number;
+    pchatRetentionDays?: number;
+  }) => Promise<void>;
+  updateChannel: (channelId: number, opts: {
+    name?: string;
+    description?: string;
+    position?: number;
+    temporary?: boolean;
+    maxUsers?: number;
+    pchatMode?: PchatMode;
+    pchatMaxHistory?: number;
+    pchatRetentionDays?: number;
+  }) => Promise<void>;
+  deleteChannel: (channelId: number) => Promise<void>;
+
   refreshState: () => Promise<void>;
   refreshMessages: (channelId: number) => Promise<void>;
   enableVoice: () => Promise<void>;
@@ -85,6 +149,10 @@ interface AppState {
   addPoll: (poll: PollPayload, isOwn: boolean) => void;
   setError: (error: string | null) => void;
   reset: () => void;
+  /** Retry connection with a password after a WrongUserPW/WrongServerPW rejection. */
+  retryWithPassword: (password: string) => Promise<void>;
+  /** Dismiss the password prompt without retrying. */
+  dismissPasswordPrompt: () => void;
 
   // DM actions
   selectDmUser: (session: number) => Promise<void>;
@@ -96,6 +164,18 @@ interface AppState {
   selectGroup: (groupId: string) => Promise<void>;
   sendGroupMessage: (groupId: string, body: string) => Promise<void>;
   refreshGroupMessages: (groupId: string) => Promise<void>;
+
+  // Persistent chat actions
+  fetchHistory: (channelId: number, beforeId?: string) => Promise<void>;
+  getPersistenceMode: (channelId: number) => PersistenceMode;
+  verifyKeyFingerprint: (channelId: number) => Promise<void>;
+  acceptCustodianChanges: (channelId: number) => Promise<void>;
+  confirmCustodians: (channelId: number) => Promise<void>;
+  resolveKeyDispute: (channelId: number, trustedSenderHash: string) => Promise<void>;
+  updateChannelPersistenceConfig: (channelId: number, config: ChannelPersistConfig) => void;
+  approveKeyShare: (channelId: number, peerCertHash: string) => Promise<void>;
+  dismissKeyShare: (channelId: number, peerCertHash: string) => Promise<void>;
+  queryKeyHolders: (channelId: number) => Promise<void>;
 }
 
 const INITIAL: Pick<
@@ -122,6 +202,17 @@ const INITIAL: Pick<
   | "groupUnreadCounts"
   | "polls"
   | "pollMessages"
+  | "channelPersistence"
+  | "keyTrust"
+  | "custodianPins"
+  | "pendingDisputes"
+  | "pchatHistoryLoading"
+  | "pendingKeyShares"
+  | "keyHolders"
+  | "pchatKeyRevoked"
+  | "passwordRequired"
+  | "passwordAttempted"
+  | "pendingConnect"
 > = {
   status: "disconnected",
   channels: [],
@@ -149,6 +240,17 @@ const INITIAL: Pick<
   groupUnreadCounts: {},
   polls: new Map(),
   pollMessages: [],
+  channelPersistence: {},
+  keyTrust: {},
+  custodianPins: {},
+  pendingDisputes: {},
+  pchatHistoryLoading: new Set(),
+  pendingKeyShares: {},
+  keyHolders: {},
+  pchatKeyRevoked: new Set(),
+  passwordRequired: false,
+  passwordAttempted: false,
+  pendingConnect: null,
 };
 
 // --- Store --------------------------------------------------------
@@ -165,15 +267,26 @@ function updateBadgeCount(): void {
   });
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   ...INITIAL,
 
-  connect: async (host, port, username, certLabel) => {
-    set({ status: "connecting", error: null });
+  connect: async (host, port, username, certLabel, password) => {
+    set({
+      status: "connecting",
+      error: null,
+      passwordRequired: false,
+      pendingConnect: { host, port, username, certLabel: certLabel ?? null },
+    });
     try {
-      await invoke("connect", { host, port, username, certLabel: certLabel ?? null });
+      await invoke("connect", {
+        host,
+        port,
+        username,
+        certLabel: certLabel ?? null,
+        password: password ?? null,
+      });
     } catch (e) {
-      set({ status: "disconnected", error: String(e) });
+      set({ status: "disconnected", error: String(e), pendingConnect: null });
     }
   },
 
@@ -212,6 +325,53 @@ export const useAppStore = create<AppState>((set) => ({
     }
   },
 
+  createChannel: async (parentId, name, opts = {}) => {
+    try {
+      await invoke("create_channel", {
+        parentId,
+        name,
+        description: opts.description ?? null,
+        position: opts.position ?? null,
+        temporary: opts.temporary ?? null,
+        maxUsers: opts.maxUsers ?? null,
+        pchatMode: opts.pchatMode ?? null,
+        pchatMaxHistory: opts.pchatMaxHistory ?? null,
+        pchatRetentionDays: opts.pchatRetentionDays ?? null,
+      });
+    } catch (e) {
+      console.error("create_channel error:", e);
+      throw e;
+    }
+  },
+
+  updateChannel: async (channelId, opts) => {
+    try {
+      await invoke("update_channel", {
+        channelId,
+        name: opts.name ?? null,
+        description: opts.description ?? null,
+        position: opts.position ?? null,
+        temporary: opts.temporary ?? null,
+        maxUsers: opts.maxUsers ?? null,
+        pchatMode: opts.pchatMode ?? null,
+        pchatMaxHistory: opts.pchatMaxHistory ?? null,
+        pchatRetentionDays: opts.pchatRetentionDays ?? null,
+      });
+    } catch (e) {
+      console.error("update_channel error:", e);
+      throw e;
+    }
+  },
+
+  deleteChannel: async (channelId) => {
+    try {
+      await invoke("delete_channel", { channelId });
+    } catch (e) {
+      console.error("delete_channel error:", e);
+      throw e;
+    }
+  },
+
   sendMessage: async (channelId, body) => {
     try {
       await invoke("send_message", { channelId, body });
@@ -230,7 +390,25 @@ export const useAppStore = create<AppState>((set) => ({
         invoke<ChannelEntry[]>("get_channels"),
         invoke<UserEntry[]>("get_users"),
       ]);
-      set({ channels, users });
+
+      // Derive channelPersistence from channel pchat_mode so the
+      // PersistenceBanner (and its loading indicator) can render.
+      const prev = get().channelPersistence;
+      const nextPersistence: Record<number, ChannelPersistenceState> = { ...prev };
+      for (const ch of channels) {
+        if (ch.pchat_mode && ch.pchat_mode !== "none") {
+          const mode = ch.pchat_mode.toUpperCase() as PersistenceMode;
+          nextPersistence[ch.id] = {
+            mode,
+            maxHistory: ch.pchat_max_history ?? prev[ch.id]?.maxHistory ?? 0,
+            retentionDays: ch.pchat_retention_days ?? prev[ch.id]?.retentionDays ?? 0,
+            hasMore: prev[ch.id]?.hasMore ?? false,
+            isFetching: prev[ch.id]?.isFetching ?? false,
+            totalStored: prev[ch.id]?.totalStored ?? 0,
+          };
+        }
+      }
+      set({ channels, users, channelPersistence: nextPersistence });
     } catch (e) {
       console.error("refresh error:", e);
     }
@@ -407,6 +585,175 @@ export const useAppStore = create<AppState>((set) => ({
   },
   setError: (error) => set({ error }),
   reset: () => set({ ...INITIAL }),
+
+  retryWithPassword: async (password) => {
+    const pending = get().pendingConnect;
+    if (!pending) return;
+    set({ passwordRequired: false, passwordAttempted: true, pendingConnect: null });
+    await get().connect(pending.host, pending.port, pending.username, pending.certLabel, password);
+  },
+
+  dismissPasswordPrompt: () => {
+    set({ passwordRequired: false, passwordAttempted: false, pendingConnect: null });
+  },
+
+  // -- Persistent chat actions ------------------------------------
+
+  fetchHistory: async (channelId, beforeId) => {
+    set((prev) => ({
+      channelPersistence: {
+        ...prev.channelPersistence,
+        [channelId]: {
+          ...prev.channelPersistence[channelId],
+          isFetching: true,
+        },
+      },
+    }));
+    try {
+      // Fire-and-forget: the response arrives asynchronously via
+      // "pchat-fetch-complete" and "new-message" events.
+      await invoke<void>("fetch_older_messages", {
+        channelId,
+        beforeId: beforeId ?? null,
+        limit: 50,
+      });
+    } catch (e) {
+      console.error("fetch_older_messages error:", e);
+      set((prev) => ({
+        channelPersistence: {
+          ...prev.channelPersistence,
+          [channelId]: {
+            ...prev.channelPersistence[channelId],
+            isFetching: false,
+          },
+        },
+      }));
+    }
+  },
+
+  getPersistenceMode: (channelId) => {
+    return get().channelPersistence[channelId]?.mode ?? "NONE";
+  },
+
+  verifyKeyFingerprint: async (channelId) => {
+    try {
+      await invoke("verify_channel_key_manual", { channelId });
+      set((prev) => ({
+        keyTrust: {
+          ...prev.keyTrust,
+          [channelId]: {
+            ...prev.keyTrust[channelId],
+            trustLevel: "ManuallyVerified",
+          },
+        },
+      }));
+    } catch (e) {
+      console.error("verify_channel_key_manual error:", e);
+    }
+  },
+
+  acceptCustodianChanges: async (channelId) => {
+    try {
+      await invoke("accept_custodian_changes", { channelId });
+      set((prev) => {
+        const pin = prev.custodianPins[channelId];
+        if (!pin?.pendingUpdate) return {};
+        return {
+          custodianPins: {
+            ...prev.custodianPins,
+            [channelId]: {
+              pinned: pin.pendingUpdate,
+              confirmed: true,
+              pendingUpdate: null,
+            },
+          },
+        };
+      });
+    } catch (e) {
+      console.error("accept_custodian_changes error:", e);
+    }
+  },
+
+  confirmCustodians: async (channelId) => {
+    try {
+      const { custodianPins } = get();
+      const pin = custodianPins[channelId];
+      if (!pin) return;
+      await invoke("confirm_custodians", {
+        channelId,
+        custodianHashes: pin.pinned,
+      });
+      set((prev) => ({
+        custodianPins: {
+          ...prev.custodianPins,
+          [channelId]: { ...prev.custodianPins[channelId], confirmed: true },
+        },
+      }));
+    } catch (e) {
+      console.error("confirm_custodians error:", e);
+    }
+  },
+
+  resolveKeyDispute: async (channelId, trustedSenderHash) => {
+    try {
+      await invoke("resolve_key_dispute", { channelId, trustedSenderHash });
+      set((prev) => {
+        const { [channelId]: _removed, ...rest } = prev.pendingDisputes;
+        return {
+          pendingDisputes: rest,
+          keyTrust: {
+            ...prev.keyTrust,
+            [channelId]: {
+              ...prev.keyTrust[channelId],
+              trustLevel: "ManuallyVerified",
+            },
+          },
+        };
+      });
+    } catch (e) {
+      console.error("resolve_key_dispute error:", e);
+    }
+  },
+
+  updateChannelPersistenceConfig: (channelId, config) => {
+    set((prev) => ({
+      channelPersistence: {
+        ...prev.channelPersistence,
+        [channelId]: {
+          mode: config.mode,
+          maxHistory: config.maxHistory,
+          retentionDays: config.retentionDays,
+          hasMore: false,
+          isFetching: false,
+          totalStored: prev.channelPersistence[channelId]?.totalStored ?? 0,
+        },
+      },
+    }));
+  },
+
+  approveKeyShare: async (channelId, peerCertHash) => {
+    try {
+      await invoke("approve_key_share", { channelId, peerCertHash });
+    } catch (e) {
+      console.error("approve_key_share error:", e);
+    }
+  },
+
+  dismissKeyShare: async (channelId, peerCertHash) => {
+    try {
+      await invoke("dismiss_key_share", { channelId, peerCertHash });
+    } catch (e) {
+      console.error("dismiss_key_share error:", e);
+    }
+  },
+
+  queryKeyHolders: async (channelId) => {
+    try {
+      await invoke("query_key_holders", { channelId });
+    } catch (e) {
+      console.error("query_key_holders error:", e);
+    }
+  },
 }));
 
 // --- Tauri event bridge -------------------------------------------
@@ -434,11 +781,42 @@ export async function initEventListeners(
 ): Promise<UnlistenFn[]> {
   const unlisteners: UnlistenFn[] = [];
 
+  // Ensure notification permissions and channel are set up (Android 8+ / 13+).
+  try {
+    let granted = await isPermissionGranted();
+    if (!granted) {
+      const result = await requestPermission();
+      granted = result === "granted";
+    }
+    if (granted) {
+      await createChannel({
+        id: "messages",
+        name: "Messages",
+        description: "Chat message notifications",
+        importance: Importance.Default,
+        visibility: Visibility.Public,
+      });
+    }
+  } catch {
+    // Notification API may not be available on all platforms.
+  }
+
+  // Sync the notification preference to the Rust backend.
+  try {
+    const { getPreferences } = await import("./preferencesStorage");
+    const prefs = await getPreferences();
+    await invoke("set_notifications_enabled", {
+      enabled: prefs.enableNotifications ?? true,
+    });
+  } catch {
+    // Preference store may not be ready yet - backend defaults to enabled.
+  }
+
   // Server fully connected (ServerSync received).
   unlisteners.push(
     await listen("server-connected", () => {
       // Navigate immediately - don't block on data fetching.
-      useAppStore.setState({ status: "connected" });
+      useAppStore.setState({ status: "connected", pendingConnect: null, passwordRequired: false });
       navigate("/chat");
 
       // Load channels/users/messages lazily in the background.
@@ -468,12 +846,15 @@ export async function initEventListeners(
 
   // Connection dropped.
   unlisteners.push(
-    await listen("server-disconnected", () => {
+    await listen<string | null>("server-disconnected", (event) => {
       // Clean up offloaded temp files.
       offloadManager.dispose().catch(() => {});
-      // Preserve any error that was set by connection-rejected.
-      const currentError = useAppStore.getState().error;
-      useAppStore.setState({ ...INITIAL, error: currentError });
+      // Preserve error / password-prompt state that was set by connection-rejected.
+      const { error: currentError, passwordRequired: pwRequired, pendingConnect: pending } = useAppStore.getState();
+      // If a password prompt is already pending, keep the rejection error
+      // instead of overwriting it with a generic disconnect message.
+      const reason = pwRequired ? currentError : (event.payload ?? currentError);
+      useAppStore.setState({ ...INITIAL, error: reason, passwordRequired: pwRequired, pendingConnect: pending });
       invoke("update_badge_count", { count: null }).catch(() => {});
       navigate("/");
     }),
@@ -575,11 +956,25 @@ export async function initEventListeners(
 
   // Server rejected the connection.
   unlisteners.push(
-    await listen<{ reason: string }>("connection-rejected", (event) => {
-      useAppStore.setState({
-        status: "disconnected",
-        error: event.payload.reason,
-      });
+    await listen<{ reason: string; reject_type: number | null }>("connection-rejected", (event) => {
+      const rt = event.payload.reject_type;
+      // WrongUserPW = 3, WrongServerPW = 4
+      const isPasswordError = rt === 3 || rt === 4;
+      if (isPasswordError) {
+        const { passwordAttempted } = useAppStore.getState();
+        useAppStore.setState({
+          status: "disconnected",
+          error: passwordAttempted ? event.payload.reason : null,
+          passwordRequired: true,
+          // pendingConnect was set by the connect action - keep it.
+        });
+      } else {
+        useAppStore.setState({
+          status: "disconnected",
+          error: event.payload.reason,
+          pendingConnect: null,
+        });
+      }
       navigate("/");
     }),
   );
@@ -664,6 +1059,194 @@ export async function initEventListeners(
         for (const handler of pluginDataHandlers) {
           handler(data_id, bytes, sender_session);
         }
+      },
+    ),
+  );
+
+  // -- Persistent chat events -------------------------------------
+
+  unlisteners.push(
+    // Channel persistence config changed (from ChannelState updates).
+    await listen<{ channel_id: number; config: ChannelPersistConfig }>(
+      "persistence-config-changed",
+      (event) => {
+        const { channel_id, config } = event.payload;
+        useAppStore.getState().updateChannelPersistenceConfig(channel_id, config);
+      },
+    ),
+
+    // Key trust level changed for a channel.
+    await listen<{ channel_id: number; trust: KeyTrustState }>(
+      "key-trust-changed",
+      (event) => {
+        const { channel_id, trust } = event.payload;
+        useAppStore.setState((prev) => {
+          // Receiving a new key clears the revoked flag for this channel.
+          const next = new Set(prev.pchatKeyRevoked);
+          next.delete(channel_id);
+          return {
+            keyTrust: { ...prev.keyTrust, [channel_id]: trust },
+            pchatKeyRevoked: next,
+          };
+        });
+      },
+    ),
+
+    // Custodian list changed (TOFU change detection).
+    await listen<{ channel_id: number; pin: CustodianPinState }>(
+      "custodian-pin-changed",
+      (event) => {
+        const { channel_id, pin } = event.payload;
+        useAppStore.setState((prev) => ({
+          custodianPins: { ...prev.custodianPins, [channel_id]: pin },
+        }));
+      },
+    ),
+
+    // Key dispute detected.
+    await listen<{ channel_id: number; dispute: PendingDispute }>(
+      "key-dispute-detected",
+      (event) => {
+        const { channel_id, dispute } = event.payload;
+        useAppStore.setState((prev) => ({
+          pendingDisputes: { ...prev.pendingDisputes, [channel_id]: dispute },
+        }));
+      },
+    ),
+
+    // Key dispute resolved (by custodian shortcut or timeout).
+    await listen<{ channel_id: number }>(
+      "key-dispute-resolved",
+      (event) => {
+        const { channel_id } = event.payload;
+        useAppStore.setState((prev) => {
+          const { [channel_id]: _removed, ...rest } = prev.pendingDisputes;
+          return { pendingDisputes: rest };
+        });
+      },
+    ),
+
+    // Pchat history loading state (waiting for key exchange).
+    await listen<{ channel_id: number; loading: boolean }>(
+      "pchat-history-loading",
+      (event) => {
+        const { channel_id, loading } = event.payload;
+        const next = new Set(useAppStore.getState().pchatHistoryLoading);
+        if (loading) {
+          next.add(channel_id);
+        } else {
+          next.delete(channel_id);
+        }
+        useAppStore.setState({ pchatHistoryLoading: next });
+      },
+    ),
+
+    // Pchat fetch complete -- update pagination metadata.
+    await listen<{ channel_id: number; has_more: boolean; total_stored: number }>(
+      "pchat-fetch-complete",
+      (event) => {
+        const { channel_id, has_more, total_stored } = event.payload;
+        useAppStore.setState((prev) => ({
+          channelPersistence: {
+            ...prev.channelPersistence,
+            [channel_id]: {
+              ...prev.channelPersistence[channel_id],
+              hasMore: has_more,
+              isFetching: false,
+              totalStored: total_stored,
+            },
+          },
+        }));
+      },
+    ),
+
+    // A new key-share consent request from the backend.
+    await listen<PendingKeyShareRequest>(
+      "pchat-key-share-request",
+      (event) => {
+        const req = event.payload;
+        useAppStore.setState((prev) => {
+          const existing = prev.pendingKeyShares[req.channel_id] ?? [];
+          // Avoid duplicates.
+          if (existing.some((p) => p.peer_cert_hash === req.peer_cert_hash)) {
+            return {};
+          }
+          return {
+            pendingKeyShares: {
+              ...prev.pendingKeyShares,
+              [req.channel_id]: [...existing, req],
+            },
+          };
+        });
+      },
+    ),
+
+    // Key-share requests changed (after approve/dismiss).
+    await listen<{ channel_id: number; pending: PendingKeyShareRequest[] }>(
+      "pchat-key-share-requests-changed",
+      (event) => {
+        const { channel_id, pending } = event.payload;
+        useAppStore.setState((prev) => {
+          if (pending.length === 0) {
+            const { [channel_id]: _removed, ...rest } = prev.pendingKeyShares;
+            return { pendingKeyShares: rest };
+          }
+          return {
+            pendingKeyShares: {
+              ...prev.pendingKeyShares,
+              [channel_id]: pending,
+            },
+          };
+        });
+      },
+    ),
+
+    // Key holders list updated by the server.
+    await listen<{ channel_id: number; holders: KeyHolderEntry[] }>(
+      "pchat-key-holders-changed",
+      (event) => {
+        const { channel_id, holders } = event.payload;
+        useAppStore.setState((prev) => ({
+          keyHolders: {
+            ...prev.keyHolders,
+            [channel_id]: holders,
+          },
+        }));
+      },
+    ),
+
+    // Key restored: a new key was received after a previous revocation.
+    await listen<{ channel_id: number }>(
+      "pchat-key-restored",
+      (event) => {
+        const { channel_id } = event.payload;
+        useAppStore.setState((prev) => {
+          const next = new Set(prev.pchatKeyRevoked);
+          next.delete(channel_id);
+          return { pchatKeyRevoked: next };
+        });
+      },
+    ),
+
+    // Key-possession challenge failed: our key was wrong/outdated.
+    await listen<{ channel_id: number }>(
+      "pchat-key-revoked",
+      (event) => {
+        const { channel_id } = event.payload;
+        useAppStore.setState((prev) => {
+          const next = new Set(prev.pchatKeyRevoked);
+          next.add(channel_id);
+          // Clear stale key-trust for this channel.
+          const { [channel_id]: _removedTrust, ...restTrust } = prev.keyTrust;
+          // Clear any messages that were decrypted before the challenge
+          // result arrived (prevents flash of unauthorized content).
+          const clearMessages = prev.selectedChannel === channel_id;
+          return {
+            pchatKeyRevoked: next,
+            keyTrust: restTrust,
+            ...(clearMessages ? { messages: [] } : {}),
+          };
+        });
       },
     ),
   );

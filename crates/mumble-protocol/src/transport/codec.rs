@@ -87,6 +87,21 @@ fn serialize_control_message(msg: &ControlMessage) -> Result<(u16, Vec<u8>)> {
         ServerConfig(m) => (TcpMessageType::ServerConfig as u16, m.encode_to_vec()),
         SuggestConfig(m) => (TcpMessageType::SuggestConfig as u16, m.encode_to_vec()),
         PluginDataTransmission(m) => (TcpMessageType::PluginDataTransmission as u16, m.encode_to_vec()),
+        PchatMessage(m) => (TcpMessageType::PchatMessage as u16, m.encode_to_vec()),
+        PchatFetch(m) => (TcpMessageType::PchatFetch as u16, m.encode_to_vec()),
+        PchatFetchResponse(m) => (TcpMessageType::PchatFetchResponse as u16, m.encode_to_vec()),
+        PchatMessageDeliver(m) => (TcpMessageType::PchatMessageDeliver as u16, m.encode_to_vec()),
+        PchatKeyAnnounce(m) => (TcpMessageType::PchatKeyAnnounce as u16, m.encode_to_vec()),
+        PchatKeyExchange(m) => (TcpMessageType::PchatKeyExchange as u16, m.encode_to_vec()),
+        PchatKeyRequest(m) => (TcpMessageType::PchatKeyRequest as u16, m.encode_to_vec()),
+        PchatAck(m) => (TcpMessageType::PchatAck as u16, m.encode_to_vec()),
+        PchatEpochCountersig(m) => (TcpMessageType::PchatEpochCountersig as u16, m.encode_to_vec()),
+        PchatKeyHolderReport(m) => (TcpMessageType::PchatKeyHolderReport as u16, m.encode_to_vec()),
+        PchatKeyHoldersQuery(m) => (TcpMessageType::PchatKeyHoldersQuery as u16, m.encode_to_vec()),
+        PchatKeyHoldersList(m) => (TcpMessageType::PchatKeyHoldersList as u16, m.encode_to_vec()),
+        PchatKeyChallenge(m) => (TcpMessageType::PchatKeyChallenge as u16, m.encode_to_vec()),
+        PchatKeyChallengeResponse(m) => (TcpMessageType::PchatKeyChallengeResponse as u16, m.encode_to_vec()),
+        PchatKeyChallengeResult(m) => (TcpMessageType::PchatKeyChallengeResult as u16, m.encode_to_vec()),
         UdpTunnel(data) => (TcpMessageType::UdpTunnel as u16, data.clone()),
     };
 
@@ -125,12 +140,28 @@ fn deserialize_control_message(type_id: u16, payload: &[u8]) -> Result<ControlMe
         ServerConfig => ControlMessage::ServerConfig(mumble_tcp::ServerConfig::decode(payload)?),
         SuggestConfig => ControlMessage::SuggestConfig(mumble_tcp::SuggestConfig::decode(payload)?),
         PluginDataTransmission => ControlMessage::PluginDataTransmission(mumble_tcp::PluginDataTransmission::decode(payload)?),
+        PchatMessage => ControlMessage::PchatMessage(mumble_tcp::PchatMessage::decode(payload)?),
+        PchatFetch => ControlMessage::PchatFetch(mumble_tcp::PchatFetch::decode(payload)?),
+        PchatFetchResponse => ControlMessage::PchatFetchResponse(mumble_tcp::PchatFetchResponse::decode(payload)?),
+        PchatMessageDeliver => ControlMessage::PchatMessageDeliver(mumble_tcp::PchatMessageDeliver::decode(payload)?),
+        PchatKeyAnnounce => ControlMessage::PchatKeyAnnounce(mumble_tcp::PchatKeyAnnounce::decode(payload)?),
+        PchatKeyExchange => ControlMessage::PchatKeyExchange(mumble_tcp::PchatKeyExchange::decode(payload)?),
+        PchatKeyRequest => ControlMessage::PchatKeyRequest(mumble_tcp::PchatKeyRequest::decode(payload)?),
+        PchatAck => ControlMessage::PchatAck(mumble_tcp::PchatAck::decode(payload)?),
+        PchatEpochCountersig => ControlMessage::PchatEpochCountersig(mumble_tcp::PchatEpochCountersig::decode(payload)?),
+        PchatKeyHolderReport => ControlMessage::PchatKeyHolderReport(mumble_tcp::PchatKeyHolderReport::decode(payload)?),
+        PchatKeyHoldersQuery => ControlMessage::PchatKeyHoldersQuery(mumble_tcp::PchatKeyHoldersQuery::decode(payload)?),
+        PchatKeyHoldersList => ControlMessage::PchatKeyHoldersList(mumble_tcp::PchatKeyHoldersList::decode(payload)?),
+        PchatKeyChallenge => ControlMessage::PchatKeyChallenge(mumble_tcp::PchatKeyChallenge::decode(payload)?),
+        PchatKeyChallengeResponse => ControlMessage::PchatKeyChallengeResponse(mumble_tcp::PchatKeyChallengeResponse::decode(payload)?),
+        PchatKeyChallengeResult => ControlMessage::PchatKeyChallengeResult(mumble_tcp::PchatKeyChallengeResult::decode(payload)?),
     };
     Ok(msg)
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
 
     #[test]
@@ -482,6 +513,237 @@ mod tests {
             }
             other => panic!("expected PluginDataTransmission, got {other:?}"),
         }
+        Ok(())
+    }
+
+    // -- PchatKeyHolder* codec tests ----------------------------------
+
+    #[test]
+    fn roundtrip_pchat_key_holder_report() -> Result<()> {
+        let msg = ControlMessage::PchatKeyHolderReport(mumble_tcp::PchatKeyHolderReport {
+            channel_id: Some(42),
+            cert_hash: Some("abcdef0123456789".into()),
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::PchatKeyHolderReport(r) => {
+                assert_eq!(r.channel_id, Some(42));
+                assert_eq!(r.cert_hash.as_deref(), Some("abcdef0123456789"));
+            }
+            other => panic!("expected PchatKeyHolderReport, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_pchat_key_holders_query() -> Result<()> {
+        let msg = ControlMessage::PchatKeyHoldersQuery(mumble_tcp::PchatKeyHoldersQuery {
+            channel_id: Some(7),
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::PchatKeyHoldersQuery(q) => {
+                assert_eq!(q.channel_id, Some(7));
+            }
+            other => panic!("expected PchatKeyHoldersQuery, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_pchat_key_holders_list() -> Result<()> {
+        use mumble_tcp::pchat_key_holders_list::Entry;
+
+        let msg = ControlMessage::PchatKeyHoldersList(mumble_tcp::PchatKeyHoldersList {
+            channel_id: Some(3),
+            holders: vec![
+                Entry {
+                    cert_hash: Some("hash_alice".into()),
+                    name: Some("Alice".into()),
+                },
+                Entry {
+                    cert_hash: Some("hash_bob".into()),
+                    name: Some("Bob".into()),
+                },
+            ],
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::PchatKeyHoldersList(l) => {
+                assert_eq!(l.channel_id, Some(3));
+                assert_eq!(l.holders.len(), 2);
+                assert_eq!(l.holders[0].cert_hash.as_deref(), Some("hash_alice"));
+                assert_eq!(l.holders[0].name.as_deref(), Some("Alice"));
+                assert_eq!(l.holders[1].cert_hash.as_deref(), Some("hash_bob"));
+                assert_eq!(l.holders[1].name.as_deref(), Some("Bob"));
+            }
+            other => panic!("expected PchatKeyHoldersList, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_pchat_key_holders_list_empty() -> Result<()> {
+        let msg = ControlMessage::PchatKeyHoldersList(mumble_tcp::PchatKeyHoldersList {
+            channel_id: Some(0),
+            holders: vec![],
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::PchatKeyHoldersList(l) => {
+                assert_eq!(l.channel_id, Some(0));
+                assert!(l.holders.is_empty());
+            }
+            other => panic!("expected PchatKeyHoldersList, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn pchat_key_holder_report_wire_type_id() -> Result<()> {
+        let msg = ControlMessage::PchatKeyHolderReport(mumble_tcp::PchatKeyHolderReport {
+            channel_id: Some(1),
+            cert_hash: Some("abc".into()),
+        });
+        let encoded = encode(&msg)?;
+        // First 2 bytes are the type ID (big-endian u16).
+        let type_id = u16::from_be_bytes([encoded[0], encoded[1]]);
+        assert_eq!(type_id, 109, "PchatKeyHolderReport must be wire type 109");
+        Ok(())
+    }
+
+    #[test]
+    fn pchat_key_holders_query_wire_type_id() -> Result<()> {
+        let msg = ControlMessage::PchatKeyHoldersQuery(mumble_tcp::PchatKeyHoldersQuery {
+            channel_id: Some(1),
+        });
+        let encoded = encode(&msg)?;
+        let type_id = u16::from_be_bytes([encoded[0], encoded[1]]);
+        assert_eq!(type_id, 110, "PchatKeyHoldersQuery must be wire type 110");
+        Ok(())
+    }
+
+    #[test]
+    fn pchat_key_holders_list_wire_type_id() -> Result<()> {
+        let msg = ControlMessage::PchatKeyHoldersList(mumble_tcp::PchatKeyHoldersList {
+            channel_id: Some(1),
+            holders: vec![],
+        });
+        let encoded = encode(&msg)?;
+        let type_id = u16::from_be_bytes([encoded[0], encoded[1]]);
+        assert_eq!(type_id, 111, "PchatKeyHoldersList must be wire type 111");
+        Ok(())
+    }
+
+    // -- PchatKeyChallenge* codec tests -------------------------------
+
+    #[test]
+    fn roundtrip_pchat_key_challenge() -> Result<()> {
+        let challenge = vec![0xAA; 32];
+        let msg = ControlMessage::PchatKeyChallenge(mumble_tcp::PchatKeyChallenge {
+            channel_id: Some(5),
+            challenge: Some(challenge.clone()),
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::PchatKeyChallenge(c) => {
+                assert_eq!(c.channel_id, Some(5));
+                assert_eq!(c.challenge.as_deref(), Some(challenge.as_slice()));
+            }
+            other => panic!("expected PchatKeyChallenge, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_pchat_key_challenge_response() -> Result<()> {
+        let proof = vec![0xBB; 32];
+        let msg = ControlMessage::PchatKeyChallengeResponse(mumble_tcp::PchatKeyChallengeResponse {
+            channel_id: Some(5),
+            proof: Some(proof.clone()),
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::PchatKeyChallengeResponse(r) => {
+                assert_eq!(r.channel_id, Some(5));
+                assert_eq!(r.proof.as_deref(), Some(proof.as_slice()));
+            }
+            other => panic!("expected PchatKeyChallengeResponse, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_pchat_key_challenge_result() -> Result<()> {
+        let msg = ControlMessage::PchatKeyChallengeResult(mumble_tcp::PchatKeyChallengeResult {
+            channel_id: Some(5),
+            passed: Some(true),
+        });
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::PchatKeyChallengeResult(r) => {
+                assert_eq!(r.channel_id, Some(5));
+                assert_eq!(r.passed, Some(true));
+            }
+            other => panic!("expected PchatKeyChallengeResult, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn pchat_key_challenge_wire_type_id() -> Result<()> {
+        let msg = ControlMessage::PchatKeyChallenge(mumble_tcp::PchatKeyChallenge {
+            channel_id: Some(1),
+            challenge: Some(vec![0; 32]),
+        });
+        let encoded = encode(&msg)?;
+        let type_id = u16::from_be_bytes([encoded[0], encoded[1]]);
+        assert_eq!(type_id, 112, "PchatKeyChallenge must be wire type 112");
+        Ok(())
+    }
+
+    #[test]
+    fn pchat_key_challenge_response_wire_type_id() -> Result<()> {
+        let msg = ControlMessage::PchatKeyChallengeResponse(mumble_tcp::PchatKeyChallengeResponse {
+            channel_id: Some(1),
+            proof: Some(vec![0; 32]),
+        });
+        let encoded = encode(&msg)?;
+        let type_id = u16::from_be_bytes([encoded[0], encoded[1]]);
+        assert_eq!(type_id, 113, "PchatKeyChallengeResponse must be wire type 113");
+        Ok(())
+    }
+
+    #[test]
+    fn pchat_key_challenge_result_wire_type_id() -> Result<()> {
+        let msg = ControlMessage::PchatKeyChallengeResult(mumble_tcp::PchatKeyChallengeResult {
+            channel_id: Some(1),
+            passed: Some(false),
+        });
+        let encoded = encode(&msg)?;
+        let type_id = u16::from_be_bytes([encoded[0], encoded[1]]);
+        assert_eq!(type_id, 114, "PchatKeyChallengeResult must be wire type 114");
         Ok(())
     }
 }

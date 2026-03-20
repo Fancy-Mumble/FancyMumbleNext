@@ -203,3 +203,52 @@
     padding: 14px;
   }
 }
+
+/* ─── Connecting state ─────────────────────────────────────────── */
+
+.serverCardConnecting {
+  border-color: var(--color-accent);
+  background: var(--color-glass-hover);
+  cursor: default;
+  overflow: hidden;
+}
+
+/* Pause/cancel button replacing the avatar letter while connecting */
+.cancelBtn {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: white;
+  cursor: pointer;
+  border-radius: inherit;
+  transition: background 0.15s;
+}
+
+.cancelBtn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.cancelBtn:active {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Animated loading bar along the bottom of the card */
+.connectingBar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  width: 40%;
+  background: var(--color-accent);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  animation: slide 1.2s ease-in-out infinite;
+}
+
+@keyframes slide {
+  0%   { left: -40%; }
+  100% { left: 100%; }
+}

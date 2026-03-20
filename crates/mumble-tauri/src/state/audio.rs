@@ -604,7 +604,7 @@ mod desktop {
 
         // Dedicated task for network sends - runs independently so
         // network latency never blocks encoding.
-        tokio::spawn(outbound_send_task(rx, handle));
+        let _outbound_send_task = tokio::spawn(outbound_send_task(rx, handle));
 
         // Let the capture buffer fill before we start encoding.
         // Without this, the first few ticks return NoData (dropout at t=0).
@@ -623,7 +623,7 @@ mod desktop {
         let mut packet_count: u64 = 0;
 
         loop {
-            interval.tick().await;
+            let _ = interval.tick().await;
 
             // Process a bounded number of frames per tick. Under normal
             // conditions there is exactly 1 frame available (20ms of
@@ -725,7 +725,7 @@ mod desktop {
         let mut frame_count: u64 = 0;
 
         loop {
-            interval.tick().await;
+            let _ = interval.tick().await;
 
             // Drain ALL buffered frames so we always measure the most
             // recent audio.  Without this the ring buffer fills up
@@ -799,7 +799,7 @@ mod desktop {
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
-            interval.tick().await;
+            let _ = interval.tick().await;
             let ts = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()

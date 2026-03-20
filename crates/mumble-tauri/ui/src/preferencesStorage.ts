@@ -17,6 +17,7 @@ const DEFAULTS: UserPreferences = {
   klipyApiKey: "",
   timeFormat: "auto",
   convertToLocalTime: true,
+  enableNotifications: true,
 };
 
 async function getStore() {
@@ -92,4 +93,23 @@ export async function saveAudioSettings(
 ): Promise<void> {
   const store = await getStore();
   await store.set(AUDIO_KEY, settings);
+}
+
+// -- Dismissed persistence banners ---------------------------------
+
+const DISMISSED_BANNERS_KEY = "dismissedPersistenceBanners";
+
+/** Return channel IDs whose persistence banner was dismissed. */
+export async function getDismissedBanners(): Promise<number[]> {
+  const store = await getStore();
+  return (await store.get<number[]>(DISMISSED_BANNERS_KEY)) ?? [];
+}
+
+/** Mark a channel's persistence banner as dismissed. */
+export async function dismissBanner(channelId: number): Promise<void> {
+  const store = await getStore();
+  const current = (await store.get<number[]>(DISMISSED_BANNERS_KEY)) ?? [];
+  if (!current.includes(channelId)) {
+    await store.set(DISMISSED_BANNERS_KEY, [...current, channelId]);
+  }
 }

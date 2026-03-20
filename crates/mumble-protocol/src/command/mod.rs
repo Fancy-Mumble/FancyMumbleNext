@@ -7,6 +7,7 @@
 mod authenticate;
 mod ban_user;
 mod channel_listen;
+mod delete_channel;
 mod disconnect;
 mod join_channel;
 mod kick_user;
@@ -20,6 +21,14 @@ mod send_audio;
 mod send_ping;
 mod send_plugin_data;
 mod send_text_message;
+mod send_pchat_message;
+mod send_pchat_fetch;
+mod send_pchat_key_announce;
+mod send_pchat_key_exchange;
+mod send_pchat_epoch_countersig;
+mod send_pchat_key_challenge_response;
+mod send_pchat_key_holder_report;
+mod send_pchat_key_holders_query;
 mod set_channel_state;
 mod set_comment;
 mod set_priority_speaker;
@@ -37,6 +46,7 @@ pub use self::core::{BoxedCommand, CommandAction, CommandOutput};
 pub use authenticate::Authenticate;
 pub use ban_user::BanUser;
 pub use channel_listen::ChannelListen;
+pub use delete_channel::DeleteChannel;
 pub use disconnect::Disconnect;
 pub use join_channel::JoinChannel;
 pub use kick_user::KickUser;
@@ -50,6 +60,14 @@ pub use send_audio::SendAudio;
 pub use send_ping::SendPing;
 pub use send_plugin_data::SendPluginData;
 pub use send_text_message::SendTextMessage;
+pub use send_pchat_message::SendPchatMessage;
+pub use send_pchat_fetch::SendPchatFetch;
+pub use send_pchat_key_announce::SendPchatKeyAnnounce;
+pub use send_pchat_key_exchange::SendPchatKeyExchange;
+pub use send_pchat_epoch_countersig::SendPchatEpochCountersig;
+pub use send_pchat_key_challenge_response::SendPchatKeyChallengeResponse;
+pub use send_pchat_key_holder_report::SendPchatKeyHolderReport;
+pub use send_pchat_key_holders_query::SendPchatKeyHoldersQuery;
 pub use set_channel_state::SetChannelState;
 pub use set_comment::SetComment;
 pub use set_priority_speaker::SetPrioritySpeaker;
@@ -96,6 +114,7 @@ mod core {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
     use crate::message::{ControlMessage, UdpMessage};
     use crate::proto::mumble_tcp;

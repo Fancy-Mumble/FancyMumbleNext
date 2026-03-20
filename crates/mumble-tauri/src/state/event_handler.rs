@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 #[cfg(target_os = "windows")]
 use tauri::Manager;
+use tauri_plugin_notification::NotificationExt;
 use tracing::info;
 #[cfg(not(target_os = "android"))]
 use tracing::warn;
@@ -41,6 +42,17 @@ impl EventEmitter for TauriEmitter {
                 tauri::UserAttentionType::Informational,
             ));
         }
+    }
+
+    fn send_notification(&self, title: &str, body: &str) {
+        let _ = self
+            .app
+            .notification()
+            .builder()
+            .channel_id("messages")
+            .title(title)
+            .body(body)
+            .show();
     }
 }
 
@@ -94,6 +106,7 @@ impl EventHandler for TauriEventHandler {
     }
 
     fn on_disconnected(&mut self) {
+        let mut user_initiated = false;
         if let Ok(mut state) = self.shared.lock() {
             // If the epoch has moved on, a newer `connect()` call has already
             // claimed the shared state.  Silently bail - this callback comes
@@ -124,7 +137,14 @@ impl EventHandler for TauriEventHandler {
             state.max_users = None;
             state.max_bandwidth = None;
             state.opus = false;
+            state.pchat = None;
+            state.pchat_seed = None;
+            state.pchat_identity_dir = None;
+            state.pending_key_shares.clear();
+            user_initiated = state.user_initiated_disconnect;
+            state.user_initiated_disconnect = false;
         }
-        let _ = self.app.emit("server-disconnected", ());
+        let reason = if user_initiated { None } else { Some("Connection to server was lost.") };
+        let _ = self.app.emit("server-disconnected", reason);
     }
 }

@@ -2,7 +2,10 @@
 //!
 // All public command functions receive `tauri::State` by value, which is
 // required by the `#[tauri::command]` macro - suppress the lint crate-wide.
-#![allow(clippy::needless_pass_by_value)]
+#![allow(clippy::needless_pass_by_value, reason = "tauri::command requires State<T> to be taken by value")]
+// This is an application crate; pub items inside private modules are
+// intentional (proc-macro visibility, Tauri command system, internal APIs).
+#![allow(unreachable_pub, reason = "application crate: pub items in private modules are intentional for Tauri command system")]
 
 #[cfg(not(target_os = "android"))]
 mod audio;
@@ -28,7 +31,7 @@ extern "system" {
 ///
 /// Reads `LOCALE_ITIME` ("0" = 12-hour, "1" = 24-hour) via `GetLocaleInfoW`.
 #[cfg(target_os = "windows")]
-#[allow(unsafe_code)]
+#[allow(unsafe_code, reason = "GetLocaleInfoW is a safe Windows API call wrapped with an unsafe extern block")]
 fn system_uses_24h() -> Option<bool> {
     const LOCALE_USER_DEFAULT: u32 = 0x0400;
     const LOCALE_ITIME: u32 = 0x0019;
@@ -175,73 +178,38 @@ async fn connect(
     port: u16,
     username: String,
     cert_label: Option<String>,
+    password: Option<String>,
 ) -> Result<(), String> {
-    state.connect(host, port, username, cert_label).await
+    state.connect(host, port, username, cert_label, password).await
 }
 
-/// Generate a self-signed TLS client certificate and save it under
-/// `{app_data_dir}/certs/{label}.cert.pem` and `.key.pem`.
+/// Generate a self-signed TLS client certificate for an identity label.
+/// Each identity gets its own folder under `{app_data}/identities/{label}/`
+/// containing both the TLS cert and the pchat seed.
 /// Does nothing if the certificate already exists.
 #[tauri::command]
 async fn generate_certificate(
     app: tauri::AppHandle,
     label: String,
 ) -> Result<(), String> {
-    use rcgen::generate_simple_self_signed;
-
     let data_dir = app
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    let cert_dir = data_dir.join("certs");
-    std::fs::create_dir_all(&cert_dir).map_err(|e| e.to_string())?;
-
-    let cert_path = cert_dir.join(format!("{label}.cert.pem"));
-    if cert_path.exists() {
-        return Ok(()); // already exists
-    }
-
-    let certified = generate_simple_self_signed(vec![label.clone()])
-        .map_err(|e| e.to_string())?;
-    let cert_pem = certified.cert.pem();
-    let key_pem = certified.signing_key.serialize_pem();
-
-    std::fs::write(&cert_path, cert_pem).map_err(|e| e.to_string())?;
-    std::fs::write(
-        cert_dir.join(format!("{label}.key.pem")),
-        key_pem,
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok(())
+    state::pchat::generate_identity_cert(&data_dir, &label)
 }
 
-/// List the labels of all certificates stored in `{app_data_dir}/certs/`.
+/// List the labels of all identities stored in `{app_data_dir}/identities/`.
 #[tauri::command]
 async fn list_certificates(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     let data_dir = app
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    let cert_dir = data_dir.join("certs");
-    if !cert_dir.exists() {
-        return Ok(vec![]);
-    }
-
-    let mut labels = Vec::new();
-    for entry in std::fs::read_dir(&cert_dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if let Some(label) = name.strip_suffix(".cert.pem") {
-            labels.push(label.to_string());
-        }
-    }
-    labels.sort();
-    Ok(labels)
+    Ok(state::pchat::list_identity_labels(&data_dir))
 }
 
-/// Delete a certificate pair by label.
+/// Delete an identity (TLS cert + pchat seed) by label.
 #[tauri::command]
 async fn delete_certificate(
     app: tauri::AppHandle,
@@ -251,16 +219,35 @@ async fn delete_certificate(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    let cert_dir = data_dir.join("certs");
-    let cert_path = cert_dir.join(format!("{label}.cert.pem"));
-    let key_path = cert_dir.join(format!("{label}.key.pem"));
-    if cert_path.exists() {
-        std::fs::remove_file(&cert_path).map_err(|e| e.to_string())?;
-    }
-    if key_path.exists() {
-        std::fs::remove_file(&key_path).map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    state::pchat::delete_identity(&data_dir, &label)
+}
+
+/// Export an identity to a user-chosen file via the native save dialog.
+#[tauri::command]
+async fn export_certificate(
+    app: tauri::AppHandle,
+    label: String,
+    dest_path: String,
+) -> Result<(), String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    state::pchat::export_identity(&data_dir, &label, std::path::Path::new(&dest_path))
+}
+
+/// Import an identity from a user-chosen file via the native open dialog.
+/// Returns the label of the imported identity.
+#[tauri::command]
+async fn import_certificate(
+    app: tauri::AppHandle,
+    src_path: String,
+) -> Result<String, String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    state::pchat::import_identity(&data_dir, std::path::Path::new(&src_path))
 }
 
 #[tauri::command]
@@ -363,15 +350,73 @@ fn get_welcome_text(state: tauri::State<'_, AppState>) -> Option<String> {
     state.welcome_text()
 }
 
-/// Update a channel's name and/or description on the server.
+/// Update a channel on the server.
 #[tauri::command]
+#[allow(clippy::too_many_arguments, reason = "Tauri command mirrors the full channel update parameter surface")]
 async fn update_channel(
     state: tauri::State<'_, AppState>,
     channel_id: u32,
     name: Option<String>,
     description: Option<String>,
+    position: Option<i32>,
+    temporary: Option<bool>,
+    max_users: Option<u32>,
+    pchat_mode: Option<String>,
+    pchat_max_history: Option<u32>,
+    pchat_retention_days: Option<u32>,
 ) -> Result<(), String> {
-    state.update_channel(channel_id, name, description).await
+    state
+        .update_channel(
+            channel_id,
+            name,
+            description,
+            position,
+            temporary,
+            max_users,
+            pchat_mode,
+            pchat_max_history,
+            pchat_retention_days,
+        )
+        .await
+}
+
+/// Delete a channel on the server.
+#[tauri::command]
+async fn delete_channel(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+) -> Result<(), String> {
+    state.delete_channel(channel_id).await
+}
+
+/// Create a new sub-channel on the server.
+#[tauri::command]
+#[allow(clippy::too_many_arguments, reason = "Tauri command mirrors the full channel creation parameter surface")]
+async fn create_channel(
+    state: tauri::State<'_, AppState>,
+    parent_id: u32,
+    name: String,
+    description: Option<String>,
+    position: Option<i32>,
+    temporary: Option<bool>,
+    max_users: Option<u32>,
+    pchat_mode: Option<String>,
+    pchat_max_history: Option<u32>,
+    pchat_retention_days: Option<u32>,
+) -> Result<(), String> {
+    state
+        .create_channel(
+            parent_id,
+            name,
+            description,
+            position,
+            temporary,
+            max_users,
+            pchat_mode,
+            pchat_max_history,
+            pchat_retention_days,
+        )
+        .await
 }
 
 /// Ping a Mumble server by attempting a TCP connection and measuring
@@ -789,6 +834,16 @@ fn mark_group_read(state: tauri::State<'_, AppState>, group_id: String) {
     state.mark_group_read(&group_id);
 }
 
+/// Enable or disable native OS notifications.
+#[tauri::command]
+fn set_notifications_enabled(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    state.inner.lock().map_err(|e| e.to_string())?.notifications_enabled = enabled;
+    Ok(())
+}
+
 /// Reset all app data to factory defaults (preferences, saved servers, certs).
 #[tauri::command]
 async fn reset_app_data(app: tauri::AppHandle) -> Result<(), String> {
@@ -893,6 +948,19 @@ fn clear_offloaded_messages(state: tauri::State<'_, AppState>) {
     state.clear_offloaded();
 }
 
+/// Send a `PchatFetch` request for older messages (pagination).
+/// The response arrives asynchronously via the `PchatFetchResponse` handler
+/// which emits `"pchat-fetch-complete"` and `"new-message"` events.
+#[tauri::command]
+async fn fetch_older_messages(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    before_id: Option<String>,
+    limit: u32,
+) -> Result<(), String> {
+    state.fetch_older_messages(channel_id, before_id, limit).await
+}
+
 /// Collect debug statistics for the developer info panel.
 #[tauri::command]
 fn get_debug_stats(state: tauri::State<'_, AppState>) -> DebugStats {
@@ -981,8 +1049,212 @@ async fn request_user_stats(
     state.request_user_stats(session).await
 }
 
+/// Confirm the initial custodian list for a channel (TOFU, Section 5.7).
+#[tauri::command]
+fn confirm_custodians(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+) -> Result<(), String> {
+    let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
+    if let Some(ref mut pchat) = shared.pchat {
+        pchat.key_manager.confirm_custodian_list(channel_id);
+    }
+    Ok(())
+}
+
+/// Accept a pending custodian list change for a channel (Section 5.7).
+#[tauri::command]
+fn accept_custodian_changes(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+) -> Result<(), String> {
+    let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
+    if let Some(ref mut pchat) = shared.pchat {
+        pchat.key_manager.accept_custodian_update(channel_id);
+    }
+    Ok(())
+}
+
+/// Approve a pending key-share request: actually send the encrypted
+/// channel key to the peer that triggered the consent banner.
+#[tauri::command]
+async fn approve_key_share(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    peer_cert_hash: String,
+) -> Result<(), String> {
+    use mumble_protocol::persistent::PersistenceMode;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Extract everything we need while holding the lock, then release it.
+    let (handle, exchange) = {
+        let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
+
+        // Remove the pending entry and capture its request_id.
+        let idx = shared
+            .pending_key_shares
+            .iter()
+            .position(|p| p.channel_id == channel_id && p.peer_cert_hash == peer_cert_hash)
+            .ok_or("no pending key share for this channel/peer")?;
+        let removed = shared.pending_key_shares.remove(idx);
+        let request_id = removed.request_id;
+
+        // Emit updated pending list so frontend can remove the banner.
+        if let Some(ref app) = shared.tauri_app_handle {
+            use tauri::Emitter;
+            let remaining: Vec<_> = shared
+                .pending_key_shares
+                .iter()
+                .filter(|p| p.channel_id == channel_id)
+                .cloned()
+                .collect();
+            let _ = app.emit(
+                "pchat-key-share-requests-changed",
+                state::types::KeyShareRequestsChangedPayload {
+                    channel_id,
+                    pending: remaining,
+                },
+            );
+        }
+
+        let pchat = shared.pchat.as_ref().ok_or("pchat not initialised")?;
+
+        let peer_record = pchat
+            .key_manager
+            .get_peer(&peer_cert_hash)
+            .ok_or("peer public key not known")?;
+        let peer_x25519 = peer_record.dh_public;
+
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+
+        let mut wire_exchange = pchat
+            .key_manager
+            .distribute_key(
+                channel_id,
+                PersistenceMode::FullArchive,
+                0,
+                &peer_cert_hash,
+                &peer_x25519,
+                request_id.as_deref(),
+                now_ms,
+            )
+            .map_err(|e| format!("failed to build key exchange: {e}"))?;
+
+        wire_exchange.sender_hash = pchat.own_cert_hash.clone();
+
+        let proto =
+            state::pchat::wire_key_exchange_to_proto_pub(&wire_exchange);
+
+        let handle = shared
+            .client_handle
+            .clone()
+            .ok_or("not connected")?;
+
+        (handle, proto)
+    };
+
+    // Send the key exchange to the peer.
+    handle
+        .send(mumble_protocol::command::SendPchatKeyExchange { exchange })
+        .await
+        .map_err(|e| format!("send failed: {e}"))?;
+
+    // Record the peer as a key holder locally so we don't prompt consent
+    // for them again on subsequent channel moves.
+    if let Ok(mut shared) = state.inner.lock() {
+        if let Some(ref mut pchat) = shared.pchat {
+            pchat
+                .key_manager
+                .record_key_holder(channel_id, peer_cert_hash.clone());
+        }
+    }
+
+    // Report to the server that the peer now holds the key.
+    let report = mumble_protocol::proto::mumble_tcp::PchatKeyHolderReport {
+        channel_id: Some(channel_id),
+        cert_hash: Some(peer_cert_hash),
+    };
+    let _ = handle
+        .send(mumble_protocol::command::SendPchatKeyHolderReport { report })
+        .await;
+
+    Ok(())
+}
+
+/// Dismiss a pending key-share request without sending the key.
+#[tauri::command]
+fn dismiss_key_share(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    peer_cert_hash: String,
+) -> Result<(), String> {
+    let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
+
+    shared
+        .pending_key_shares
+        .retain(|p| !(p.channel_id == channel_id && p.peer_cert_hash == peer_cert_hash));
+
+    // Emit updated pending list so frontend can remove the banner.
+    if let Some(ref app) = shared.tauri_app_handle {
+        use tauri::Emitter;
+        let remaining: Vec<_> = shared
+            .pending_key_shares
+            .iter()
+            .filter(|p| p.channel_id == channel_id)
+            .cloned()
+            .collect();
+        let _ = app.emit(
+            "pchat-key-share-requests-changed",
+            state::types::KeyShareRequestsChangedPayload {
+                channel_id,
+                pending: remaining,
+            },
+        );
+    }
+
+    Ok(())
+}
+
+/// Ask the server for the list of key holders for a channel.
+#[tauri::command]
+async fn query_key_holders(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+) -> Result<(), String> {
+    let handle = {
+        let shared = state.inner.lock().map_err(|e| e.to_string())?;
+        shared.client_handle.clone().ok_or("not connected")?
+    };
+    let query = mumble_protocol::proto::mumble_tcp::PchatKeyHoldersQuery {
+        channel_id: Some(channel_id),
+    };
+    handle
+        .send(mumble_protocol::command::SendPchatKeyHoldersQuery { query })
+        .await
+        .map_err(|e| format!("send failed: {e}"))
+}
+
+/// Return the cached key holders for a channel (from the last server response).
+#[tauri::command]
+fn get_key_holders(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+) -> Vec<state::types::KeyHolderEntry> {
+    let shared = state.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    shared.key_holders.get(&channel_id).cloned().unwrap_or_default()
+}
+
 // --- Application bootstrap ---------------------------------------
 
+/// Entry point for the Tauri application.
+///
+/// Initialises the TLS crypto provider, sets up logging, registers all
+/// Tauri commands, and starts the application event loop.
+#[allow(clippy::too_many_lines, reason = "application bootstrap registers all Tauri commands, plugins, and event handlers")]
+#[allow(clippy::expect_used, reason = "Tauri builder failure during startup is unrecoverable")]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Install the ring TLS crypto provider before anything touches rustls.
@@ -991,7 +1263,9 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init());
 
     // Window state persistence is desktop-only.
     #[cfg(not(target_os = "android"))]
@@ -1018,6 +1292,8 @@ pub fn run() {
             generate_certificate,
             list_certificates,
             delete_certificate,
+            export_certificate,
+            import_certificate,
             disconnect,
             get_status,
             get_channels,
@@ -1035,6 +1311,8 @@ pub fn run() {
             get_server_info,
             get_welcome_text,
             update_channel,
+            create_channel,
+            delete_channel,
             ping_server,
             fetch_public_servers,
             get_audio_devices,
@@ -1067,12 +1345,14 @@ pub fn run() {
             get_group_unread_counts,
             mark_group_read,
             reset_app_data,
+            set_notifications_enabled,
             update_badge_count,
             get_system_clock_format,
             offload_message,
             load_offloaded_message,
             load_offloaded_messages_batch,
             clear_offloaded_messages,
+            fetch_older_messages,
             get_debug_stats,
             super_search,
             kick_user,
@@ -1083,6 +1363,12 @@ pub fn run() {
             reset_user_comment,
             remove_user_avatar,
             request_user_stats,
+            confirm_custodians,
+            accept_custodian_changes,
+            approve_key_share,
+            dismiss_key_share,
+            query_key_holders,
+            get_key_holders,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -1098,6 +1384,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
 
     #[test]

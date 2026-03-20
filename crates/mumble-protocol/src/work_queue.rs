@@ -17,7 +17,8 @@ use crate::error::{Error, Result};
 use crate::message::{ControlMessage, ServerMessage, UdpMessage};
 
 /// A single item in the work queue.
-#[allow(clippy::large_enum_variant)]
+#[allow(clippy::large_enum_variant, reason = "ServerMessage variant must inline ControlMessage; boxing adds per-packet heap allocation on the hot audio path")]
+#[derive(Debug)]
 pub enum WorkItem {
     /// Inbound server message (from TCP or UDP).
     ServerMessage(ServerMessage),
@@ -30,7 +31,7 @@ pub enum WorkItem {
 /// Sender-side handle for injecting work items.
 ///
 /// Cloneable - hand one to the UI thread, one to each transport task, etc.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct WorkQueueSender {
     udp_tx: mpsc::Sender<UdpMessage>,
     tcp_tx: mpsc::Sender<ControlMessage>,
@@ -64,6 +65,7 @@ impl WorkQueueSender {
 }
 
 /// Receiver-side handle consumed by the client event loop.
+#[derive(Debug)]
 pub struct WorkQueueReceiver {
     udp_rx: mpsc::Receiver<UdpMessage>,
     tcp_rx: mpsc::Receiver<ControlMessage>,
@@ -126,6 +128,7 @@ pub fn create() -> (WorkQueueSender, WorkQueueReceiver) {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
     use crate::command::Disconnect;
     use crate::proto::{mumble_tcp, mumble_udp};

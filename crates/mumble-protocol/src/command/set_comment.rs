@@ -6,6 +6,7 @@ use crate::state::ServerState;
 /// Set the current user's comment.
 #[derive(Debug)]
 pub struct SetComment {
+    /// The new comment HTML (empty string clears it).
     pub comment: String,
 }
 

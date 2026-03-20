@@ -6,17 +6,24 @@ use crate::state::ServerState;
 /// Register a voice target for whisper/shout.
 #[derive(Debug)]
 pub struct SetVoiceTarget {
+    /// Voice target slot ID (1-30).
     pub id: u32,
+    /// Entries describing who to whisper/shout to.
     pub targets: Vec<VoiceTargetEntry>,
 }
 
 /// A single entry for a voice target (whisper/shout).
 #[derive(Debug, Clone)]
 pub struct VoiceTargetEntry {
+    /// Specific user sessions to target.
     pub sessions: Vec<u32>,
+    /// Channel to target (all users in it).
     pub channel_id: Option<u32>,
+    /// ACL group to target.
     pub group: Option<String>,
+    /// Whether to include users in linked channels.
     pub links: bool,
+    /// Whether to include users in child channels.
     pub children: bool,
 }
 

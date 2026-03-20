@@ -200,7 +200,7 @@ export default function MessageItem({
     >
       {!msg.is_own && renderAvatar()}
       <div
-        className={`${styles.bubble} ${msg.is_own ? styles.ownBubble : ""} ${pureMedia ? styles.bubbleMedia : ""}`}
+        className={`${styles.bubble} ${msg.is_own ? styles.ownBubble : ""} ${pureMedia ? styles.bubbleMedia : ""} ${msg.is_legacy ? styles.legacyBubble : ""}`}
       >
         {!pureMedia && (
           <span
@@ -208,6 +208,7 @@ export default function MessageItem({
             style={{ color: msg.is_own ? "rgba(255,255,255,0.85)" : colorFor(msg.sender_name) }}
           >
             {msg.sender_name}
+            {msg.is_legacy && <span className={styles.legacyBadge}>legacy</span>}
             <time className={styles.messageTime} dateTime={new Date(displayTimestamp).toISOString()}>
               {formatTimestamp(displayTimestamp, timeFormat, convertToLocalTime, systemUses24h)}
             </time>

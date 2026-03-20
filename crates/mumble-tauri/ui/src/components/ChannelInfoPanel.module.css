@@ -301,7 +301,17 @@
   text-decoration: underline;
 }
 
-/* ── Members list ──────────────────────────────────────────────── */
+/* -- Members list --------------------------------------------------------- */
+
+.subsectionLabel {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+  margin: 8px 0 4px;
+}
 
 .membersList {
   display: flex;
@@ -309,8 +319,80 @@
   gap: 2px;
 }
 
+.memberRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.memberKeyIcon {
+  flex-shrink: 0;
+  color: var(--color-success, #22c55e);
+}
+
+.memberWarningIcon {
+  flex-shrink: 0;
+  color: var(--color-warning, #f59e0b);
+}
+
 .emptyMembers {
   font-size: 13px;
   color: var(--color-text-secondary);
   font-style: italic;
+}
+
+.holdersList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.holderItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.holderItem.holderOffline {
+  opacity: 0.5;
+}
+
+.holderAvatarWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.holderAvatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+}
+
+.holderName {
+  font-size: 13px;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* When rendered inside a MobileBottomSheet, fill the available width. */
+@media (max-width: 768px) {
+  .panel {
+    width: 100%;
+    height: auto;
+    border-left: none;
+    overflow-y: visible;
+  }
+
+  .closeBtn {
+    display: none;
+  }
 }

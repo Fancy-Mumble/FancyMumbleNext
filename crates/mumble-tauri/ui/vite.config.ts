@@ -2,6 +2,8 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const port = Number(process.env.VITE_PORT) || 1420;
+
 export default defineConfig({
   plugins: [react()],
 
@@ -9,9 +11,14 @@ export default defineConfig({
   clearScreen: false,
 
   server: {
-    port: 1420,
+    port,
     strictPort: true,
     host: true,
+    hmr: {
+      // On Android devices, "localhost" resolves to the device itself.
+      // Use the dev machine's LAN IP so HMR WebSocket can connect.
+      host: process.env.TAURI_DEV_HOST || "localhost",
+    },
   },
 
   // Expose TAURI_* env variables to client code.

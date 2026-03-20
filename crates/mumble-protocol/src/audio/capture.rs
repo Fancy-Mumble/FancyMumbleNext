@@ -33,6 +33,7 @@ pub trait AudioCapture: Send + 'static {
 /// A silent capture source that produces empty frames at a fixed interval.
 ///
 /// Useful for tests, bots, or headless operation.
+#[derive(Debug)]
 pub struct SilentCapture {
     format: AudioFormat,
     frame_size: usize,
@@ -40,6 +41,10 @@ pub struct SilentCapture {
 }
 
 impl SilentCapture {
+    /// Create a new silent capture source.
+    ///
+    /// `format` describes the output format; `frame_size_samples` is the
+    /// number of samples per channel per frame.
     pub fn new(format: AudioFormat, frame_size_samples: usize) -> Self {
         Self {
             format,

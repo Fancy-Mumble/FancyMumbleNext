@@ -61,6 +61,16 @@ function DebugRow({ label, value }: { label: string; value: string | number | bo
   );
 }
 
+/** Decode a Mumble v2-encoded version into "major.minor.patch". */
+function decodeFancyVersion(v: number): string {
+  // Encoding: (major << 48) | (minor << 32) | (patch << 16)
+  // JS bitwise ops are 32-bit, so use division for the upper bits.
+  const major = Math.trunc(v / 2 ** 48) & 0xFFFF;
+  const minor = Math.trunc(v / 2 ** 32) & 0xFFFF;
+  const patch = Math.trunc(v / 2 ** 16) & 0xFFFF;
+  return `${major}.${minor}.${patch}`;
+}
+
 // -- Latency graph ------------------------------------------------
 
 const LATENCY_WINDOW_SECS = 10;
@@ -303,7 +313,7 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
               <span className={styles.infoLabel}>Fancy Mumble</span>
               <span className={styles.infoValue}>
                 {info.fancy_version != null
-                  ? `v${info.fancy_version}`
+                  ? `v${decodeFancyVersion(info.fancy_version)}`
                   : "Not supported"}
               </span>
             </div>

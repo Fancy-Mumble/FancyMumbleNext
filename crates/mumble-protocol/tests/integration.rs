@@ -14,6 +14,17 @@
 //!
 //! The server is configured (via `test-mumble.ini`) with large message/image
 //! limits so that large image tests pass.
+//
+// Integration tests are separate crate compilation units and will trigger
+// `unused_crate_dependencies` for every transitive dep of mumble-protocol
+// that is not directly imported in this file.
+#![allow(
+    unused_crate_dependencies,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::too_many_lines,
+    reason = "integration test: transitive deps are not directly imported; unwrap/expect and long test functions are idiomatic"
+)]
 
 use std::time::Duration;
 

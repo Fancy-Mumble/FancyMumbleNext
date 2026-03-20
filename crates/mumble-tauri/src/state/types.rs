@@ -3,7 +3,23 @@
 
 use std::collections::HashMap;
 
-use serde::Serialize;
+use serde::{Serialize, Serializer};
+
+use mumble_protocol::state::PchatMode;
+
+// --- Serialization helpers ----------------------------------------
+
+fn serialize_pchat_mode<S: Serializer>(mode: &Option<PchatMode>, s: S) -> Result<S::Ok, S::Error> {
+    match mode {
+        Some(m) => s.serialize_str(match m {
+            PchatMode::None => "none",
+            PchatMode::PostJoin => "post_join",
+            PchatMode::FullArchive => "full_archive",
+            PchatMode::ServerManaged => "server_managed",
+        }),
+        _ => s.serialize_none(),
+    }
+}
 
 // --- UI value types (serializable to the frontend) ----------------
 
@@ -21,6 +37,24 @@ pub struct ChannelEntry {
     /// Server-reported permission bitmask for this channel.
     /// `None` until a `PermissionQuery` response is received.
     pub permissions: Option<u32>,
+    /// Whether the channel is temporary.
+    pub temporary: bool,
+    /// Channel sort position.
+    pub position: i32,
+    /// Maximum users allowed (0 = unlimited).
+    pub max_users: u32,
+    /// Persistent-chat mode.  `None` if not announced by the server.
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "serialize_pchat_mode")]
+    pub pchat_mode: Option<PchatMode>,
+    /// Maximum stored messages (0 = unlimited).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pchat_max_history: Option<u32>,
+    /// Auto-delete after N days (0 = forever).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pchat_retention_days: Option<u32>,
+    /// Key custodian cert hashes (Section 5.7).
+    #[serde(skip)]
+    pub pchat_key_custodians: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -42,6 +76,22 @@ pub struct UserEntry {
     pub self_deaf: bool,
     /// Priority speaker status.
     pub priority_speaker: bool,
+    /// TLS certificate hash (hex-encoded SHA-1). Used as stable identity
+    /// for persistent chat key management.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hash: Option<String>,
+    /// Server-advertised client capabilities (see `UserState.ClientFeature`).
+    #[serde(skip)]
+    pub client_features: Vec<i32>,
+}
+
+impl UserEntry {
+    /// Returns `true` if this user advertises E2EE persistent chat support.
+    pub fn has_pchat_e2ee(&self) -> bool {
+        use mumble_protocol::proto::mumble_tcp::user_state::ClientFeature;
+        self.client_features
+            .contains(&(ClientFeature::FeaturePchatE2ee as i32))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -67,6 +117,10 @@ pub struct ChatMessage {
     /// `None` when the server/sender does not support extensions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<u64>,
+    /// `true` when the message came from a legacy (non-E2EE) client on a
+    /// pchat-enabled channel and was therefore sent in plaintext.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_legacy: bool,
 }
 
 impl ChatMessage {
@@ -215,6 +269,9 @@ pub(crate) struct NewDmPayload {
 #[derive(Clone, Serialize)]
 pub(crate) struct RejectedPayload {
     pub reason: String,
+    /// Protobuf `Reject.RejectType` value, if available.
+    /// `3` = `WrongUserPW`, `4` = `WrongServerPW`.
+    pub reject_type: Option<i32>,
 }
 
 #[derive(Clone, Serialize)]
@@ -272,7 +329,72 @@ pub(crate) struct CurrentChannelPayload {
     pub channel_id: u32,
 }
 
-// --- Audio types --------------------------------------------------
+/// Payload emitted when pchat history loading starts or finishes for a channel.
+#[derive(Clone, Serialize)]
+pub(crate) struct PchatHistoryLoadingPayload {
+    pub channel_id: u32,
+    pub loading: bool,
+}
+
+/// Payload emitted when a `PchatFetchResponse` has been fully processed.
+#[derive(Clone, Serialize)]
+pub(crate) struct PchatFetchCompletePayload {
+    pub channel_id: u32,
+    pub has_more: bool,
+    pub total_stored: u32,
+}
+
+/// A pending key-share request waiting for user approval.
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct PendingKeyShare {
+    /// Channel that the key would be shared for.
+    pub channel_id: u32,
+    /// Certificate hash of the peer requesting the key.
+    pub peer_cert_hash: String,
+    /// Display name of the peer (resolved from current users).
+    pub peer_name: String,
+    /// Server-assigned request ID (present for consensus key-request path,
+    /// `None` for proactive key-announce path).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+}
+
+/// Payload for the "pchat-key-share-request" frontend event.
+#[derive(Clone, Serialize)]
+pub(crate) struct KeyShareRequestPayload {
+    pub channel_id: u32,
+    pub peer_name: String,
+    pub peer_cert_hash: String,
+}
+/// Payload for the \"pchat-key-share-requests-changed\" event (after approve/dismiss).
+#[derive(Clone, Serialize)]
+pub(crate) struct KeyShareRequestsChangedPayload {
+    pub channel_id: u32,
+    pub pending: Vec<PendingKeyShare>,
+}
+/// A user known to hold the encryption key for a channel.
+#[derive(Clone, Debug, Serialize)]
+pub struct KeyHolderEntry {
+    /// TLS certificate hash (stable identity).
+    pub cert_hash: String,
+    /// Display name (resolved from online users or last known).
+    pub name: String,
+    /// Whether the user is currently online.
+    pub is_online: bool,
+}
+
+/// Payload for the "pchat-key-holders-changed" event.
+#[derive(Clone, Serialize)]
+pub(crate) struct KeyHoldersChangedPayload {
+    pub channel_id: u32,
+    pub holders: Vec<KeyHolderEntry>,
+}
+
+/// Payload for the "pchat-key-revoked" event.
+#[derive(Clone, Serialize)]
+pub(crate) struct PchatKeyRevokedPayload {
+    pub channel_id: u32,
+}// --- Audio types --------------------------------------------------
 
 /// Microphone amplitude payload emitted during mic test.
 #[cfg(not(target_os = "android"))]

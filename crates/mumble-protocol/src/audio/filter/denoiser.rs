@@ -28,13 +28,15 @@ impl Default for DenoiserConfig {
 /// Placeholder for a real ML-based denoiser (`RNNoise` / `DeepFilterNet`
 /// / custom ONNX). Currently a passthrough - plug a real implementation
 /// behind `AudioFilter` when the inference back-end is available.
+#[derive(Debug)]
 pub struct SpectralDenoiser {
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "reserved for future ML-based denoiser implementation")]
     config: DenoiserConfig,
     enabled: bool,
 }
 
 impl SpectralDenoiser {
+    /// Create a new spectral denoiser with the given configuration.
     pub fn new(config: DenoiserConfig) -> Self {
         Self {
             config,

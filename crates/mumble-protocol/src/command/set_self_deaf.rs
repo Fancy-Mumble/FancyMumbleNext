@@ -8,6 +8,7 @@ use crate::state::ServerState;
 /// Deafening implies self-mute.
 #[derive(Debug)]
 pub struct SetSelfDeaf {
+    /// `true` to deafen, `false` to undeafen.
     pub deafened: bool,
 }
 

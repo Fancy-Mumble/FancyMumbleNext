@@ -1,5 +1,8 @@
 ﻿/** Lightweight value types mirroring the Rust backend structs. */
 
+/** Persistent-chat mode for a channel. */
+export type PchatMode = "none" | "post_join" | "full_archive" | "server_managed";
+
 export interface ChannelEntry {
   id: number;
   parent_id: number | null;
@@ -8,6 +11,18 @@ export interface ChannelEntry {
   user_count: number;
   /** Server-reported permission bitmask, or null if not yet queried. */
   permissions: number | null;
+  /** Whether the channel is temporary. */
+  temporary: boolean;
+  /** Channel sort position. */
+  position: number;
+  /** Maximum users allowed (0 = unlimited). */
+  max_users: number;
+  /** Persistent-chat mode, if announced by the server. */
+  pchat_mode?: PchatMode;
+  /** Maximum stored messages (0 = unlimited). */
+  pchat_max_history?: number;
+  /** Auto-delete after N days (0 = forever). */
+  pchat_retention_days?: number;
 }
 
 export interface UserEntry {
@@ -30,6 +45,8 @@ export interface UserEntry {
   self_deaf: boolean;
   /** Priority speaker status. */
   priority_speaker: boolean;
+  /** TLS certificate hash (hex-encoded SHA-1). Used as stable identity. */
+  hash?: string;
 }
 
 export interface ChatMessage {
@@ -46,6 +63,8 @@ export interface ChatMessage {
   message_id?: string | null;
   /** Unix epoch milliseconds (Fancy Mumble extension). Absent on legacy servers. */
   timestamp?: number | null;
+  /** When true the message was sent by a legacy (non-E2EE) client on a pchat channel. */
+  is_legacy?: boolean;
 }
 
 /** A multi-member group chat, identified by a UUID. */
@@ -137,6 +156,8 @@ export interface UserPreferences {
   timeFormat: TimeFormat;
   /** Convert UTC timestamps to the local timezone before displaying. */
   convertToLocalTime: boolean;
+  /** Whether native OS notifications are enabled. */
+  enableNotifications?: boolean;
   /** Collapsed/expanded state of sidebar sections. */
   sidebarSections?: SidebarSections;
 }
@@ -279,4 +300,104 @@ export interface FancyProfile {
   avatarBorderCustom?: string;
   /** Custom user status text (shown below the name). */
   status?: string;
+}
+
+// --- Persistent Chat ----------------------------------------------
+
+/** Persistence mode for a channel (maps to Rust PersistenceMode). */
+export type PersistenceMode = "NONE" | "POST_JOIN" | "FULL_ARCHIVE";
+
+/** Trust level for a channel's encryption key. */
+export type KeyTrustLevel = "ManuallyVerified" | "Verified" | "Unverified" | "Disputed";
+
+/** Persistence configuration for a channel. */
+export interface ChannelPersistConfig {
+  mode: PersistenceMode;
+  maxHistory: number;
+  retentionDays: number;
+  keyCustodians: string[];
+}
+
+/** Per-channel persistence UI state tracked in the Zustand store. */
+export interface ChannelPersistenceState {
+  mode: PersistenceMode;
+  maxHistory: number;
+  retentionDays: number;
+  hasMore: boolean;
+  isFetching: boolean;
+  totalStored: number;
+}
+
+/** Key trust state for a channel's encryption key. */
+export interface KeyTrustState {
+  trustLevel: KeyTrustLevel;
+  fingerprint: KeyFingerprints;
+  distributorName: string;
+  distributorHash: string;
+  lastChanged: number;
+}
+
+/** Fingerprint representations for a channel encryption key. */
+export interface KeyFingerprints {
+  emoji: string[];
+  words: string[];
+  hex: string;
+}
+
+/** Local custodian pin state persisted per channel. */
+export interface CustodianPinState {
+  pinned: string[];
+  confirmed: boolean;
+  pendingUpdate?: string[] | null;
+}
+
+/** A conflicting key in a dispute. */
+export interface ConflictingKey {
+  senderHash: string;
+  senderName: string;
+  fingerprint: string;
+  timestamp: number;
+}
+
+/** Pending dispute state for a channel. */
+export interface PendingDispute {
+  conflictingKeys: ConflictingKey[];
+  canResolve: boolean;
+  selectedSenderHash?: string;
+}
+
+/** A stored persistent message returned from history fetch. */
+export interface StoredMessage {
+  messageId: string;
+  channelId: number;
+  timestamp: number;
+  senderHash: string;
+  senderName: string;
+  body: string;
+  encrypted: boolean;
+  epoch?: number;
+  chainIndex?: number;
+  replacesId?: string | null;
+}
+
+/** Response from fetching persistent message history. */
+export interface FetchHistoryResponse {
+  channelId: number;
+  messages: StoredMessage[];
+  hasMore: boolean;
+  totalStored: number;
+}
+
+/** A pending key-share request waiting for user approval. */
+export interface PendingKeyShareRequest {
+  channel_id: number;
+  peer_cert_hash: string;
+  peer_name: string;
+}
+
+/** A user known to hold the E2EE key for a channel. */
+export interface KeyHolderEntry {
+  cert_hash: string;
+  name: string;
+  is_online: boolean;
 }

@@ -55,7 +55,7 @@ pub trait OffloadProvider {
     fn remove(&mut self, key: &str);
 
     /// Whether `key` is currently stored.
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "utility method provided for completeness; not all callers need it")]
     fn is_offloaded(&self, key: &str) -> bool;
 
     /// Number of keys currently offloaded.
@@ -193,7 +193,7 @@ impl OffloadProvider for EncryptedFileProvider {
         let path = self.file_path(key);
         fs::write(&path, &file_data)
             .map_err(|e| format!("Failed to write offload file: {e}"))?;
-        self.offloaded.insert(key.to_string());
+        let _ = self.offloaded.insert(key.to_string());
         Ok(())
     }
 
@@ -216,7 +216,7 @@ impl OffloadProvider for EncryptedFileProvider {
     }
 
     fn remove(&mut self, key: &str) {
-        self.offloaded.remove(key);
+        let _ = self.offloaded.remove(key);
         let path = self.file_path(key);
         if path.exists() {
             let _ = fs::remove_file(&path);
@@ -270,7 +270,7 @@ impl OffloadStore {
     }
 
     /// Create a store backed by a custom provider.
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "alternative constructor for testing with custom providers")]
     pub fn with_provider(provider: Box<dyn OffloadProvider + Send>) -> Self {
         Self { provider }
     }
@@ -293,7 +293,7 @@ impl OffloadStore {
         self.provider.remove(key);
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "utility method provided for completeness; not all callers need it")]
     pub fn is_offloaded(&self, key: &str) -> bool {
         self.provider.is_offloaded(key)
     }
@@ -321,6 +321,7 @@ impl OffloadStore {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, reason = "unwrap/expect acceptable in test code")]
     use super::*;
 
     /// Create an `OffloadStore` with an isolated temporary directory so
@@ -465,14 +466,14 @@ mod tests {
         }
         impl OffloadProvider for InMemoryProvider {
             fn store(&mut self, key: &str, content: &str) -> Result<(), String> {
-                self.data.insert(key.to_string(), content.to_string());
+                let _ = self.data.insert(key.to_string(), content.to_string());
                 Ok(())
             }
             fn load(&self, key: &str) -> Result<String, String> {
                 self.data.get(key).cloned().ok_or("not found".into())
             }
             fn remove(&mut self, key: &str) {
-                self.data.remove(key);
+                let _ = self.data.remove(key);
             }
             fn is_offloaded(&self, key: &str) -> bool {
                 self.data.contains_key(key)

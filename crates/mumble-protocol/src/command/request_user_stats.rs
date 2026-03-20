@@ -6,6 +6,7 @@ use crate::state::ServerState;
 /// Request user statistics from the server.
 #[derive(Debug)]
 pub struct RequestUserStats {
+    /// Session ID of the user to request statistics for.
     pub session: u32,
 }
 

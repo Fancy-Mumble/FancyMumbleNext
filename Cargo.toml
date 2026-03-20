@@ -1,15 +1,24 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/fancy-utils",
     "crates/mumble-protocol",
     "crates/mumble-tauri",
 ]
 
-# -- Workspace-wide Clippy lints -------------------------------------
+# -- Workspace-wide lints --------------------------------------------
 # These apply to every crate in the workspace automatically.
 [workspace.lints.rust]
-unsafe_code = "warn"
+unsafe_code = "deny"
+missing_docs = "deny"
+unused_crate_dependencies = "warn"
+unused_results = "deny"
+missing_debug_implementations = "deny"
 unused_qualifications = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
 
 [workspace.lints.clippy]
 # Lint groups – use lower priority so individual overrides take effect.
@@ -28,6 +37,13 @@ uninlined_format_args = "warn"
 doc_markdown = "warn"
 missing_errors_doc = "allow"         # too noisy for early development
 module_name_repetitions = "allow"    # common pattern in Rust
+unwrap_used = "deny"
+excessive_nesting = "deny"
+too_many_lines = "deny"
+allow_attributes_without_reason = "deny"
+branches_sharing_code = "deny"
+collapsible_else_if = "deny"
+expect_used = "warn"
 
 # -- Release profile optimizations -----------------------------------
 [profile.release]

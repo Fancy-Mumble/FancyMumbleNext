@@ -9,7 +9,7 @@ use crate::message::{ControlMessage, UdpMessage};
 ///
 /// All methods have default no-op implementations so you only need
 /// to override the ones you care about.
-#[allow(unused_variables)]
+#[allow(unused_variables, reason = "default no-op implementations intentionally ignore all parameters")]
 pub trait EventHandler: Send + 'static {
     /// Called for every inbound TCP control message.
     fn on_control_message(&mut self, msg: &ControlMessage) {}
@@ -32,6 +32,7 @@ impl EventHandler for NoopEventHandler {}
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
     use crate::message::{ControlMessage, UdpMessage};
     use crate::proto::{mumble_tcp, mumble_udp};

@@ -1,42 +1,63 @@
+//! Error types for the `mumble-protocol` library.
+//!
+//! All fallible operations return [`Result<T>`], which is a type alias for
+//! `std::result::Result<T, Error>` using the library-local [`Error`] enum.
 use std::io;
 
 /// All errors that can occur within the mumble-protocol library.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// An I/O error from the underlying OS or network stack.
     #[error("IO error: {0}")]
     Io(#[from] io::Error),
 
+    /// A TLS handshake or record-layer error.
     #[error("TLS error: {0}")]
     Tls(#[from] rustls::Error),
 
+    /// Failed to decode a protobuf message from the wire.
     #[error("Protobuf decode error: {0}")]
     Decode(#[from] prost::DecodeError),
 
+    /// Failed to encode a protobuf message for the wire.
     #[error("Protobuf encode error: {0}")]
     Encode(#[from] prost::EncodeError),
 
+    /// The server sent a message-type ID that the library does not recognise.
     #[error("Unknown message type: {0}")]
     UnknownMessageType(u16),
 
+    /// The server rejected the connection (e.g. bad password, banned).
     #[error("Connection rejected: {0}")]
     Rejected(String),
 
+    /// The TCP connection was closed by the remote end.
     #[error("Connection closed")]
     ConnectionClosed,
 
+    /// The internal work queue was dropped while still in use.
     #[error("Work queue closed")]
     QueueClosed,
 
+    /// An operation was attempted that is not valid in the current state.
     #[error("Invalid state: {0}")]
     InvalidState(String),
 
+    /// The audio capture buffer does not yet have a full frame available.
+    #[error("Not enough samples")]
+    NotEnoughSamples,
+
+    /// The Opus codec reported an error.
     #[error("Opus codec error: {0}")]
     OpusCodec(String),
 
+    /// A catch-all for errors that do not fit a more specific variant.
     #[error("{0}")]
     Other(String),
 }
 
+/// Convenience alias so crate code can write `Result<T>` instead of
+/// `std::result::Result<T, Error>`.
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]

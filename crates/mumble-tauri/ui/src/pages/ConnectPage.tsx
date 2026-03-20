@@ -10,6 +10,7 @@ import { getPreferences } from "../preferencesStorage";
 import type { SavedServer, ServerPingResult, UserMode } from "../types";
 import ServerList from "../components/ServerList";
 import PublicServerList from "../components/PublicServerList";
+import PasswordDialog from "../components/PasswordDialog";
 import styles from "./ConnectPage.module.css";
 
 type View = "loading" | "servers" | "wizard" | "public";
@@ -57,8 +58,16 @@ const STEPS_NORMAL: StepDef[] = [
 ];
 
 export default function ConnectPage() {
-  const { connect, status, error } = useAppStore();
+  const { connect, disconnect, status, error, passwordRequired, pendingConnect, retryWithPassword, dismissPasswordPrompt } = useAppStore();
   const isConnecting = status === "connecting";
+
+  /* -- which server card is actively connecting ------------------- */
+  const [connectingServerId, setConnectingServerId] = useState<string | null>(null);
+
+  // Clear the connecting indicator when we leave the "connecting" state
+  useEffect(() => {
+    if (!isConnecting) setConnectingServerId(null);
+  }, [isConnecting]);
 
   /* -- user mode ------------------------------------------------- */
   const [userMode, setUserMode] = useState<UserMode>("normal");
@@ -117,12 +126,27 @@ export default function ConnectPage() {
   /* -- certificate state ----------------------------------------- */
   const [availableCerts, setAvailableCerts] = useState<string[]>([]);
   const [certLabel, setCertLabel] = useState<string>("default");
+  const [creatingCert, setCreatingCert] = useState(false);
+  const [newCertName, setNewCertName] = useState("");
 
-  useEffect(() => {
+  const refreshCerts = () =>
     invoke<string[]>("list_certificates")
       .then(setAvailableCerts)
       .catch(() => setAvailableCerts([]));
+
+  useEffect(() => {
+    refreshCerts();
   }, []);
+
+  const handleCreateCert = async () => {
+    const name = newCertName.trim();
+    if (!name) return;
+    await invoke("generate_certificate", { label: name });
+    await refreshCerts();
+    setCertLabel(name);
+    setNewCertName("");
+    setCreatingCert(false);
+  };
 
   /* -- wizard state ---------------------------------------------- */
   const [step, setStep] = useState(0);
@@ -141,6 +165,8 @@ export default function ConnectPage() {
     setUsername(defaultUsername);
     setUsingDefaultName(true);
     setCertLabel("default");
+    setCreatingCert(false);
+    setNewCertName("");
   };
 
   /* -- per-step validation --------------------------------------- */
@@ -189,8 +215,14 @@ export default function ConnectPage() {
   };
 
   const handleQuickConnect = async (server: SavedServer) => {
+    setConnectingServerId(server.id);
     await connect(server.host, server.port, server.username, server.cert_label);
   };
+
+  const handleCancelConnect = useCallback(async () => {
+    await disconnect();
+    setConnectingServerId(null);
+  }, [disconnect]);
 
   const handleDelete = async (id: string) => {
     await removeServer(id);
@@ -263,7 +295,9 @@ export default function ConnectPage() {
               onConnect={handleQuickConnect}
               onDelete={handleDelete}
               onAddNew={handleShowWizard}
+              onCancelConnect={handleCancelConnect}
               disabled={isConnecting}
+              connectingId={connectingServerId}
             />
             <button
               className={styles.publicLink}
@@ -349,8 +383,15 @@ export default function ConnectPage() {
                         <label className={styles.label}>Client certificate</label>
                         <select
                           className={styles.input}
-                          value={certLabel}
-                          onChange={(e) => setCertLabel(e.target.value)}
+                          value={creatingCert ? "__new__" : certLabel}
+                          onChange={(e) => {
+                            if (e.target.value === "__new__") {
+                              setCreatingCert(true);
+                            } else {
+                              setCreatingCert(false);
+                              setCertLabel(e.target.value);
+                            }
+                          }}
                           disabled={isConnecting}
                         >
                           <option value="">None (anonymous)</option>
@@ -359,7 +400,44 @@ export default function ConnectPage() {
                               {c === "default" ? `${c} (auto-generated)` : c}
                             </option>
                           ))}
+                          <option value="__new__">+ Create new identity…</option>
                         </select>
+                        {creatingCert && (
+                          <div className={styles.newCertRow}>
+                            <input
+                              className={styles.input}
+                              type="text"
+                              placeholder="Identity name"
+                              value={newCertName}
+                              onChange={(e) => setNewCertName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleCreateCert();
+                                }
+                              }}
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              className={styles.buttonGhost}
+                              onClick={handleCreateCert}
+                              disabled={!newCertName.trim()}
+                            >
+                              Create
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.buttonGhost}
+                              onClick={() => {
+                                setCreatingCert(false);
+                                setNewCertName("");
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </>
                   )}
@@ -479,6 +557,15 @@ export default function ConnectPage() {
           </>
         )}
       </div>
+
+      <PasswordDialog
+        open={passwordRequired}
+        onSubmit={retryWithPassword}
+        onCancel={dismissPasswordPrompt}
+        serverHost={pendingConnect?.host}
+        username={pendingConnect?.username}
+        error={error}
+      />
     </div>
   );
 }

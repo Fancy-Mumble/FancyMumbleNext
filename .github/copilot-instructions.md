@@ -204,6 +204,10 @@ When working in any file, apply this rule proactively:
 - **Fix Rust warnings** - dead code, unused imports, `clippy` warnings and
   similar diagnostics should be addressed whenever they appear in touched
   files.
+- **Fix build-log warnings immediately** - any warning that appears in the
+  output of a build (`cargo build`, `cargo check`, `cargo test`, `npm run
+  build`, `tsc`, etc.) must be resolved before the task is considered
+  complete.  Do not leave warnings for the next developer to clean up.
 - **Suggest improvements proactively** - if you notice a code smell,
   a performance issue, or a pattern inconsistent with the rest of the
   codebase while working in a file, point it out and offer (or apply) a
@@ -212,6 +216,35 @@ When working in any file, apply this rule proactively:
 - **Scope**: apply the rule to files you are *already editing*.  Do not
   refactor unrelated files without being asked - only clean up what you
   touch.
+- **pre-existing issues** - if you encounter an issue that predates your
+  change and is non-trivial to fix, it's okay to   leave a `TODO` comment with
+  a brief description of the problem and (optionally) a link to an issue or PR
+  for tracking.  The key is to avoid introducing new issues and to clean up what
+  you can in the files you edit. But if you can easily fix an existing issue
+  while working in the file, please do so.
+
+## Quality gates after every implementation
+
+After completing any non-trivial feature or bug fix, always perform these
+steps before declaring the task done:
+
+1. **Maximum File length** - if your change adds more than 200 lines to a file, consider
+   whether it can be split into multiple smaller files.  If a file exceeds
+   600 lines after your change, refactor it to reduce the length (e.g.
+   extract helper modules, split frontend components into separate files).
+2. **Run Clippy** (`cargo clippy --all-targets -- -D warnings`) and fix
+   every diagnostic it reports.  Clippy failures are treated as build
+   failures. Do not add `#[allow]` attributes to silence warnings -
+   fix the underlying issue.
+3. **Write regression tests** - add at least one automated test that
+   exercises the new behaviour and would fail if the feature were removed
+   or regressed.  Place Rust unit tests in the same file as the code under
+   test (in a `#[cfg(test)] mod tests { ... }` block) or in the relevant
+   integration test file under `tests/`.  Frontend tests go in
+   `crates/mumble-tauri/ui/src/components/__tests__/`.
+4. **Fix all build-log warnings** - run `cargo build` (or the appropriate
+   build command) and resolve every warning before finishing.  A clean,
+   warning-free build is a hard requirement.
 
 ## Coding conventions
 
@@ -223,6 +256,12 @@ When working in any file, apply this rule proactively:
 - Async runtime: `tokio` with `rt-multi-thread`
 - TLS: `rustls` with `ring` crypto provider
 - Protobuf: `prost` + `prost-build`
+- **Utility functions** - place new helper/utility functions in the `utils`
+  module (i.e. `src/utils.rs` or `src/utils/`) of the crate being worked in.
+  If a utility is general-purpose enough to benefit multiple crates, add it
+  to the `fancy-utility` crate instead and depend on it from the consuming
+  crate. Before creating a new utility function, check if one already exists
+  in the `fancy-utils` crate to avoid duplication.
 
 ### TypeScript / React
 - React 19 with function components and hooks
@@ -232,6 +271,11 @@ When working in any file, apply this rule proactively:
 - Build: Vite 6, target `esnext`
 - No ESLint config currently in repo
 - `type` imports preferred (`import type { ... }`)
+- **Reusable UI elements** - new primitive UI components (buttons, inputs,
+  badges, tables, tooltips, modals, etc.) must be placed in
+  `ui/src/components/elements/`.  If you encounter an existing component
+  elsewhere in the codebase that is clearly a generic, reusable primitive,
+  move it into that folder as part of your change (Boy Scout Rule).
 
 ### General
 - MIT license

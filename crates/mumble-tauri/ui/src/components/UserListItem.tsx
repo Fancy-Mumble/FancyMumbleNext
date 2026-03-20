@@ -5,6 +5,7 @@ import type { UserEntry } from "../types";
 import { textureToDataUrl, parseComment } from "../profileFormat";
 import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
 import { colorFor } from "../utils/format";
+import { isMobilePlatform } from "../utils/platform";
 import styles from "./UserListItem.module.css";
 
 // Re-export so existing consumers (e.g. ChannelSidebar) keep working.
@@ -65,6 +66,8 @@ interface UserListItemProps {
   readonly channelName?: string;
   /** Whether this item is currently active/selected. */
   readonly active?: boolean;
+  /** Whether this item represents the current user. */
+  readonly isSelf?: boolean;
   /** Called on left click. */
   readonly onClick?: () => void;
   /** Called on right click to open context menu. */
@@ -75,6 +78,7 @@ export function UserListItem({
   user,
   channelName,
   active,
+  isSelf,
   onClick,
   onContextMenu,
 }: UserListItemProps) {
@@ -92,8 +96,10 @@ export function UserListItem({
   const isMuted = user.mute || user.self_mute;
   const isDeafened = user.deaf || user.self_deaf;
   const isPriority = user.priority_speaker;
+  const isMobile = isMobilePlatform();
 
   const handleEnter = useCallback(() => {
+    if (isMobile) return;
     if (itemRef.current) {
       const rect = itemRef.current.getBoundingClientRect();
       const rawTop = rect.top + rect.height / 2;
@@ -104,7 +110,7 @@ export function UserListItem({
       setCardPos({ top, left: rect.right + 8 });
     }
     setShowCard(true);
-  }, []);
+  }, [isMobile]);
 
   const handleLeave = useCallback(() => {
     setShowCard(false);
@@ -114,7 +120,7 @@ export function UserListItem({
     <button
       ref={itemRef}
       type="button"
-      className={`${styles.userItem} ${active ? styles.userItemActive : ""}`}
+      className={`${styles.userItem} ${active ? styles.userItemActive : ""} ${isSelf ? styles.selfUser : ""}`}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
       onClick={onClick}
@@ -134,7 +140,7 @@ export function UserListItem({
         <span className={styles.onlineDot} />
       </div>
       <span className={styles.userName}>{user.name}</span>
-      {(isMuted || isDeafened || isPriority) && (
+      {!isSelf && (isMuted || isDeafened || isPriority) && (
         <span className={styles.statusIcons}>
           {isMuted && !isDeafened && (
             <span className={`${styles.statusIcon} ${styles.muted}`} title={user.mute ? "Server muted" : "Self muted"}>

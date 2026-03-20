@@ -1,11 +1,14 @@
-﻿use std::sync::{Arc, Mutex};
+#![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
+use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
 use mumble_protocol::message::ControlMessage;
 use mumble_protocol::proto::mumble_tcp;
+use mumble_protocol::state::PchatMode;
 
 use super::{dispatch, EventEmitter, HandleMessage, HandlerContext};
+use crate::state::hash_names::HashNameResolver;
 use crate::state::types::*;
 use crate::state::SharedState;
 
@@ -54,6 +57,10 @@ impl EventEmitter for MockEmitter {
     fn request_user_attention(&self) {
         *self.attention_count.lock().unwrap() += 1;
     }
+
+    fn send_notification(&self, _title: &str, _body: &str) {
+        // No-op in tests.
+    }
 }
 
 /// Wrapper so we can share the mock emitter between test code and the handler.
@@ -66,6 +73,10 @@ impl EventEmitter for ArcEmitter {
 
     fn request_user_attention(&self) {
         self.0.request_user_attention();
+    }
+
+    fn send_notification(&self, title: &str, body: &str) {
+        self.0.send_notification(title, body);
     }
 }
 
@@ -91,7 +102,17 @@ fn make_user(session: u32, name: &str) -> UserEntry {
         self_mute: false,
         self_deaf: false,
         priority_speaker: false,
+        hash: None,
+        client_features: Vec::new(),
     }
+}
+
+/// Create a user that advertises E2EE persistent chat support.
+fn make_e2ee_user(session: u32, name: &str) -> UserEntry {
+    use mumble_protocol::proto::mumble_tcp::user_state::ClientFeature;
+    let mut u = make_user(session, name);
+    u.client_features = vec![ClientFeature::FeaturePchatE2ee as i32];
+    u
 }
 
 // -- Ping ----------------------------------------------------------
@@ -131,12 +152,15 @@ fn version_updates_state() {
         os_version: Some("5.15".into()),
         version_v1: Some(0x0001_0500),
         version_v2: Some(42),
-        fancy_version: Some(1),
+        fancy_version: Some(mumble_protocol::state::fancy_version_encode(0, 1, 0)),
     };
     version.handle(&ctx);
 
     let state = ctx.shared.lock().unwrap();
-    assert_eq!(state.server_fancy_version, Some(1));
+    assert_eq!(
+        state.server_fancy_version,
+        Some(mumble_protocol::state::fancy_version_encode(0, 1, 0))
+    );
     assert_eq!(
         state.server_version_info.release.as_deref(),
         Some("Mumble 1.5")
@@ -187,7 +211,7 @@ async fn server_sync_resolves_initial_channel() {
         let mut state = ctx.shared.lock().unwrap();
         let mut user = make_user(42, "TestUser");
         user.channel_id = 5;
-        state.users.insert(42, user);
+        let _ = state.users.insert(42, user);
     }
 
     let sync = mumble_tcp::ServerSync {
@@ -246,7 +270,7 @@ fn user_state_updates_existing_user() {
     let (ctx, _) = make_ctx();
     {
         let mut state = ctx.shared.lock().unwrap();
-        state.users.insert(10, make_user(10, "Alice"));
+        let _ = state.users.insert(10, make_user(10, "Alice"));
     }
 
     let us = mumble_tcp::UserState {
@@ -297,7 +321,7 @@ fn user_state_texture_empty_clears() {
         let mut state = ctx.shared.lock().unwrap();
         let mut user = make_user(10, "Alice");
         user.texture = Some(vec![1, 2, 3]);
-        state.users.insert(10, user);
+        let _ = state.users.insert(10, user);
     }
 
     let us = mumble_tcp::UserState {
@@ -318,7 +342,7 @@ fn user_state_comment_empty_clears() {
         let mut state = ctx.shared.lock().unwrap();
         let mut user = make_user(10, "Alice");
         user.comment = Some("old comment".into());
-        state.users.insert(10, user);
+        let _ = state.users.insert(10, user);
     }
 
     let us = mumble_tcp::UserState {
@@ -392,7 +416,7 @@ fn user_remove_other_user() {
     {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
-        state.users.insert(10, make_user(10, "Alice"));
+        let _ = state.users.insert(10, make_user(10, "Alice"));
     }
 
     let ur = mumble_tcp::UserRemove {
@@ -416,7 +440,7 @@ fn user_remove_self_kicks_and_cleans_up() {
         state.own_session = Some(42);
         state.status = ConnectionStatus::Connected;
         state.synced = true;
-        state.users.insert(42, make_user(42, "Me"));
+        let _ = state.users.insert(42, make_user(42, "Me"));
     }
 
     let ur = mumble_tcp::UserRemove {
@@ -461,6 +485,46 @@ fn user_remove_self_default_reason() {
     );
 }
 
+#[test]
+fn user_remove_clears_pending_key_shares() {
+    let (ctx, emitter) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.own_session = Some(1);
+        let mut alice = make_user(10, "Alice");
+        alice.hash = Some("abc123".into());
+        let _ = state.users.insert(10, alice);
+        state.pending_key_shares.push(PendingKeyShare {
+            channel_id: 5,
+            peer_cert_hash: "abc123".into(),
+            peer_name: "Alice".into(),
+            request_id: None,
+        });
+        state.pending_key_shares.push(PendingKeyShare {
+            channel_id: 7,
+            peer_cert_hash: "other_hash".into(),
+            peer_name: "Bob".into(),
+            request_id: None,
+        });
+    }
+
+    let ur = mumble_tcp::UserRemove {
+        session: 10,
+        ..Default::default()
+    };
+    ur.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    // Alice's pending share removed, Bob's remains.
+    assert_eq!(state.pending_key_shares.len(), 1);
+    assert_eq!(state.pending_key_shares[0].peer_cert_hash, "other_hash");
+    drop(state);
+
+    let names = emitter.event_names();
+    assert!(names.contains(&"pchat-key-share-requests-changed".to_string()));
+    assert!(names.contains(&"state-changed".to_string()));
+}
+
 // -- ChannelState --------------------------------------------------
 
 #[tokio::test]
@@ -487,7 +551,7 @@ async fn channel_state_updates_existing_channel() {
     let (ctx, _) = make_ctx();
     {
         let mut state = ctx.shared.lock().unwrap();
-        state.channels.insert(
+        let _ = state.channels.insert(
             1,
             ChannelEntry {
                 id: 1,
@@ -497,7 +561,13 @@ async fn channel_state_updates_existing_channel() {
                 description_hash: None,
                 user_count: 0,
                 permissions: None,
-            },
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
         );
     }
 
@@ -564,7 +634,7 @@ fn channel_remove_clears_channel_and_messages() {
     let (ctx, emitter) = make_ctx();
     {
         let mut state = ctx.shared.lock().unwrap();
-        state.channels.insert(
+        let _ = state.channels.insert(
             5,
             ChannelEntry {
                 id: 5,
@@ -574,9 +644,15 @@ fn channel_remove_clears_channel_and_messages() {
                 description_hash: None,
                 user_count: 0,
                 permissions: None,
-            },
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
         );
-        state.messages.insert(5, vec![]);
+        let _ = state.messages.insert(5, vec![]);
     }
 
     let cr = mumble_tcp::ChannelRemove { channel_id: 5 };
@@ -598,7 +674,7 @@ fn text_message_channel_message() {
     {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
-        state.users.insert(10, make_user(10, "Alice"));
+        let _ = state.users.insert(10, make_user(10, "Alice"));
     }
 
     let tm = mumble_tcp::TextMessage {
@@ -653,7 +729,7 @@ fn text_message_no_channel_defaults_to_zero() {
     {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
-        state.users.insert(10, make_user(10, "Server"));
+        let _ = state.users.insert(10, make_user(10, "Server"));
     }
 
     let tm = mumble_tcp::TextMessage {
@@ -675,7 +751,7 @@ fn text_message_multi_channel() {
     {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
-        state.users.insert(10, make_user(10, "Alice"));
+        let _ = state.users.insert(10, make_user(10, "Alice"));
     }
 
     let tm = mumble_tcp::TextMessage {
@@ -707,7 +783,7 @@ fn text_message_unread_not_incremented_for_viewed_channel() {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
         state.selected_channel = Some(5);
-        state.users.insert(10, make_user(10, "Alice"));
+        let _ = state.users.insert(10, make_user(10, "Alice"));
     }
 
     let tm = mumble_tcp::TextMessage {
@@ -729,8 +805,8 @@ fn text_message_listened_channel_requests_attention() {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
         state.selected_channel = Some(0); // viewing a different channel
-        state.permanently_listened.insert(5);
-        state.users.insert(10, make_user(10, "Alice"));
+        let _ = state.permanently_listened.insert(5);
+        let _ = state.users.insert(10, make_user(10, "Alice"));
     }
 
     let tm = mumble_tcp::TextMessage {
@@ -773,7 +849,7 @@ fn text_message_dm() {
     {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
-        state.users.insert(10, make_user(10, "Bob"));
+        let _ = state.users.insert(10, make_user(10, "Bob"));
     }
 
     let tm = mumble_tcp::TextMessage {
@@ -804,7 +880,7 @@ fn text_message_dm_no_unread_when_viewing() {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
         state.selected_dm_user = Some(10);
-        state.users.insert(10, make_user(10, "Bob"));
+        let _ = state.users.insert(10, make_user(10, "Bob"));
     }
 
     let tm = mumble_tcp::TextMessage {
@@ -825,7 +901,7 @@ fn text_message_dm_always_requests_attention() {
     {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
-        state.users.insert(10, make_user(10, "Bob"));
+        let _ = state.users.insert(10, make_user(10, "Bob"));
     }
 
     let tm = mumble_tcp::TextMessage {
@@ -847,8 +923,8 @@ fn text_message_group() {
     {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
-        state.users.insert(10, make_user(10, "Charlie"));
-        state.group_chats.insert(
+        let _ = state.users.insert(10, make_user(10, "Charlie"));
+        let _ = state.group_chats.insert(
             "g1".into(),
             GroupChat {
                 id: "g1".into(),
@@ -887,8 +963,8 @@ fn text_message_group_no_unread_when_viewing() {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
         state.selected_group = Some("g1".into());
-        state.users.insert(10, make_user(10, "Charlie"));
-        state.group_chats.insert(
+        let _ = state.users.insert(10, make_user(10, "Charlie"));
+        let _ = state.group_chats.insert(
             "g1".into(),
             GroupChat {
                 id: "g1".into(),
@@ -924,7 +1000,7 @@ fn text_message_group_unknown_group_ignored() {
     {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
-        state.users.insert(10, make_user(10, "Charlie"));
+        let _ = state.users.insert(10, make_user(10, "Charlie"));
         // no group_chats entry for "unknown"
     }
 
@@ -946,8 +1022,8 @@ fn text_message_group_requests_attention() {
     {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
-        state.users.insert(10, make_user(10, "Charlie"));
-        state.group_chats.insert(
+        let _ = state.users.insert(10, make_user(10, "Charlie"));
+        let _ = state.group_chats.insert(
             "g1".into(),
             GroupChat {
                 id: "g1".into(),
@@ -1069,7 +1145,7 @@ fn permission_denied_reverts_listen() {
     let (ctx, emitter) = make_ctx();
     {
         let mut state = ctx.shared.lock().unwrap();
-        state.permanently_listened.insert(5);
+        let _ = state.permanently_listened.insert(5);
     }
 
     let pd = mumble_tcp::PermissionDenied {
@@ -1212,7 +1288,7 @@ fn permission_query_stores_permissions() {
     let (ctx, emitter) = make_ctx();
     {
         let mut state = ctx.shared.lock().unwrap();
-        state.channels.insert(
+        let _ = state.channels.insert(
             1,
             ChannelEntry {
                 id: 1,
@@ -1222,7 +1298,13 @@ fn permission_query_stores_permissions() {
                 description_hash: None,
                 user_count: 0,
                 permissions: None,
-            },
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
         );
     }
 
@@ -1245,7 +1327,7 @@ fn permission_query_flush_clears_all() {
     let (ctx, _) = make_ctx();
     {
         let mut state = ctx.shared.lock().unwrap();
-        state.channels.insert(
+        let _ = state.channels.insert(
             1,
             ChannelEntry {
                 id: 1,
@@ -1255,9 +1337,15 @@ fn permission_query_flush_clears_all() {
                 description_hash: None,
                 user_count: 0,
                 permissions: Some(0x01),
-            },
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
         );
-        state.channels.insert(
+        let _ = state.channels.insert(
             2,
             ChannelEntry {
                 id: 2,
@@ -1267,7 +1355,13 @@ fn permission_query_flush_clears_all() {
                 description_hash: None,
                 user_count: 0,
                 permissions: Some(0x02),
-            },
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
         );
     }
 
@@ -1351,4 +1445,431 @@ async fn dispatch_routes_server_sync() {
     });
     dispatch(&msg, &ctx);
     assert!(emitter.event_names().contains(&"server-connected".to_string()));
+}
+
+// -- TextMessage + pchat interaction ----------------------------------
+
+#[test]
+fn text_message_skipped_for_pchat_enabled_channel() {
+    let (ctx, emitter) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.own_session = Some(1);
+        let _ = state.users.insert(10, make_e2ee_user(10, "Alice"));
+        // Channel 5 has pchat enabled (PostJoin mode).
+        let _ = state.channels.insert(
+            5,
+            ChannelEntry {
+                id: 5,
+                parent_id: Some(0),
+                name: "pchat-room".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: Some(PchatMode::PostJoin),
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
+        );
+    }
+
+    let tm = mumble_tcp::TextMessage {
+        actor: Some(10),
+        channel_id: vec![5],
+        message: "Hello pchat!".into(),
+        ..Default::default()
+    };
+    tm.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    // TextMessage should NOT be stored for pchat-enabled channels.
+    assert!(
+        state.messages.get(&5).map(Vec::is_empty).unwrap_or(true),
+        "TextMessage should be skipped for pchat-enabled channel"
+    );
+    drop(state);
+
+    // No new-message event should be emitted for the skipped channel.
+    let names = emitter.event_names();
+    assert!(
+        !names.contains(&"new-message".to_string()),
+        "no new-message event for pchat channel"
+    );
+}
+
+#[test]
+fn text_message_stored_for_non_pchat_channel() {
+    let (ctx, _) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.own_session = Some(1);
+        let _ = state.users.insert(10, make_user(10, "Bob"));
+        // Channel 3 with pchat_mode = None (explicitly disabled).
+        let _ = state.channels.insert(
+            3,
+            ChannelEntry {
+                id: 3,
+                parent_id: Some(0),
+                name: "regular-room".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: Some(PchatMode::None),
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
+        );
+    }
+
+    let tm = mumble_tcp::TextMessage {
+        actor: Some(10),
+        channel_id: vec![3],
+        message: "Regular message".into(),
+        ..Default::default()
+    };
+    tm.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let msgs = state.messages.get(&3).unwrap();
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(msgs[0].body, "Regular message");
+}
+
+#[test]
+fn text_message_stored_when_pchat_mode_absent() {
+    let (ctx, _) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.own_session = Some(1);
+        let _ = state.users.insert(10, make_user(10, "Carol"));
+        // Channel 7 without pchat_mode (legacy channel, no pchat support).
+        let _ = state.channels.insert(
+            7,
+            ChannelEntry {
+                id: 7,
+                parent_id: Some(0),
+                name: "legacy-room".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
+        );
+    }
+
+    let tm = mumble_tcp::TextMessage {
+        actor: Some(10),
+        channel_id: vec![7],
+        message: "Legacy message".into(),
+        ..Default::default()
+    };
+    tm.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let msgs = state.messages.get(&7).unwrap();
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(msgs[0].body, "Legacy message");
+}
+
+#[test]
+fn text_message_skipped_for_full_archive_channel() {
+    let (ctx, _) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.own_session = Some(1);
+        let _ = state.users.insert(10, make_e2ee_user(10, "Dave"));
+        // Channel 9 with FullArchive mode.
+        let _ = state.channels.insert(
+            9,
+            ChannelEntry {
+                id: 9,
+                parent_id: Some(0),
+                name: "archive-room".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: Some(PchatMode::FullArchive),
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
+        );
+    }
+
+    let tm = mumble_tcp::TextMessage {
+        actor: Some(10),
+        channel_id: vec![9],
+        message: "Archived message".into(),
+        ..Default::default()
+    };
+    tm.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    assert!(
+        state.messages.get(&9).map(Vec::is_empty).unwrap_or(true),
+        "TextMessage should be skipped for FullArchive channel"
+    );
+}
+
+#[test]
+fn text_message_mixed_pchat_and_regular_channels() {
+    let (ctx, _) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.own_session = Some(1);
+        let _ = state.users.insert(10, make_e2ee_user(10, "Eve"));
+        // Channel 2: pchat enabled
+        let _ = state.channels.insert(
+            2,
+            ChannelEntry {
+                id: 2,
+                parent_id: Some(0),
+                name: "pchat".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: Some(PchatMode::PostJoin),
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
+        );
+        // Channel 4: no pchat
+        let _ = state.channels.insert(
+            4,
+            ChannelEntry {
+                id: 4,
+                parent_id: Some(0),
+                name: "regular".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                    pchat_key_custodians: Vec::new(),            },
+        );
+    }
+
+    // Message targets both channels.
+    let tm = mumble_tcp::TextMessage {
+        actor: Some(10),
+        channel_id: vec![2, 4],
+        message: "Multi-channel".into(),
+        ..Default::default()
+    };
+    tm.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    // Channel 2 (pchat) should have no message.
+    assert!(
+        state.messages.get(&2).map(Vec::is_empty).unwrap_or(true),
+        "pchat channel should not store TextMessage"
+    );
+    // Channel 4 (regular) should have the message.
+    let msgs = state.messages.get(&4).unwrap();
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(msgs[0].body, "Multi-channel");
+}
+
+// -- PchatKeyHoldersList -------------------------------------------
+
+#[test]
+fn key_holders_online_user_gets_live_name() {
+    let (ctx, _emitter) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let mut user = make_user(1, "Alice");
+        user.hash = Some("aabb".into());
+        let _ = state.users.insert(1, user);
+    }
+
+    let msg = mumble_tcp::PchatKeyHoldersList {
+        channel_id: Some(42),
+        holders: vec![mumble_tcp::pchat_key_holders_list::Entry {
+            cert_hash: Some("aabb".into()),
+            name: Some("OldAlice".into()),
+        }],
+    };
+    msg.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let holders = state.key_holders.get(&42).unwrap();
+    assert_eq!(holders.len(), 1);
+    assert_eq!(holders[0].name, "Alice", "should use the live online name");
+    assert!(holders[0].is_online);
+}
+
+#[test]
+fn key_holders_server_name_used_when_offline_and_not_hash() {
+    let (ctx, _emitter) = make_ctx();
+
+    let msg = mumble_tcp::PchatKeyHoldersList {
+        channel_id: Some(42),
+        holders: vec![mumble_tcp::pchat_key_holders_list::Entry {
+            cert_hash: Some("ccdd".into()),
+            name: Some("Bob".into()),
+        }],
+    };
+    msg.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let holders = state.key_holders.get(&42).unwrap();
+    assert_eq!(holders[0].name, "Bob", "server-provided name should be used");
+    assert!(!holders[0].is_online);
+}
+
+#[test]
+fn key_holders_hash_as_name_falls_through_to_resolver() {
+    let (ctx, _emitter) = make_ctx();
+    let hash = "76688b569fb4519ef37da57900682ee3a55b02d2";
+
+    // Set up resolver so it returns a fallback name.
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        state.hash_name_resolver = Some(Arc::new(
+            crate::state::hash_names::DefaultHashNameResolver::new(
+                tmp.path().to_path_buf(),
+            ),
+        ));
+    }
+
+    // Server sends the hash as the name (the bug scenario).
+    let msg = mumble_tcp::PchatKeyHoldersList {
+        channel_id: Some(42),
+        holders: vec![mumble_tcp::pchat_key_holders_list::Entry {
+            cert_hash: Some(hash.into()),
+            name: Some(hash.into()),
+        }],
+    };
+    msg.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let holders = state.key_holders.get(&42).unwrap();
+    assert_ne!(
+        holders[0].name, hash,
+        "hash should not be used as display name"
+    );
+    assert!(
+        holders[0].name.contains(' '),
+        "fallback name should be 'Adjective Animal', got: {}",
+        holders[0].name
+    );
+}
+
+#[test]
+fn key_holders_resolver_returns_recorded_name() {
+    let (ctx, _emitter) = make_ctx();
+    let hash = "deadbeef01234567";
+
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let resolver = crate::state::hash_names::DefaultHashNameResolver::new(
+            tmp.path().to_path_buf(),
+        );
+        resolver.record(hash, "Charlie");
+        state.hash_name_resolver = Some(Arc::new(resolver));
+    }
+
+    let msg = mumble_tcp::PchatKeyHoldersList {
+        channel_id: Some(42),
+        holders: vec![mumble_tcp::pchat_key_holders_list::Entry {
+            cert_hash: Some(hash.into()),
+            name: None,
+        }],
+    };
+    msg.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let holders = state.key_holders.get(&42).unwrap();
+    assert_eq!(
+        holders[0].name, "Charlie",
+        "resolver should return previously recorded name"
+    );
+}
+
+#[test]
+fn key_holders_no_resolver_falls_back_to_hash() {
+    let (ctx, _emitter) = make_ctx();
+    let hash = "aabbccddee";
+
+    // No resolver set (hash_name_resolver is None).
+    let msg = mumble_tcp::PchatKeyHoldersList {
+        channel_id: Some(42),
+        holders: vec![mumble_tcp::pchat_key_holders_list::Entry {
+            cert_hash: Some(hash.into()),
+            name: None,
+        }],
+    };
+    msg.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let holders = state.key_holders.get(&42).unwrap();
+    assert_eq!(
+        holders[0].name, hash,
+        "without a resolver the raw hash should be used"
+    );
+}
+
+#[test]
+fn key_holders_empty_server_name_uses_resolver() {
+    let (ctx, _emitter) = make_ctx();
+    let hash = "1122334455";
+
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        state.hash_name_resolver = Some(Arc::new(
+            crate::state::hash_names::DefaultHashNameResolver::new(
+                tmp.path().to_path_buf(),
+            ),
+        ));
+    }
+
+    let msg = mumble_tcp::PchatKeyHoldersList {
+        channel_id: Some(42),
+        holders: vec![mumble_tcp::pchat_key_holders_list::Entry {
+            cert_hash: Some(hash.into()),
+            name: Some(String::new()),
+        }],
+    };
+    msg.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    let holders = state.key_holders.get(&42).unwrap();
+    assert_ne!(
+        holders[0].name, hash,
+        "empty server name should fall through to resolver"
+    );
+    assert!(
+        holders[0].name.contains(' '),
+        "fallback name should be 'Adjective Animal', got: {}",
+        holders[0].name
+    );
 }

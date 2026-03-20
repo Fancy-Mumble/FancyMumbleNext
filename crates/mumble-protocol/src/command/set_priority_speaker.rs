@@ -9,7 +9,9 @@ use crate::state::ServerState;
 /// Requires appropriate server permissions.
 #[derive(Debug)]
 pub struct SetPrioritySpeaker {
+    /// Session ID of the target user.
     pub session: u32,
+    /// `true` to grant, `false` to revoke priority-speaker status.
     pub priority: bool,
 }
 

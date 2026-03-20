@@ -75,23 +75,26 @@
 }
 
 .disconnectBtn {
-  width: 36px;
-  height: 36px;
-  background: var(--color-glass);
-  border: 1px solid var(--color-glass-border);
-  border-radius: var(--radius-sm);
-  color: var(--color-text-secondary);
-  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  gap: 6px;
+  flex: 1;
+  height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  background: var(--color-danger, #ef4444);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.2s;
 }
 
 .disconnectBtn:hover {
-  color: var(--color-danger);
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.2);
+  opacity: 0.85;
 }
 
 .serverInfoBtn {
@@ -468,6 +471,24 @@
   gap: 2px;
 }
 
+.selfUserSection {
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-glass-border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.selfVoiceActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding-right: 4px;
+}
+
 .userItem {
   display: flex;
   align-items: center;
@@ -598,12 +619,10 @@
 .voicePanel {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
+  padding: 8px 16px;
   border-top: 1px solid var(--color-glass-border);
   background: rgba(0, 0, 0, 0.15);
   flex-shrink: 0;
-  margin-top: auto;
 }
 
 .voiceInfo {
@@ -643,6 +662,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
 }
 
 .voiceToggle {
@@ -794,9 +814,12 @@
   /* Voice panel: bigger buttons for touch */
   .voiceToggle,
   .settingsBtn,
-  .disconnectBtn,
   .serverInfoBtn {
     width: var(--touch-target-min);
+    height: var(--touch-target-min);
+  }
+
+  .disconnectBtn {
     height: var(--touch-target-min);
   }
 
@@ -1010,4 +1033,93 @@
 
 .modalCreateBtn:not(:disabled):hover {
   opacity: 0.9;
+}
+
+/* ─── Context menu danger item ───────────────────────────────── */
+
+.contextMenuItemDanger {
+  color: var(--color-danger, #e05252);
+}
+
+.contextMenuItemDanger:hover {
+  background: rgba(224, 82, 82, 0.15);
+}
+
+/* ─── Delete channel confirmation dialog ────────────────────── */
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10002;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.deleteConfirmDialog {
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-lg, 12px);
+  padding: 24px;
+  width: 360px;
+  max-width: 90vw;
+}
+
+.deleteConfirmTitle {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-danger, #e05252);
+}
+
+.deleteConfirmBody {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.deleteConfirmActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.deleteConfirmCancel {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-glass-border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.deleteConfirmCancel:hover {
+  background: var(--color-glass-hover);
+}
+
+.deleteConfirmOk {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--color-danger, #e05252);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.deleteConfirmOk:hover {
+  opacity: 0.85;
 }

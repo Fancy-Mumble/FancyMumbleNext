@@ -13,6 +13,8 @@ use crate::command::{BoxedCommand, CommandAction};
 use crate::error::{Error, Result};
 use crate::event::EventHandler;
 use crate::message::{ControlMessage, ServerMessage, UdpMessage};
+use crate::transport::audio_codec::AudioPacketCodec;
+use fancy_utils::version::fancy_version_encode;
 use crate::proto::mumble_tcp;
 use crate::state::ServerState;
 use crate::transport::tcp::{TcpConfig, TcpTransport};
@@ -22,7 +24,9 @@ use crate::work_queue::{self, WorkItem, WorkQueueSender};
 /// Top-level configuration for the Mumble client.
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
+    /// TCP transport configuration (host, port, TLS).
     pub tcp: TcpConfig,
+    /// UDP transport configuration (host, port).
     pub udp: UdpConfig,
     /// Interval between keep-alive TCP pings.
     pub ping_interval: Duration,
@@ -39,7 +43,7 @@ impl Default for ClientConfig {
 }
 
 /// Handle returned to callers for submitting commands into the running client.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ClientHandle {
     cmd_tx: mpsc::Sender<BoxedCommand>,
 }
@@ -103,7 +107,7 @@ pub async fn run<H: EventHandler>(
         }
     }
 
-    let mut tcp = tcp.ok_or_else(|| last_err.unwrap())?;
+    let mut tcp = tcp.ok_or_else(|| last_err.unwrap_or_else(|| Error::Other("connection loop exited without recording an error".into())))?;
     info!("TCP connected to {}:{}", config.tcp.server_host, config.tcp.server_port);
 
     // 2. Send the Version message FIRST - before anything else touches the
@@ -116,9 +120,9 @@ pub async fn run<H: EventHandler>(
         release: Some("FancyMumble 0.1.0".into()),
         os: Some(std::env::consts::OS.into()),
         os_version: None,
-        // Announce Fancy Mumble extension support (version 1).
+        // Announce Fancy Mumble extension support (v2-encoded 0.2.0).
         // The server responds with its own fancy_version if it supports them.
-        fancy_version: Some(1),
+        fancy_version: Some(fancy_version_encode(0, 2, 0)),
     });
     tcp.send(&version_msg).await?;
     info!("Version 1.5.0 sent");
@@ -160,7 +164,8 @@ pub async fn run<H: EventHandler>(
 
 // -- Event loop -----------------------------------------------------
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "protocol event loop requires all transport handles")]
+#[allow(clippy::too_many_lines, reason = "event loop drives the full protocol state machine; extracting sub-steps would obscure the sequential flow")]
 async fn event_loop<H: EventHandler>(
     mut handler: H,
     mut tcp_reader: crate::transport::tcp::TcpReader,
@@ -187,7 +192,7 @@ async fn event_loop<H: EventHandler>(
 
     // Spawn TCP reader task
     let tcp_wq = wq_sender.clone();
-    let tcp_reader_task = tokio::spawn(async move {
+    let mut tcp_reader_task = tokio::spawn(async move {
         loop {
             match tcp_reader.recv().await {
                 Ok(msg) => {
@@ -213,7 +218,7 @@ async fn event_loop<H: EventHandler>(
     let ping_task = tokio::spawn(async move {
         let mut interval = tokio::time::interval(ping_interval);
         loop {
-            interval.tick().await;
+            let _ = interval.tick().await;
             let stats_snapshot = ping_stats.lock().ok().map(|s| s.clone()).unwrap_or_default();
             let ping = mumble_tcp::Ping {
                 timestamp: Some(
@@ -255,8 +260,17 @@ async fn event_loop<H: EventHandler>(
 
     // Main dispatch loop
     info!("entering main event loop");
+    let mut tcp_reader_alive = true;
     loop {
-        let item = wq_receiver.recv().await;
+        let item = tokio::select! {
+            biased;
+            item = wq_receiver.recv() => item,
+            result = &mut tcp_reader_task, if tcp_reader_alive => {
+                tcp_reader_alive = false;
+                warn!("TCP reader ended unexpectedly: {result:?}");
+                WorkItem::Shutdown
+            }
+        };
 
         match item {
             WorkItem::ServerMessage(server_msg) => {
@@ -321,7 +335,7 @@ async fn event_loop<H: EventHandler>(
                         // Encode as protobuf v2 format - the server negotiated
                         // this because we advertised version_v2 (1.5.0).
                         let tunnel_data =
-                            crate::transport::audio_codec::encode_protobuf_audio(audio);
+                            crate::transport::audio_codec::ProtobufAudioCodec::encode(audio);
                         debug!(
                             frame = audio.frame_number,
                             opus_len = audio.opus_data.len(),
@@ -357,7 +371,9 @@ async fn event_loop<H: EventHandler>(
     // keeps the TCP writer alive, so the connection never closes.
     ping_task.abort();
     cmd_forwarder_task.abort();
-    tcp_reader_task.abort();
+    if tcp_reader_alive {
+        tcp_reader_task.abort();
+    }
     tcp_writer_task.abort();
     debug!("all sub-tasks aborted");
 
@@ -376,7 +392,8 @@ fn handle_control_message<H: EventHandler>(
         ControlMessage::Version(v) => {
             state.apply_version(v);
             if let Some(fv) = v.fancy_version {
-                info!(fancy_version = fv, "server supports Fancy Mumble extensions");
+                let version_str = fancy_utils::version::fancy_version_string(fv);
+                info!(fancy_version = %version_str, "server supports Fancy Mumble extensions");
             }
         }
         ControlMessage::Ping(p) => {

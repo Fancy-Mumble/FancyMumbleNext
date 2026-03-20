@@ -129,7 +129,8 @@ All `PluginDataTransmission` messages where `dataID` starts with
 ### Detection of Fancy Mumble Clients
 
 A connecting client that supports persistent chat sends
-`Version.fancy_version >= 2`. The server should track which connected
+`Version.fancy_version >= 0x0000_0002_0000_0000` (v2-encoded 0.2.0).
+The server should track which connected
 sessions are Fancy Mumble v2+ and only send `fancy-pchat-*` messages
 to those sessions.
 
@@ -286,7 +287,13 @@ additions:
 message ChannelState {
     // ... standard Mumble fields (1-13) ...
 
-    optional uint32 pchat_mode           = 100; // 0=NONE,1=POST_JOIN,2=FULL_ARCHIVE
+    enum PchatMode {
+        PCHAT_NONE           = 0;
+        PCHAT_POST_JOIN      = 1;
+        PCHAT_FULL_ARCHIVE   = 2;
+        PCHAT_SERVER_MANAGED = 3;
+    }
+    optional PchatMode pchat_mode        = 100; // persistence mode for this channel
     optional uint32 pchat_max_history    = 101; // max stored messages (0=unlimited)
     optional uint32 pchat_retention_days = 102; // auto-delete after N days (0=forever)
     repeated string pchat_key_custodians = 103; // cert hashes of key custodians
@@ -301,7 +308,7 @@ breakage.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `pchat_mode` | uint32 | absent = NONE | `0` NONE, `1` POST_JOIN, `2` FULL_ARCHIVE |
+| `pchat_mode` | PchatMode enum | absent = NONE | `PCHAT_NONE` (0), `PCHAT_POST_JOIN` (1), `PCHAT_FULL_ARCHIVE` (2) |
 | `pchat_max_history` | uint32 | server default (e.g. 5000) | Maximum messages stored (0 = unlimited) |
 | `pchat_retention_days` | uint32 | server default (e.g. 90) | Auto-delete after N days (0 = forever) |
 | `pchat_key_custodians` | repeated string | empty list | Cert hashes of key custodians (trusted authorities for key lifecycle) |
@@ -319,7 +326,7 @@ protobuf message with the `pchat_*` fields set.
    ```protobuf
    ChannelState {
        channel_id: 5,
-       pchat_mode: 3,             // FULL_ARCHIVE
+       pchat_mode: PCHAT_FULL_ARCHIVE,
        pchat_max_history: 10000,
        pchat_retention_days: 90,
    }

@@ -385,7 +385,11 @@ if ($Run) {
     Write-Host "`nStarting Tauri Android dev server..." -ForegroundColor Cyan
     Push-Location "$PSScriptRoot\..\crates\mumble-tauri"
     try {
-        cargo tauri android dev
+        # --no-watch: disable the Tauri file watcher so frontend file changes
+        # (handled by Vite HMR) do not trigger expensive full Rust+Gradle
+        # rebuilds. Without this the watcher monitors ui/src/** and causes
+        # a rebuild loop on Android.
+        cargo tauri android dev --no-watch
     } finally {
         Pop-Location
     }

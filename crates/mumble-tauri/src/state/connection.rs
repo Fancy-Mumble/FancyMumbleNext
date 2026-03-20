@@ -15,12 +15,14 @@ use super::types::*;
 use super::AppState;
 
 impl AppState {
+    #[allow(clippy::too_many_lines, reason = "connection setup spans auth, TLS, state init, and event loop spawn")]
     pub async fn connect(
         &self,
         host: String,
         port: u16,
         username: String,
         cert_label: Option<String>,
+        password: Option<String>,
     ) -> Result<(), String> {
         let inner = self.inner.clone();
         let app_handle = self.app_handle().ok_or("App not initialized")?;
@@ -35,6 +37,11 @@ impl AppState {
             // Abort the old event-loop task (if any).
             if let Some(handle) = state.event_loop_handle.take() {
                 handle.abort();
+            }
+            // Abort any stale connecting-phase task (in case a previous
+            // connect() was cancelled before the handshake completed).
+            if let Some(task) = state.connect_task_handle.take() {
+                task.abort();
             }
 
             state.connection_epoch += 1;
@@ -54,6 +61,45 @@ impl AppState {
             state.unread_counts.clear();
             state.server_config = ServerConfig::default();
             state.voice_state = VoiceState::Inactive;
+            state.pchat = None;
+            state.pchat_seed = None;
+            state.pchat_identity_dir = None;
+            state.pending_key_shares.clear();
+            state.tauri_app_handle = Some(app_handle.clone());
+        }
+
+        // Initialise the cert-hash-to-username resolver (persisted across sessions).
+        if let Ok(data_dir) = app_handle.path().app_data_dir() {
+            let hash_names_path = data_dir.join("hash_names.json");
+            let resolver = super::hash_names::DefaultHashNameResolver::new(hash_names_path);
+            if let Ok(mut state) = inner.lock() {
+                state.hash_name_resolver =
+                    Some(std::sync::Arc::new(resolver));
+            }
+        }
+
+        // Migrate legacy storage layout (certs/ + pchat/) to per-identity
+        // folders on first connect after the update.  Idempotent.
+        if let Ok(data_dir) = app_handle.path().app_data_dir() {
+            super::pchat::migrate_legacy_storage(&data_dir);
+        }
+
+        // Load (or generate) the persistent chat identity seed
+        // scoped to this certificate / identity label.
+        let identity_label = cert_label.clone().unwrap_or_else(|| "default".to_string());
+        if let Ok(data_dir) = app_handle.path().app_data_dir() {
+            match super::pchat::load_or_generate_seed(&data_dir, &identity_label) {
+                Ok(seed) => {
+                    if let Ok(mut state) = inner.lock() {
+                        state.pchat_seed = Some(seed);
+                        state.pchat_identity_dir =
+                            Some(super::pchat::identity_dir(&data_dir, &identity_label));
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("failed to load pchat seed: {e}");
+                }
+            }
         }
 
         // Emit status change so the frontend can show a loading screen immediately.
@@ -61,21 +107,15 @@ impl AppState {
 
         // Spawn the actual connection work in the background so we don't
         // block the Tauri command (which freezes the webview).
-        tokio::spawn(async move {
-            // Load client certificate from disk when a label is provided.
+        let connect_task = tokio::spawn(async move {
+            // Load client certificate from the per-identity folder.
             let (client_cert_pem, client_key_pem) = if let Some(ref label) = cert_label {
-                let certs_dir = app_handle
+                app_handle
                     .path()
                     .app_data_dir()
                     .ok()
-                    .map(|d| d.join("certs"));
-                if let Some(dir) = certs_dir {
-                    let cert = std::fs::read(dir.join(format!("{label}.cert.pem"))).ok();
-                    let key = std::fs::read(dir.join(format!("{label}.key.pem"))).ok();
-                    (cert, key)
-                } else {
-                    (None, None)
-                }
+                    .map(|d| super::pchat::load_identity_cert(&d, label))
+                    .unwrap_or((None, None))
             } else {
                 (None, None)
             };
@@ -108,16 +148,18 @@ impl AppState {
                 Ok((handle, join)) => {
                     // Store the client handle and event-loop JoinHandle for later
                     // commands and for awaiting a clean shutdown on disconnect.
+                    // Clear connect_task_handle - the connecting phase is done.
                     if let Ok(mut state) = inner.lock() {
                         state.client_handle = Some(handle.clone());
                         state.event_loop_handle = Some(join);
+                        state.connect_task_handle = None;
                     }
 
                     // Send Authenticate command.
                     if let Err(e) = handle
                         .send(command::Authenticate {
                             username,
-                            password: None,
+                            password,
                             tokens: vec![],
                         })
                         .await
@@ -127,11 +169,13 @@ impl AppState {
                             state.status = ConnectionStatus::Disconnected;
                             state.client_handle = None;
                             state.event_loop_handle = None;
+                            state.connect_task_handle = None;
                         }
                         let _ = app_handle.emit(
                             "connection-rejected",
                             RejectedPayload {
                                 reason: format!("Failed to authenticate: {e}"),
+                                reject_type: None,
                             },
                         );
                         return;
@@ -154,16 +198,24 @@ impl AppState {
                         state.status = ConnectionStatus::Disconnected;
                         state.client_handle = None;
                         state.event_loop_handle = None;
+                        state.connect_task_handle = None;
                     }
                     let _ = app_handle.emit(
                         "connection-rejected",
                         RejectedPayload {
                             reason: format!("Connection failed: {e}"),
+                            reject_type: None,
                         },
                     );
                 }
             }
         });
+
+        // Store the task handle so disconnect() can abort it if the user
+        // cancels before the TCP handshake completes.
+        if let Ok(mut state) = self.inner.lock() {
+            state.connect_task_handle = Some(connect_task);
+        }
 
         Ok(())
     }
@@ -172,10 +224,21 @@ impl AppState {
         // Stop audio before disconnecting.
         self.stop_audio();
 
-        let (handle, join) = {
+        let (handle, join, connect_task) = {
             let mut guard = self.inner.lock().map_err(|e| e.to_string())?;
-            (guard.client_handle.take(), guard.event_loop_handle.take())
+            guard.user_initiated_disconnect = true;
+            (
+                guard.client_handle.take(),
+                guard.event_loop_handle.take(),
+                guard.connect_task_handle.take(),
+            )
         };
+
+        // If we are still in the connecting phase (TCP handshake not done yet)
+        // abort the outer spawn so the attempt is cancelled immediately.
+        if let Some(task) = connect_task {
+            task.abort();
+        }
 
         if let Some(handle) = handle {
             let _ = handle.send(command::Disconnect).await;
@@ -199,6 +262,7 @@ impl AppState {
         if let Ok(mut state) = self.inner.lock() {
             state.status = ConnectionStatus::Disconnected;
             state.client_handle = None;
+            state.connect_task_handle = None;
             state.event_loop_handle = None;
             state.users.clear();
             state.channels.clear();
@@ -211,6 +275,10 @@ impl AppState {
             state.unread_counts.clear();
             state.server_config = ServerConfig::default();
             state.voice_state = VoiceState::Inactive;
+            state.pchat = None;
+            state.pchat_seed = None;
+            state.pchat_identity_dir = None;
+            state.pending_key_shares.clear();
         }
 
         Ok(())

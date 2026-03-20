@@ -2,12 +2,13 @@
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store";
-import type { ChannelEntry, UserEntry, VoiceState, SidebarSections } from "../types";
+import type { ChannelEntry, UserEntry, SidebarSections } from "../types";
 import { getPreferences, updatePreferences } from "../preferencesStorage";
 import { SuperSearch } from "./SuperSearch";
 import { UserListItem, colorFor, avatarUrl } from "./UserListItem";
 import { UserContextMenu } from "./UserContextMenu";
 import type { UserContextMenuState } from "./UserContextMenu";
+import ChannelEditorDialog, { canEditChannel, canCreateChannel, canOnlyCreateTemp, canDeleteChannel } from "./ChannelEditorDialog";
 import styles from "./ChannelSidebar.module.css";
 
 /** Mumble permission bitmask: Listen to channel (bit 11). */
@@ -265,19 +266,6 @@ function GroupCreateModal({ users, ownSession, onClose, onCreate }: GroupCreateM
 
 // --- Voice panel helpers -------------------------------------------
 
-function voiceInfoLabel(voiceState: VoiceState, s: typeof styles): React.ReactNode {
-  if (voiceState === "active") {
-    return (
-      <>
-        <span className={s.voiceDot} />
-        <span className={s.voiceLabel}>Voice Connected</span>
-      </>
-    );
-  }
-  const label = voiceState === "muted" ? "Muted" : "Voice Inactive";
-  return <span className={s.voiceLabelMuted}>{label}</span>;
-}
-
 // --- Main component -----------------------------------------------
 
 interface ChannelSidebarProps {
@@ -294,6 +282,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
   const currentChannel = useAppStore((s) => s.currentChannel);
   const selectChannel = useAppStore((s) => s.selectChannel);
   const joinChannel = useAppStore((s) => s.joinChannel);
+  const deleteChannel = useAppStore((s) => s.deleteChannel);
   const disconnect = useAppStore((s) => s.disconnect);
   const toggleListen = useAppStore((s) => s.toggleListen);
   const listenedChannels = useAppStore((s) => s.listenedChannels);
@@ -316,6 +305,19 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
 
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+
+  // -- Channel editor dialog state --------------------------------
+  const [channelEditor, setChannelEditor] = useState<{
+    channel: ChannelEntry | null;
+    parentId: number;
+    tempOnly: boolean;
+  } | null>(null);
+
+  // -- Delete channel confirm state --------------------------------
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    channelId: number;
+    channelName: string;
+  } | null>(null);
 
   // Global Ctrl+K / Cmd+K shortcut to open super search.
   useEffect(() => {
@@ -540,37 +542,12 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
   // Computed display values to avoid nested ternaries in JSX.
   const isVoiceActive = voiceState === "active";
   const isVoiceInactive = voiceState === "inactive";
-
-  const voiceInfoContent = voiceInfoLabel(voiceState, styles);
   const muteTitle = isVoiceActive ? "Mute" : "Unmute";
 
   return (
     <aside className={styles.sidebar}>
       {/* Header */}
       <div className={styles.header}>
-        {onServerInfoToggle && (
-          <button
-            className={styles.serverInfoBtn}
-            onClick={onServerInfoToggle}
-            title="Server info"
-            aria-label="Server info"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="16" x2="12" y2="12" />
-              <line x1="12" y1="8" x2="12.01" y2="8" />
-            </svg>
-          </button>
-        )}
         <button
           type="button"
           className={styles.searchFake}
@@ -593,26 +570,6 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
           </svg>
           <span className={styles.searchFakeText}>Search...</span>
           <span className={styles.searchShortcut}>Ctrl+K</span>
-        </button>
-        <button
-          className={styles.disconnectBtn}
-          onClick={disconnect}
-          title="Disconnect"
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <polyline points="16 17 21 12 16 7" />
-            <line x1="21" y1="12" x2="9" y2="12" />
-          </svg>
         </button>
       </div>
 
@@ -842,83 +799,99 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
           </svg>
           <span>Online - {users.length}</span>
         </button>
-        {onlineOpen && <div className={styles.userList}>
-          {users.map((user) => (
-            <UserListItem
-              key={user.session}
-              user={user}
-              channelName={channelName(user.channel_id)}
-              active={selectedDmUser === user.session}
-              onClick={() => {
-                if (user.session !== ownSession) selectDmUser(user.session);
-              }}
-              onContextMenu={(e) => openUserCtxMenu(e, user)}
-            />
-          ))}
-        </div>}
+        {onlineOpen && <>
+          <div className={styles.userList}>
+            {users.filter((u) => u.session !== ownSession).map((user) => (
+              <UserListItem
+                key={user.session}
+                user={user}
+                channelName={channelName(user.channel_id)}
+                active={selectedDmUser === user.session}
+                onClick={() => selectDmUser(user.session)}
+                onContextMenu={(e) => openUserCtxMenu(e, user)}
+              />
+            ))}
+          </div>
+          {(() => {
+            const self = users.find((u) => u.session === ownSession);
+            if (!self) return null;
+            return (
+              <div className={styles.selfUserSection}>
+                <UserListItem
+                  user={self}
+                  channelName={channelName(self.channel_id)}
+                  isSelf
+                  onContextMenu={(e) => openUserCtxMenu(e, self)}
+                />
+                {currentChannel != null && (
+                  <div className={styles.selfVoiceActions}>
+                    <button
+                      className={`${styles.voiceToggle} ${isVoiceActive ? styles.voiceActive : ""}`}
+                      onClick={toggleMute}
+                      title={muteTitle}
+                    >
+                      {isVoiceActive ? (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                          <line x1="12" y1="19" x2="12" y2="23" />
+                          <line x1="8" y1="23" x2="16" y2="23" />
+                        </svg>
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="1" y1="1" x2="23" y2="23" />
+                          <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+                          <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.5-.35 2.18" />
+                          <line x1="12" y1="19" x2="12" y2="23" />
+                          <line x1="8" y1="23" x2="16" y2="23" />
+                        </svg>
+                      )}
+                    </button>
+                    <button
+                      className={`${styles.voiceToggle} ${isVoiceInactive ? "" : styles.voiceActive}`}
+                      onClick={toggleDeafen}
+                      title={isVoiceInactive ? "Enable Voice" : "Disable Voice"}
+                    >
+                      {isVoiceInactive ? (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="1" y1="1" x2="23" y2="23" />
+                          <path d="M4.53 4.53A9 9 0 0 0 3 12v7c0 1.1.9 2 2 2h4v-8H5.07" />
+                          <path d="M21 12a9 9 0 0 0-15.47-6.27" />
+                          <path d="M15 21h4c1.1 0 2-.9 2-2v-7" />
+                        </svg>
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+                          <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z" />
+                          <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </>}
       </div>
 
       {/* Voice panel */}
       <div className={styles.voicePanel}>
-        <div className={styles.voiceInfo}>
-          {voiceInfoContent}
-        </div>
-
         <div className={styles.voiceActions}>
-          {currentChannel != null && (
-            <>
-              {/* Mute toggle */}
-              <button
-                className={`${styles.voiceToggle} ${isVoiceActive ? styles.voiceActive : ""}`}
-                onClick={toggleMute}
-                title={muteTitle}
-              >
-                {isVoiceActive ? (
-                  /* Mic on icon */
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="12" y1="19" x2="12" y2="23" />
-                    <line x1="8" y1="23" x2="16" y2="23" />
-                  </svg>
-                ) : (
-                  /* Mic off icon */
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                    <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
-                    <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.5-.35 2.18" />
-                    <line x1="12" y1="19" x2="12" y2="23" />
-                    <line x1="8" y1="23" x2="16" y2="23" />
-                  </svg>
-                )}
-              </button>
-
-              {/* Deafen toggle */}
-              <button
-                className={`${styles.voiceToggle} ${isVoiceInactive ? "" : styles.voiceActive}`}
-                onClick={toggleDeafen}
-                title={isVoiceInactive ? "Enable Voice" : "Disable Voice"}
-              >
-                {isVoiceInactive ? (
-                  /* Headphone off icon */
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                    <path d="M4.53 4.53A9 9 0 0 0 3 12v7c0 1.1.9 2 2 2h4v-8H5.07" />
-                    <path d="M21 12a9 9 0 0 0-15.47-6.27" />
-                    <path d="M15 21h4c1.1 0 2-.9 2-2v-7" />
-                  </svg>
-                ) : (
-                  /* Headphone on icon */
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
-                    <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z" />
-                    <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z" />
-                  </svg>
-                )}
-              </button>
-            </>
+          {onServerInfoToggle && (
+            <button
+              className={styles.serverInfoBtn}
+              onClick={onServerInfoToggle}
+              title="Server info"
+              aria-label="Server info"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+            </button>
           )}
-
           <button
             className={styles.settingsBtn}
             onClick={() => navigate("/settings")}
@@ -929,6 +902,18 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
             </svg>
           </button>
+          <button
+            className={styles.disconnectBtn}
+            onClick={disconnect}
+            title="Disconnect"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            Disconnect
+          </button>
         </div>
       </div>
 
@@ -937,6 +922,9 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
         const ctxChannel = channels.find((c) => c.id === ctxMenu.channelId);
         const hasListenPerm = canListen(ctxChannel);
         const isListened = listenedChannels.has(ctxMenu.channelId);
+        const showEdit = canEditChannel(ctxChannel);
+        const showCreate = canCreateChannel(ctxChannel);
+        const showDelete = canDeleteChannel(ctxChannel);
 
         return (
           <div
@@ -971,6 +959,66 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
                 </>
               )}
             </button>
+
+            {showEdit && (
+              <button
+                className={styles.contextMenuItem}
+                onClick={() => {
+                  if (ctxChannel) {
+                    setChannelEditor({ channel: ctxChannel, parentId: ctxChannel.parent_id ?? 0, tempOnly: false });
+                  }
+                  setCtxMenu(null);
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+                Edit Channel
+              </button>
+            )}
+
+            {showCreate && (
+              <button
+                className={styles.contextMenuItem}
+                onClick={() => {
+                  setChannelEditor({
+                    channel: null,
+                    parentId: ctxMenu.channelId,
+                    tempOnly: canOnlyCreateTemp(ctxChannel),
+                  });
+                  setCtxMenu(null);
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                Create Sub-channel
+              </button>
+            )}
+
+            {showDelete && (
+              <button
+                className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+                onClick={() => {
+                  setDeleteConfirm({
+                    channelId: ctxMenu.channelId,
+                    channelName: ctxChannel?.name ?? "this channel",
+                  });
+                  setCtxMenu(null);
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                  <path d="M10 11v6" />
+                  <path d="M14 11v6" />
+                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                </svg>
+                Delete Channel
+              </button>
+            )}
           </div>
         );
       })()}
@@ -1003,6 +1051,48 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
             setShowGroupModal(false);
           }}
         />
+      )}
+
+      {/* Channel editor dialog */}
+      {channelEditor && (
+        <ChannelEditorDialog
+          channel={channelEditor.channel}
+          parentId={channelEditor.parentId}
+          tempOnly={channelEditor.tempOnly}
+          onClose={() => setChannelEditor(null)}
+        />
+      )}
+
+      {/* Delete channel confirmation dialog */}
+      {deleteConfirm && createPortal(
+        <div className={styles.modalOverlay} onClick={() => setDeleteConfirm(null)}>
+          <div className={styles.deleteConfirmDialog} onClick={(e) => e.stopPropagation()}>
+            <h3 className={styles.deleteConfirmTitle}>Delete Channel</h3>
+            <p className={styles.deleteConfirmBody}>
+              Are you sure you want to delete <strong>{deleteConfirm.channelName}</strong>?
+              This will permanently remove the channel and all its persistent chat messages from the server.
+            </p>
+            <div className={styles.deleteConfirmActions}>
+              <button
+                className={styles.deleteConfirmCancel}
+                onClick={() => setDeleteConfirm(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className={styles.deleteConfirmOk}
+                onClick={async () => {
+                  const id = deleteConfirm.channelId;
+                  setDeleteConfirm(null);
+                  await deleteChannel(id);
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </aside>
   );

@@ -14,6 +14,12 @@ impl HandleMessage for mumble_tcp::Reject {
             state.client_handle = None;
             state.event_loop_handle = None;
         }
-        ctx.emit("connection-rejected", RejectedPayload { reason });
+        ctx.emit(
+            "connection-rejected",
+            RejectedPayload {
+                reason,
+                reject_type: self.r#type,
+            },
+        );
     }
 }

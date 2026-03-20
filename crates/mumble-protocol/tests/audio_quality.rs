@@ -10,6 +10,16 @@
 //! ```
 
 #![cfg(feature = "opus-codec")]
+// Integration tests are separate crate compilation units and will trigger
+// `unused_crate_dependencies` for every transitive dep of mumble-protocol
+// that is not directly imported in this file.
+#![allow(
+    unused_crate_dependencies,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::too_many_lines,
+    reason = "integration test: transitive deps are not directly imported; unwrap/expect and long test functions are idiomatic"
+)]
 
 use mumble_protocol::audio::decoder::{AudioDecoder, OpusDecoder};
 use mumble_protocol::audio::encoder::{
@@ -827,7 +837,7 @@ fn inbound_pipeline_gap_detection_invokes_plc() {
 ///
 /// Returns `None` if the file does not exist or cannot be decoded.
 /// Handles stereo downmixing and resampling from 44.1 kHz.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "helper function available when sample files are present")]
 fn decode_mp3_to_mono_48k(path: &str) -> Option<Vec<f32>> {
     use minimp3::{Decoder as Mp3Decoder, Error as Mp3Error};
     use std::fs::File;
@@ -1436,7 +1446,7 @@ fn pipeline_crossfade_reduces_boundary_jumps() {
 /// Handles mono/stereo, 16-bit/32-bit float, and resamples from other
 /// sample rates if necessary.  Returns `None` if file missing or
 /// unsupported.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "helper function available when sample WAV files are present")]
 fn decode_wav_to_mono_48k(path: &str) -> Option<Vec<f32>> {
     let reader = hound::WavReader::open(path).ok()?;
     let spec = reader.spec();

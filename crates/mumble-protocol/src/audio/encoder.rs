@@ -122,6 +122,17 @@ pub struct OpusEncoder {
 }
 
 #[cfg(feature = "opus-codec")]
+impl std::fmt::Debug for OpusEncoder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpusEncoder")
+            .field("config", &self.config)
+            .field("format", &self.format)
+            .field("sequence", &self.sequence)
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "opus-codec")]
 impl OpusEncoder {
     /// Construct a new Opus encoder.
     ///
@@ -286,7 +297,7 @@ mod tests {
         let frame_size = config.frame_size;
         let mut enc = OpusEncoder::new(config, fmt)?;
         let frame = silent_frame(fmt, frame_size);
-        enc.encode(&frame)?;
+        let _ = enc.encode(&frame)?;
         enc.reset();
         let p = enc.encode(&frame)?;
         assert_eq!(p.sequence, 0);

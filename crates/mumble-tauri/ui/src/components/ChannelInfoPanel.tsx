@@ -11,7 +11,7 @@ import { useAppStore } from "../store";
 import type { ChannelEntry } from "../types";
 import { BioEditor } from "../pages/settings/BioEditor";
 import { SafeHtml } from "./SafeHtml";
-import { UserListItem } from "./UserListItem";
+import { UserListItem, colorFor } from "./UserListItem";
 import { UserContextMenu } from "./UserContextMenu";
 import type { UserContextMenuState } from "./UserContextMenu";
 import styles from "./ChannelInfoPanel.module.css";
@@ -39,10 +39,44 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
   const users = useAppStore((s) => s.users);
   const selectDmUser = useAppStore((s) => s.selectDmUser);
 
+  // Key holder state
+  const keyHolders = useAppStore((s) => s.keyHolders);
+  const queryKeyHolders = useAppStore((s) => s.queryKeyHolders);
+  const getPersistenceMode = useAppStore((s) => s.getPersistenceMode);
+
+  useEffect(() => {
+    if (selectedChannel != null) {
+      queryKeyHolders(selectedChannel);
+    }
+  }, [selectedChannel, queryKeyHolders]);
+
+  const currentHolders = selectedChannel != null ? keyHolders[selectedChannel] ?? [] : [];
+
+  // Build a set of cert hashes that are key holders for fast lookups.
+  const holderHashes = useMemo(
+    () => new Set(currentHolders.map((h) => h.cert_hash)),
+    [currentHolders],
+  );
+
+  // Derive online status from the live users list.
+  const onlineUserHashes = useMemo(
+    () => new Set(users.map((u) => u.hash).filter(Boolean)),
+    [users],
+  );
+
+  // Offline key holders: holders not currently connected to the server.
+  const offlineHolders = useMemo(
+    () => currentHolders.filter((h) => !onlineUserHashes.has(h.cert_hash)),
+    [currentHolders, onlineUserHashes],
+  );
+
   const channelUsers = useMemo(
     () => users.filter((u) => u.channel_id === selectedChannel),
     [users, selectedChannel],
   );
+
+  const isPersisted =
+    selectedChannel != null && getPersistenceMode(selectedChannel) !== "NONE";
 
   const [userCtxMenu, setUserCtxMenu] = useState<UserContextMenuState | null>(
     null,
@@ -208,26 +242,71 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
         )}
       </div>
 
-      {/* Members section */}
+      {/* Members section: online users + offline key holders */}
       <div className={styles.section}>
         <div className={styles.sectionHeader}>
           <h3 className={styles.sectionTitle}>
-            Members ({channelUsers.length})
+            Members ({channelUsers.length + offlineHolders.length})
           </h3>
         </div>
-        <div className={styles.membersList}>
-          {channelUsers.map((u) => (
-            <UserListItem
-              key={u.session}
-              user={u}
-              onClick={() => selectDmUser(u.session)}
-              onContextMenu={(e) => openUserCtxMenu(e, u.session)}
-            />
-          ))}
-          {channelUsers.length === 0 && (
-            <span className={styles.emptyMembers}>No users in this channel</span>
-          )}
-        </div>
+
+        {/* Online: users currently in the channel */}
+        {channelUsers.length > 0 && (
+          <>
+            <span className={styles.subsectionLabel}>Online — {channelUsers.length}</span>
+            <div className={styles.membersList}>
+              {channelUsers.map((u) => (
+                <div key={u.session} className={styles.memberRow}>
+                  <UserListItem
+                    user={u}
+                    onClick={() => selectDmUser(u.session)}
+                    onContextMenu={(e) => openUserCtxMenu(e, u.session)}
+                  />
+                  {u.hash && holderHashes.has(u.hash) && (
+                    <svg className={styles.memberKeyIcon} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Has encryption key">
+                      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                    </svg>
+                  )}
+                  {isPersisted && (!u.hash || !holderHashes.has(u.hash)) && (
+                    <svg className={styles.memberWarningIcon} width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-label="Legacy client - cannot read encrypted messages">
+                      <title>Legacy client - cannot read encrypted messages</title>
+                      <path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 16h2v2h-2zm0-6h2v4h-2z" />
+                    </svg>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Offline: key holders not currently connected */}
+        {offlineHolders.length > 0 && (
+          <>
+            <span className={styles.subsectionLabel}>Offline — {offlineHolders.length}</span>
+            <div className={styles.holdersList}>
+              {offlineHolders.map((holder) => (
+                <div key={holder.cert_hash} className={`${styles.holderItem} ${styles.holderOffline}`}>
+                  <div className={styles.holderAvatarWrap}>
+                    <div
+                      className={styles.holderAvatar}
+                      style={{ background: colorFor(holder.name) }}
+                    >
+                      {holder.name.charAt(0).toUpperCase()}
+                    </div>
+                  </div>
+                  <span className={styles.holderName}>{holder.name}</span>
+                  <svg className={styles.memberKeyIcon} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Has encryption key">
+                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                  </svg>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {channelUsers.length === 0 && offlineHolders.length === 0 && (
+          <span className={styles.emptyMembers}>No users in this channel</span>
+        )}
       </div>
 
       {userCtxMenu && (

@@ -8,6 +8,7 @@ use crate::state::ServerState;
 /// Unmuting also clears self-deaf automatically.
 #[derive(Debug)]
 pub struct SetSelfMute {
+    /// `true` to mute, `false` to unmute.
     pub muted: bool,
 }
 

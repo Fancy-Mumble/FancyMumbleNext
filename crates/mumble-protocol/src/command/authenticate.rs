@@ -6,8 +6,11 @@ use crate::state::ServerState;
 /// Authenticate with the Mumble server.
 #[derive(Debug)]
 pub struct Authenticate {
+    /// Username to authenticate with.
     pub username: String,
+    /// Optional server password.
     pub password: Option<String>,
+    /// Access tokens for permission-gated channels.
     pub tokens: Vec<String>,
 }
 

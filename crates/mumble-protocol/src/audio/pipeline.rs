@@ -67,6 +67,15 @@ pub struct OutboundPipeline {
     was_talking: bool,
 }
 
+impl std::fmt::Debug for OutboundPipeline {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OutboundPipeline")
+            .field("filters", &self.filters)
+            .field("was_talking", &self.was_talking)
+            .finish_non_exhaustive()
+    }
+}
+
 impl OutboundPipeline {
     /// Build a new outbound pipeline from its three stages.
     pub fn new(
@@ -95,7 +104,7 @@ impl OutboundPipeline {
     pub fn tick(&mut self) -> Result<OutboundTick> {
         let frame = match self.capture.read_frame() {
             Ok(f) => f,
-            Err(crate::error::Error::InvalidState(_)) => {
+            Err(crate::error::Error::NotEnoughSamples) => {
                 // Expected: not enough samples yet - non-blocking.
                 return Ok(OutboundTick::NoData);
             }
@@ -196,6 +205,16 @@ pub struct InboundPipeline {
     /// Last sample value from the end of the previous decoded frame,
     /// used to apply a short correction ramp at frame boundaries.
     prev_last_sample: Option<f32>,
+}
+
+impl std::fmt::Debug for InboundPipeline {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InboundPipeline")
+            .field("filters", &self.filters)
+            .field("last_seq", &self.last_seq)
+            .field("seq_step", &self.seq_step)
+            .finish_non_exhaustive()
+    }
 }
 
 impl InboundPipeline {
@@ -337,7 +356,16 @@ pub struct OutboundPipelineBuilder {
     encoder: Option<Box<dyn AudioEncoder>>,
 }
 
+impl std::fmt::Debug for OutboundPipelineBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OutboundPipelineBuilder")
+            .field("filters", &self.filters)
+            .finish_non_exhaustive()
+    }
+}
+
 impl OutboundPipelineBuilder {
+    /// Create a new empty builder.
     pub fn new() -> Self {
         Self {
             capture: None,
@@ -346,27 +374,36 @@ impl OutboundPipelineBuilder {
         }
     }
 
+    /// Set the capture source.
     pub fn capture(mut self, capture: Box<dyn AudioCapture>) -> Self {
         self.capture = Some(capture);
         self
     }
 
+    /// Append a filter to the processing chain.
     pub fn filter(mut self, filter: Box<dyn crate::audio::filter::AudioFilter>) -> Self {
         self.filters.push(filter);
         self
     }
 
+    /// Set the encoder.
     pub fn encoder(mut self, encoder: Box<dyn AudioEncoder>) -> Self {
         self.encoder = Some(encoder);
         self
     }
 
-    pub fn build(self) -> OutboundPipeline {
-        OutboundPipeline::new(
-            self.capture.expect("capture source is required"),
+    /// Build the pipeline.
+    ///
+    /// # Errors
+    /// Returns an error if a capture source or encoder has not been set.
+    pub fn build(self) -> Result<OutboundPipeline> {
+        Ok(OutboundPipeline::new(
+            self.capture
+                .ok_or_else(|| crate::error::Error::InvalidState("capture source is required".into()))?,
             self.filters,
-            self.encoder.expect("encoder is required"),
-        )
+            self.encoder
+                .ok_or_else(|| crate::error::Error::InvalidState("encoder is required".into()))?,
+        ))
     }
 }
 
@@ -383,7 +420,16 @@ pub struct InboundPipelineBuilder {
     playback: Option<Box<dyn AudioPlayback>>,
 }
 
+impl std::fmt::Debug for InboundPipelineBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InboundPipelineBuilder")
+            .field("filters", &self.filters)
+            .finish_non_exhaustive()
+    }
+}
+
 impl InboundPipelineBuilder {
+    /// Create a new empty builder.
     pub fn new() -> Self {
         Self {
             decoder: None,
@@ -392,27 +438,36 @@ impl InboundPipelineBuilder {
         }
     }
 
+    /// Set the decoder.
     pub fn decoder(mut self, decoder: Box<dyn AudioDecoder>) -> Self {
         self.decoder = Some(decoder);
         self
     }
 
+    /// Append a filter to the processing chain.
     pub fn filter(mut self, filter: Box<dyn crate::audio::filter::AudioFilter>) -> Self {
         self.filters.push(filter);
         self
     }
 
+    /// Set the playback sink.
     pub fn playback(mut self, playback: Box<dyn AudioPlayback>) -> Self {
         self.playback = Some(playback);
         self
     }
 
-    pub fn build(self) -> InboundPipeline {
-        InboundPipeline::new(
-            self.decoder.expect("decoder is required"),
+    /// Build the pipeline.
+    ///
+    /// # Errors
+    /// Returns an error if a decoder or playback sink has not been set.
+    pub fn build(self) -> Result<InboundPipeline> {
+        Ok(InboundPipeline::new(
+            self.decoder
+                .ok_or_else(|| crate::error::Error::InvalidState("decoder is required".into()))?,
             self.filters,
-            self.playback.expect("playback sink is required"),
-        )
+            self.playback
+                .ok_or_else(|| crate::error::Error::InvalidState("playback sink is required".into()))?,
+        ))
     }
 }
 
@@ -445,7 +500,7 @@ mod tests {
             .capture(Box::new(SilentCapture::new(fmt, 480)))
             .filter(Box::new(VolumeFilter::new(1.0)))
             .encoder(Box::new(OpusEncoder::new(OpusEncoderConfig::default(), fmt)?))
-            .build();
+            .build()?;
 
         pipeline.start()?;
         // SilentCapture produces all-zero frames. Without a noise gate
@@ -480,7 +535,7 @@ mod tests {
             .decoder(Box::new(OpusDecoder::new(fmt)?))
             .filter(Box::new(VolumeFilter::new(1.0)))
             .playback(Box::new(NullPlayback::new(fmt)))
-            .build();
+            .build()?;
 
         pipeline.start()?;
         pipeline.tick(&packet)?;

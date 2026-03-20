@@ -9,6 +9,7 @@ import ServerInfoPanel from "../components/ServerInfoPanel";
 import ChannelInfoPanel from "../components/ChannelInfoPanel";
 import UserProfileView from "../components/UserProfileView";
 import MobileProfileSheet from "../components/MobileProfileSheet";
+import MobileBottomSheet from "../components/MobileBottomSheet";
 import styles from "./ChatPage.module.css";
 
 export default function ChatPage() {
@@ -90,7 +91,25 @@ export default function ChatPage() {
       {showServerInfo && !isMobile && <ServerInfoPanel onClose={() => setShowServerInfo(false)} />}
       {showChannelInfo && !isMobile && <ChannelInfoPanel onClose={() => setShowChannelInfo(false)} />}
       {selectedUser !== null && !showServerInfo && !showChannelInfo && !isMobile && <UserProfileView />}
-      {isMobile && <MobileProfileSheet />}
+      {isMobile && (
+        <>
+          <MobileProfileSheet />
+          <MobileBottomSheet
+            open={showServerInfo}
+            onClose={() => setShowServerInfo(false)}
+            ariaLabel="Close server info"
+          >
+            <ServerInfoPanel onClose={() => setShowServerInfo(false)} />
+          </MobileBottomSheet>
+          <MobileBottomSheet
+            open={showChannelInfo}
+            onClose={() => setShowChannelInfo(false)}
+            ariaLabel="Close channel info"
+          >
+            <ChannelInfoPanel onClose={() => setShowChannelInfo(false)} />
+          </MobileBottomSheet>
+        </>
+      )}
     </div>
   );
 }

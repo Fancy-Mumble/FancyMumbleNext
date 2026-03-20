@@ -4,20 +4,89 @@
 //! External consumers can query it through the public API.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::{Arc, Mutex};
+
+
+/// Persistent-chat mode for a channel.
+///
+/// Maps 1:1 to the `ChannelState.PchatMode` protobuf enum.
+/// Lives in core (no feature gate) so all consumers can use it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum PchatMode {
+    /// No persistence.  Standard volatile Mumble chat.
+    #[default]
+    None,
+    /// Messages accessible from the moment a user first joined.
+    PostJoin,
+    /// All stored messages accessible to any channel member.
+    FullArchive,
+    /// Server stores messages (no client-side key management).
+    ServerManaged,
+}
+
+impl PchatMode {
+    /// Parse from the protobuf `pchat_mode` i32 value.
+    #[must_use]
+    pub fn from_proto(value: i32) -> Self {
+        match value {
+            1 => Self::PostJoin,
+            2 => Self::FullArchive,
+            3 => Self::ServerManaged,
+            _ => Self::None,
+        }
+    }
+
+    /// Convert to the protobuf `pchat_mode` i32 value.
+    #[must_use]
+    pub fn to_proto(self) -> i32 {
+        match self {
+            Self::None => 0,
+            Self::PostJoin => 1,
+            Self::FullArchive => 2,
+            Self::ServerManaged => 3,
+        }
+    }
+}
+
+impl fmt::Display for PchatMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::None => write!(f, "None"),
+            Self::PostJoin => write!(f, "PostJoin"),
+            Self::FullArchive => write!(f, "FullArchive"),
+            Self::ServerManaged => write!(f, "ServerManaged"),
+        }
+    }
+}
+
+// Re-export version utilities from fancy-utils so existing
+// `mumble_protocol::state::fancy_version_*` paths keep working.
+pub use fancy_utils::version::{fancy_version_decode, fancy_version_encode, fancy_version_string};
+
 
 /// Snapshot of a connected user.
 #[derive(Debug, Clone)]
 pub struct User {
+    /// The session ID assigned by the server to this user.
     pub session: u32,
+    /// Display name.
     pub name: String,
+    /// ID of the channel the user is currently in.
     pub channel_id: u32,
+    /// Whether this user has been server-muted.
     pub mute: bool,
+    /// Whether this user has been server-deafened.
     pub deaf: bool,
+    /// Whether this user has self-muted.
     pub self_mute: bool,
+    /// Whether this user has self-deafened.
     pub self_deaf: bool,
+    /// The user's comment (may be HTML or a Fancy Mumble profile blob).
     pub comment: String,
+    /// The user's avatar texture bytes (typically PNG/JPEG).
     pub texture: Vec<u8>,
+    /// SHA-256 hash of the user's certificate.
     pub hash: String,
 }
 
@@ -68,16 +137,23 @@ pub type SharedPingStats = Arc<Mutex<PingStats>>;
 /// Snapshot of a channel on the server.
 #[derive(Debug, Clone)]
 pub struct Channel {
+    /// The channel's unique identifier.
     pub channel_id: u32,
+    /// Parent channel ID (`None` for the root channel).
     pub parent_id: Option<u32>,
+    /// Display name of the channel.
     pub name: String,
+    /// Channel description (may contain HTML).
     pub description: String,
     /// SHA-256 hash of the description blob.  When the server sends
     /// only the hash (no inline `description`), the client must
     /// request the full blob via `RequestBlob::channel_description`.
     pub description_hash: Option<Vec<u8>>,
+    /// Display order hint relative to sibling channels.
     pub position: i32,
+    /// Whether the channel is temporary (auto-deleted when empty).
     pub temporary: bool,
+    /// Maximum number of users allowed (0 = unlimited).
     pub max_users: u32,
     /// Server-reported permission bitmask for this channel.
     /// `None` until a `PermissionQuery` response is received.
@@ -88,6 +164,12 @@ pub struct Channel {
     /// Whether the server reports the current user can enter
     /// this channel (`ChannelState.can_enter`).
     pub can_enter: bool,
+    /// Persistent-chat mode.  `None` if not announced by the server.
+    pub pchat_mode: Option<PchatMode>,
+    /// Maximum stored messages (0 = unlimited).  `None` if not set.
+    pub pchat_max_history: Option<u32>,
+    /// Auto-delete after N days (0 = forever).  `None` if not set.
+    pub pchat_retention_days: Option<u32>,
 }
 
 /// Connection-level metadata received during handshake.
@@ -108,8 +190,11 @@ pub struct ConnectionInfo {
 /// Aggregated server state maintained by the client.
 #[derive(Debug, Default)]
 pub struct ServerState {
+    /// Connection-level metadata (session ID, welcome text, etc.).
     pub connection: ConnectionInfo,
+    /// All currently connected users, keyed by session ID.
     pub users: HashMap<u32, User>,
+    /// All known channels, keyed by channel ID.
     pub channels: HashMap<u32, Channel>,
     /// Shared ping statistics - updated on every Ping echo from the server,
     /// read by the periodic ping task to populate outbound Ping messages.
@@ -117,6 +202,7 @@ pub struct ServerState {
 }
 
 impl ServerState {
+    /// Create a new, empty server state.
     pub fn new() -> Self {
         Self::default()
     }
@@ -171,7 +257,7 @@ impl ServerState {
 
     /// Remove a user from state.
     pub fn remove_user(&mut self, session: u32) {
-        self.users.remove(&session);
+        let _ = self.users.remove(&session);
     }
 
     /// Apply a `ChannelState` update from the server.
@@ -192,6 +278,9 @@ impl ServerState {
             permissions: None,
             is_enter_restricted: false,
             can_enter: true,
+            pchat_mode: None,
+            pchat_max_history: None,
+            pchat_retention_days: None,
         });
 
         if let Some(parent) = state.parent {
@@ -221,6 +310,15 @@ impl ServerState {
         if let Some(can) = state.can_enter {
             channel.can_enter = can;
         }
+        if let Some(mode) = state.pchat_mode {
+            channel.pchat_mode = Some(PchatMode::from_proto(mode));
+        }
+        if let Some(max_hist) = state.pchat_max_history {
+            channel.pchat_max_history = Some(max_hist);
+        }
+        if let Some(ret) = state.pchat_retention_days {
+            channel.pchat_retention_days = Some(ret);
+        }
     }
 
     /// Apply a `PermissionQuery` response from the server.
@@ -242,7 +340,7 @@ impl ServerState {
 
     /// Remove a channel from state.
     pub fn remove_channel(&mut self, channel_id: u32) {
-        self.channels.remove(&channel_id);
+        let _ = self.channels.remove(&channel_id);
     }
 
     /// Apply an incoming `Version` message from the server.
