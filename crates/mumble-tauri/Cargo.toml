@@ -1,6 +1,6 @@
 [package]
 name = "mumble-tauri"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "Tauri desktop & mobile GUI for mumble-protocol"
 license = "MIT"
@@ -28,6 +28,7 @@ tracing-subscriber = "0.3"
 uuid = { version = "1", features = ["v4"] }
 rand = "0.10"
 ring = "0.17"
+base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "deflate"] }
 quick-xml = { version = "0.39.2", features = ["serialize"] }
 tauri-plugin-notification = "2.3.3"

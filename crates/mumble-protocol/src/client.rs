@@ -14,7 +14,6 @@ use crate::error::{Error, Result};
 use crate::event::EventHandler;
 use crate::message::{ControlMessage, ServerMessage, UdpMessage};
 use crate::transport::audio_codec::AudioPacketCodec;
-use fancy_utils::version::fancy_version_encode;
 use crate::proto::mumble_tcp;
 use crate::state::ServerState;
 use crate::transport::tcp::{TcpConfig, TcpTransport};
@@ -120,9 +119,9 @@ pub async fn run<H: EventHandler>(
         release: Some("FancyMumble 0.1.0".into()),
         os: Some(std::env::consts::OS.into()),
         os_version: None,
-        // Announce Fancy Mumble extension support (v2-encoded 0.2.0).
+        // Announce Fancy Mumble extension support, version derived from Cargo.toml.
         // The server responds with its own fancy_version if it supports them.
-        fancy_version: Some(fancy_version_encode(0, 2, 0)),
+        fancy_version: Some(crate::FANCY_VERSION),
     });
     tcp.send(&version_msg).await?;
     info!("Version 1.5.0 sent");

@@ -16,6 +16,8 @@ import {
 } from "react";
 import styles from "./MediaPreview.module.css";
 import { ExternalLinkGuard } from "./ExternalLinkGuard";
+import type { TimeFormat } from "../types";
+import { formatTimestamp } from "../utils/format";
 
 // --- Types --------------------------------------------------------
 
@@ -35,6 +37,14 @@ interface Props {
    * Used when the bubble has zero padding (pure-media messages).
    */
   compact?: boolean;
+  /** Epoch-ms timestamp to overlay on each media thumbnail. */
+  timestamp?: number | null;
+  /** Time format preference for the timestamp chip. */
+  timeFormat?: TimeFormat;
+  /** Display timestamp in local timezone. */
+  convertToLocalTime?: boolean;
+  /** OS-reported clock format for "auto" mode (true = 24h). */
+  systemUses24h?: boolean;
 }
 
 // --- Global GIF-played tracker ------------------------------------
@@ -186,10 +196,12 @@ function GifThumb({
   item,
   id,
   onOpen,
+  timeLabel,
 }: Readonly<{
   item: MediaItem;
   id: string;
   onOpen: () => void;
+  timeLabel?: string | null;
 }>) {
   const imgRef = useRef<HTMLImageElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -290,6 +302,7 @@ function GifThumb({
           <span className={styles.replayIcon}>&#x25B6;</span>
         </button>
         <span className={styles.gifBadge}>GIF</span>
+        {timeLabel && <span className={styles.timeChip}>{timeLabel}</span>}
       </button>
     );
   }
@@ -304,6 +317,7 @@ function GifThumb({
         onLoad={handleImgLoad}
       />
       <span className={styles.gifBadge}>GIF</span>
+      {timeLabel && <span className={styles.timeChip}>{timeLabel}</span>}
     </button>
   );
 }
@@ -311,13 +325,16 @@ function GifThumb({
 function ImageThumb({
   item,
   onOpen,
+  timeLabel,
 }: Readonly<{
   item: MediaItem;
   onOpen: () => void;
+  timeLabel?: string | null;
 }>) {
   return (
     <button type="button" className={styles.thumbWrap} onClick={onOpen}>
       <img className={styles.thumb} src={item.src} alt={item.alt} />
+      {timeLabel && <span className={styles.timeChip}>{timeLabel}</span>}
     </button>
   );
 }
@@ -325,14 +342,17 @@ function ImageThumb({
 function VideoThumb({
   item,
   onOpen,
+  timeLabel,
 }: Readonly<{
   item: MediaItem;
   onOpen: () => void;
+  timeLabel?: string | null;
 }>) {
   return (
     <button type="button" className={styles.thumbWrap} onClick={onOpen}>
       <video className={styles.thumb} src={item.src} muted preload="metadata" />
       <span className={styles.playBadge}>&#x25B6;</span>
+      {timeLabel && <span className={styles.timeChip}>{timeLabel}</span>}
     </button>
   );
 }
@@ -389,12 +409,16 @@ function Lightbox({
 
 // --- Main component -----------------------------------------------
 
-export default function MediaPreview({ html, messageId, compact = false }: Readonly<Props>): ReactNode {
+export default function MediaPreview({ html, messageId, compact = false, timestamp, timeFormat = "auto", convertToLocalTime = true, systemUses24h }: Readonly<Props>): ReactNode {
   const { cleaned, media } = extractMedia(html);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
 
   const openLightbox = (idx: number) => setLightboxIdx(idx);
   const closeLightbox = () => setLightboxIdx(null);
+
+  const timeLabel = timestamp == null
+    ? null
+    : formatTimestamp(timestamp, timeFormat, convertToLocalTime, systemUses24h);
 
   return (
     <>
@@ -418,6 +442,7 @@ export default function MediaPreview({ html, messageId, compact = false }: Reado
                     item={item}
                     id={key}
                     onOpen={() => openLightbox(i)}
+                    timeLabel={timeLabel}
                   />
                 );
               case "image":
@@ -426,6 +451,7 @@ export default function MediaPreview({ html, messageId, compact = false }: Reado
                     key={key}
                     item={item}
                     onOpen={() => openLightbox(i)}
+                    timeLabel={timeLabel}
                   />
                 );
               case "video":
@@ -434,6 +460,7 @@ export default function MediaPreview({ html, messageId, compact = false }: Reado
                     key={key}
                     item={item}
                     onOpen={() => openLightbox(i)}
+                    timeLabel={timeLabel}
                   />
                 );
             }

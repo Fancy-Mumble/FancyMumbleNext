@@ -19,8 +19,8 @@
   cursor: pointer;
   border-radius: 8px;
   overflow: hidden;
-  max-width: 320px;
-  max-height: 240px;
+  max-width: var(--media-thumb-max-width, 320px);
+  max-height: var(--media-thumb-max-height, 240px);
   border: 1px solid var(--color-glass-border);
   transition: transform 0.15s, box-shadow 0.15s;
   flex-shrink: 0;
@@ -39,8 +39,8 @@
 
 .thumb {
   display: block;
-  max-width: 320px;
-  max-height: 240px;
+  max-width: var(--media-thumb-max-width, 320px);
+  max-height: var(--media-thumb-max-height, 240px);
   object-fit: cover;
   border-radius: 8px;
 }
@@ -100,6 +100,25 @@
   padding: 4px 8px;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.55);
+}
+
+/* ─── Time chip (bottom-right, frosted glass) ──────────────────── */
+
+.timeChip {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(6px) saturate(1.3);
+  backdrop-filter: blur(6px) saturate(1.3);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  pointer-events: none;
+  line-height: 1.4;
 }
 
 /* ─── Lightbox overlay ─────────────────────────────────────────── */

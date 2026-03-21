@@ -4,6 +4,7 @@ import type { ChatMessage, UserEntry, TimeFormat } from "../types";
 import type { PollPayload } from "./PollCreator";
 import { parseComment } from "../profileFormat";
 import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
+import { useUserStats } from "../hooks/useUserStats";
 import { isMobilePlatform } from "../utils/platform";
 import { formatTimestamp, colorFor } from "../utils/format";
 import { extractOffloadInfo } from "../messageOffload";
@@ -14,6 +15,90 @@ import styles from "./ChatView.module.css";
 /** Approximate height of the profile hover card, used for viewport clamping. */
 const HOVER_CARD_H = 340;
 const HOVER_CARD_MARGIN = 10;
+
+// --- Exported group avatar component ------------------------------
+
+interface MessageAvatarProps {
+  readonly senderSession: number | null;
+  readonly senderName: string;
+  readonly avatarUrl: string | undefined;
+  readonly user: UserEntry | undefined;
+  readonly onAvatarClick?: (session: number) => void;
+}
+
+export function MessageAvatar({
+  senderSession,
+  senderName,
+  avatarUrl,
+  user,
+  onAvatarClick,
+}: Readonly<MessageAvatarProps>) {
+  const isMobile = isMobilePlatform();
+  const [showCard, setShowCard] = useState(false);
+  const [cardPos, setCardPos] = useState<{ top: number; left: number } | null>(null);
+  const avatarRef = useRef<HTMLButtonElement>(null);
+  const stats = useUserStats(senderSession, showCard);
+
+  const parsed = useMemo(
+    () => (user?.comment ? parseComment(user.comment) : null),
+    [user?.comment],
+  );
+
+  const handleEnter = useCallback(() => {
+    if (isMobile || !avatarRef.current) return;
+    const rect = avatarRef.current.getBoundingClientRect();
+    const rawTop = rect.top + rect.height / 2;
+    const top = Math.max(
+      HOVER_CARD_H / 2 + HOVER_CARD_MARGIN,
+      Math.min(rawTop, window.innerHeight - HOVER_CARD_H / 2 - HOVER_CARD_MARGIN),
+    );
+    setCardPos({ top, left: rect.right + 8 });
+    setShowCard(true);
+  }, [isMobile]);
+
+  const handleLeave = useCallback(() => setShowCard(false), []);
+
+  const handleClick = useCallback(() => {
+    if (senderSession !== null) onAvatarClick?.(senderSession);
+  }, [senderSession, onAvatarClick]);
+
+  const inner = avatarUrl ? (
+    <img src={avatarUrl} alt={senderName} className={styles.messageAvatarImg} />
+  ) : (
+    <div className={styles.messageAvatar} style={{ background: colorFor(senderName) }}>
+      {senderName.charAt(0).toUpperCase()}
+    </div>
+  );
+
+  return (
+    <>
+      <button
+        ref={avatarRef}
+        type="button"
+        className={styles.avatarBtn}
+        onClick={handleClick}
+        onMouseEnter={handleEnter}
+        onMouseLeave={handleLeave}
+        aria-label={`View ${senderName}'s profile`}
+      >
+        {inner}
+      </button>
+      {showCard && cardPos && user && createPortal(
+        <div className={styles.avatarPopover} style={{ top: cardPos.top, left: cardPos.left }}>
+          <ProfilePreviewCard
+            profile={parsed?.profile ?? {}}
+            bio={parsed?.bio ?? ""}
+            avatar={avatarUrl ?? null}
+            displayName={user.name}
+            onlinesecs={stats?.onlinesecs}
+            idlesecs={stats?.idlesecs}
+          />
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
 
 /**
  * Returns true when the message body contains only media elements
@@ -50,59 +135,28 @@ interface MessageItemProps {
   readonly systemUses24h?: boolean;
   /** Whether the message content is currently being loaded from offload storage. */
   readonly isRestoring?: boolean;
+  /** True when this is the first message in a consecutive same-sender group. */
+  readonly isFirstInGroup?: boolean;
 }
 
 export default function MessageItem({
   msg,
   index,
-  avatarUrl,
-  user,
   polls,
   ownSession,
   onVote,
-  onAvatarClick,
   timeFormat = "auto",
   convertToLocalTime = true,
   systemUses24h,
   isRestoring = false,
+  isFirstInGroup = true,
 }: MessageItemProps) {
   const offloadInfo = extractOffloadInfo(msg.body);
   const offloaded = offloadInfo !== null;
   const pureMedia = !offloaded && isPureMedia(msg.body);
-  const isMobile = isMobilePlatform();
 
-  // Desktop hover-card state
-  const [showCard, setShowCard] = useState(false);
-  const [cardPos, setCardPos] = useState<{ top: number; left: number } | null>(null);
-  const avatarRef = useRef<HTMLButtonElement>(null);
-
-  const parsed = useMemo(
-    () => (user?.comment ? parseComment(user.comment) : null),
-    [user?.comment],
-  );
-
-  const handleAvatarEnter = useCallback(() => {
-    if (isMobile || !avatarRef.current) return;
-    const rect = avatarRef.current.getBoundingClientRect();
-    const rawTop = rect.top + rect.height / 2;
-    // Clamp so the card never clips above or below the viewport.
-    const top = Math.max(
-      HOVER_CARD_H / 2 + HOVER_CARD_MARGIN,
-      Math.min(rawTop, window.innerHeight - HOVER_CARD_H / 2 - HOVER_CARD_MARGIN),
-    );
-    setCardPos({ top, left: rect.right + 8 });
-    setShowCard(true);
-  }, [isMobile]);
-
-  const handleAvatarLeave = useCallback(() => {
-    setShowCard(false);
-  }, []);
-
-  const handleAvatarClick = useCallback(() => {
-    if (msg.sender_session !== null) {
-      onAvatarClick?.(msg.sender_session);
-    }
-  }, [msg.sender_session, onAvatarClick]);
+  // Always resolve a displayable timestamp: prefer server-side, fall back to local time.
+  const displayTimestamp = msg.timestamp ?? Date.now();
 
   const renderBody = () => {
     if (offloaded || isRestoring) {
@@ -141,68 +195,17 @@ export default function MessageItem({
         );
       }
     }
-    return <MediaPreview html={msg.body} messageId={`${index}`} compact={pureMedia} />;
+    return <MediaPreview html={msg.body} messageId={`${index}`} compact={pureMedia} timestamp={pureMedia ? displayTimestamp : undefined} timeFormat={timeFormat} convertToLocalTime={convertToLocalTime} systemUses24h={systemUses24h} />;
   };
-
-  const renderAvatar = () => {
-    const inner = avatarUrl ? (
-      <img
-        src={avatarUrl}
-        alt={msg.sender_name}
-        className={styles.messageAvatarImg}
-      />
-    ) : (
-      <div
-        className={styles.messageAvatar}
-        style={{ background: colorFor(msg.sender_name) }}
-      >
-        {msg.sender_name.charAt(0).toUpperCase()}
-      </div>
-    );
-
-    return (
-      <>
-        <button
-          ref={avatarRef}
-          type="button"
-          className={styles.avatarBtn}
-          onClick={handleAvatarClick}
-          onMouseEnter={handleAvatarEnter}
-          onMouseLeave={handleAvatarLeave}
-          aria-label={`View ${msg.sender_name}'s profile`}
-        >
-          {inner}
-        </button>
-        {showCard && cardPos && user && createPortal(
-          <div
-            className={styles.avatarPopover}
-            style={{ top: cardPos.top, left: cardPos.left }}
-          >
-            <ProfilePreviewCard
-              profile={parsed?.profile ?? {}}
-              bio={parsed?.bio ?? ""}
-              avatar={avatarUrl ?? null}
-              displayName={user.name}
-            />
-          </div>,
-          document.body,
-        )}
-      </>
-    );
-  };
-
-  // Always resolve a displayable timestamp: prefer server-side, fall back to local time.
-  const displayTimestamp = msg.timestamp ?? Date.now();
 
   return (
     <div
       className={`${styles.messageRow} ${msg.is_own ? styles.own : ""}`}
     >
-      {!msg.is_own && renderAvatar()}
       <div
         className={`${styles.bubble} ${msg.is_own ? styles.ownBubble : ""} ${pureMedia ? styles.bubbleMedia : ""} ${msg.is_legacy ? styles.legacyBubble : ""}`}
       >
-        {!pureMedia && (
+        {!pureMedia && isFirstInGroup && (
           <span
             className={styles.senderName}
             style={{ color: msg.is_own ? "rgba(255,255,255,0.85)" : colorFor(msg.sender_name) }}
@@ -213,6 +216,11 @@ export default function MessageItem({
               {formatTimestamp(displayTimestamp, timeFormat, convertToLocalTime, systemUses24h)}
             </time>
           </span>
+        )}
+        {!pureMedia && !isFirstInGroup && (
+          <time className={`${styles.messageTime} ${styles.messageTimeContinuation}`} dateTime={new Date(displayTimestamp).toISOString()}>
+            {formatTimestamp(displayTimestamp, timeFormat, convertToLocalTime, systemUses24h)}
+          </time>
         )}
         <div className={styles.messageBody}>{renderBody()}</div>
       </div>

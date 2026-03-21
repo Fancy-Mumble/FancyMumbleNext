@@ -3,8 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../store";
 import type { TimeFormat } from "../types";
 import { getPreferences } from "../preferencesStorage";
+import { loadPersonalization, type PersonalizationData } from "../personalizationStorage";
 import ChatHeader from "./ChatHeader";
-import MessageItem from "./MessageItem";
+import MessageItem, { MessageAvatar } from "./MessageItem";
 import ChatComposer from "./ChatComposer";
 import { usePersistentChat } from "./PersistentChatOverlays";
 import { BannerStack } from "./InfoBanner";
@@ -13,6 +14,7 @@ import { registerVote, registerLocalVote, getPoll } from "./PollCard";
 import { mediaKind, fileToDataUrl, fitImage, fitVideo, mediaToHtml } from "../utils/media";
 import { textureToDataUrl } from "../profileFormat";
 import { markdownToHtml } from "./MarkdownInput";
+import { dateKey, formatDateChip } from "../utils/format";
 import {
   isHeavyContent,
   offloadManager,
@@ -58,6 +60,17 @@ function computeHeader(
   return [channel?.name ?? "Unknown", memberCount];
 }
 
+/** Map a font family id to a CSS font-family string. */
+function fontFamilyCss(id: string): string {
+  switch (id) {
+    case "monospace": return "'Cascadia Mono', 'Fira Code', 'Consolas', monospace";
+    case "serif": return "'Georgia', 'Times New Roman', serif";
+    case "humanist": return "'Segoe UI', 'Helvetica Neue', 'Arial', sans-serif";
+    case "rounded": return "'Nunito', 'Quicksand', 'Comfortaa', sans-serif";
+    default: return "inherit";
+  }
+}
+
 export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
   const channels = useAppStore((s) => s.channels);
   const users = useAppStore((s) => s.users);
@@ -101,11 +114,26 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
   // the Windows Region setting and always uses the language-tag default).
   const [systemUses24h, setSystemUses24h] = useState<boolean | undefined>(undefined);
 
+  const [personalization, setPersonalization] = useState<PersonalizationData>({
+    chatBgOriginal: null,
+    chatBgBlurred: null,
+    chatBgBlurSigma: 0,
+    chatBgOpacity: 0.25,
+    chatBgDim: 0.5,
+    chatBgFit: "cover",
+    bubbleStyle: "bubbles",
+    fontSize: "medium",
+    fontSizeCustomPx: 14,
+    fontFamily: "system",
+    compactMode: false,
+  });
+
   useEffect(() => {
     getPreferences().then((prefs) => {
       setTimeFormat(prefs.timeFormat);
       setConvertToLocalTime(prefs.convertToLocalTime);
     });
+    loadPersonalization().then(setPersonalization).catch(() => { /* keep defaults */ });
     invoke<"12h" | "24h" | null>("get_system_clock_format")
       .then((fmt) => {
         // null means non-Windows: leave systemUses24h as undefined so the
@@ -789,7 +817,27 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
       />
 
       {/* Messages */}
-      <div ref={messagesContainerRef} className={styles.messages}>
+      <div
+        ref={messagesContainerRef}
+        className={[
+          styles.messages,
+          personalization.bubbleStyle === "flat" ? styles.flatStyle : "",
+          personalization.bubbleStyle === "compact" ? styles.compactStyle : "",
+          personalization.compactMode ? styles.compactLayout : "",
+        ].join(" ")}
+        style={{
+          ...(personalization.chatBgOriginal ? {
+            "--chat-bg-image": `url(${personalization.chatBgBlurred ?? personalization.chatBgOriginal})`,
+            "--chat-bg-opacity": String(personalization.chatBgOpacity),
+            "--chat-bg-size": personalization.chatBgFit === "tile" ? "auto" : "cover",
+            "--chat-bg-repeat": personalization.chatBgFit === "tile" ? "repeat" : "no-repeat",
+          } : {}),
+          "--chat-font-size": personalization.fontSize === "small" ? "12px"
+            : personalization.fontSize === "large" ? `${personalization.fontSizeCustomPx}px`
+            : "14px",
+          "--chat-font-family": fontFamilyCss(personalization.fontFamily),
+        } as React.CSSProperties}
+      >
         <div ref={messagesInnerRef} className={styles.messagesInner}>
           {/* All banners in a single sticky container */}
           <BannerStack>
@@ -805,43 +853,105 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
               <p>No messages yet. Say hello!</p>
             </div>
           ) : (
-            allMessages.map((msg, i) => (
-              <React.Fragment key={msg.message_id ?? `${msg.channel_id}-${msg.sender_session ?? "s"}-${msg.body.slice(0, 32)}-${i}`}>
-                {/* Last-read divider */}
-                {lastReadIdx !== null && i === lastReadIdx && (
-                  <div className={styles.unreadDivider} aria-label="New messages">
-                    <span className={styles.unreadDividerLabel}>New messages</span>
+            (() => {
+              // Group consecutive messages from the same sender,
+              // also breaking on date boundaries so date chips render between groups.
+              interface MsgGroup {
+                senderId: number | null;
+                isOwn: boolean;
+                startIdx: number;
+                messages: typeof allMessages;
+                day: string;
+              }
+              const groups: MsgGroup[] = [];
+              for (const [i, msg] of allMessages.entries()) {
+                const msgDay = msg.timestamp ? dateKey(msg.timestamp, convertToLocalTime) : "";
+                const prev = groups[groups.length - 1];
+                if (prev?.senderId === msg.sender_session && prev.isOwn === msg.is_own && prev.day === msgDay) {
+                  prev.messages.push(msg);
+                } else {
+                  groups.push({ senderId: msg.sender_session, isOwn: msg.is_own, startIdx: i, messages: [msg], day: msgDay });
+                }
+              }
+
+              let lastDay = "";
+              return groups.map((group) => {
+                const firstGlobalIdx = group.startIdx;
+                const firstMsg = group.messages[0];
+                const groupKey = firstMsg.message_id ?? `${firstMsg.channel_id}-${firstMsg.sender_session ?? "s"}-${firstGlobalIdx}`;
+                const senderUser = group.senderId === null ? undefined : userBySession.get(group.senderId);
+                const senderAvatar = group.senderId === null ? undefined : avatarBySession.get(group.senderId);
+
+                // Show date chip when the day changes.
+                let dateChip: React.ReactNode = null;
+                if (group.day && group.day !== lastDay) {
+                  const label = formatDateChip(firstMsg.timestamp!, convertToLocalTime);
+                  dateChip = (
+                    <div key={`date-${group.day}`} className={styles.dateDivider} aria-label={label}>
+                      <span className={styles.dateDividerLabel}>{label}</span>
+                    </div>
+                  );
+                  lastDay = group.day;
+                }
+
+                return (
+                  <React.Fragment key={groupKey}>
+                    {dateChip}
+                    <div
+                      className={`${styles.messageGroup} ${group.isOwn ? styles.messageGroupOwn : ""}`}
+                  >
+                    {/* Sticky avatar column: always shown in flat style, others-only otherwise */}
+                    {(!group.isOwn || personalization.bubbleStyle === "flat") && (
+                      <div className={styles.avatarColumn}>
+                        <MessageAvatar
+                          senderSession={group.senderId}
+                          senderName={firstMsg.sender_name}
+                          avatarUrl={senderAvatar}
+                          user={senderUser}
+                          onAvatarClick={selectUser}
+                        />
+                      </div>
+                    )}
+                    {/* Bubble column */}
+                    <div className={styles.bubbleColumn}>
+                      {group.messages.map((msg, j) => {
+                        const globalIdx = firstGlobalIdx + j;
+                        return (
+                          <React.Fragment key={msg.message_id ?? `${msg.channel_id}-${msg.sender_session ?? "s"}-${msg.body.slice(0, 32)}-${globalIdx}`}>
+                            {lastReadIdx !== null && globalIdx === lastReadIdx && (
+                              <div className={styles.unreadDivider} aria-label="New messages">
+                                <span className={styles.unreadDividerLabel}>New messages</span>
+                              </div>
+                            )}
+                            <div
+                              data-msg-id={msg.message_id ?? undefined}
+                              data-msg-heavy={msg.message_id && isHeavyContent(msg.body) ? "" : undefined}
+                            >
+                              <MessageItem
+                                msg={msg}
+                                index={globalIdx}
+                                avatarUrl={senderAvatar}
+                                user={senderUser}
+                                polls={polls}
+                                ownSession={ownSession}
+                                onVote={handlePollVote}
+                                onAvatarClick={selectUser}
+                                timeFormat={timeFormat}
+                                convertToLocalTime={convertToLocalTime}
+                                systemUses24h={systemUses24h}
+                                isRestoring={msg.message_id ? restoringKeys.has(msg.message_id) : false}
+                                isFirstInGroup={j === 0}
+                              />
+                            </div>
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
                   </div>
-                )}
-                <div
-                  data-msg-id={msg.message_id ?? undefined}
-                  data-msg-heavy={msg.message_id && isHeavyContent(msg.body) ? "" : undefined}
-                >
-                  <MessageItem
-                    msg={msg}
-                    index={i}
-                    avatarUrl={
-                      msg.sender_session === null
-                        ? undefined
-                        : avatarBySession.get(msg.sender_session)
-                    }
-                    user={
-                      msg.sender_session === null
-                        ? undefined
-                        : userBySession.get(msg.sender_session)
-                    }
-                    polls={polls}
-                    ownSession={ownSession}
-                    onVote={handlePollVote}
-                    onAvatarClick={selectUser}
-                    timeFormat={timeFormat}
-                    convertToLocalTime={convertToLocalTime}
-                    systemUses24h={systemUses24h}
-                    isRestoring={msg.message_id ? restoringKeys.has(msg.message_id) : false}
-                  />
-                </div>
-              </React.Fragment>
-            ))
+                  </React.Fragment>
+                );
+              });
+            })()
           )}
           {/* Bottom sentinel - scroll target for auto-scroll */}
           <div ref={bottomSentinelRef} aria-hidden="true" style={{ height: 0, overflow: "hidden" }} />

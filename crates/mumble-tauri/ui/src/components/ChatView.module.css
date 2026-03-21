@@ -105,12 +105,41 @@
   display: flex;
   flex-direction: column;
   position: relative;
-  margin-bottom: 12px;
 }
 
-/* Inner wrapper that grows with content.  ResizeObserver watches this
-   element to detect height changes from images loading, etc. */
+/* When a custom background image is set, the background-image opacity is
+   controlled via the CSS variable --chat-bg-opacity set inline.
+   The dim effect is baked into the processed image by the backend. */
+
+/* ::before holds the background image at reduced opacity so text is unaffected.
+   position:sticky keeps it pinned to the visible viewport while scrolling.
+   Negative margins break out of the parent padding so the image fills edge-to-edge.
+   margin-bottom cancels the element's own height so it does not push content down. */
+.messages::before {
+  content: "";
+  display: block;
+  position: sticky;
+  top: -16px;
+  /* Break out of the 16px top/bottom and 24px left/right padding. */
+  margin-top: -16px;
+  margin-left: -24px;
+  margin-right: -24px;
+  width: calc(100% + 48px);
+  height: calc(100% + 32px);
+  min-height: calc(100% + 32px);
+  margin-bottom: calc(-100% - 32px);
+  background-image: var(--chat-bg-image);
+  background-size: var(--chat-bg-size, cover);
+  background-position: center;
+  background-repeat: var(--chat-bg-repeat, no-repeat);
+  opacity: var(--chat-bg-opacity, 1);
+  pointer-events: none;
+  z-index: 0;
+}
+
 .messagesInner {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -151,6 +180,35 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   white-space: nowrap;
+}
+
+/* --- Date divider ----------------------------------------------- */
+
+.dateDivider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  user-select: none;
+}
+
+.dateDivider::before,
+.dateDivider::after {
+  content: "";
+  flex: 1;
+  border-top: 2px dashed var(--color-glass-border, rgba(255, 255, 255, 0.12));
+}
+
+.dateDividerLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
+  background: var(--color-glass-hover, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.1));
+  border-radius: 12px;
+  padding: 3px 12px;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
 }
 
 /* --- "New messages" pill ---------------------------------------- */
@@ -214,18 +272,54 @@
   opacity: 0.6;
 }
 
-/* --- Message Rows ----------------------------------------------- */
+/* --- Message Groups ---------------------------------------------- */
 
-.messageRow {
+.messageGroup {
   display: flex;
   align-items: flex-end;
   gap: 8px;
   width: 100%;
 }
 
+.messageGroupOwn {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.avatarColumn {
+  position: sticky;
+  bottom: 0;
+  align-self: flex-end;
+  flex-shrink: 0;
+  z-index: 1;
+}
+
+.bubbleColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  padding-bottom: 12px;
+}
+
+/* --- Message Rows ----------------------------------------------- */
+
+.messageRow {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+}
+
 .messageRow.own {
   align-self: flex-end;
   flex-direction: row-reverse;
+}
+
+.messageTimeContinuation {
+  display: block;
+  font-size: 10px;
+  margin-bottom: 1px;
 }
 
 .messageAvatar {
@@ -283,10 +377,15 @@
 }
 
 .bubble.ownBubble {
-  background: linear-gradient(135deg, var(--color-accent), #229ed9);
-  border-color: transparent;
+  background: linear-gradient(
+    135deg,
+    rgba(45, 90, 138, 0.55) 0%,
+    rgba(56, 108, 158, 0.55) 100%
+  );
+  border: none;
   border-radius: var(--radius-md) var(--radius-md) 4px var(--radius-md);
-  box-shadow: 0 2px 12px var(--color-accent-glow);
+  box-shadow: none;
+  backdrop-filter: blur(6px);
 }
 
 /* Pure-media messages (image, video, GIF, sticker) - no bubble chrome */
@@ -312,7 +411,8 @@
 }
 
 .messageBody {
-  font-size: 14px;
+  font-size: var(--chat-font-size, 14px);
+  font-family: var(--chat-font-family, inherit);
   line-height: 1.45;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -389,6 +489,126 @@
   color: var(--color-text-secondary);
   opacity: 0.5;
   margin-top: 6px;
+}
+
+/* --- Flat style (Slack-like rows) ------------------------------ */
+
+/* Own messages: cancel right-alignment; avatar is rendered in DOM for flat style. */
+.flatStyle .messageGroupOwn {
+  align-self: stretch;
+  flex-direction: row;
+}
+
+.flatStyle .messageRow.own {
+  flex-direction: row;
+}
+
+.flatStyle .bubble {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 4px 8px;
+  box-shadow: none;
+  width: 100%;
+  max-width: 100%;
+}
+
+.flatStyle .bubble:hover {
+  background: var(--color-glass-hover);
+}
+
+.flatStyle .bubble.ownBubble {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow:
+    0 2px 12px rgba(56, 108, 158, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+}
+
+.flatStyle .bubble.ownBubble:hover {
+  background: var(--color-glass-hover);
+}
+
+.flatStyle .ownBubble .messageBody {
+  color: inherit;
+}
+
+.flatStyle .ownBubble .messageTime {
+  color: var(--color-text-secondary);
+  opacity: 0.6;
+}
+
+/* --- Compact style (IRC-like) ---------------------------------- */
+
+.compactStyle .messageGroup {
+  gap: 4px;
+}
+
+.compactStyle .avatarColumn {
+  display: none;
+}
+
+.compactStyle .bubble {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 2px 6px;
+  box-shadow: none;
+}
+
+.compactStyle .bubble.ownBubble {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.compactStyle .ownBubble .messageBody {
+  color: inherit;
+}
+
+.compactStyle .ownBubble .messageTime {
+  color: var(--color-text-secondary);
+  opacity: 0.6;
+}
+
+.compactStyle .senderName {
+  display: inline;
+  margin-right: 6px;
+  margin-bottom: 0;
+}
+
+.compactStyle .messageBody {
+  display: inline;
+}
+
+.compactStyle {
+  --media-thumb-max-width: 160px;
+  --media-thumb-max-height: 120px;
+}
+
+.compactStyle .bubbleColumn {
+  gap: 0;
+}
+
+/* --- Compact layout (hide avatars, tighten spacing) ------------ */
+
+.compactLayout .avatarColumn {
+  display: none;
+}
+
+.compactLayout .messageGroup {
+  gap: 4px;
+}
+
+.compactLayout .bubbleColumn {
+  gap: 1px;
+}
+
+.compactLayout .bubble {
+  padding: 4px 10px;
 }
 
 /* --- Composer --------------------------------------------------- */
@@ -513,8 +733,12 @@
     padding: 12px 12px;
   }
 
-  .messageRow {
+  .messageGroup {
     width: 98%;
+  }
+
+  .messageRow {
+    width: 100%;
   }
 
   /* Composer: tighter padding, larger buttons for touch */

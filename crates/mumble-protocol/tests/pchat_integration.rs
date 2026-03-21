@@ -138,8 +138,8 @@ async fn connect_and_authenticate_with_password(
         release: Some("pchat-integration-test".into()),
         os: Some(std::env::consts::OS.into()),
         os_version: Some("test".into()),
-        // Announce Fancy Mumble extension support (v0.2.0).
-        fancy_version: Some(mumble_protocol::state::fancy_version_encode(0, 2, 0)),
+        // Announce Fancy Mumble extension support, version derived from Cargo.toml.
+        fancy_version: Some(mumble_protocol::FANCY_VERSION),
     });
     transport.send(&version_msg).await.unwrap();
 

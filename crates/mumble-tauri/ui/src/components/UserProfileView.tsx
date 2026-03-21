@@ -7,13 +7,12 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { useAppStore } from "../store";
 import { SafeHtml } from "./SafeHtml";
-import type { UserEntry, FancyProfile, UserMode, UserStats } from "../types";
+import type { UserEntry, FancyProfile, UserMode } from "../types";
 import { textureToDataUrl, parseComment } from "../profileFormat";
 import { getPreferences } from "../preferencesStorage";
+import { useUserStats } from "../hooks/useUserStats";
 import { formatDuration, formatBandwidth } from "../utils/format";
 import {
   DECORATIONS,
@@ -61,17 +60,28 @@ function resolveAvatarBorder(profile: FancyProfile): React.CSSProperties {
 
 export default function UserProfileView() {
   const selectedUser = useAppStore((s) => s.selectedUser);
+  const selectedDmUser = useAppStore((s) => s.selectedDmUser);
   const users = useAppStore((s) => s.users);
   const selectUser = useAppStore((s) => s.selectUser);
 
+  // In DM mode, always show the DM partner's profile even if the user
+  // closed the generic profile panel.
+  const effectiveSession = selectedUser ?? selectedDmUser;
+  const isDmProfile = selectedUser === null && selectedDmUser !== null;
+
   const user: UserEntry | undefined = useMemo(
-    () => users.find((u) => u.session === selectedUser),
-    [users, selectedUser],
+    () => users.find((u) => u.session === effectiveSession),
+    [users, effectiveSession],
   );
 
   if (!user) return null;
 
-  return <UserProfilePanel user={user} onClose={() => selectUser(null)} />;
+  return (
+    <UserProfilePanel
+      user={user}
+      onClose={isDmProfile ? undefined : () => selectUser(null)}
+    />
+  );
 }
 
 function UserProfilePanel({
@@ -79,10 +89,9 @@ function UserProfilePanel({
   onClose,
 }: Readonly<{
   user: UserEntry;
-  onClose: () => void;
+  onClose?: () => void;
 }>) {
   const [userMode, setUserMode] = useState<UserMode>("normal");
-  const [stats, setStats] = useState<UserStats | null>(null);
 
   const isExpert = userMode !== "normal";
 
@@ -91,27 +100,9 @@ function UserProfilePanel({
     getPreferences().then((p) => setUserMode(p.userMode));
   }, []);
 
-  // When in expert mode, request user stats from the server and listen
-  // for the asynchronous response.
-  useEffect(() => {
-    if (!isExpert) {
-      setStats(null);
-      return;
-    }
-
-    setStats(null);
-    invoke("request_user_stats", { session: user.session }).catch(() => {});
-
-    const unlisten = listen<UserStats>("user-stats", (event) => {
-      if (event.payload.session === user.session) {
-        setStats(event.payload);
-      }
-    });
-
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [isExpert, user.session]);
+  // Always request user stats so the activity bar (online/idle) is
+  // available regardless of user mode.
+  const stats = useUserStats(user.session, true);
 
   const avatarDataUrl = useMemo(
     () =>
@@ -162,26 +153,28 @@ function UserProfilePanel({
 
   return (
     <aside className={styles.panel}>
-      {/* Close button */}
-      <button
-        className={styles.closeBtn}
-        onClick={onClose}
-        aria-label="Close profile"
-      >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+      {/* Close button (hidden in DM mode where the panel is always shown) */}
+      {onClose && (
+        <button
+          className={styles.closeBtn}
+          onClick={onClose}
+          aria-label="Close profile"
         >
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
-      </button>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      )}
 
       {/* Card */}
       <div className={styles.card} style={cardBgStyle}>
@@ -246,6 +239,26 @@ function UserProfilePanel({
                 {user.name}
               </span>
             </div>
+
+            {/* Activity pills (compact, directly under the name) */}
+            {stats && (stats.onlinesecs != null || (stats.idlesecs != null && stats.idlesecs > 0)) && (
+              <div className={styles.activityBar}>
+                {stats.onlinesecs != null && (
+                  <span className={`${styles.activityPill} ${styles.activityOnline}`}>
+                    <span className={styles.activityDot} />
+                    {formatDuration(stats.onlinesecs)}
+                  </span>
+                )}
+                {stats.idlesecs != null && stats.idlesecs > 0 && (
+                  <span className={`${styles.activityPill} ${styles.activityIdle}`}>
+                    <svg className={styles.activityIcon} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                    </svg>
+                    {formatDuration(stats.idlesecs)}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

@@ -4,12 +4,13 @@ import { useAppStore } from "../store";
 import type { UserEntry } from "../types";
 import { textureToDataUrl, parseComment } from "../profileFormat";
 import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
+import { useUserStats } from "../hooks/useUserStats";
 import { colorFor } from "../utils/format";
 import { isMobilePlatform } from "../utils/platform";
 import styles from "./UserListItem.module.css";
 
 // Re-export so existing consumers (e.g. ChannelSidebar) keep working.
-export { colorFor };
+export { colorFor } from "../utils/format";
 
 const textureCache = new Map<number, { len: number; url: string }>();
 
@@ -24,8 +25,10 @@ export function avatarUrl(user: UserEntry): string | null {
 
 // -- Constants -----------------------------------------------------
 
+const HOVER_CARD_W = 260;
 const HOVER_CARD_H = 340;
 const HOVER_CARD_MARGIN = 10;
+const HOVER_CARD_GAP = 8;
 
 // -- SVG icons -----------------------------------------------------
 
@@ -86,6 +89,7 @@ export function UserListItem({
   const [cardPos, setCardPos] = useState<{ top: number; left: number } | null>(null);
   const itemRef = useRef<HTMLButtonElement>(null);
   const dmUnread = useAppStore((s) => s.dmUnreadCounts[user.session] ?? 0);
+  const stats = useUserStats(user.session, showCard);
 
   const url = useMemo(() => avatarUrl(user), [user.texture]);
   const parsed = useMemo(
@@ -107,7 +111,11 @@ export function UserListItem({
         HOVER_CARD_H / 2 + HOVER_CARD_MARGIN,
         Math.min(rawTop, window.innerHeight - HOVER_CARD_H / 2 - HOVER_CARD_MARGIN),
       );
-      setCardPos({ top, left: rect.right + 8 });
+      const fitsRight = rect.right + HOVER_CARD_GAP + HOVER_CARD_W + HOVER_CARD_MARGIN <= window.innerWidth;
+      const left = fitsRight
+        ? rect.right + HOVER_CARD_GAP
+        : rect.left - HOVER_CARD_GAP - HOVER_CARD_W;
+      setCardPos({ top, left });
     }
     setShowCard(true);
   }, [isMobile]);
@@ -175,6 +183,8 @@ export function UserListItem({
             bio={parsed?.bio ?? ""}
             avatar={url}
             displayName={user.name}
+            onlinesecs={stats?.onlinesecs}
+            idlesecs={stats?.idlesecs}
           />
         </div>,
         document.body,

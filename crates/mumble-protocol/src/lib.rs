@@ -20,6 +20,26 @@
 //!           - executes CommandAction outputs
 //! ```
 
+/// The Fancy Mumble extension version advertised by this crate,
+/// derived from `Cargo.toml` at compile time.
+pub const FANCY_VERSION: u64 = fancy_utils::version::fancy_version_encode(
+    parse_u16(env!("CARGO_PKG_VERSION_MAJOR")),
+    parse_u16(env!("CARGO_PKG_VERSION_MINOR")),
+    parse_u16(env!("CARGO_PKG_VERSION_PATCH")),
+);
+
+/// Parse a `&str` to `u16` at compile time.
+const fn parse_u16(s: &str) -> u16 {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    let mut n: u16 = 0;
+    while i < bytes.len() {
+        n = n * 10 + (bytes[i] - b'0') as u16;
+        i += 1;
+    }
+    n
+}
+
 pub mod audio;
 pub mod client;
 pub mod command;
