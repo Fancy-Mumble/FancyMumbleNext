@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { ChannelEntry, PchatMode } from "../types";
 import { useAppStore } from "../store";
+import { BioEditor } from "../pages/settings/BioEditor";
 import styles from "./ChannelEditorDialog.module.css";
 
 /** Mumble permission bitmask constants. */
@@ -195,14 +196,11 @@ export default function ChannelEditorDialog({
 
         {/* Description */}
         <div className={styles.field}>
-          <label className={styles.label} htmlFor="ch-ed-desc">Description</label>
-          <textarea
-            id="ch-ed-desc"
-            className={styles.textarea}
+          <span className={styles.label}>Description</span>
+          <BioEditor
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={setDescription}
             placeholder="Optional description"
-            rows={3}
           />
         </div>
 
