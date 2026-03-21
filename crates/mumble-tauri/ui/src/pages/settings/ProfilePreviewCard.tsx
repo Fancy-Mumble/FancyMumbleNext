@@ -1,5 +1,6 @@
 import type { FancyProfile } from "../../types";
 import { SafeHtml } from "../../components/SafeHtml";
+import { formatDuration } from "../../utils/format";
 import {
   DECORATIONS,
   NAMEPLATES,
@@ -15,6 +16,10 @@ interface ProfilePreviewCardProps {
   bio: string;
   avatar: string | null;
   displayName: string;
+  /** Seconds the user has been connected (from UserStats). */
+  onlinesecs?: number | null;
+  /** Seconds the user has been idle (from UserStats). */
+  idlesecs?: number | null;
 }
 
 /** Resolve the card background CSS. */
@@ -54,6 +59,8 @@ export function ProfilePreviewCard({
   bio,
   avatar,
   displayName,
+  onlinesecs,
+  idlesecs,
 }: Readonly<ProfilePreviewCardProps>) {
   const nameStyle = profile.nameStyle ?? {};
   const decoration = DECORATIONS.find((d) => d.id === (profile.decoration ?? "none"));
@@ -148,6 +155,26 @@ export function ProfilePreviewCard({
               {displayName || "Your Name"}
             </span>
           </div>
+
+          {/* Activity pills (compact, directly under the name) */}
+          {(onlinesecs != null || (idlesecs != null && idlesecs > 0)) && (
+            <div className={styles.previewActivityBar}>
+              {onlinesecs != null && (
+                <span className={`${styles.previewActivityPill} ${styles.previewActivityOnline}`}>
+                  <span className={styles.previewActivityDot} />
+                  {formatDuration(onlinesecs)}
+                </span>
+              )}
+              {idlesecs != null && idlesecs > 0 && (
+                <span className={`${styles.previewActivityPill} ${styles.previewActivityIdle}`}>
+                  <svg className={styles.previewActivityIcon} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                  </svg>
+                  {formatDuration(idlesecs)}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

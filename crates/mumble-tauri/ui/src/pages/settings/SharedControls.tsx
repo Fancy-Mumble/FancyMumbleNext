@@ -43,9 +43,11 @@ export function Accordion({
 export function Toggle({
   checked,
   onChange,
+  disabled,
 }: {
   checked: boolean;
   onChange: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -54,6 +56,7 @@ export function Toggle({
       onClick={onChange}
       role="switch"
       aria-checked={checked}
+      disabled={disabled}
     >
       <span className={styles.toggleKnob} />
     </button>

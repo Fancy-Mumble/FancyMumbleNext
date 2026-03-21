@@ -7,6 +7,7 @@
 import { useMemo } from "react";
 import { useAppStore } from "../store";
 import { textureToDataUrl, parseComment } from "../profileFormat";
+import { useUserStats } from "../hooks/useUserStats";
 import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
 import MobileBottomSheet from "./MobileBottomSheet";
 import styles from "./MobileProfileSheet.module.css";
@@ -21,6 +22,9 @@ export default function MobileProfileSheet() {
     [users, selectedUser],
   );
 
+  const isOpen = selectedUser !== null && user !== null;
+  const stats = useUserStats(selectedUser, isOpen);
+
   const parsed = useMemo(
     () => (user?.comment ? parseComment(user.comment) : null),
     [user?.comment],
@@ -34,8 +38,6 @@ export default function MobileProfileSheet() {
     [user?.texture],
   );
 
-  const isOpen = selectedUser !== null && user !== null;
-
   return (
     <MobileBottomSheet
       open={isOpen}
@@ -48,6 +50,8 @@ export default function MobileProfileSheet() {
           bio={parsed?.bio ?? ""}
           avatar={avatar}
           displayName={user?.name ?? ""}
+          onlinesecs={stats?.onlinesecs}
+          idlesecs={stats?.idlesecs}
         />
       </div>
     </MobileBottomSheet>

@@ -2,7 +2,8 @@
 
 // -- Duration / uptime ---------------------------------------------
 
-/** Format a number of seconds into a compact human-readable string (e.g. "2d 5h 3m 12s"). */
+/** Format a number of seconds into a compact human-readable string showing
+ *  only the two most significant units (e.g. "2d 5h", "1h 23m", "3m 12s"). */
 export function formatDuration(totalSeconds: number): string {
   const d = Math.floor(totalSeconds / 86400);
   const h = Math.floor((totalSeconds % 86400) / 3600);
@@ -13,7 +14,7 @@ export function formatDuration(totalSeconds: number): string {
   if (h > 0) parts.push(`${h}h`);
   if (m > 0) parts.push(`${m}m`);
   if (parts.length === 0 || s > 0) parts.push(`${s}s`);
-  return parts.join(" ");
+  return parts.slice(0, 2).join(" ");
 }
 
 // -- Bandwidth -----------------------------------------------------
@@ -87,4 +88,48 @@ export function colorFor(name: string): string {
     hash = (name.codePointAt(i) ?? 0) + ((hash << 5) - hash);
   }
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+// -- Date chip -----------------------------------------------------
+
+/**
+ * Return a calendar-date key ("YYYY-MM-DD") for an epoch-millis timestamp.
+ * Uses the local timezone when `localTime` is true, otherwise UTC.
+ */
+export function dateKey(epochMs: number, localTime = true): string {
+  const d = new Date(epochMs);
+  if (!localTime) {
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Format a date for the date-change chip in the chat view.
+ * Returns "Today", "Yesterday", or a long date like "March 15, 2026".
+ */
+export function formatDateChip(epochMs: number, localTime = true): string {
+  const d = new Date(epochMs);
+  const now = new Date();
+
+  const toDay = (date: Date, local: boolean) =>
+    local
+      ? new Date(date.getFullYear(), date.getMonth(), date.getDate())
+      : new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+
+  const target = toDay(d, localTime);
+  const today = toDay(now, localTime);
+  const diffMs = today.getTime() - target.getTime();
+  const diffDays = Math.round(diffMs / 86_400_000);
+
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+
+  const opts: Intl.DateTimeFormatOptions = {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    ...(localTime ? {} : { timeZone: "UTC" }),
+  };
+  return d.toLocaleDateString(undefined, opts);
 }

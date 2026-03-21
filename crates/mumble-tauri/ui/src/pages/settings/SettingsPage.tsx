@@ -21,12 +21,14 @@ import { AudioPanel } from "./AudioPanel";
 import { ShortcutsPanel } from "./ShortcutsPanel";
 import { AdvancedPanel } from "./AdvancedPanel";
 import { IdentitiesPanel } from "./IdentitiesPanel";
+import { PersonalizationPanel } from "./PersonalizationPanel";
 import { ProfilePreviewCard } from "./ProfilePreviewCard";
+import { loadPersonalization, savePersonalization, type PersonalizationData } from "../../personalizationStorage";
 import styles from "./SettingsPage.module.css";
 
 // -- Types & constants ----------------------------------------------
 
-type Tab = "profile" | "voice" | "shortcuts" | "identities" | "advanced";
+type Tab = "profile" | "voice" | "shortcuts" | "identities" | "advanced" | "personalize";
 
 const DEFAULT_AUDIO: AudioSettings = {
   selected_device: null,
@@ -46,11 +48,26 @@ const DEFAULT_AUDIO: AudioSettings = {
   auto_input_sensitivity: false,
 };
 
+const PERSONALIZATION_DEFAULTS: PersonalizationData = {
+  chatBgOriginal: null,
+  chatBgBlurred: null,
+  chatBgBlurSigma: 0,
+  chatBgOpacity: 0.25,
+  chatBgDim: 0.5,
+  chatBgFit: "cover",
+  bubbleStyle: "bubbles",
+  fontSize: "medium",
+  fontSizeCustomPx: 14,
+  fontFamily: "system",
+  compactMode: false,
+};
+
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "profile", label: "Profile", icon: "👤" },
   { id: "voice", label: "Voice", icon: "🎙️" },
   { id: "shortcuts", label: "Shortcuts", icon: "⌨️" },
   { id: "identities", label: "Identities", icon: "🔑" },
+  { id: "personalize", label: "Personalize", icon: "🎨" },
   { id: "advanced", label: "Advanced", icon: "⚙️" },
 ];
 
@@ -89,6 +106,9 @@ export default function SettingsPage() {
 
   // Identities
   const [identities, setIdentities] = useState<string[]>([]);
+
+  // Personalization
+  const [personalization, setPersonalization] = useState<PersonalizationData>(PERSONALIZATION_DEFAULTS);
 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -155,6 +175,13 @@ export default function SettingsPage() {
         /* keep defaults */
       }
 
+      try {
+        const pz = await loadPersonalization();
+        setPersonalization(pz);
+      } catch {
+        /* keep defaults */
+      }
+
       // Mark initial load as done *after* state has settled.
       requestAnimationFrame(() => {
         initialLoadDone.current = true;
@@ -199,6 +226,20 @@ export default function SettingsPage() {
     }, 400);
     return () => clearTimeout(timer);
   }, [audioSettings]);
+
+  // -- Auto-save personalization (debounced) -----------------------
+
+  useEffect(() => {
+    if (!initialLoadDone.current) return;
+    const timer = setTimeout(async () => {
+      try {
+        await savePersonalization(personalization);
+      } catch (e) {
+        console.error("Auto-save personalization error:", e);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [personalization]);
 
   // -- Auto-save profile data locally (debounced) ------------------
 
@@ -431,6 +472,14 @@ export default function SettingsPage() {
             <IdentitiesPanel
               identities={identities}
               onRefresh={refreshIdentities}
+            />
+          )}
+
+          {tab === "personalize" && (
+            <PersonalizationPanel
+              data={personalization}
+              onChange={(patch) => setPersonalization((prev) => ({ ...prev, ...patch }))}
+              isExpert={userMode !== "normal"}
             />
           )}
 

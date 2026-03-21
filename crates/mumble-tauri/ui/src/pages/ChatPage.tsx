@@ -15,6 +15,7 @@ import styles from "./ChatPage.module.css";
 export default function ChatPage() {
   const status = useAppStore((s) => s.status);
   const selectedUser = useAppStore((s) => s.selectedUser);
+  const selectedDmUser = useAppStore((s) => s.selectedDmUser);
   const navigate = useNavigate();
   const isMobile = isMobilePlatform();
 
@@ -90,7 +91,7 @@ export default function ChatPage() {
       <ChatView onChannelInfoToggle={toggleChannelInfo} />
       {showServerInfo && !isMobile && <ServerInfoPanel onClose={() => setShowServerInfo(false)} />}
       {showChannelInfo && !isMobile && <ChannelInfoPanel onClose={() => setShowChannelInfo(false)} />}
-      {selectedUser !== null && !showServerInfo && !showChannelInfo && !isMobile && <UserProfileView />}
+      {(selectedUser !== null || selectedDmUser !== null) && !showServerInfo && !showChannelInfo && !isMobile && <UserProfileView />}
       {isMobile && (
         <>
           <MobileProfileSheet />

@@ -5,5 +5,8 @@ edition = "2021"
 description = "Shared utility functions for the Fancy Mumble workspace"
 license = "MIT"
 
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+
 [lints]
 workspace = true

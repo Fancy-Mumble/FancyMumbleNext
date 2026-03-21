@@ -253,7 +253,7 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
         {/* Online: users currently in the channel */}
         {channelUsers.length > 0 && (
           <>
-            <span className={styles.subsectionLabel}>Online — {channelUsers.length}</span>
+            <span className={styles.subsectionLabel}>Online - {channelUsers.length}</span>
             <div className={styles.membersList}>
               {channelUsers.map((u) => (
                 <div key={u.session} className={styles.memberRow}>
