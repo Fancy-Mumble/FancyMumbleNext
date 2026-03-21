@@ -1241,9 +1241,18 @@ export async function initEventListeners(
           // Clear any messages that were decrypted before the challenge
           // result arrived (prevents flash of unauthorized content).
           const clearMessages = prev.selectedChannel === channel_id;
+          // Stop the loading spinner — no fetch response will arrive.
+          const nextLoading = new Set(prev.pchatHistoryLoading);
+          nextLoading.delete(channel_id);
+          const { [channel_id]: prevPersist, ...restPersist } = prev.channelPersistence;
           return {
             pchatKeyRevoked: next,
             keyTrust: restTrust,
+            pchatHistoryLoading: nextLoading,
+            channelPersistence: {
+              ...restPersist,
+              [channel_id]: { ...prevPersist, isFetching: false },
+            },
             ...(clearMessages ? { messages: [] } : {}),
           };
         });

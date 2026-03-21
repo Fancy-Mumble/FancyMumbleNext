@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { useAppStore } from "../store";
-import type { KeyTrustLevel, PendingKeyShareRequest, PersistenceMode } from "../types";
+import type { KeyTrustLevel, PendingKeyShareRequest, PersistenceMode, UserMode } from "../types";
+import { getPreferences } from "../preferencesStorage";
 import PersistenceBanner from "./PersistenceBanner";
 import { InfoBanner } from "./InfoBanner";
 import infoBannerStyles from "./InfoBanner.module.css";
@@ -113,6 +114,11 @@ export function usePersistentChat(
   const [showVerifyDialog, setShowVerifyDialog] = useState(false);
   const [showCustodianPrompt, setShowCustodianPrompt] = useState(false);
   const [keyShareConfirm, setKeyShareConfirm] = useState<{ hash: string; name: string } | null>(null);
+  const [userMode, setUserMode] = useState<UserMode>("normal");
+
+  useEffect(() => {
+    getPreferences().then((p) => setUserMode(p.userMode));
+  }, []);
 
   const persistence = channelId === null ? undefined : channelPersistence[channelId];
   const isLoading = channelId !== null && pchatHistoryLoading.has(channelId);
@@ -162,10 +168,22 @@ export function usePersistentChat(
       : buildKeyShareBanner(channelId, keyShareRequests, handleShareClick, dismissKeyShare),
     revokedBanner: keyRevoked ? (
       <InfoBanner variant="danger" icon={warningIcon}>
-        <p className={infoBannerStyles.description}>
-          Your encryption key for this channel was rejected by the server.
-          You cannot send or read messages until you receive the correct key from another user.
-        </p>
+        {userMode === "normal" ? (
+          <p className={infoBannerStyles.description}>
+            You can't read or send messages in this channel yet.
+            Someone who already has access needs to let you in first.
+          </p>
+        ) : (
+          <>
+            <p className={infoBannerStyles.description}>
+              <strong>Key challenge failed</strong> — your encryption key was rejected by the server.
+            </p>
+            <p className={infoBannerStyles.description}>
+              All local keying material for this channel has been purged.
+              You cannot send or read messages until a verified key holder shares the correct key with you.
+            </p>
+          </>
+        )}
       </InfoBanner>
     ) : null,
     keyRevoked,
