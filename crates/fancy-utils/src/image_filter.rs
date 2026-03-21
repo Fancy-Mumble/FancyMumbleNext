@@ -231,6 +231,7 @@ pub fn process_pipeline(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unwrap/expect acceptable in test code")]
 mod tests {
     use super::*;
 

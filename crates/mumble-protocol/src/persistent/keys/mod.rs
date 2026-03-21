@@ -232,7 +232,7 @@ impl KeyManager {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
+    #![allow(clippy::unwrap_used, clippy::expect_used, reason = "unwrap/expect acceptable in test code")]
     use super::identity::SeedIdentity;
     use super::KeyManager;
 
@@ -327,10 +327,10 @@ mod tests {
         assert_eq!(pa, pb, "same key + same challenge must yield the same proof");
     }
 
-    /// Regression: compute_challenge_proof must use HMAC-SHA256 keyed by the
+    /// Regression: `compute_challenge_proof` must use HMAC-SHA256 keyed by the
     /// archive key, NOT a plain SHA-256 hash of identity keys or other data.
-    /// A previous refactor accidentally replaced HMAC with SHA-256(dh_public
-    /// || signing_public || channel_id || challenge) which produced a proof
+    /// A previous refactor accidentally replaced HMAC with SHA-256(`dh_public`
+    /// || `signing_public` || `channel_id` || challenge) which produced a proof
     /// the server could not verify.
     #[test]
     fn challenge_proof_is_hmac_sha256_of_archive_key() {
