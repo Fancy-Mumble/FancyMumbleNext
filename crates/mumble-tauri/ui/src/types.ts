@@ -29,6 +29,8 @@ export interface UserEntry {
   session: number;
   name: string;
   channel_id: number;
+  /** Registered user ID, or null/undefined if not registered. */
+  user_id?: number | null;
   /** Raw avatar image bytes (PNG/JPEG), or null if not set. */
   texture: number[] | null;
   /** Mumble comment - may contain FancyMumble profile JSON marker. */

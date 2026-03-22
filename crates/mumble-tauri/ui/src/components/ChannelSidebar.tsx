@@ -14,8 +14,8 @@ import styles from "./ChannelSidebar.module.css";
 /** Mumble permission bitmask: Listen to channel (bit 11). */
 const PERM_LISTEN = 0x800;
 
-/** Mumble permission bitmask: Write / admin (bit 1). */
-const PERM_WRITE = 0x02;
+/** Mumble permission bitmask: Write / admin (bit 0). */
+const PERM_WRITE = 0x01;
 
 /** Check whether a channel's cached permissions include the Listen bit. */
 function canListen(channel: ChannelEntry | undefined): boolean {
@@ -322,12 +322,12 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
     channelName: string;
   } | null>(null);
 
-  // True when the user has Write permission in at least one channel
-  // (permissions explicitly known, not optimistic).
-  const isAdmin = useMemo(
-    () => channels.some((ch) => ch.permissions != null && (ch.permissions & PERM_WRITE) !== 0),
-    [channels],
-  );
+  // True when the user has Write permission on the root channel (id 0).
+  // This is the traditional Mumble indicator for server admin rights.
+  const isAdmin = useMemo(() => {
+    const root = channels.find((ch) => ch.id === 0);
+    return root?.permissions != null && (root.permissions & PERM_WRITE) !== 0;
+  }, [channels]);
 
   // Global Ctrl+K / Cmd+K shortcut to open super search.
   useEffect(() => {

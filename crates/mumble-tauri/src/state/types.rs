@@ -62,6 +62,9 @@ pub struct UserEntry {
     pub session: u32,
     pub name: String,
     pub channel_id: u32,
+    /// Registered user ID. `None` means the user is not registered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<u32>,
     pub texture: Option<Vec<u8>>,
     pub comment: Option<String>,
     /// Server-side admin mute.

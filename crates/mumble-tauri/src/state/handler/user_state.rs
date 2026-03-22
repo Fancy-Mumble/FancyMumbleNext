@@ -24,6 +24,7 @@ impl HandleMessage for mumble_tcp::UserState {
                     session,
                     name: String::new(),
                     channel_id: 0,
+                    user_id: None,
                     texture: None,
                     comment: None,
                     mute: false,
@@ -75,6 +76,9 @@ impl HandleMessage for mumble_tcp::UserState {
                 }
                 if !self.client_features.is_empty() {
                     user.client_features = self.client_features.clone();
+                }
+                if let Some(uid) = self.user_id {
+                    user.user_id = Some(uid);
                 }
 
                 // Persist cert_hash -> username mapping for offline display.

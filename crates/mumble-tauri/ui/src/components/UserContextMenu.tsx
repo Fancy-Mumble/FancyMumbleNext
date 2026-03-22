@@ -8,6 +8,9 @@ import ConfirmDialog from "./elements/ConfirmDialog";
 import Toast, { type ToastData } from "./elements/Toast";
 import styles from "./UserContextMenu.module.css";
 
+/** Mumble permission bitmask: Register users (root channel only). */
+const PERM_REGISTER = 0x40000;
+
 // -- Local per-session state for volume and blocked users ----------
 
 /** Local volume overrides keyed by session ID (0-200, default 100). */
@@ -85,6 +88,12 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
   const channel = channels.find((c) => c.id === selectedChannel);
   const showDeleteMessages = !isSelf && canDeleteMessages(channel) && user.hash;
 
+  const rootChannel = channels.find((c) => c.id === 0);
+  const hasRegisterPerm =
+    rootChannel?.permissions != null && (rootChannel.permissions & PERM_REGISTER) !== 0;
+  const isUnregistered = user.user_id == null || user.user_id === 0;
+  const canRegister = !isSelf && hasRegisterPerm && isUnregistered;
+
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<MenuPosition | null>(null);
   const [volume, setVolume] = useState(() => getLocalVolume(user.session));
@@ -161,6 +170,15 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
             break;
           case "remove_avatar":
             await invoke("remove_user_avatar", { session: user.session });
+            break;
+          case "register":
+            try {
+              await invoke("register_user", { session: user.session });
+              setToast({ message: `Registered ${user.name}`, variant: "success" });
+            } catch (regErr) {
+              console.error("register_user failed:", regErr);
+              setToast({ message: "Failed to register user", variant: "error" });
+            }
             break;
         }
       } catch (err) {
@@ -265,6 +283,20 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
               </span>
               {user.priority_speaker ? "Remove priority" : "Priority speaker"}
             </button>
+
+            {canRegister && (
+              <button type="button" className={styles.menuItem} onClick={() => handleAction("register")}>
+                <span className={styles.menuIcon}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                    <circle cx="8.5" cy="7" r="4" />
+                    <line x1="20" y1="8" x2="20" y2="14" />
+                    <line x1="23" y1="11" x2="17" y2="11" />
+                  </svg>
+                </span>
+                Register
+              </button>
+            )}
 
             <div className={styles.divider} />
 

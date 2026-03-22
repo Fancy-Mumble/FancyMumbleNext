@@ -61,6 +61,15 @@ function PriorityIcon() {
   );
 }
 
+function RegisteredIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <polyline points="9 12 11 14 15 10" />
+    </svg>
+  );
+}
+
 // -- Component -----------------------------------------------------
 
 interface UserListItemProps {
@@ -100,6 +109,7 @@ export function UserListItem({
   const isMuted = user.mute || user.self_mute;
   const isDeafened = user.deaf || user.self_deaf;
   const isPriority = user.priority_speaker;
+  const isRegistered = user.user_id != null && user.user_id > 0;
   const isMobile = isMobilePlatform();
 
   const handleEnter = useCallback(() => {
@@ -148,19 +158,24 @@ export function UserListItem({
         <span className={styles.onlineDot} />
       </div>
       <span className={styles.userName}>{user.name}</span>
-      {!isSelf && (isMuted || isDeafened || isPriority) && (
+      {(isRegistered || (!isSelf && (isMuted || isDeafened || isPriority))) && (
         <span className={styles.statusIcons}>
-          {isMuted && !isDeafened && (
+          {isRegistered && (
+            <span className={`${styles.statusIcon} ${styles.registered}`} title="Registered">
+              <RegisteredIcon />
+            </span>
+          )}
+          {!isSelf && isMuted && !isDeafened && (
             <span className={`${styles.statusIcon} ${styles.muted}`} title={user.mute ? "Server muted" : "Self muted"}>
               <MutedIcon />
             </span>
           )}
-          {isDeafened && (
+          {!isSelf && isDeafened && (
             <span className={`${styles.statusIcon} ${styles.deafened}`} title={user.deaf ? "Server deafened" : "Self deafened"}>
               <DeafenedIcon />
             </span>
           )}
-          {isPriority && (
+          {!isSelf && isPriority && (
             <span className={`${styles.statusIcon} ${styles.prioritySpeaker}`} title="Priority speaker">
               <PriorityIcon />
             </span>
@@ -185,6 +200,7 @@ export function UserListItem({
             displayName={user.name}
             onlinesecs={stats?.onlinesecs}
             idlesecs={stats?.idlesecs}
+            isRegistered={isRegistered}
           />
         </div>,
         document.body,

@@ -1485,6 +1485,21 @@ impl AppState {
         }
     }
 
+    /// Register a user on the server using their current certificate.
+    pub async fn register_user(&self, session: u32) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::RegisterUser { session })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
     /// Admin-mute or unmute another user.
     pub async fn mute_user(&self, session: u32, muted: bool) -> Result<(), String> {
         let handle = {

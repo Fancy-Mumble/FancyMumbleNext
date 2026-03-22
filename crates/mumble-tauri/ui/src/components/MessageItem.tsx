@@ -92,6 +92,7 @@ export function MessageAvatar({
             displayName={user.name}
             onlinesecs={stats?.onlinesecs}
             idlesecs={stats?.idlesecs}
+            isRegistered={user.user_id != null && user.user_id > 0}
           />
         </div>,
         document.body,

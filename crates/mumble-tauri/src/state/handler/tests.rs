@@ -94,6 +94,7 @@ fn make_user(session: u32, name: &str) -> UserEntry {
         session,
         name: name.into(),
         channel_id: 0,
+        user_id: None,
         texture: None,
         comment: None,
         mute: false,

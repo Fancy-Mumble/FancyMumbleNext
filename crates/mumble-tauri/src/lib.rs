@@ -1007,6 +1007,15 @@ async fn ban_user(
     state.ban_user(session, reason).await
 }
 
+/// Register a user on the server using their current certificate.
+#[tauri::command]
+async fn register_user(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+) -> Result<(), String> {
+    state.register_user(session).await
+}
+
 /// Admin-mute or unmute another user.
 #[tauri::command]
 async fn mute_user(
@@ -1510,6 +1519,7 @@ pub fn run() {
             super_search,
             kick_user,
             ban_user,
+            register_user,
             mute_user,
             deafen_user,
             set_priority_speaker,

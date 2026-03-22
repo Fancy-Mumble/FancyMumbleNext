@@ -74,6 +74,8 @@ pub struct User {
     pub name: String,
     /// ID of the channel the user is currently in.
     pub channel_id: u32,
+    /// Registered user ID. `None` means the user is not registered.
+    pub user_id: Option<u32>,
     /// Whether this user has been server-muted.
     pub mute: bool,
     /// Whether this user has been server-deafened.
@@ -217,6 +219,7 @@ impl ServerState {
             session,
             name: String::new(),
             channel_id: 0,
+            user_id: None,
             mute: false,
             deaf: false,
             self_mute: false,
@@ -252,6 +255,9 @@ impl ServerState {
         }
         if let Some(ref hash) = state.hash {
             user.hash = hash.clone();
+        }
+        if let Some(uid) = state.user_id {
+            user.user_id = Some(uid);
         }
     }
 

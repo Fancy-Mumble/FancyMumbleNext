@@ -116,6 +116,10 @@
   color: var(--color-warning, #f59e0b);
 }
 
+.statusIcon.registered {
+  color: var(--color-success, #22c55e);
+}
+
 /* ─── Channel Chip ─────────────────────────────────────────────── */
 
 .channelChip {
