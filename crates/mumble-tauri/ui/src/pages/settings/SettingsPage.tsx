@@ -24,6 +24,7 @@ import { IdentitiesPanel } from "./IdentitiesPanel";
 import { PersonalizationPanel } from "./PersonalizationPanel";
 import { ProfilePreviewCard } from "./ProfilePreviewCard";
 import { loadPersonalization, savePersonalization, type PersonalizationData } from "../../personalizationStorage";
+import { TabbedPage, type TabDef } from "../../components/elements/TabbedPage";
 import styles from "./SettingsPage.module.css";
 
 // -- Types & constants ----------------------------------------------
@@ -62,7 +63,7 @@ const PERSONALIZATION_DEFAULTS: PersonalizationData = {
   compactMode: false,
 };
 
-const TABS: { id: Tab; label: string; icon: string }[] = [
+const TABS: TabDef<Tab>[] = [
   { id: "profile", label: "Profile", icon: "👤" },
   { id: "voice", label: "Voice", icon: "🎙️" },
   { id: "shortcuts", label: "Shortcuts", icon: "⌨️" },
@@ -386,57 +387,19 @@ export default function SettingsPage() {
   // -- Render ------------------------------------------------------
 
   return (
-    <div className={styles.page}>
-      {/* Sidebar */}
-      <nav className={styles.sidebar}>
-        <button
-          className={styles.backBtn}
-          onClick={handleBack}
-          aria-label="Go back"
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          <span>Back</span>
-        </button>
+    <TabbedPage
+      heading="Settings"
+      tabs={TABS}
+      activeTab={tab}
+      onTabChange={setTab}
+      onBack={handleBack}
+      mainAreaClassName={tab === "profile" ? styles.mainAreaWithPreview : undefined}
+    >
+      {/* Content */}
+      <main className={styles.content}>
+        {loadError && <p className={styles.error}>{loadError}</p>}
 
-        <h2 className={styles.sidebarHeading}>Settings</h2>
-
-        <ul className={styles.tabList}>
-          {TABS.map((t) => (
-            <li key={t.id}>
-              <button
-                className={`${styles.tabBtn} ${tab === t.id ? styles.tabBtnActive : ""}`}
-                onClick={() => setTab(t.id)}
-              >
-                <span className={styles.tabIcon}>{t.icon}</span>
-                {t.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </nav>
-
-      {/* Main area (scrolling container) */}
-      <div
-        className={`${styles.mainArea} ${
-          tab === "profile" ? styles.mainAreaWithPreview : ""
-        }`}
-      >
-        {/* Content */}
-        <main className={styles.content}>
-          {loadError && <p className={styles.error}>{loadError}</p>}
-
-          {tab === "profile" && (
+        {tab === "profile" && (
             <ProfilePanel
               defaultUsername={defaultUsername}
               setDefaultUsername={setDefaultUsername}
@@ -501,20 +464,19 @@ export default function SettingsPage() {
           )}
         </main>
 
-        {/* Profile preview (sticky right column) */}
-        {tab === "profile" && (
-          <aside className={styles.previewPane}>
-            <div className={styles.previewSticky}>
-              <ProfilePreviewCard
-                profile={profile}
-                bio={bio}
-                avatar={avatarDataUrl}
-                displayName={defaultUsername}
-              />
-            </div>
-          </aside>
-        )}
-      </div>
-    </div>
+      {/* Profile preview (sticky right column) */}
+      {tab === "profile" && (
+        <aside className={styles.previewPane}>
+          <div className={styles.previewSticky}>
+            <ProfilePreviewCard
+              profile={profile}
+              bio={bio}
+              avatar={avatarDataUrl}
+              displayName={defaultUsername}
+            />
+          </div>
+        </aside>
+      )}
+    </TabbedPage>
   );
 }

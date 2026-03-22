@@ -246,6 +246,51 @@ async fn server_sync_without_user_does_not_set_channel() {
     assert!(!names.contains(&"current-channel-changed".to_string()));
 }
 
+#[tokio::test]
+async fn server_sync_stores_root_channel_permissions() {
+    let (ctx, _emitter) = make_ctx();
+
+    // Pre-populate root channel (as if a ChannelState arrived before ServerSync).
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let _ = state.channels.insert(
+            0,
+            ChannelEntry {
+                id: 0,
+                parent_id: None,
+                name: "Root".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_mode: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                pchat_key_custodians: Vec::new(),
+            },
+        );
+    }
+
+    // ServerSync carries permissions for the root channel.  SuperUser
+    // typically gets all bits set.
+    let sync = mumble_tcp::ServerSync {
+        session: Some(1),
+        permissions: Some(0x7FFF_FFFF),
+        ..Default::default()
+    };
+    sync.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    assert_eq!(
+        state.channels[&0].permissions,
+        Some(0x7FFF_FFFF_u32),
+        "ServerSync.permissions should be stored on channel 0",
+    );
+}
+
 // -- UserState -----------------------------------------------------
 
 #[test]

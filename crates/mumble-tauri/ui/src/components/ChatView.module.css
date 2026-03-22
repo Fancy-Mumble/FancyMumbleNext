@@ -105,6 +105,11 @@
   display: flex;
   flex-direction: column;
   position: relative;
+  /* Allow ::before to use container query height units (cqh) so that both
+     height and negative margin-bottom resolve against the same axis.
+     CSS margin-% always resolves against the *width*, which caused the
+     background layer to leave phantom scroll space on non-square viewports. */
+  container-type: size;
 }
 
 /* When a custom background image is set, the background-image opacity is
@@ -114,8 +119,10 @@
 /* ::before holds the background image at reduced opacity so text is unaffected.
    position:sticky keeps it pinned to the visible viewport while scrolling.
    Negative margins break out of the parent padding so the image fills edge-to-edge.
-   margin-bottom cancels the element's own height so it does not push content down. */
-.messages::before {
+   margin-bottom (in cqh) cancels the element's own height so it does not push
+   content down.  cqh units resolve against the container's height on both axes,
+   unlike %-based margins which resolve against width. */
+.messages[data-has-bg]::before {
   content: "";
   display: block;
   position: sticky;
@@ -125,9 +132,9 @@
   margin-left: -24px;
   margin-right: -24px;
   width: calc(100% + 48px);
-  height: calc(100% + 32px);
-  min-height: calc(100% + 32px);
-  margin-bottom: calc(-100% - 32px);
+  height: calc(100cqh + 32px);
+  min-height: calc(100cqh + 32px);
+  margin-bottom: calc(-100cqh - 32px);
   background-image: var(--chat-bg-image);
   background-size: var(--chat-bg-size, cover);
   background-position: center;

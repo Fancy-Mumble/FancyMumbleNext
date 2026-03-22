@@ -10,6 +10,7 @@ import TitleBar from "./components/TitleBar";
 import ConnectPage from "./pages/ConnectPage";
 import ChatPage from "./pages/ChatPage";
 import SettingsPage from "./pages/settings";
+import AdminPanel from "./pages/admin";
 import WelcomePage from "./pages/WelcomePage";
 
 export default function App() {
@@ -74,6 +75,7 @@ export default function App() {
             <Route path="/" element={<ConnectPage />} />
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/admin" element={<AdminPanel />} />
           </>
         )}
       </Routes>

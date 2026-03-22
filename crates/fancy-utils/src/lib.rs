@@ -8,4 +8,5 @@ pub mod fuzzy;
 pub mod hex;
 pub mod html;
 pub mod image_filter;
+pub mod net;
 pub mod version;

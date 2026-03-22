@@ -108,6 +108,36 @@ export function dateKey(epochMs: number, localTime = true): string {
  * Format a date for the date-change chip in the chat view.
  * Returns "Today", "Yesterday", or a long date like "March 15, 2026".
  */
+/**
+ * Format a date string (e.g. "2024-03-15T10:30:00") as a compact relative
+ * label such as "3d ago", "2mo ago", etc.  Falls back to the raw string
+ * if it cannot be parsed.
+ */
+export function formatRelativeDate(dateStr: string): string {
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return dateStr;
+
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  if (diffMs < 0) return "just now";
+
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+
+  const years = Math.floor(months / 12);
+  return `${years}y ago`;
+}
+
 export function formatDateChip(epochMs: number, localTime = true): string {
   const d = new Date(epochMs);
   const now = new Date();

@@ -401,3 +401,60 @@ export interface KeyHolderEntry {
   name: string;
   is_online: boolean;
 }
+
+// --- Admin panel types --------------------------------------------
+
+/** A registered user entry from the server's UserList message. */
+export interface RegisteredUser {
+  user_id: number;
+  name: string;
+  last_seen?: string | null;
+  last_channel?: number | null;
+}
+
+/** Payload for renaming (name set) or deleting (name null) a registered user. */
+export interface RegisteredUserUpdate {
+  user_id: number;
+  name: string | null;
+}
+
+/** A ban list entry from the server's BanList message. */
+export interface BanEntry {
+  address: string;
+  mask: number;
+  name: string;
+  hash: string;
+  reason: string;
+  start: string;
+  duration: number;
+}
+
+/** Full ACL data for a channel. */
+export interface AclData {
+  channel_id: number;
+  inherit_acls: boolean;
+  groups: AclGroup[];
+  acls: AclEntry[];
+}
+
+/** A channel group entry within an ACL. */
+export interface AclGroup {
+  name: string;
+  inherited: boolean;
+  inherit: boolean;
+  inheritable: boolean;
+  add: number[];
+  remove: number[];
+  inherited_members: number[];
+}
+
+/** A single ACL rule within a channel's ACL list. */
+export interface AclEntry {
+  apply_here: boolean;
+  apply_subs: boolean;
+  inherited: boolean;
+  user_id?: number | null;
+  group?: string | null;
+  grant: number;
+  deny: number;
+}
