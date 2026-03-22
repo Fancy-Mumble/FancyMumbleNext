@@ -660,8 +660,15 @@ pub(crate) fn handle_proto_key_announce(shared: &Arc<Mutex<SharedState>>, msg: &
     // After successfully recording a peer's public key, instead of
     // proactively pushing our channel keys, emit a consent request to
     // the frontend so the user can decide whether to share.
+    // We also collect channels that need a key-holder refresh so the
+    // server can tell us whether this peer already holds the key (in
+    // which case the consent prompt is auto-dismissed).
+    let channels_to_query: Vec<u32>;
+
     if should_push_keys {
         let channels_for_peer = find_shareable_channels(&state, &peer_cert_hash);
+        channels_to_query = channels_for_peer.clone();
+
         if !channels_for_peer.is_empty() {
             // Resolve peer name from current users.
             let peer_name = state
@@ -709,6 +716,18 @@ pub(crate) fn handle_proto_key_announce(shared: &Arc<Mutex<SharedState>>, msg: &
                 );
             }
         }
+    } else {
+        channels_to_query = Vec::new();
+    }
+
+    // Drop the lock before sending network queries.
+    drop(state);
+
+    // Ask the server for fresh key-holder lists.  When the response arrives,
+    // the handler will auto-dismiss consent prompts for peers that already
+    // hold the key.
+    for ch_id in channels_to_query {
+        query_key_holders(shared, ch_id);
     }
 }
 
@@ -1684,6 +1703,27 @@ pub(crate) fn send_key_holder_report(shared: &Arc<Mutex<SharedState>>, channel_i
             }
         });
     }
+}
+
+/// Ask the server for the latest key holders of a channel.
+///
+/// Fire-and-forget: spawns a task for the network send.
+/// When the response arrives the handler in `handler/pchat.rs` updates
+/// the local cache and auto-dismisses stale "Share Key" consent prompts.
+pub(crate) fn query_key_holders(shared: &Arc<Mutex<SharedState>>, channel_id: u32) {
+    let handle = {
+        let Ok(state) = shared.lock() else { return };
+        state.client_handle.clone()
+    };
+    let Some(handle) = handle else { return };
+    let query = mumble_tcp::PchatKeyHoldersQuery {
+        channel_id: Some(channel_id),
+    };
+    let _query_task = tokio::spawn(async move {
+        if let Err(e) = handle.send(command::SendPchatKeyHoldersQuery { query }).await {
+            warn!(channel_id, "failed to query key holders: {e}");
+        }
+    });
 }
 
 pub(crate) fn now_millis() -> u64 {
