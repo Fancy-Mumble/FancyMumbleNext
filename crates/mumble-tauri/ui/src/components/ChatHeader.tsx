@@ -12,6 +12,7 @@ interface ChatHeaderProps {
   readonly isPersisted?: boolean;
   readonly onJoin?: () => void;
   readonly onChannelInfoToggle?: () => void;
+  readonly onChannelSearch?: () => void;
   readonly keyTrustLevel?: KeyTrustLevel;
   readonly onVerifyClick?: () => void;
 }
@@ -25,6 +26,7 @@ export default function ChatHeader({
   isPersisted,
   onJoin,
   onChannelInfoToggle,
+  onChannelSearch,
   keyTrustLevel,
   onVerifyClick,
 }: ChatHeaderProps) {
@@ -81,6 +83,19 @@ export default function ChatHeader({
             trustLevel={keyTrustLevel}
             onVerifyClick={onVerifyClick}
           />
+        )}
+        {onChannelSearch && !privateBadge && (
+          <button
+            className={styles.serverInfoBtn}
+            onClick={onChannelSearch}
+            aria-label="Search in channel"
+            title="Search in channel"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </button>
         )}
         {onChannelInfoToggle && !privateBadge && (
           <button

@@ -24,7 +24,7 @@ pub mod types;
 // Re-export everything that lib.rs needs.
 pub use types::{
     AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus, DebugStats,
-    GroupChat, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
+    GroupChat, PhotoEntry, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
 };
 
 use std::collections::{HashMap, HashSet};

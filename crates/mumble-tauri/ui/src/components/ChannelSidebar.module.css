@@ -52,9 +52,9 @@
   letter-spacing: -0.01em;
 }
 
-/* ─── Search Fake (header trigger) ─────────────────────────────── */
+/* ─── Search bar (header) ──────────────────────────────────────── */
 
-.searchFake {
+.searchBar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -66,28 +66,55 @@
   color: var(--color-text-muted);
   font: inherit;
   font-size: 13px;
-  cursor: pointer;
   transition: border-color 0.2s, background 0.2s;
   min-width: 0;
-  user-select: none;
-  appearance: none;
-  -webkit-appearance: none;
 }
 
-.searchFake:hover {
+.searchBar:focus-within {
   border-color: var(--color-accent, #2aabee);
   background: var(--color-glass-hover);
 }
 
-.searchFakeIcon {
+.searchBarIcon {
   flex-shrink: 0;
   opacity: 0.6;
 }
 
-.searchFakeText {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.searchBarInput {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  min-width: 0;
+  padding: 0;
+}
+
+.searchBarInput::placeholder {
+  color: var(--color-text-muted);
+}
+
+.searchBarClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.searchBarClose:hover {
+  color: var(--color-text-primary);
+  background: var(--color-glass-hover);
 }
 
 .searchShortcut {

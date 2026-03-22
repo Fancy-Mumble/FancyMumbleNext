@@ -14,6 +14,7 @@ import styles from "./ChatPage.module.css";
 
 export default function ChatPage() {
   const status = useAppStore((s) => s.status);
+  const selectedChannel = useAppStore((s) => s.selectedChannel);
   const selectedUser = useAppStore((s) => s.selectedUser);
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
   const navigate = useNavigate();
@@ -45,6 +46,7 @@ export default function ChatPage() {
 
   const [showServerInfo, setShowServerInfo] = useState(false);
   const [showChannelInfo, setShowChannelInfo] = useState(false);
+  const [searchChannelId, setSearchChannelId] = useState<number | null>(null);
 
   const toggleSidebar = useCallback(() => setSidebarOpen((v) => !v), []);
   const toggleServerInfo = useCallback(() => {
@@ -59,6 +61,10 @@ export default function ChatPage() {
   const closeSidebar = useCallback(() => {
     if (useDrawer) setSidebarOpen(false);
   }, [useDrawer]);
+  const openChannelSearch = useCallback(() => {
+    setSearchChannelId(selectedChannel);
+    setSidebarOpen(true);
+  }, [selectedChannel]);
 
   // Swipe right from left edge => open, swipe left => close.
   useSwipeDrawer(sidebarOpen, openSidebar, closeSidebar, {
@@ -108,10 +114,12 @@ export default function ChatPage() {
           onChannelSelect={closeSidebar}
           onServerInfoToggle={toggleServerInfo}
           onCollapse={useDrawer ? closeSidebar : undefined}
+          searchChannelId={searchChannelId}
+          onSearchChannelClear={() => setSearchChannelId(null)}
         />
       </div>
 
-      <ChatView onChannelInfoToggle={toggleChannelInfo} />
+      <ChatView onChannelInfoToggle={toggleChannelInfo} onChannelSearch={openChannelSearch} />
       {showServerInfo && !isMobile && <ServerInfoPanel onClose={() => setShowServerInfo(false)} />}
       {showChannelInfo && !isMobile && <ChannelInfoPanel onClose={() => setShowChannelInfo(false)} />}
       {(selectedUser !== null || selectedDmUser !== null) && !showServerInfo && !showChannelInfo && !isMobile && <UserProfileView />}

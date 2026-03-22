@@ -49,6 +49,7 @@ function isWithinHalfViewport(el: HTMLElement): boolean {
 
 interface ChatViewProps {
   readonly onChannelInfoToggle?: () => void;
+  readonly onChannelSearch?: () => void;
 }
 
 /** Compute chat header label and member count based on the active mode. */
@@ -76,7 +77,7 @@ function fontFamilyCss(id: string): string {
   }
 }
 
-export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
+export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatViewProps) {
   const channels = useAppStore((s) => s.channels);
   const users = useAppStore((s) => s.users);
   const selectedChannel = useAppStore((s) => s.selectedChannel);
@@ -998,6 +999,7 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
           isPersisted={persistent.isPersisted}
           onJoin={showJoinButton ? () => joinChannel(selectedChannel!) : undefined}
           onChannelInfoToggle={onChannelInfoToggle}
+          onChannelSearch={onChannelSearch}
           keyTrustLevel={persistent.trustLevel}
           onVerifyClick={persistent.onVerifyClick}
         />

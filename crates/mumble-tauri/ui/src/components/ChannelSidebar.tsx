@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store";
 import type { ChannelEntry, UserEntry, SidebarSections } from "../types";
 import { getPreferences, updatePreferences } from "../preferencesStorage";
-import { SuperSearch } from "./SuperSearch";
+import { SidebarSearchView } from "./SidebarSearchView";
 import { UserListItem, colorFor, avatarUrl } from "./UserListItem";
 import { UserContextMenu } from "./UserContextMenu";
 import type { UserContextMenuState } from "./UserContextMenu";
@@ -278,9 +278,13 @@ interface ChannelSidebarProps {
   onServerInfoToggle?: () => void;
   /** Called when the user clicks the collapse button (desktop narrow mode). */
   onCollapse?: () => void;
+  /** When set, opens search scoped to this channel. */
+  searchChannelId?: number | null;
+  /** Called to clear the channel search scope. */
+  onSearchChannelClear?: () => void;
 }
 
-export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, onCollapse }: Readonly<ChannelSidebarProps>) {
+export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, onCollapse, searchChannelId, onSearchChannelClear }: Readonly<ChannelSidebarProps>) {
   const channels = useAppStore((s) => s.channels);
   const users = useAppStore((s) => s.users);
   const selectedChannel = useAppStore((s) => s.selectedChannel);
@@ -311,6 +315,8 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
 
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // -- Channel editor dialog state --------------------------------
   const [channelEditor, setChannelEditor] = useState<{
@@ -332,17 +338,43 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
     return root?.permissions != null && (root.permissions & PERM_WRITE) !== 0;
   }, [channels]);
 
-  // Global Ctrl+K / Cmd+K shortcut to open super search.
+  // Global Ctrl+K / Cmd+K shortcut to toggle sidebar search.
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
-        setShowSearch(true);
+        if (showSearch) {
+          setShowSearch(false);
+          setSearchQuery("");
+        } else {
+          setShowSearch(true);
+          requestAnimationFrame(() => searchInputRef.current?.focus());
+        }
       }
     };
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, []);
+  }, [showSearch]);
+
+  const closeSearch = useCallback(() => {
+    setShowSearch(false);
+    setSearchQuery("");
+    onSearchChannelClear?.();
+  }, [onSearchChannelClear]);
+
+  // Open search when a channel search is requested from the chat header.
+  useEffect(() => {
+    if (searchChannelId != null) {
+      setShowSearch(true);
+      requestAnimationFrame(() => searchInputRef.current?.focus());
+    }
+  }, [searchChannelId]);
+
+  // Resolve channel name for the search scope indicator.
+  const searchChannelName = useMemo(() => {
+    if (searchChannelId == null) return undefined;
+    return channels.find((ch) => ch.id === searchChannelId)?.name;
+  }, [searchChannelId, channels]);
 
   // Section collapse state (all expanded by default, restored from prefs).
   const [channelsOpen, setChannelsOpen] = useState(true);
@@ -576,14 +608,9 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
             </svg>
           </button>
         )}
-        <button
-          type="button"
-          className={styles.searchFake}
-          onClick={() => setShowSearch(true)}
-          title="Search (Ctrl+K)"
-        >
+        <div className={styles.searchBar}>
           <svg
-            className={styles.searchFakeIcon}
+            className={styles.searchBarIcon}
             width="14"
             height="14"
             viewBox="0 0 24 24"
@@ -596,10 +623,49 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
-          <span className={styles.searchFakeText}>Search...</span>
-          <span className={styles.searchShortcut}>Ctrl+K</span>
-        </button>
+          <input
+            ref={searchInputRef}
+            className={styles.searchBarInput}
+            type="text"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              if (!showSearch) setShowSearch(true);
+            }}
+            onFocus={() => { if (!showSearch) setShowSearch(true); }}
+            onKeyDown={(e) => { if (e.key === "Escape") closeSearch(); }}
+          />
+          {showSearch ? (
+            <button
+              type="button"
+              className={styles.searchBarClose}
+              onClick={closeSearch}
+              aria-label="Close search"
+              title="Close search (Esc)"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          ) : (
+            <span className={styles.searchShortcut}>Ctrl+K</span>
+          )}
+        </div>
       </div>
+
+      {/* -- Search mode replaces channel/group/online content -- */}
+      {showSearch ? (
+        <SidebarSearchView
+          query={searchQuery}
+          channelId={searchChannelId}
+          channelName={searchChannelName}
+          onSelectChannel={(id) => { selectChannel(id); onChannelSelect?.(); }}
+          onSelectUser={(session) => { selectDmUser(session); onChannelSelect?.(); }}
+          onSelectGroup={(id) => { selectGroup(id); onChannelSelect?.(); }}
+        />
+      ) : (<>
 
       {/* Sticky current channel */}
       {currentChannelEntry && (
@@ -840,69 +906,73 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
               />
             ))}
           </div>
-          {(() => {
-            const self = users.find((u) => u.session === ownSession);
-            if (!self) return null;
-            return (
-              <div className={styles.selfUserSection}>
-                <UserListItem
-                  user={self}
-                  channelName={channelName(self.channel_id)}
-                  isSelf
-                  onClick={() => selectUser(self.session)}
-                  onContextMenu={(e) => openUserCtxMenu(e, self)}
-                />
-                {currentChannel != null && (
-                  <div className={styles.selfVoiceActions}>
-                    <button
-                      className={`${styles.voiceToggle} ${isVoiceActive ? styles.voiceActive : ""}`}
-                      onClick={toggleMute}
-                      title={muteTitle}
-                    >
-                      {isVoiceActive ? (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                          <line x1="12" y1="19" x2="12" y2="23" />
-                          <line x1="8" y1="23" x2="16" y2="23" />
-                        </svg>
-                      ) : (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <line x1="1" y1="1" x2="23" y2="23" />
-                          <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
-                          <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.5-.35 2.18" />
-                          <line x1="12" y1="19" x2="12" y2="23" />
-                          <line x1="8" y1="23" x2="16" y2="23" />
-                        </svg>
-                      )}
-                    </button>
-                    <button
-                      className={`${styles.voiceToggle} ${isVoiceInactive ? "" : styles.voiceActive}`}
-                      onClick={toggleDeafen}
-                      title={isVoiceInactive ? "Enable Voice" : "Disable Voice"}
-                    >
-                      {isVoiceInactive ? (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <line x1="1" y1="1" x2="23" y2="23" />
-                          <path d="M4.53 4.53A9 9 0 0 0 3 12v7c0 1.1.9 2 2 2h4v-8H5.07" />
-                          <path d="M21 12a9 9 0 0 0-15.47-6.27" />
-                          <path d="M15 21h4c1.1 0 2-.9 2-2v-7" />
-                        </svg>
-                      ) : (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
-                          <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z" />
-                          <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
         </>}
       </div>
+
+      </>)}{/* end search-mode ternary */}
+
+      {/* Self user section - always visible */}
+      {(() => {
+        const self = users.find((u) => u.session === ownSession);
+        if (!self) return null;
+        return (
+          <div className={styles.selfUserSection}>
+            <UserListItem
+              user={self}
+              channelName={channelName(self.channel_id)}
+              isSelf
+              onClick={() => selectUser(self.session)}
+              onContextMenu={(e) => openUserCtxMenu(e, self)}
+            />
+            {currentChannel != null && (
+              <div className={styles.selfVoiceActions}>
+                <button
+                  className={`${styles.voiceToggle} ${isVoiceActive ? styles.voiceActive : ""}`}
+                  onClick={toggleMute}
+                  title={muteTitle}
+                >
+                  {isVoiceActive ? (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" y1="19" x2="12" y2="23" />
+                      <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                  ) : (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                      <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+                      <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.5-.35 2.18" />
+                      <line x1="12" y1="19" x2="12" y2="23" />
+                      <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                  )}
+                </button>
+                <button
+                  className={`${styles.voiceToggle} ${isVoiceInactive ? "" : styles.voiceActive}`}
+                  onClick={toggleDeafen}
+                  title={isVoiceInactive ? "Enable Voice" : "Disable Voice"}
+                >
+                  {isVoiceInactive ? (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                      <path d="M4.53 4.53A9 9 0 0 0 3 12v7c0 1.1.9 2 2 2h4v-8H5.07" />
+                      <path d="M21 12a9 9 0 0 0-15.47-6.27" />
+                      <path d="M15 21h4c1.1 0 2-.9 2-2v-7" />
+                    </svg>
+                  ) : (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+                      <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z" />
+                      <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Voice panel */}
       <div className={styles.voicePanel}>
@@ -1072,15 +1142,6 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
           onClose={() => setUserCtxMenu(null)}
         />
       )}
-
-      {/* Super search overlay */}
-      <SuperSearch
-        open={showSearch}
-        onClose={() => setShowSearch(false)}
-        onSelectChannel={(id) => selectChannel(id)}
-        onSelectUser={(session) => selectDmUser(session)}
-        onSelectGroup={(id) => selectGroup(id)}
-      />
 
       {/* Group creation modal */}
       {showGroupModal && (

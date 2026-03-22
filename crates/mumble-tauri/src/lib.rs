@@ -13,7 +13,8 @@ mod state;
 
 use state::{
     AppState, AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus,
-    DebugStats, GroupChat, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
+    DebugStats, GroupChat, PhotoEntry, SearchResult, ServerConfig, ServerInfo, UserEntry,
+    VoiceState,
 };
 use std::collections::HashMap;
 use tauri::Manager;
@@ -271,8 +272,22 @@ fn get_users(state: tauri::State<'_, AppState>) -> Vec<UserEntry> {
 }
 
 #[tauri::command]
-fn super_search(state: tauri::State<'_, AppState>, query: String) -> Vec<SearchResult> {
-    state.super_search(&query)
+fn super_search(
+    state: tauri::State<'_, AppState>,
+    query: String,
+    filter: Option<state::types::SearchFilter>,
+    channel_id: Option<u32>,
+) -> Vec<SearchResult> {
+    state.super_search(&query, filter.unwrap_or(state::types::SearchFilter::All), channel_id)
+}
+
+#[tauri::command]
+fn get_photos(
+    state: tauri::State<'_, AppState>,
+    offset: usize,
+    limit: usize,
+) -> Vec<PhotoEntry> {
+    state.get_photos(offset, limit)
 }
 
 #[tauri::command]
@@ -1517,6 +1532,7 @@ pub fn run() {
             fetch_older_messages,
             get_debug_stats,
             super_search,
+            get_photos,
             kick_user,
             ban_user,
             register_user,

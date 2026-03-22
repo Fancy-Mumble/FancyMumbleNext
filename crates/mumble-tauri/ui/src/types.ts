@@ -288,6 +288,16 @@ export interface SearchResult {
   string_id: string | null;
 }
 
+export interface PhotoEntry {
+  src: string;
+  sender_name: string;
+  channel_id?: number | null;
+  group_id?: string | null;
+  dm_session?: number | null;
+  context: string;
+  timestamp?: number | null;
+}
+
 // --- FancyMumble Profile ------------------------------------------
 
 /**

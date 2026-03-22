@@ -618,6 +618,17 @@ const fn default_true() -> bool {
 
 // --- Search types -------------------------------------------------
 
+/// Filter narrowing the search scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchFilter {
+    All,
+    Messages,
+    Photos,
+    Users,
+    Links,
+}
+
 /// Category tag for a search result.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -646,6 +657,29 @@ pub struct SearchResult {
     /// String ID for groups (group UUID).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub string_id: Option<String>,
+}
+
+/// A single photo extracted from a chat message for the photo grid.
+#[derive(Debug, Clone, Serialize)]
+pub struct PhotoEntry {
+    /// Image source (data-URL or remote URL).
+    pub src: String,
+    /// Who sent the message containing this image.
+    pub sender_name: String,
+    /// Channel ID when the photo is from a channel message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel_id: Option<u32>,
+    /// Group ID when the photo is from a group message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    /// DM session when the photo is from a direct message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dm_session: Option<u32>,
+    /// Human-readable context (e.g. "in #General", "DM with Alice").
+    pub context: String,
+    /// Message timestamp (epoch ms), if available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<u64>,
 }
 
 // --- Audio device type --------------------------------------------
