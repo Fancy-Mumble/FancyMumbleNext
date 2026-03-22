@@ -384,6 +384,7 @@ enum PchatAckStatus {
 	PCHAT_ACK_STORED = 0;
 	PCHAT_ACK_REJECTED = 1;
 	PCHAT_ACK_QUOTA_EXCEEDED = 2;
+	PCHAT_ACK_DELETED = 3;
 }
 
 // Encrypted persistent chat message sent from client to server for storage.
@@ -467,9 +468,12 @@ message PchatKeyRequest {
 	optional uint32 relay_cap = 7;
 }
 
-// Server acknowledgement of message storage.
+// Server acknowledgement of message storage or deletion.
+// For storage (PCHAT_ACK_STORED): message_ids contains the single stored message ID.
+// For deletion (PCHAT_ACK_DELETED): message_ids lists all deleted IDs,
+// reason carries the deleted count as a decimal string.
 message PchatAck {
-	optional string message_id = 1;
+	repeated string message_ids = 1;
 	optional PchatAckStatus status = 2;
 	optional string reason = 3;
 }
@@ -545,4 +549,34 @@ message PchatKeyChallengeResponse {
 message PchatKeyChallengeResult {
 	optional uint32 channel_id = 1;
 	optional bool passed = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Message deletion (Fancy Mumble extension, ID 115)
+// ---------------------------------------------------------------------------
+
+// Client requests deletion of persistent messages in a channel.
+// Exactly one deletion mode should be used per request:
+// message_ids for bulk delete, time_range for range delete,
+// or sender_hash for user delete.
+// Server acknowledges via PchatAck with status PCHAT_ACK_DELETED,
+// message_ids listing deleted IDs, then broadcasts this same
+// PchatDeleteMessages to other verified sessions so they can
+// evict matching messages locally. Wire type ID = 115.
+message PchatDeleteMessages {
+	// Inclusive timestamp range for range-based deletion.
+	// Both bounds are Unix epoch milliseconds.
+	// Omit either bound to leave it open-ended.
+	message TimeRange {
+		optional uint64 from = 1;
+		optional uint64 to = 2;
+	}
+
+	optional uint32 channel_id = 1;
+	// Bulk delete: specific message IDs to remove.
+	repeated string message_ids = 2;
+	// Range delete: remove messages within the given time window.
+	optional TimeRange time_range = 3;
+	// User delete: remove all messages from this sender cert hash.
+	optional string sender_hash = 4;
 }

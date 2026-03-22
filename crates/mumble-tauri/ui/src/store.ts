@@ -176,6 +176,14 @@ interface AppState {
   approveKeyShare: (channelId: number, peerCertHash: string) => Promise<void>;
   dismissKeyShare: (channelId: number, peerCertHash: string) => Promise<void>;
   queryKeyHolders: (channelId: number) => Promise<void>;
+
+  // Message deletion
+  deletePchatMessages: (channelId: number, opts: {
+    messageIds?: string[];
+    timeFrom?: number;
+    timeTo?: number;
+    senderHash?: string;
+  }) => Promise<void>;
 }
 
 const INITIAL: Pick<
@@ -752,6 +760,37 @@ export const useAppStore = create<AppState>((set, get) => ({
       await invoke("query_key_holders", { channelId });
     } catch (e) {
       console.error("query_key_holders error:", e);
+    }
+  },
+
+  deletePchatMessages: async (channelId, opts) => {
+    try {
+      await invoke("delete_pchat_messages", {
+        channelId,
+        messageIds: opts.messageIds ?? [],
+        timeFrom: opts.timeFrom ?? null,
+        timeTo: opts.timeTo ?? null,
+        senderHash: opts.senderHash ?? null,
+      });
+
+      // The invoke resolves only after the server's PchatAck confirms
+      // success, so it is safe to remove the messages locally now.
+      if (opts.messageIds && opts.messageIds.length > 0) {
+        const removed = new Set(opts.messageIds);
+        set((prev) => ({
+          messages: prev.messages.filter(
+            (m) => !m.message_id || !removed.has(m.message_id),
+          ),
+        }));
+      } else {
+        // For time-range or sender-hash deletions we cannot determine
+        // which messages were affected locally, so re-fetch from the
+        // backend.
+        await get().refreshMessages(channelId);
+      }
+    } catch (e) {
+      console.error("delete_pchat_messages error:", e);
+      throw e;
     }
   },
 }));

@@ -1,11 +1,11 @@
 use mumble_protocol::proto::mumble_tcp;
-use tracing::info;
+use tracing::{debug, warn};
 
 use super::{HandleMessage, HandlerContext};
 
 impl HandleMessage for mumble_tcp::PermissionQuery {
     fn handle(&self, ctx: &HandlerContext) {
-        info!(
+        debug!(
             channel_id = ?self.channel_id,
             permissions = ?self.permissions,
             flush = self.flush(),
@@ -26,10 +26,17 @@ impl HandleMessage for mumble_tcp::PermissionQuery {
             if let Ok(mut state) = ctx.shared.lock() {
                 if let Some(ch) = state.channels.get_mut(&channel_id) {
                     ch.permissions = Some(perms);
+                } else {
+                    warn!(channel_id, "permission query for unknown channel");
                 }
             }
             // Notify the frontend that channel data changed.
             ctx.emit_empty("state-changed");
+        } else if self.channel_id.is_some() && self.permissions.is_none() {
+            warn!(
+                channel_id = ?self.channel_id,
+                "permission query response has no permissions field"
+            );
         }
     }
 }

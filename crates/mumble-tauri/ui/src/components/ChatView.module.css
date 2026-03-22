@@ -774,3 +774,63 @@
     display: none;
   }
 }
+
+/* --- Message selection mode -------------------------------------- */
+
+.selectableRow {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 0.1s;
+}
+
+/* In selection mode, prevent child interactive elements (links, media
+   previews, etc.) from intercepting clicks so they bubble to the
+   wrapper div that handles toggle-selection. */
+.selectableRow > * {
+  pointer-events: none;
+}
+
+.selectableRow:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.selectedRow {
+  background: rgba(88, 101, 242, 0.12);
+}
+
+.selectedRow:hover {
+  background: rgba(88, 101, 242, 0.18);
+}
+
+.selectCheckbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--color-glass-border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+  align-self: center;
+}
+
+.selectCheckbox:hover {
+  border-color: var(--color-accent, #5865f2);
+}
+
+.selectCheckboxChecked {
+  background: var(--color-accent, #5865f2);
+  border-color: var(--color-accent, #5865f2);
+}
+
+.selectCheckboxChecked svg {
+  color: #fff;
+}
+
+.messageRowSelectable {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

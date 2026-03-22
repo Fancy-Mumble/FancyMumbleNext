@@ -9,6 +9,8 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../store";
 import type { ChannelEntry } from "../types";
+import { getPreferences } from "../preferencesStorage";
+import { canDeleteMessages } from "./ChannelEditorDialog";
 import { BioEditor } from "../pages/settings/BioEditor";
 import { SafeHtml } from "./SafeHtml";
 import { UserListItem, colorFor } from "./UserListItem";
@@ -18,6 +20,23 @@ import styles from "./ChannelInfoPanel.module.css";
 
 /** Mumble permission bitmask: Write (bit 0). */
 const PERM_WRITE = 0x01;
+
+/** Named ACL permission bits (must match ACL.h on the server). */
+const PERMISSION_BITS: readonly [number, string][] = [
+  [0x01, "Write"],
+  [0x02, "Traverse"],
+  [0x04, "Enter"],
+  [0x08, "Speak"],
+  [0x10, "MuteDeafen"],
+  [0x20, "Move"],
+  [0x40, "MakeChannel"],
+  [0x80, "LinkChannel"],
+  [0x100, "Whisper"],
+  [0x200, "TextMessage"],
+  [0x400, "MakeTempChannel"],
+  [0x800, "Listen"],
+  [0x1000, "DeleteMessage"],
+];
 
 interface ChannelInfoPanelProps {
   readonly onClose: () => void;
@@ -77,6 +96,14 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
 
   const isPersisted =
     selectedChannel != null && getPersistenceMode(selectedChannel) !== "NONE";
+
+  const [devMode, setDevMode] = useState(false);
+
+  useEffect(() => {
+    getPreferences()
+      .then((prefs) => setDevMode(prefs.userMode === "developer"))
+      .catch(() => {});
+  }, []);
 
   const [userCtxMenu, setUserCtxMenu] = useState<UserContextMenuState | null>(
     null,
@@ -314,6 +341,62 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
           menu={userCtxMenu}
           onClose={() => setUserCtxMenu(null)}
         />
+      )}
+
+      {/* Developer permissions debug section */}
+      {devMode && (
+        <div className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h3 className={styles.sectionTitle}>Permissions (Dev)</h3>
+            <button
+              className={styles.editBtn}
+              onClick={() => {
+                useAppStore.getState().refreshState();
+              }}
+              title="Force refresh state"
+            >
+              Refresh
+            </button>
+          </div>
+          <div className={styles.infoGrid}>
+            <span className={styles.infoLabel}>Channel ID</span>
+            <span className={styles.infoValue} style={{ fontFamily: "monospace" }}>
+              {channel.id}
+            </span>
+            <span className={styles.infoLabel}>Raw</span>
+            <span className={styles.infoValue} style={{ fontFamily: "monospace" }}>
+              {channel.permissions != null
+                ? `0x${channel.permissions.toString(16).toUpperCase().padStart(8, "0")} (${channel.permissions})`
+                : "null (not queried)"}
+            </span>
+            <span className={styles.infoLabel}>canDelete</span>
+            <span className={styles.infoValue} style={{ fontFamily: "monospace" }}>
+              {String(canDeleteMessages(channel))}
+            </span>
+            <span className={styles.infoLabel}>All channels</span>
+            <span className={styles.infoValue} style={{ fontFamily: "monospace", fontSize: "11px", whiteSpace: "pre-wrap", maxHeight: "150px", overflowY: "auto", display: "block" }}>
+              {channels.map((c) =>
+                `#${c.id} ${c.name}: ${c.permissions != null ? `0x${c.permissions.toString(16).toUpperCase()}` : "null"}`
+              ).join("\n")}
+            </span>
+          </div>
+          {channel.permissions != null && (
+            <div className={styles.permBits}>
+              {PERMISSION_BITS.map(([bit, name]) => {
+                const has = (channel.permissions! & bit) !== 0;
+                return (
+                  <span
+                    key={bit}
+                    className={has ? styles.permBitOn : styles.permBitOff}
+                    title={`0x${bit.toString(16).toUpperCase()}`}
+                  >
+                    {name}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

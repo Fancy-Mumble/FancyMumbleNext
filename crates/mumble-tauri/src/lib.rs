@@ -290,11 +290,11 @@ async fn send_message(
 }
 
 #[tauri::command]
-fn select_channel(
+async fn select_channel(
     state: tauri::State<'_, AppState>,
     channel_id: u32,
 ) -> Result<(), String> {
-    state.select_channel(channel_id)
+    state.select_channel(channel_id).await
 }
 
 #[tauri::command]
@@ -744,6 +744,24 @@ async fn send_plugin_data(
     data_id: String,
 ) -> Result<(), String> {
     state.send_plugin_data(receiver_sessions, data, data_id).await
+}
+
+/// Delete persisted chat messages on the server.
+///
+/// At least one of `message_ids`, `time_from`/`time_to`, or `sender_hash`
+/// must be provided.
+#[tauri::command]
+async fn delete_pchat_messages(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    message_ids: Vec<String>,
+    time_from: Option<u64>,
+    time_to: Option<u64>,
+    sender_hash: Option<String>,
+) -> Result<(), String> {
+    state
+        .delete_pchat_messages(channel_id, message_ids, time_from, time_to, sender_hash)
+        .await
 }
 
 // --- Direct message (DM) commands --------------------------------
@@ -1466,6 +1484,7 @@ pub fn run() {
             set_user_texture,
             get_own_session,
             send_plugin_data,
+            delete_pchat_messages,
             send_dm,
             get_dm_messages,
             select_dm_user,

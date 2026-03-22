@@ -1,0 +1,52 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  height: 52px;
+  border-bottom: 1px solid var(--color-glass-border);
+  background: var(--color-bg-primary);
+  flex-shrink: 0;
+}
+
+.count {
+  font-size: 14px;
+  font-weight: 600;
+  margin-right: auto;
+}
+
+.actionBtn {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  border: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.actionBtn:hover {
+  opacity: 0.85;
+}
+
+.deleteBtn {
+  background: var(--color-danger, #e05252);
+  color: #fff;
+}
+
+.cancelBtn {
+  background: transparent;
+  border: 1px solid var(--color-glass-border);
+  color: inherit;
+}
+
+.cancelBtn:hover {
+  background: var(--color-glass-hover);
+  opacity: 1;
+}

@@ -1406,7 +1406,7 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
 }
 
 pub(crate) fn handle_proto_ack(msg: &mumble_tcp::PchatAck) {
-    let message_id = msg.message_id.as_deref().unwrap_or("");
+    let message_ids = &msg.message_ids;
     let status = msg.status.unwrap_or(0);
     let reason = msg.reason.as_deref();
 
@@ -1414,18 +1414,75 @@ pub(crate) fn handle_proto_ack(msg: &mumble_tcp::PchatAck) {
         || status == mumble_tcp::PchatAckStatus::PchatAckQuotaExceeded as i32
     {
         warn!(
-            message_id,
+            ?message_ids,
             status,
             reason = ?reason,
             "pchat message rejected by server"
         );
     } else {
         info!(
-            message_id,
+            ?message_ids,
             status,
             "received pchat ack"
         );
     }
+}
+
+/// Handle a `PchatDeleteMessages` broadcast from the server.
+///
+/// Evicts matching messages from the local in-memory store based on the
+/// deletion criteria (message IDs, time range, sender hash).
+pub(crate) fn handle_proto_delete_messages(
+    shared: &Arc<Mutex<SharedState>>,
+    msg: &mumble_tcp::PchatDeleteMessages,
+) {
+    let channel_id = msg.channel_id.unwrap_or(0);
+    let Ok(mut state) = shared.lock() else {
+        return;
+    };
+
+    let Some(messages) = state.messages.get_mut(&channel_id) else {
+        debug!(channel_id, "pchat delete: no local messages for channel");
+        return;
+    };
+
+    let before = messages.len();
+
+    let ids = &msg.message_ids;
+    let time_range = msg.time_range.as_ref();
+    let sender_hash = msg.sender_hash.as_deref();
+
+    messages.retain(|m| {
+        // By specific message IDs
+        if !ids.is_empty() {
+            if let Some(ref mid) = m.message_id {
+                if ids.iter().any(|id| id == mid) {
+                    return false;
+                }
+            }
+        }
+        // By time range
+        if let Some(range) = time_range {
+            if let Some(ts) = m.timestamp {
+                let after_from = range.from.is_none_or(|f| ts >= f);
+                let before_to = range.to.is_none_or(|t| ts <= t);
+                if after_from && before_to {
+                    return false;
+                }
+            }
+        }
+        // By sender hash - match against sender_name as a fallback,
+        // since ChatMessage does not store the cert hash directly.
+        if let Some(hash) = sender_hash {
+            if m.sender_name == hash {
+                return false;
+            }
+        }
+        true
+    });
+
+    let removed = before - messages.len();
+    info!(channel_id, removed, "pchat delete: evicted messages from local store");
 }
 
 // ---- Key-possession challenge handlers ------------------------------

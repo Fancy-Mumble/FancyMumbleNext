@@ -430,6 +430,13 @@ pub(crate) struct UserStatsPayload {
     pub opus: bool,
 }
 
+/// Result sent through the oneshot channel when a `PchatAck` for a deletion
+/// request is received from the server.
+pub(crate) struct DeleteAckResult {
+    pub success: bool,
+    pub reason: Option<String>,
+}
+
 // --- Admin panel payload types ------------------------------------
 
 /// A registered user entry returned by the server's `UserList` message.

@@ -396,3 +396,33 @@
     display: none;
   }
 }
+
+/* ── Permission bits (developer mode) ─────────────────────────── */
+
+.permBits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.permBitOn,
+.permBitOff {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: monospace;
+  line-height: 1.4;
+}
+
+.permBitOn {
+  background: rgba(76, 175, 80, 0.2);
+  color: #8cee8c;
+}
+
+.permBitOff {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-secondary);
+  opacity: 0.5;
+}
