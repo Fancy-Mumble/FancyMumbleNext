@@ -13,7 +13,8 @@ import type { UserEntry, FancyProfile, UserMode } from "../types";
 import { textureToDataUrl, parseComment } from "../profileFormat";
 import { getPreferences } from "../preferencesStorage";
 import { useUserStats } from "../hooks/useUserStats";
-import { formatDuration, formatBandwidth } from "../utils/format";
+import { formatDuration } from "../utils/format";
+import UserInfoPanel from "./UserInfoPanel";
 import {
   DECORATIONS,
   NAMEPLATES,
@@ -302,69 +303,7 @@ function UserProfilePanel({
         </div>
       </section>
 
-      {isExpert && stats && (
-        <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>Connection Statistics</h3>
-          <div className={styles.infoGrid}>
-            <span className={styles.infoLabel}>TCP Ping</span>
-            <span className={styles.infoValue}>
-              {stats.tcp_ping_avg.toFixed(1)} ms
-            </span>
-
-            <span className={styles.infoLabel}>TCP Variance</span>
-            <span className={styles.infoValue}>
-              {stats.tcp_ping_var.toFixed(1)} ms
-            </span>
-
-            <span className={styles.infoLabel}>TCP Packets</span>
-            <span className={styles.infoValue}>{stats.tcp_packets}</span>
-
-            {stats.udp_packets > 0 && (
-              <>
-                <span className={styles.infoLabel}>UDP Ping</span>
-                <span className={styles.infoValue}>
-                  {stats.udp_ping_avg.toFixed(1)} ms
-                </span>
-
-                <span className={styles.infoLabel}>UDP Variance</span>
-                <span className={styles.infoValue}>
-                  {stats.udp_ping_var.toFixed(1)} ms
-                </span>
-
-                <span className={styles.infoLabel}>UDP Packets</span>
-                <span className={styles.infoValue}>{stats.udp_packets}</span>
-              </>
-            )}
-
-            {stats.bandwidth != null && (
-              <>
-                <span className={styles.infoLabel}>Bandwidth</span>
-                <span className={styles.infoValue}>
-                  {formatBandwidth(stats.bandwidth * 8)}
-                </span>
-              </>
-            )}
-
-            {stats.onlinesecs != null && (
-              <>
-                <span className={styles.infoLabel}>Online</span>
-                <span className={styles.infoValue}>
-                  {formatDuration(stats.onlinesecs)}
-                </span>
-              </>
-            )}
-
-            {stats.idlesecs != null && (
-              <>
-                <span className={styles.infoLabel}>Idle</span>
-                <span className={styles.infoValue}>
-                  {formatDuration(stats.idlesecs)}
-                </span>
-              </>
-            )}
-          </div>
-        </section>
-      )}
+      {isExpert && stats && <UserInfoPanel stats={stats} />}
     </aside>
   );
 }

@@ -276,9 +276,11 @@ interface ChannelSidebarProps {
   onChannelSelect?: () => void;
   /** Toggle the server info panel. */
   onServerInfoToggle?: () => void;
+  /** Called when the user clicks the collapse button (desktop narrow mode). */
+  onCollapse?: () => void;
 }
 
-export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: Readonly<ChannelSidebarProps>) {
+export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, onCollapse }: Readonly<ChannelSidebarProps>) {
   const channels = useAppStore((s) => s.channels);
   const users = useAppStore((s) => s.users);
   const selectedChannel = useAppStore((s) => s.selectedChannel);
@@ -304,6 +306,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
   const ownSession = useAppStore((s) => s.ownSession);
 
   const selectDmUser = useAppStore((s) => s.selectDmUser);
+  const selectUser = useAppStore((s) => s.selectUser);
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
 
   const [showGroupModal, setShowGroupModal] = useState(false);
@@ -558,6 +561,21 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
     <aside className={styles.sidebar}>
       {/* Header */}
       <div className={styles.header}>
+        {onCollapse && (
+          <button
+            type="button"
+            className={styles.collapseBtn}
+            onClick={onCollapse}
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           className={styles.searchFake}
@@ -831,6 +849,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
                   user={self}
                   channelName={channelName(self.channel_id)}
                   isSelf
+                  onClick={() => selectUser(self.session)}
                   onContextMenu={(e) => openUserCtxMenu(e, self)}
                 />
                 {currentChannel != null && (
@@ -948,7 +967,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
         const showCreate = canCreateChannel(ctxChannel);
         const showDelete = canDeleteChannel(ctxChannel);
 
-        return (
+        return createPortal(
           <div
             ref={ctxRef}
             className={styles.contextMenu}
@@ -1041,7 +1060,8 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle }: 
                 Delete Channel
               </button>
             )}
-          </div>
+          </div>,
+          document.body,
         );
       })()}
 

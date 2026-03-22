@@ -416,6 +416,24 @@ pub(crate) struct LatencyPayload {
     pub rtt_ms: f64,
 }
 
+/// UDP crypto packet counters (good / late / lost / resync).
+#[derive(Clone, Default, Serialize)]
+pub(crate) struct PacketStats {
+    pub good: u32,
+    pub late: u32,
+    pub lost: u32,
+    pub resync: u32,
+}
+
+/// Rolling-window packet statistics.
+#[derive(Clone, Serialize)]
+pub(crate) struct RollingStatsPayload {
+    /// Rolling window duration in seconds.
+    pub time_window: u32,
+    pub from_client: PacketStats,
+    pub from_server: PacketStats,
+}
+
 /// Payload emitted when a `UserStats` response arrives from the server.
 #[derive(Clone, Serialize)]
 pub(crate) struct UserStatsPayload {
@@ -431,6 +449,27 @@ pub(crate) struct UserStatsPayload {
     pub idlesecs: Option<u32>,
     pub strong_certificate: bool,
     pub opus: bool,
+    /// Client version string (e.g. "1.5.517").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Operating system name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
+    /// Operating system version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub os_version: Option<String>,
+    /// Client IP address (formatted string).  Only present for admins.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    /// Total UDP crypto stats: packets received from the client.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_client: Option<PacketStats>,
+    /// Total UDP crypto stats: packets sent to the client.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_server: Option<PacketStats>,
+    /// Rolling-window packet statistics.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rolling_stats: Option<RollingStatsPayload>,
 }
 
 /// Result sent through the oneshot channel when a `PchatAck` for a deletion

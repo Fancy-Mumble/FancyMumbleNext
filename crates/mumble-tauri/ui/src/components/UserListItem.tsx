@@ -139,6 +139,7 @@ export function UserListItem({
       ref={itemRef}
       type="button"
       className={`${styles.userItem} ${active ? styles.userItemActive : ""} ${isSelf ? styles.selfUser : ""}`}
+      data-clickable={isSelf && onClick ? "true" : undefined}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
       onClick={onClick}

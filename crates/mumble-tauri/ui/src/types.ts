@@ -229,6 +229,22 @@ export type VoiceState = "inactive" | "active" | "muted";
 
 // --- User Stats (ping statistics) ---------------------------------
 
+/** UDP crypto packet counters. */
+export interface PacketStats {
+  good: number;
+  late: number;
+  lost: number;
+  resync: number;
+}
+
+/** Rolling-window packet statistics. */
+export interface RollingStats {
+  /** Rolling window duration in seconds. */
+  time_window: number;
+  from_client: PacketStats;
+  from_server: PacketStats;
+}
+
 /** Ping and connection statistics for a user, returned by the server. */
 export interface UserStats {
   session: number;
@@ -243,6 +259,20 @@ export interface UserStats {
   idlesecs: number | null;
   strong_certificate: boolean;
   opus: boolean;
+  /** Client version string (e.g. "1.5.517"). */
+  version?: string | null;
+  /** Operating system name. */
+  os?: string | null;
+  /** Operating system version. */
+  os_version?: string | null;
+  /** Client IP address (formatted). Only present for admins. */
+  address?: string | null;
+  /** Total UDP crypto stats: packets received from the client. */
+  from_client?: PacketStats | null;
+  /** Total UDP crypto stats: packets sent to the client. */
+  from_server?: PacketStats | null;
+  /** Rolling-window packet statistics. */
+  rolling_stats?: RollingStats | null;
 }
 
 // --- Super Search -------------------------------------------------

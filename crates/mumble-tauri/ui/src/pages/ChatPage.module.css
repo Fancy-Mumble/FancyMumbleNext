@@ -8,18 +8,18 @@
   z-index: 1;
 }
 
-/* --- Mobile Sidebar Drawer -------------------------------------- */
+/* --- Sidebar Drawer (narrow / mobile) --------------------------- */
 
 .sidebarContainer {
   display: contents;
 }
 
-/* Mobile hamburger button (fixed in the chat header area) */
+/* Hamburger button shown when sidebar is collapsed */
 .menuToggle {
   display: none;
 }
 
-/* Backdrop behind the mobile drawer */
+/* Backdrop behind the drawer */
 .backdrop {
   display: none;
 }
@@ -28,7 +28,7 @@
   .sidebarContainer {
     display: block;
     position: fixed;
-    top: 0;
+    top: 40px;
     left: 0;
     bottom: 0;
     width: 85vw;
@@ -45,7 +45,10 @@
   .backdrop {
     display: block;
     position: fixed;
-    inset: 0;
+    top: 40px;
+    left: 0;
+    right: 0;
+    bottom: 0;
     z-index: 199;
     background: rgba(0, 0, 0, 0.5);
     border: none;

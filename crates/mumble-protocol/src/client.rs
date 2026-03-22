@@ -116,7 +116,7 @@ pub async fn run<H: EventHandler>(
         version_v1: Some((1 << 16) | (5 << 8)),
         // v2 encoding: (major << 48) | (minor << 32) | (patch << 16)
         version_v2: Some((1u64 << 48) | (5u64 << 32)),
-        release: Some("FancyMumble 0.1.0".into()),
+        release: Some(format!("FancyMumble {}", env!("CARGO_PKG_VERSION"))),
         os: Some(std::env::consts::OS.into()),
         os_version: None,
         // Announce Fancy Mumble extension support, version derived from Cargo.toml.

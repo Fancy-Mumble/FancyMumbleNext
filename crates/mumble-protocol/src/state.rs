@@ -229,36 +229,16 @@ impl ServerState {
             hash: String::new(),
         });
 
-        if let Some(ref name) = state.name {
-            user.name = name.clone();
-        }
-        if let Some(channel_id) = state.channel_id {
-            user.channel_id = channel_id;
-        }
-        if let Some(mute) = state.mute {
-            user.mute = mute;
-        }
-        if let Some(deaf) = state.deaf {
-            user.deaf = deaf;
-        }
-        if let Some(self_mute) = state.self_mute {
-            user.self_mute = self_mute;
-        }
-        if let Some(self_deaf) = state.self_deaf {
-            user.self_deaf = self_deaf;
-        }
-        if let Some(ref comment) = state.comment {
-            user.comment = comment.clone();
-        }
-        if let Some(ref texture) = state.texture {
-            user.texture = texture.clone();
-        }
-        if let Some(ref hash) = state.hash {
-            user.hash = hash.clone();
-        }
-        if let Some(uid) = state.user_id {
-            user.user_id = Some(uid);
-        }
+        let _ = state.name.as_ref().inspect(|v| user.name.clone_from(v));
+        let _ = state.channel_id.inspect(|&v| user.channel_id = v);
+        let _ = state.mute.inspect(|&v| user.mute = v);
+        let _ = state.deaf.inspect(|&v| user.deaf = v);
+        let _ = state.self_mute.inspect(|&v| user.self_mute = v);
+        let _ = state.self_deaf.inspect(|&v| user.self_deaf = v);
+        let _ = state.comment.as_ref().inspect(|v| user.comment.clone_from(v));
+        let _ = state.texture.as_ref().inspect(|v| user.texture.clone_from(v));
+        let _ = state.hash.as_ref().inspect(|v| user.hash.clone_from(v));
+        let _ = state.user_id.inspect(|&v| user.user_id = Some(v));
     }
 
     /// Remove a user from state.
@@ -289,42 +269,18 @@ impl ServerState {
             pchat_retention_days: None,
         });
 
-        if let Some(parent) = state.parent {
-            channel.parent_id = Some(parent);
-        }
-        if let Some(ref name) = state.name {
-            channel.name = name.clone();
-        }
-        if let Some(ref desc) = state.description {
-            channel.description = desc.clone();
-        }
-        if let Some(ref hash) = state.description_hash {
-            channel.description_hash = Some(hash.clone());
-        }
-        if let Some(pos) = state.position {
-            channel.position = pos;
-        }
-        if let Some(temp) = state.temporary {
-            channel.temporary = temp;
-        }
-        if let Some(max) = state.max_users {
-            channel.max_users = max;
-        }
-        if let Some(restricted) = state.is_enter_restricted {
-            channel.is_enter_restricted = restricted;
-        }
-        if let Some(can) = state.can_enter {
-            channel.can_enter = can;
-        }
-        if let Some(mode) = state.pchat_mode {
-            channel.pchat_mode = Some(PchatMode::from_proto(mode));
-        }
-        if let Some(max_hist) = state.pchat_max_history {
-            channel.pchat_max_history = Some(max_hist);
-        }
-        if let Some(ret) = state.pchat_retention_days {
-            channel.pchat_retention_days = Some(ret);
-        }
+        let _ = state.parent.inspect(|&v| channel.parent_id = Some(v));
+        let _ = state.name.as_ref().inspect(|v| channel.name.clone_from(v));
+        let _ = state.description.as_ref().inspect(|v| channel.description.clone_from(v));
+        let _ = state.description_hash.as_ref().inspect(|v| channel.description_hash = Some((*v).clone()));
+        let _ = state.position.inspect(|&v| channel.position = v);
+        let _ = state.temporary.inspect(|&v| channel.temporary = v);
+        let _ = state.max_users.inspect(|&v| channel.max_users = v);
+        let _ = state.is_enter_restricted.inspect(|&v| channel.is_enter_restricted = v);
+        let _ = state.can_enter.inspect(|&v| channel.can_enter = v);
+        let _ = state.pchat_mode.inspect(|&v| channel.pchat_mode = Some(PchatMode::from_proto(v)));
+        let _ = state.pchat_max_history.inspect(|&v| channel.pchat_max_history = Some(v));
+        let _ = state.pchat_retention_days.inspect(|&v| channel.pchat_retention_days = Some(v));
     }
 
     /// Apply a `PermissionQuery` response from the server.

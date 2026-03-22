@@ -11,6 +11,7 @@
   border-right: 1px solid var(--color-glass-border);
   flex-shrink: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 /* ─── Header ───────────────────────────────────────────────────── */
@@ -21,6 +22,28 @@
   gap: 8px;
   padding: 20px 16px 16px;
   border-bottom: 1px solid var(--color-glass-border);
+}
+
+/* Collapse/burger button inside the sidebar header.
+   Only rendered when onCollapse prop is passed (desktop narrow mode). */
+.collapseBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.collapseBtn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-glass-hover);
 }
 
 .headerTitle {
@@ -157,13 +180,21 @@
   letter-spacing: 0.05em;
   color: var(--color-text-muted);
   width: 100%;
+  min-width: 0;
   text-align: left;
   transition: color 0.15s;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  overflow: hidden;
 }
 
 .collapsibleHeader:hover {
   color: var(--color-text-secondary);
+}
+
+.collapsibleHeader span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .collapseChevron {
@@ -483,10 +514,16 @@
 
 .selfVoiceActions {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 4px;
   flex-shrink: 0;
   padding-right: 4px;
+  align-self: stretch;
+}
+
+.selfVoiceActions .voiceToggle {
+  width: 36px;
+  height: auto;
 }
 
 .userItem {
@@ -875,10 +912,12 @@
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
   width: 24px;
+  min-width: 24px;
   height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
   padding: 0;
