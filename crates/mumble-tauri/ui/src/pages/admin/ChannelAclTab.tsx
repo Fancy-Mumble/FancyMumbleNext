@@ -1,37 +1,103 @@
-import { useState, useEffect, useCallback } from "react";
+﻿import { useState, useEffect, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useAppStore } from "../../store";
-import type { AclData, AclEntry, AclGroup, ChannelEntry } from "../../types";
+import type { AclData, AclEntry, AclGroup, ChannelEntry, RegisteredUser } from "../../types";
+import { AclRulesPanel } from "./AclRulesPanel";
+import { GroupsPanel } from "./GroupsPanel";
 import styles from "./AdminPanel.module.css";
 
-/** Mumble permission bit definitions. */
-const PERMISSIONS: { bit: number; label: string }[] = [
-  { bit: 0x01, label: "Write" },
-  { bit: 0x02, label: "Traverse" },
-  { bit: 0x04, label: "Enter" },
-  { bit: 0x08, label: "Speak" },
-  { bit: 0x10, label: "Mute/Deafen" },
-  { bit: 0x20, label: "Move" },
-  { bit: 0x40, label: "Make Channel" },
-  { bit: 0x80, label: "Link Channel" },
-  { bit: 0x100, label: "Whisper" },
-  { bit: 0x200, label: "Text Message" },
-  { bit: 0x400, label: "Make Temp Channel" },
-  { bit: 0x800, label: "Listen" },
-  { bit: 0x10000, label: "Kick" },
-  { bit: 0x20000, label: "Ban" },
-  { bit: 0x40000, label: "Register" },
-  { bit: 0x80000, label: "Self-Register" },
-  { bit: 0x100000, label: "Reset User Content" },
-];
+type AclTab = "groups" | "rules";
+
+// -- Tree helpers -------------------------------------------------
+
+interface TreeNode {
+  channel: ChannelEntry;
+  children: TreeNode[];
+}
+
+function buildChannelTree(channels: ChannelEntry[]): TreeNode[] {
+  const root = channels.find(
+    (c) => c.parent_id === null || c.parent_id === c.id,
+  );
+  if (!root) return [];
+
+  const byParent = new Map<number, ChannelEntry[]>();
+  for (const ch of channels) {
+    if (ch.id === root.id) continue;
+    const pid = ch.parent_id ?? root.id;
+    const list = byParent.get(pid);
+    if (list) list.push(ch);
+    else byParent.set(pid, [ch]);
+  }
+
+  function build(ch: ChannelEntry): TreeNode {
+    const kids = (byParent.get(ch.id) ?? [])
+      .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+    return { channel: ch, children: kids.map(build) };
+  }
+  return [build(root)];
+}
+
+/** Returns a set of channel IDs whose subtree contains a match. */
+function filterTree(nodes: TreeNode[], query: string): Set<number> {
+  const matched = new Set<number>();
+  const lq = query.toLowerCase();
+  function walk(node: TreeNode): boolean {
+    const selfMatch = node.channel.name.toLowerCase().includes(lq);
+    let childMatch = false;
+    for (const child of node.children) {
+      if (walk(child)) childMatch = true;
+    }
+    if (selfMatch || childMatch) {
+      matched.add(node.channel.id);
+      return true;
+    }
+    return false;
+  }
+  for (const n of nodes) walk(n);
+  return matched;
+}
+
+// -- Main component -----------------------------------------------
 
 export function ChannelAclTab() {
   const channels = useAppStore((s) => s.channels);
+  const users = useAppStore((s) => s.users);
   const [selectedChannel, setSelectedChannel] = useState<number | null>(null);
   const [aclData, setAclData] = useState<AclData | null>(null);
   const [loading, setLoading] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [search, setSearch] = useState("");
+  const [activeTab, setActiveTab] = useState<AclTab>("rules");
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+  const [registeredNames, setRegisteredNames] = useState<Map<number, string>>(new Map());
+
+  const tree = useMemo(() => buildChannelTree(channels), [channels]);
+  const matchedIds = useMemo(
+    () => (search ? filterTree(tree, search) : null),
+    [tree, search],
+  );
+
+  // Auto-expand root on first render.
+  useEffect(() => {
+    if (tree.length > 0 && expanded.size === 0) {
+      setExpanded(new Set([tree[0].channel.id]));
+    }
+  }, [tree, expanded.size]);
+
+  // Fetch registered user names for ID resolution.
+  useEffect(() => {
+    const unlisten = listen<RegisteredUser[]>("user-list", (event) => {
+      const map = new Map<number, string>();
+      for (const u of event.payload) {
+        map.set(u.user_id, u.name);
+      }
+      setRegisteredNames(map);
+    });
+    invoke("request_user_list").catch(() => {});
+    return () => { unlisten.then((f) => f()); };
+  }, []);
 
   // Listen for ACL events from the backend.
   useEffect(() => {
@@ -49,6 +115,17 @@ export function ChannelAclTab() {
     setAclData(null);
     invoke("request_acl", { channelId }).catch(() => setLoading(false));
   }, []);
+
+  const toggleExpand = useCallback((id: number) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // -- ACL data mutations --
 
   const handleToggleInherit = useCallback(() => {
     if (!aclData) return;
@@ -84,8 +161,7 @@ export function ChannelAclTab() {
   const removeGroup = useCallback(
     (idx: number) => {
       if (!aclData) return;
-      const groups = aclData.groups.filter((_, i) => i !== idx);
-      setAclData({ ...aclData, groups });
+      setAclData({ ...aclData, groups: aclData.groups.filter((_, i) => i !== idx) });
       setDirty(true);
     },
     [aclData],
@@ -119,8 +195,7 @@ export function ChannelAclTab() {
   const removeAcl = useCallback(
     (idx: number) => {
       if (!aclData) return;
-      const acls = aclData.acls.filter((_, i) => i !== idx);
-      setAclData({ ...aclData, acls });
+      setAclData({ ...aclData, acls: aclData.acls.filter((_, i) => i !== idx) });
       setDirty(true);
     },
     [aclData],
@@ -130,8 +205,7 @@ export function ChannelAclTab() {
     (aclIdx: number, field: "grant" | "deny", bit: number) => {
       if (!aclData) return;
       const entry = aclData.acls[aclIdx];
-      const current = entry[field];
-      patchAcl(aclIdx, { [field]: current ^ bit });
+      patchAcl(aclIdx, { [field]: entry[field] ^ bit });
     },
     [aclData, patchAcl],
   );
@@ -146,216 +220,198 @@ export function ChannelAclTab() {
     }
   }, [aclData]);
 
-  // Build a flat channel list sorted by name for the selector.
-  const sortedChannels = [...channels].sort((a: ChannelEntry, b: ChannelEntry) => a.name.localeCompare(b.name));
+  const selectedName = channels.find((c) => c.id === selectedChannel)?.name ?? "";
 
   return (
     <>
       <h2 className={styles.panelTitle}>Channel ACL Editor</h2>
 
-      {/* Channel selector */}
-      <div className={styles.toolbar}>
-        <select
-          className={styles.channelSelect}
-          value={selectedChannel ?? ""}
-          onChange={(e) => {
-            const val = e.target.value;
-            if (val) handleChannelSelect(Number(val));
-          }}
-        >
-          <option value="">Select a channel...</option>
-          {sortedChannels.map((ch) => (
-            <option key={ch.id} value={ch.id}>{ch.name}</option>
-          ))}
-        </select>
-        {dirty && (
-          <button type="button" className={styles.saveBtn} onClick={handleSave}>
-            Save Changes
-          </button>
-        )}
-      </div>
-
-      {loading && <div className={styles.emptyRow}>Loading ACL...</div>}
-
-      {aclData && !loading && (
-        <div className={styles.aclContent}>
-          {/* Inherit toggle */}
-          <label className={styles.checkboxLabel}>
+      <div className={styles.aclSplitView}>
+        {/* Left: Channel tree */}
+        <div className={styles.aclTreePane}>
+          <div className={styles.aclTreeSearch}>
             <input
-              type="checkbox"
-              checked={aclData.inherit_acls}
-              onChange={handleToggleInherit}
+              className={styles.searchInput}
+              type="text"
+              placeholder="Search channels..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
             />
-            Inherit ACLs from parent channel
-          </label>
-
-          {/* Groups section */}
-          <div className={styles.aclSection}>
-            <div className={styles.aclSectionHeader}>
-              <h3 className={styles.aclSectionTitle}>Groups</h3>
-              <button type="button" className={styles.addBtn} onClick={addGroup}>
-                + Add Group
+            {search && (
+              <button
+                type="button"
+                className={styles.clearBtn}
+                onClick={() => setSearch("")}
+              >
+                &times;
               </button>
-            </div>
-            {aclData.groups.length === 0 ? (
-              <div className={styles.dimText}>No groups defined</div>
-            ) : (
-              aclData.groups.map((g, i) => (
-                <div key={`group-${i}`} className={styles.aclCard}>
-                  <div className={styles.aclCardHeader}>
-                    <input
-                      className={styles.inputSmall}
-                      type="text"
-                      value={g.name}
-                      disabled={g.inherited}
-                      onChange={(e) => patchGroup(i, { name: e.target.value })}
-                    />
-                    {g.inherited && <span className={styles.inheritBadge}>Inherited</span>}
-                    {!g.inherited && (
-                      <button type="button" className={styles.removeSmallBtn} onClick={() => removeGroup(i)}>
-                        &times;
-                      </button>
-                    )}
-                  </div>
-                  <div className={styles.aclCardBody}>
-                    <label className={styles.checkboxLabel}>
-                      <input type="checkbox" checked={g.inherit} disabled={g.inherited} onChange={(e) => patchGroup(i, { inherit: e.target.checked })} />
-                      Inherit
-                    </label>
-                    <label className={styles.checkboxLabel}>
-                      <input type="checkbox" checked={g.inheritable} disabled={g.inherited} onChange={(e) => patchGroup(i, { inheritable: e.target.checked })} />
-                      Inheritable
-                    </label>
-                  </div>
-                </div>
-              ))
             )}
           </div>
-
-          {/* ACL rules section */}
-          <div className={styles.aclSection}>
-            <div className={styles.aclSectionHeader}>
-              <h3 className={styles.aclSectionTitle}>ACL Rules</h3>
-              <button type="button" className={styles.addBtn} onClick={addAcl}>
-                + Add Rule
-              </button>
-            </div>
-            {aclData.acls.length === 0 ? (
-              <div className={styles.dimText}>No ACL rules defined</div>
-            ) : (
-              aclData.acls.map((a, i) => (
-                <AclRuleCard
-                  key={`acl-${i}`}
-                  entry={a}
-                  index={i}
-                  onPatch={patchAcl}
-                  onRemove={removeAcl}
-                  onToggleBit={togglePermBit}
-                />
-              ))
-            )}
+          <div className={styles.aclTreeList}>
+            {tree.map((node) => (
+              <ChannelTreeNode
+                key={node.channel.id}
+                node={node}
+                depth={0}
+                selected={selectedChannel}
+                expanded={expanded}
+                matchedIds={matchedIds}
+                onSelect={handleChannelSelect}
+                onToggle={toggleExpand}
+              />
+            ))}
           </div>
         </div>
-      )}
 
-      {!selectedChannel && !loading && (
-        <div className={styles.detailEmpty}>Select a channel to edit its ACL</div>
-      )}
+        {/* Right: ACL detail */}
+        <div className={styles.aclDetailPane}>
+          {selectedChannel === null && !loading && (
+            <div className={styles.detailEmpty}>Select a channel to edit its ACL</div>
+          )}
+          {loading && <div className={styles.detailEmpty}>Loading ACL...</div>}
+
+          {aclData && !loading && (
+            <>
+              <div className={styles.aclDetailHeader}>
+                <h3 className={styles.aclDetailTitle}>{selectedName}</h3>
+                {dirty && (
+                  <button type="button" className={styles.saveBtn} onClick={handleSave}>
+                    Save Changes
+                  </button>
+                )}
+              </div>
+
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={aclData.inherit_acls}
+                  onChange={handleToggleInherit}
+                />
+                Inherit ACLs from parent channel
+              </label>
+
+              {/* Tab switcher */}
+              <div className={styles.aclTabs}>
+                <button
+                  type="button"
+                  className={`${styles.aclTabBtn} ${activeTab === "rules" ? styles.aclTabActive : ""}`}
+                  onClick={() => setActiveTab("rules")}
+                >
+                  ACL Rules ({aclData.acls.length})
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.aclTabBtn} ${activeTab === "groups" ? styles.aclTabActive : ""}`}
+                  onClick={() => setActiveTab("groups")}
+                >
+                  Groups ({aclData.groups.length})
+                </button>
+              </div>
+
+              {/* Tab content */}
+              <div className={styles.aclTabContent}>
+                {activeTab === "rules" && (
+                  <AclRulesPanel
+                    acls={aclData.acls}
+                    onAdd={addAcl}
+                    onRemove={removeAcl}
+                    onPatch={patchAcl}
+                    onToggleBit={togglePermBit}
+                  />
+                )}
+                {activeTab === "groups" && (
+                  <GroupsPanel
+                    groups={aclData.groups}
+                    users={users}
+                    registeredNames={registeredNames}
+                    onAdd={addGroup}
+                    onRemove={removeGroup}
+                    onPatch={patchGroup}
+                  />
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </>
   );
 }
 
-function AclRuleCard({
-  entry,
-  index,
-  onPatch,
-  onRemove,
-  onToggleBit,
+// -- Channel tree node --------------------------------------------
+
+function ChannelTreeNode({
+  node,
+  depth,
+  selected,
+  expanded,
+  matchedIds,
+  onSelect,
+  onToggle,
 }: Readonly<{
-  entry: AclEntry;
-  index: number;
-  onPatch: (idx: number, patch: Partial<AclEntry>) => void;
-  onRemove: (idx: number) => void;
-  onToggleBit: (idx: number, field: "grant" | "deny", bit: number) => void;
+  node: TreeNode;
+  depth: number;
+  selected: number | null;
+  expanded: Set<number>;
+  matchedIds: Set<number> | null;
+  onSelect: (id: number) => void;
+  onToggle: (id: number) => void;
 }>) {
+  const id = node.channel.id;
+  const isExpanded = expanded.has(id);
+  const hasChildren = node.children.length > 0;
+  const isSelected = selected === id;
+
+  // If filtering and this node isn't in matched set, hide it.
+  if (matchedIds && !matchedIds.has(id)) return null;
+
   return (
-    <div className={styles.aclCard}>
-      <div className={styles.aclCardHeader}>
-        <span className={styles.aclRuleLabel}>
-          {entry.group ? `@${entry.group}` : entry.user_id != null ? `User #${entry.user_id}` : "Unknown"}
-        </span>
-        {entry.inherited && <span className={styles.inheritBadge}>Inherited</span>}
-        {!entry.inherited && (
-          <button type="button" className={styles.removeSmallBtn} onClick={() => onRemove(index)}>
-            &times;
-          </button>
+    <>
+      <button
+        type="button"
+        className={`${styles.aclTreeItem} ${isSelected ? styles.aclTreeItemActive : ""}`}
+        style={{ paddingLeft: 8 + depth * 16 }}
+        onClick={() => onSelect(id)}
+      >
+        {hasChildren && (
+          <span
+            className={styles.aclTreeChevron}
+            role="button"
+            tabIndex={-1}
+            onClick={(e) => { e.stopPropagation(); onToggle(id); }}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onToggle(id); } }}
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </span>
         )}
-      </div>
-
-      <div className={styles.aclCardBody}>
-        <div className={styles.aclRuleOptions}>
-          <label className={styles.checkboxLabel}>
-            <input type="checkbox" checked={entry.apply_here} disabled={entry.inherited} onChange={(e) => onPatch(index, { apply_here: e.target.checked })} />
-            Apply here
-          </label>
-          <label className={styles.checkboxLabel}>
-            <input type="checkbox" checked={entry.apply_subs} disabled={entry.inherited} onChange={(e) => onPatch(index, { apply_subs: e.target.checked })} />
-            Apply to sub-channels
-          </label>
-        </div>
-
-        {!entry.inherited && (
-          <div className={styles.aclRuleOptions}>
-            <label className={styles.fieldLabel}>
-              Group
-              <input
-                className={styles.inputSmall}
-                type="text"
-                value={entry.group ?? ""}
-                onChange={(e) => onPatch(index, { group: e.target.value || null, user_id: null })}
-              />
-            </label>
-            <label className={styles.fieldLabel}>
-              User ID
-              <input
-                className={styles.inputSmall}
-                type="number"
-                value={entry.user_id ?? ""}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  onPatch(index, { user_id: val ? Number(val) : null, group: null });
-                }}
-              />
-            </label>
-          </div>
-        )}
-
-        {/* Permission bits */}
-        <div className={styles.permGrid}>
-          <div className={styles.permHeader}>
-            <span>Permission</span>
-            <span>Allow</span>
-            <span>Deny</span>
-          </div>
-          {PERMISSIONS.map(({ bit, label }) => (
-            <div key={bit} className={styles.permRow}>
-              <span className={styles.permLabel}>{label}</span>
-              <input
-                type="checkbox"
-                checked={(entry.grant & bit) !== 0}
-                disabled={entry.inherited}
-                onChange={() => onToggleBit(index, "grant", bit)}
-              />
-              <input
-                type="checkbox"
-                checked={(entry.deny & bit) !== 0}
-                disabled={entry.inherited}
-                onChange={() => onToggleBit(index, "deny", bit)}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+        {!hasChildren && <span className={styles.aclTreeChevronSpacer} />}
+        <span className={styles.aclTreeLabel}>{node.channel.name}</span>
+      </button>
+      {isExpanded &&
+        node.children.map((child) => (
+          <ChannelTreeNode
+            key={child.channel.id}
+            node={child}
+            depth={depth + 1}
+            selected={selected}
+            expanded={expanded}
+            matchedIds={matchedIds}
+            onSelect={onSelect}
+            onToggle={onToggle}
+          />
+        ))}
+    </>
   );
 }

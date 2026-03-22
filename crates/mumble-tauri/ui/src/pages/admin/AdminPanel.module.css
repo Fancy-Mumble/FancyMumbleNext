@@ -343,39 +343,7 @@
   cursor: not-allowed;
 }
 
-/* --- Channel select --------------------------------------------- */
-
-.channelSelect {
-  flex: 1;
-  max-width: 320px;
-  padding: 7px 12px;
-  font-size: 13px;
-  font-family: inherit;
-  color: var(--color-text-primary);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-glass-border);
-  border-radius: var(--radius-sm);
-  outline: none;
-  cursor: pointer;
-  appearance: auto;
-}
-
-.channelSelect:focus {
-  border-color: var(--color-accent);
-}
-
-.channelSelect option {
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-}
-
 /* --- ACL editor ------------------------------------------------- */
-
-.aclContent {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
 
 .checkboxLabel {
   display: flex;
@@ -524,6 +492,267 @@
   accent-color: var(--color-accent);
 }
 
+/* --- ACL Split View (tree + detail) -------------------------------- */
+
+.aclSplitView {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.aclTreePane {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--color-border);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.aclTreeSearch {
+  position: relative;
+  padding: 8px;
+  flex-shrink: 0;
+}
+
+.aclTreeSearch .searchInput {
+  width: 100%;
+}
+
+.aclTreeSearch .clearBtn {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.aclTreeList {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.aclTreeItem {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  background: none;
+  color: var(--color-text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aclTreeItem:hover {
+  background: var(--color-hover);
+}
+
+.aclTreeItemActive {
+  background: var(--color-active);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.aclTreeChevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  cursor: pointer;
+  color: var(--color-text-dim);
+}
+
+.aclTreeChevronSpacer {
+  display: inline-block;
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.aclTreeLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- ACL Detail pane ---------------------------------------------- */
+
+.aclDetailPane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.aclDetailHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aclDetailTitle {
+  margin: 0;
+  font-size: 1.1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- ACL Tabs ----------------------------------------------------- */
+
+.aclTabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.aclTabBtn {
+  padding: 8px 16px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--color-text-dim);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.aclTabBtn:hover {
+  color: var(--color-text);
+}
+
+.aclTabActive {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+  font-weight: 600;
+}
+
+.aclTabContent {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* --- ACL Card collapsible header (button variant) ----------------- */
+
+button.aclCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: var(--color-card-header, rgba(255, 255, 255, 0.04));
+  color: var(--color-text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+  text-align: left;
+}
+
+button.aclCardHeader:hover {
+  background: var(--color-hover);
+}
+
+.aclCardChevron {
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.aclCardHeaderStatic {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--color-card-header, rgba(255, 255, 255, 0.04));
+  border-radius: 6px 6px 0 0;
+}
+
+/* --- Group member management -------------------------------------- */
+
+.memberSection {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 6px;
+}
+
+.memberSectionTitle {
+  font-size: 0.78rem;
+  color: var(--color-text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.memberChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.memberChip,
+.memberChipRemovable {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text);
+}
+
+.memberChipRemovable {
+  padding-right: 4px;
+}
+
+.chipRemoveBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--color-text-dim);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.chipRemoveBtn:hover {
+  background: var(--color-danger, #e74c3c);
+  color: #fff;
+}
+
+.memberAddRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.memberAddRow .inputSmall {
+  flex: 1;
+  min-width: 0;
+}
+
 /* --- Responsive (mobile) ---------------------------------------- */
 
 @media (max-width: 768px) {
@@ -536,6 +765,16 @@
   }
 
   .listPane {
+    max-height: 200px;
+  }
+
+  .aclSplitView {
+    grid-template-columns: 1fr;
+  }
+
+  .aclTreePane {
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
     max-height: 200px;
   }
 }
