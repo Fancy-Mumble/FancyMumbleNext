@@ -4,6 +4,8 @@
 //! implements `HandleMessage` for the corresponding protobuf struct.
 //! This keeps each handler focused and testable in isolation.
 
+mod acl;
+mod ban_list;
 mod channel_remove;
 mod channel_state;
 mod codec_version;
@@ -16,6 +18,7 @@ mod reject;
 mod server_config;
 mod server_sync;
 mod text_message;
+mod user_list;
 mod user_remove;
 mod user_state;
 mod user_stats;
@@ -116,6 +119,9 @@ pub(crate) fn dispatch(msg: &ControlMessage, ctx: &HandlerContext) {
         ControlMessage::PchatKeyHoldersList(m) => m.handle(ctx),
         ControlMessage::PchatKeyChallenge(m) => m.handle(ctx),
         ControlMessage::PchatKeyChallengeResult(m) => m.handle(ctx),
+        ControlMessage::BanList(m) => m.handle(ctx),
+        ControlMessage::UserList(m) => m.handle(ctx),
+        ControlMessage::Acl(m) => m.handle(ctx),
         _ => {}
     }
 }

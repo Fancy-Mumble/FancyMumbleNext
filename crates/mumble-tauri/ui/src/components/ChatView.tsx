@@ -825,6 +825,7 @@ export default function ChatView({ onChannelInfoToggle }: ChatViewProps) {
           personalization.bubbleStyle === "compact" ? styles.compactStyle : "",
           personalization.compactMode ? styles.compactLayout : "",
         ].join(" ")}
+        data-has-bg={personalization.chatBgOriginal ? "" : undefined}
         style={{
           ...(personalization.chatBgOriginal ? {
             "--chat-bg-image": `url(${personalization.chatBgBlurred ?? personalization.chatBgOriginal})`,

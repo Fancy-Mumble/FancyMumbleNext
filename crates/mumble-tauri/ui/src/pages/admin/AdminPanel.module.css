@@ -1,0 +1,541 @@
+/* --- Admin Panel – Content Styles -------------------------------- */
+
+.content {
+  min-width: 0;
+  padding: 32px 40px;
+  max-width: 900px;
+}
+
+.panelTitle {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-bottom: 24px;
+}
+
+/* --- Toolbar ---------------------------------------------------- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.refreshBtn,
+.addBtn,
+.removeBtn,
+.saveBtn {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid var(--color-glass-border);
+  background: var(--color-glass);
+  color: var(--color-text-secondary);
+}
+
+.refreshBtn:hover,
+.addBtn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-glass-hover);
+  border-color: var(--color-glass-border-hover);
+}
+
+.refreshBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.removeBtn {
+  color: var(--color-danger, #ef4444);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.removeBtn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.removeBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.saveBtn {
+  color: var(--color-accent, #2aabee);
+  border-color: rgba(42, 171, 238, 0.3);
+  background: rgba(42, 171, 238, 0.08);
+}
+
+.saveBtn:hover {
+  background: rgba(42, 171, 238, 0.15);
+  border-color: rgba(42, 171, 238, 0.4);
+}
+
+/* --- Search ----------------------------------------------------- */
+
+.searchWrap {
+  position: relative;
+  flex: 1;
+  min-width: 180px;
+  max-width: 320px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 7px 32px 7px 32px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.searchInput:focus {
+  border-color: var(--color-accent);
+}
+
+.searchInput::placeholder {
+  color: var(--color-text-muted);
+}
+
+.clearBtn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+}
+
+.clearBtn:hover {
+  color: var(--color-text-primary);
+}
+
+/* --- Table ------------------------------------------------------ */
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-glass-border);
+}
+
+.table th {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  background: var(--color-glass);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sortable:hover {
+  color: var(--color-text-primary);
+}
+
+.table tbody tr:hover {
+  background: var(--color-glass-hover);
+}
+
+.table td {
+  color: var(--color-text-primary);
+}
+
+.dimText {
+  color: var(--color-text-muted);
+}
+
+.emptyRow {
+  text-align: center;
+  padding: 24px 12px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.statusBar {
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* --- Inline edit / action buttons ------------------------------- */
+
+.inlineEdit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.actionBtns {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.confirmText {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-danger, #ef4444);
+}
+
+/* --- Split view (ban list) -------------------------------------- */
+
+.splitView {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+  min-height: 300px;
+}
+
+.listPane {
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  overflow-y: auto;
+  max-height: 500px;
+}
+
+.listItem {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--color-glass-border);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.1s;
+  color: var(--color-text-primary);
+}
+
+.listItem:hover {
+  background: var(--color-glass-hover);
+}
+
+.listItemActive {
+  background: var(--color-glass-hover);
+  border-left: 3px solid var(--color-accent, #2aabee);
+}
+
+.listItemTitle {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.listItemSub {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.detailPane {
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  overflow-y: auto;
+  max-height: 500px;
+}
+
+.detailForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.detailEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+/* --- Input fields ----------------------------------------------- */
+
+.fieldLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.input {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.input:focus {
+  border-color: var(--color-accent);
+}
+
+.inputSmall {
+  padding: 5px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color 0.2s;
+  min-width: 0;
+}
+
+.inputSmall:focus {
+  border-color: var(--color-accent);
+}
+
+.inputSmall:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* --- Channel select --------------------------------------------- */
+
+.channelSelect {
+  flex: 1;
+  max-width: 320px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  cursor: pointer;
+  appearance: auto;
+}
+
+.channelSelect:focus {
+  border-color: var(--color-accent);
+}
+
+.channelSelect option {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+/* --- ACL editor ------------------------------------------------- */
+
+.aclContent {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.checkboxLabel input[type="checkbox"] {
+  accent-color: var(--color-accent);
+}
+
+.aclSection {
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+}
+
+.aclSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.aclSectionTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.aclCard {
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.aclCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--color-glass);
+  border-bottom: 1px solid var(--color-glass-border);
+}
+
+.aclCardBody {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.aclRuleLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.aclRuleOptions {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.inheritBadge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  background: var(--color-glass);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  margin-left: auto;
+}
+
+.removeSmallBtn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.removeSmallBtn:hover {
+  color: var(--color-danger, #ef4444);
+}
+
+/* --- Permission grid -------------------------------------------- */
+
+.permGrid {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.permHeader {
+  display: grid;
+  grid-template-columns: 1fr 50px 50px;
+  padding: 6px 10px;
+  background: var(--color-glass);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--color-glass-border);
+}
+
+.permHeader span:not(:first-child) {
+  text-align: center;
+}
+
+.permRow {
+  display: grid;
+  grid-template-columns: 1fr 50px 50px;
+  padding: 4px 10px;
+  align-items: center;
+  border-bottom: 1px solid var(--color-glass-border);
+}
+
+.permRow:last-child {
+  border-bottom: none;
+}
+
+.permRow:hover {
+  background: var(--color-glass-hover);
+}
+
+.permLabel {
+  color: var(--color-text-secondary);
+}
+
+.permRow input[type="checkbox"] {
+  justify-self: center;
+  accent-color: var(--color-accent);
+}
+
+/* --- Responsive (mobile) ---------------------------------------- */
+
+@media (max-width: 768px) {
+  .content {
+    padding: 16px;
+  }
+
+  .splitView {
+    grid-template-columns: 1fr;
+  }
+
+  .listPane {
+    max-height: 200px;
+  }
+}

@@ -14,6 +14,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import styles from "./MediaPreview.module.css";
 import { ExternalLinkGuard } from "./ExternalLinkGuard";
 import type { TimeFormat } from "../types";
@@ -298,9 +299,15 @@ function GifThumb({
         ) : (
           <div className={styles.thumbPlaceholder} />
         )}
-        <button className={styles.replayOverlay} onClick={handleReplay}>
+        <div
+          role="button"
+          tabIndex={0}
+          className={styles.replayOverlay}
+          onClick={handleReplay}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleReplay(e as unknown as React.MouseEvent); }}
+        >
           <span className={styles.replayIcon}>&#x25B6;</span>
-        </button>
+        </div>
         <span className={styles.gifBadge}>GIF</span>
         {timeLabel && <span className={styles.timeChip}>{timeLabel}</span>}
       </button>
@@ -376,11 +383,13 @@ function Lightbox({
   }, [onClose]);
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       className={styles.lightboxOverlay}
       aria-label="Close lightbox"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClose(); }}
     >
       <div className={styles.lightboxContent}>
         {item.kind === "video" ? (
@@ -399,11 +408,11 @@ function Lightbox({
             alt={item.alt}
           />
         )}
-        <button className={styles.lightboxClose} onClick={onClose}>
+        <button type="button" className={styles.lightboxClose} onClick={onClose}>
           ✕
         </button>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -468,9 +477,10 @@ export default function MediaPreview({ html, messageId, compact = false, timesta
         </div>
       )}
 
-      {/* Lightbox */}
-      {lightboxIdx !== null && media[lightboxIdx] && (
-        <Lightbox item={media[lightboxIdx]} onClose={closeLightbox} />
+      {/* Lightbox - portalled to body to escape backdrop-filter containing blocks */}
+      {lightboxIdx !== null && media[lightboxIdx] && createPortal(
+        <Lightbox item={media[lightboxIdx]} onClose={closeLightbox} />,
+        document.body,
       )}
     </>
   );

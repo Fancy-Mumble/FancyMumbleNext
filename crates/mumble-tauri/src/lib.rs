@@ -1049,6 +1049,58 @@ async fn request_user_stats(
     state.request_user_stats(session).await
 }
 
+/// Request the registered user list from the server.
+#[tauri::command]
+async fn request_user_list(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state.request_user_list().await
+}
+
+/// Send updated user-list entries (rename / delete) to the server.
+#[tauri::command]
+async fn update_user_list(
+    state: tauri::State<'_, AppState>,
+    users: Vec<state::types::RegisteredUserUpdate>,
+) -> Result<(), String> {
+    state.update_user_list(users).await
+}
+
+/// Request the ban list from the server.
+#[tauri::command]
+async fn request_ban_list(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state.request_ban_list().await
+}
+
+/// Send an updated ban list to the server (replaces the full list).
+#[tauri::command]
+async fn update_ban_list(
+    state: tauri::State<'_, AppState>,
+    bans: Vec<state::types::BanEntryInput>,
+) -> Result<(), String> {
+    state.update_ban_list(bans).await
+}
+
+/// Request the ACL for a specific channel.
+#[tauri::command]
+async fn request_acl(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+) -> Result<(), String> {
+    state.request_acl(channel_id).await
+}
+
+/// Send an updated ACL for a channel to the server.
+#[tauri::command]
+async fn update_acl(
+    state: tauri::State<'_, AppState>,
+    acl: state::types::AclInput,
+) -> Result<(), String> {
+    state.update_acl(acl).await
+}
+
 /// Confirm the initial custodian list for a channel (TOFU, Section 5.7).
 #[tauri::command]
 fn confirm_custodians(
@@ -1445,6 +1497,12 @@ pub fn run() {
             reset_user_comment,
             remove_user_avatar,
             request_user_stats,
+            request_user_list,
+            update_user_list,
+            request_ban_list,
+            update_ban_list,
+            request_acl,
+            update_acl,
             confirm_custodians,
             accept_custodian_changes,
             approve_key_share,

@@ -24,6 +24,16 @@ impl HandleMessage for mumble_tcp::ServerSync {
             state.max_bandwidth = self.max_bandwidth;
             state.welcome_text = self.welcome_text.clone();
 
+            // `ServerSync.permissions` carries the permission bitmask for
+            // the root channel (channel 0).  Store it immediately so the
+            // UI knows admin status without waiting for PermissionQuery
+            // round-trips.
+            if let Some(perms) = self.permissions {
+                if let Some(ch) = state.channels.get_mut(&0) {
+                    ch.permissions = Some(perms as u32);
+                }
+            }
+
             // Now that we know our session, look up the channel
             // from UserState messages that arrived before ServerSync.
             initial_channel = self

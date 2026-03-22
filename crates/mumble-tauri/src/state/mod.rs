@@ -1492,4 +1492,175 @@ impl AppState {
             None => Err("Not connected".into()),
         }
     }
+
+    /// Request the registered user list from the server.
+    ///
+    /// The server replies with a `UserList` message, emitted as a
+    /// `"user-list"` event to the frontend.
+    pub async fn request_user_list(&self) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::RequestUserList)
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Update registered users on the server (rename or delete).
+    ///
+    /// Each entry with `name: Some(new_name)` renames the user;
+    /// entries with `name: None` deregister (delete) the user.
+    pub async fn update_user_list(
+        &self,
+        users: Vec<RegisteredUserUpdate>,
+    ) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        let entries = users
+            .into_iter()
+            .map(|u| command::UserListEntry {
+                user_id: u.user_id,
+                name: u.name,
+            })
+            .collect();
+        match handle {
+            Some(h) => h
+                .send(command::UpdateUserList { users: entries })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Request the ban list from the server.
+    ///
+    /// The server replies with a `BanList` message, emitted as a
+    /// `"ban-list"` event to the frontend.
+    pub async fn request_ban_list(&self) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::RequestBanList)
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Send an updated ban list to the server (replaces the entire list).
+    pub async fn update_ban_list(
+        &self,
+        bans: Vec<BanEntryInput>,
+    ) -> Result<(), String> {
+        use mumble_protocol::proto::mumble_tcp;
+
+        let entries: Result<Vec<_>, String> = bans
+            .into_iter()
+            .map(|b| {
+                let address = fancy_utils::net::parse_ip_to_bytes(&b.address)?;
+                Ok(mumble_tcp::ban_list::BanEntry {
+                    address,
+                    mask: b.mask,
+                    name: if b.name.is_empty() { None } else { Some(b.name) },
+                    hash: if b.hash.is_empty() { None } else { Some(b.hash) },
+                    reason: if b.reason.is_empty() { None } else { Some(b.reason) },
+                    start: if b.start.is_empty() { None } else { Some(b.start) },
+                    duration: if b.duration == 0 { None } else { Some(b.duration) },
+                })
+            })
+            .collect();
+        let entries = entries?;
+
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::SendBanList { bans: entries })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Request the ACL for a specific channel.
+    ///
+    /// The server replies with an `Acl` message, emitted as an
+    /// `"acl"` event to the frontend.
+    pub async fn request_acl(&self, channel_id: u32) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::RequestAcl { channel_id })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Send an updated ACL for a channel to the server.
+    pub async fn update_acl(&self, acl: AclInput) -> Result<(), String> {
+        use mumble_protocol::proto::mumble_tcp;
+
+        let groups: Vec<mumble_tcp::acl::ChanGroup> = acl
+            .groups
+            .into_iter()
+            .map(|g| mumble_tcp::acl::ChanGroup {
+                name: g.name,
+                inherited: Some(g.inherited),
+                inherit: Some(g.inherit),
+                inheritable: Some(g.inheritable),
+                add: g.add,
+                remove: g.remove,
+                inherited_members: g.inherited_members,
+            })
+            .collect();
+
+        let acls: Vec<mumble_tcp::acl::ChanAcl> = acl
+            .acls
+            .into_iter()
+            .map(|a| mumble_tcp::acl::ChanAcl {
+                apply_here: Some(a.apply_here),
+                apply_subs: Some(a.apply_subs),
+                inherited: Some(a.inherited),
+                user_id: a.user_id,
+                group: a.group,
+                grant: Some(a.grant),
+                deny: Some(a.deny),
+            })
+            .collect();
+
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::SendAcl {
+                    channel_id: acl.channel_id,
+                    inherit_acls: acl.inherit_acls,
+                    groups,
+                    acls,
+                })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
 }
+
+

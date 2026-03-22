@@ -717,6 +717,27 @@
   border-color: var(--color-glass-border-hover);
 }
 
+.adminBtn {
+  width: 36px;
+  height: 36px;
+  background: var(--color-glass);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.adminBtn:hover {
+  color: var(--color-warning, #f59e0b);
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.2);
+}
+
 /* ─── Profile Popover ──────────────────────────────────────────── */
 
 .profilePopover {
