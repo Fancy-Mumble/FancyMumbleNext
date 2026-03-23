@@ -25,13 +25,24 @@ impl HandleMessage for mumble_tcp::ServerSync {
             state.welcome_text = self.welcome_text.clone();
 
             // `ServerSync.permissions` carries the permission bitmask for
-            // the root channel (channel 0).  Store it immediately so the
-            // UI knows admin status without waiting for PermissionQuery
-            // round-trips.
+            // the root channel (channel 0).  Store it as both the root
+            // channel entry AND as a fallback for channels that never
+            // receive a dedicated `PermissionQuery` response.
+            // The Mumble server skips per-channel PermissionQuery replies
+            // for SuperUser (user_id == 0) since they always have All
+            // permissions; the fallback covers that case.
             if let Some(perms) = self.permissions {
+                let perms_u32 = perms as u32;
+                state.root_permissions = Some(perms_u32);
+                info!(
+                    permissions_hex = format!("0x{perms_u32:08X}"),
+                    "ServerSync root channel permissions (stored as fallback)"
+                );
                 if let Some(ch) = state.channels.get_mut(&0) {
-                    ch.permissions = Some(perms as u32);
+                    ch.permissions = Some(perms_u32);
                 }
+            } else {
+                info!("ServerSync has no permissions field");
             }
 
             // Now that we know our session, look up the channel

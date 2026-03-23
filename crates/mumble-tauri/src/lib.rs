@@ -13,7 +13,8 @@ mod state;
 
 use state::{
     AppState, AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus,
-    DebugStats, GroupChat, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
+    DebugStats, GroupChat, PhotoEntry, SearchResult, ServerConfig, ServerInfo, UserEntry,
+    VoiceState,
 };
 use std::collections::HashMap;
 use tauri::Manager;
@@ -271,8 +272,22 @@ fn get_users(state: tauri::State<'_, AppState>) -> Vec<UserEntry> {
 }
 
 #[tauri::command]
-fn super_search(state: tauri::State<'_, AppState>, query: String) -> Vec<SearchResult> {
-    state.super_search(&query)
+fn super_search(
+    state: tauri::State<'_, AppState>,
+    query: String,
+    filter: Option<state::types::SearchFilter>,
+    channel_id: Option<u32>,
+) -> Vec<SearchResult> {
+    state.super_search(&query, filter.unwrap_or(state::types::SearchFilter::All), channel_id)
+}
+
+#[tauri::command]
+fn get_photos(
+    state: tauri::State<'_, AppState>,
+    offset: usize,
+    limit: usize,
+) -> Vec<PhotoEntry> {
+    state.get_photos(offset, limit)
 }
 
 #[tauri::command]
@@ -290,11 +305,11 @@ async fn send_message(
 }
 
 #[tauri::command]
-fn select_channel(
+async fn select_channel(
     state: tauri::State<'_, AppState>,
     channel_id: u32,
 ) -> Result<(), String> {
-    state.select_channel(channel_id)
+    state.select_channel(channel_id).await
 }
 
 #[tauri::command]
@@ -746,6 +761,24 @@ async fn send_plugin_data(
     state.send_plugin_data(receiver_sessions, data, data_id).await
 }
 
+/// Delete persisted chat messages on the server.
+///
+/// At least one of `message_ids`, `time_from`/`time_to`, or `sender_hash`
+/// must be provided.
+#[tauri::command]
+async fn delete_pchat_messages(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    message_ids: Vec<String>,
+    time_from: Option<u64>,
+    time_to: Option<u64>,
+    sender_hash: Option<String>,
+) -> Result<(), String> {
+    state
+        .delete_pchat_messages(channel_id, message_ids, time_from, time_to, sender_hash)
+        .await
+}
+
 // --- Direct message (DM) commands --------------------------------
 
 /// Send a direct message to a specific user.
@@ -987,6 +1020,15 @@ async fn ban_user(
     reason: Option<String>,
 ) -> Result<(), String> {
     state.ban_user(session, reason).await
+}
+
+/// Register a user on the server using their current certificate.
+#[tauri::command]
+async fn register_user(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+) -> Result<(), String> {
+    state.register_user(session).await
 }
 
 /// Admin-mute or unmute another user.
@@ -1466,6 +1508,7 @@ pub fn run() {
             set_user_texture,
             get_own_session,
             send_plugin_data,
+            delete_pchat_messages,
             send_dm,
             get_dm_messages,
             select_dm_user,
@@ -1489,8 +1532,10 @@ pub fn run() {
             fetch_older_messages,
             get_debug_stats,
             super_search,
+            get_photos,
             kick_user,
             ban_user,
+            register_user,
             mute_user,
             deafen_user,
             set_priority_speaker,

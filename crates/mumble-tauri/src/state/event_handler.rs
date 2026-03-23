@@ -137,6 +137,7 @@ impl EventHandler for TauriEventHandler {
             state.max_users = None;
             state.max_bandwidth = None;
             state.opus = false;
+            state.root_permissions = None;
             state.pchat = None;
             state.pchat_seed = None;
             state.pchat_identity_dir = None;

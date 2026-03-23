@@ -541,7 +541,7 @@ async fn test_pchat_message_store_and_fetch() {
 
     let ack = ack.unwrap();
     assert_eq!(
-        ack.message_id.as_deref(),
+        ack.message_ids.first().map(String::as_str),
         Some(message_id.as_str()),
         "ack should reference our message"
     );

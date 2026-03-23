@@ -14,18 +14,39 @@ import styles from "./ChatPage.module.css";
 
 export default function ChatPage() {
   const status = useAppStore((s) => s.status);
+  const selectedChannel = useAppStore((s) => s.selectedChannel);
   const selectedUser = useAppStore((s) => s.selectedUser);
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
   const navigate = useNavigate();
   const isMobile = isMobilePlatform();
 
-  // On mobile, the sidebar is a slide-out drawer.
-  const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
+  // On desktop, track whether the viewport is narrow (<= 768px).
+  // When narrow, the sidebar uses the same slide-out drawer as mobile.
+  const [isNarrow, setIsNarrow] = useState(
+    () => !isMobile && window.matchMedia("(max-width: 768px)").matches,
+  );
+
+  useEffect(() => {
+    if (isMobile) return;
+    const mql = window.matchMedia("(max-width: 768px)");
+    const handler = (e: MediaQueryListEvent) => setIsNarrow(e.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, [isMobile]);
+
+  const useDrawer = isMobile || isNarrow;
+  const [sidebarOpen, setSidebarOpen] = useState(!useDrawer);
   const pageRef = useRef<HTMLDivElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
 
+  // Auto-open sidebar when leaving narrow mode, auto-close when entering it.
+  useEffect(() => {
+    setSidebarOpen(!useDrawer);
+  }, [useDrawer]);
+
   const [showServerInfo, setShowServerInfo] = useState(false);
   const [showChannelInfo, setShowChannelInfo] = useState(false);
+  const [searchChannelId, setSearchChannelId] = useState<number | null>(null);
 
   const toggleSidebar = useCallback(() => setSidebarOpen((v) => !v), []);
   const toggleServerInfo = useCallback(() => {
@@ -38,8 +59,12 @@ export default function ChatPage() {
   }, []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
   const closeSidebar = useCallback(() => {
-    if (isMobile) setSidebarOpen(false);
-  }, [isMobile]);
+    if (useDrawer) setSidebarOpen(false);
+  }, [useDrawer]);
+  const openChannelSearch = useCallback(() => {
+    setSearchChannelId(selectedChannel);
+    setSidebarOpen(true);
+  }, [selectedChannel]);
 
   // Swipe right from left edge => open, swipe left => close.
   useSwipeDrawer(sidebarOpen, openSidebar, closeSidebar, {
@@ -56,8 +81,8 @@ export default function ChatPage() {
 
   return (
     <div ref={pageRef} className={styles.page}>
-      {/* Mobile hamburger toggle */}
-      {isMobile && !sidebarOpen && (
+      {/* Burger toggle - shown when drawer mode is active and sidebar is closed */}
+      {useDrawer && !sidebarOpen && (
         <button
           className={styles.menuToggle}
           onClick={toggleSidebar}
@@ -69,8 +94,8 @@ export default function ChatPage() {
         </button>
       )}
 
-      {/* Backdrop overlay for mobile drawer */}
-      {isMobile && sidebarOpen && (
+      {/* Backdrop overlay when drawer is open */}
+      {useDrawer && sidebarOpen && (
         <button
           className={styles.backdrop}
           onClick={closeSidebar}
@@ -80,15 +105,21 @@ export default function ChatPage() {
         />
       )}
 
-      {/* Sidebar: always visible on desktop, drawer on mobile */}
+      {/* Sidebar: inline on wide desktop, slide-out drawer when narrow or mobile */}
       <div
         ref={drawerRef}
         className={`${styles.sidebarContainer} ${sidebarOpen ? styles.sidebarOpen : ""}`}
       >
-        <ChannelSidebar onChannelSelect={closeSidebar} onServerInfoToggle={toggleServerInfo} />
+        <ChannelSidebar
+          onChannelSelect={closeSidebar}
+          onServerInfoToggle={toggleServerInfo}
+          onCollapse={useDrawer ? closeSidebar : undefined}
+          searchChannelId={searchChannelId}
+          onSearchChannelClear={() => setSearchChannelId(null)}
+        />
       </div>
 
-      <ChatView onChannelInfoToggle={toggleChannelInfo} />
+      <ChatView onChannelInfoToggle={toggleChannelInfo} onChannelSearch={openChannelSearch} />
       {showServerInfo && !isMobile && <ServerInfoPanel onClose={() => setShowServerInfo(false)} />}
       {showChannelInfo && !isMobile && <ChannelInfoPanel onClose={() => setShowChannelInfo(false)} />}
       {(selectedUser !== null || selectedDmUser !== null) && !showServerInfo && !showChannelInfo && !isMobile && <UserProfileView />}

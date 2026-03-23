@@ -19,10 +19,12 @@ impl HandleMessage for mumble_tcp::UserState {
             let mut state_guard = ctx.shared.lock().ok();
             if let Some(ref mut state) = state_guard {
                 let resolver = state.hash_name_resolver.clone();
+                let is_new_user = !state.users.contains_key(&session);
                 let user = state.users.entry(session).or_insert_with(|| UserEntry {
                     session,
                     name: String::new(),
                     channel_id: 0,
+                    user_id: None,
                     texture: None,
                     comment: None,
                     mute: false,
@@ -75,6 +77,9 @@ impl HandleMessage for mumble_tcp::UserState {
                 if !self.client_features.is_empty() {
                     user.client_features = self.client_features.clone();
                 }
+                if let Some(uid) = self.user_id {
+                    user.user_id = Some(uid);
+                }
 
                 // Persist cert_hash -> username mapping for offline display.
                 if let (Some(ref hash), name) = (&user.hash, &user.name) {
@@ -94,9 +99,9 @@ impl HandleMessage for mumble_tcp::UserState {
                     if state.own_session == Some(session) {
                         state.current_channel = Some(ch);
                         own_ch = true;
-                    } else if ch != prev_channel {
-                        // Only trigger re-evaluation when the channel actually
-                        // changed, not on repeated state announcements.
+                    } else if is_new_user || ch != prev_channel {
+                        // Trigger re-evaluation when a new remote peer appears
+                        // or when one moves to a different channel.
                         remote_ch = Some(ch);
                     }
                 }
@@ -107,10 +112,13 @@ impl HandleMessage for mumble_tcp::UserState {
         };
 
         // When a remote peer moves into a channel, re-evaluate whether
-        // we should offer to share our channel key with them.
+        // we should offer to share our channel key with them, then ask the
+        // server for the latest key-holder list so stale prompts are dismissed
+        // if the peer already has the key.
         if is_synced {
             if let Some(ch) = remote_channel_move {
                 pchat::check_key_share_for_channel(&ctx.shared, ch);
+                pchat::query_key_holders(&ctx.shared, ch);
             }
         }
 

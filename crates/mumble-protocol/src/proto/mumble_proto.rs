@@ -970,11 +970,14 @@ pub struct PchatKeyRequest {
     #[prost(uint32, optional, tag = "7")]
     pub relay_cap: ::core::option::Option<u32>,
 }
-/// Server acknowledgement of message storage.
+/// Server acknowledgement of message storage or deletion.
+/// For storage (PCHAT_ACK_STORED): message_ids contains the single stored message ID.
+/// For deletion (PCHAT_ACK_DELETED): message_ids lists all deleted IDs,
+/// reason carries the deleted count as a decimal string.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct PchatAck {
-    #[prost(string, optional, tag = "1")]
-    pub message_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag = "1")]
+    pub message_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(enumeration = "PchatAckStatus", optional, tag = "2")]
     pub status: ::core::option::Option<i32>,
     #[prost(string, optional, tag = "3")]
@@ -1070,6 +1073,41 @@ pub struct PchatKeyChallengeResult {
     #[prost(bool, optional, tag = "2")]
     pub passed: ::core::option::Option<bool>,
 }
+/// Client requests deletion of persistent messages in a channel.
+/// Exactly one deletion mode should be used per request:
+/// message_ids for bulk delete, time_range for range delete,
+/// or sender_hash for user delete.
+/// Server acknowledges via PchatAck with status PCHAT_ACK_DELETED,
+/// message_ids listing deleted IDs, then broadcasts this same
+/// PchatDeleteMessages to other verified sessions so they can
+/// evict matching messages locally. Wire type ID = 115.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatDeleteMessages {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    /// Bulk delete: specific message IDs to remove.
+    #[prost(string, repeated, tag = "2")]
+    pub message_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Range delete: remove messages within the given time window.
+    #[prost(message, optional, tag = "3")]
+    pub time_range: ::core::option::Option<pchat_delete_messages::TimeRange>,
+    /// User delete: remove all messages from this sender cert hash.
+    #[prost(string, optional, tag = "4")]
+    pub sender_hash: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// Nested message and enum types in `PchatDeleteMessages`.
+pub mod pchat_delete_messages {
+    /// Inclusive timestamp range for range-based deletion.
+    /// Both bounds are Unix epoch milliseconds.
+    /// Omit either bound to leave it open-ended.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct TimeRange {
+        #[prost(uint64, optional, tag = "1")]
+        pub from: ::core::option::Option<u64>,
+        #[prost(uint64, optional, tag = "2")]
+        pub to: ::core::option::Option<u64>,
+    }
+}
 /// Persistence mode used in pchat runtime messages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1104,6 +1142,7 @@ pub enum PchatAckStatus {
     PchatAckStored = 0,
     PchatAckRejected = 1,
     PchatAckQuotaExceeded = 2,
+    PchatAckDeleted = 3,
 }
 impl PchatAckStatus {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1115,6 +1154,7 @@ impl PchatAckStatus {
             Self::PchatAckStored => "PCHAT_ACK_STORED",
             Self::PchatAckRejected => "PCHAT_ACK_REJECTED",
             Self::PchatAckQuotaExceeded => "PCHAT_ACK_QUOTA_EXCEEDED",
+            Self::PchatAckDeleted => "PCHAT_ACK_DELETED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1123,6 +1163,7 @@ impl PchatAckStatus {
             "PCHAT_ACK_STORED" => Some(Self::PchatAckStored),
             "PCHAT_ACK_REJECTED" => Some(Self::PchatAckRejected),
             "PCHAT_ACK_QUOTA_EXCEEDED" => Some(Self::PchatAckQuotaExceeded),
+            "PCHAT_ACK_DELETED" => Some(Self::PchatAckDeleted),
             _ => None,
         }
     }

@@ -62,6 +62,9 @@ pub struct UserEntry {
     pub session: u32,
     pub name: String,
     pub channel_id: u32,
+    /// Registered user ID. `None` means the user is not registered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<u32>,
     pub texture: Option<Vec<u8>>,
     pub comment: Option<String>,
     /// Server-side admin mute.
@@ -413,6 +416,24 @@ pub(crate) struct LatencyPayload {
     pub rtt_ms: f64,
 }
 
+/// UDP crypto packet counters (good / late / lost / resync).
+#[derive(Clone, Default, Serialize)]
+pub(crate) struct PacketStats {
+    pub good: u32,
+    pub late: u32,
+    pub lost: u32,
+    pub resync: u32,
+}
+
+/// Rolling-window packet statistics.
+#[derive(Clone, Serialize)]
+pub(crate) struct RollingStatsPayload {
+    /// Rolling window duration in seconds.
+    pub time_window: u32,
+    pub from_client: PacketStats,
+    pub from_server: PacketStats,
+}
+
 /// Payload emitted when a `UserStats` response arrives from the server.
 #[derive(Clone, Serialize)]
 pub(crate) struct UserStatsPayload {
@@ -428,6 +449,34 @@ pub(crate) struct UserStatsPayload {
     pub idlesecs: Option<u32>,
     pub strong_certificate: bool,
     pub opus: bool,
+    /// Client version string (e.g. "1.5.517").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Operating system name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
+    /// Operating system version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub os_version: Option<String>,
+    /// Client IP address (formatted string).  Only present for admins.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    /// Total UDP crypto stats: packets received from the client.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_client: Option<PacketStats>,
+    /// Total UDP crypto stats: packets sent to the client.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_server: Option<PacketStats>,
+    /// Rolling-window packet statistics.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rolling_stats: Option<RollingStatsPayload>,
+}
+
+/// Result sent through the oneshot channel when a `PchatAck` for a deletion
+/// request is received from the server.
+pub(crate) struct DeleteAckResult {
+    pub success: bool,
+    pub reason: Option<String>,
 }
 
 // --- Admin panel payload types ------------------------------------
@@ -569,6 +618,17 @@ const fn default_true() -> bool {
 
 // --- Search types -------------------------------------------------
 
+/// Filter narrowing the search scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchFilter {
+    All,
+    Messages,
+    Photos,
+    Users,
+    Links,
+}
+
 /// Category tag for a search result.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -597,6 +657,29 @@ pub struct SearchResult {
     /// String ID for groups (group UUID).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub string_id: Option<String>,
+}
+
+/// A single photo extracted from a chat message for the photo grid.
+#[derive(Debug, Clone, Serialize)]
+pub struct PhotoEntry {
+    /// Image source (data-URL or remote URL).
+    pub src: String,
+    /// Who sent the message containing this image.
+    pub sender_name: String,
+    /// Channel ID when the photo is from a channel message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel_id: Option<u32>,
+    /// Group ID when the photo is from a group message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    /// DM session when the photo is from a direct message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dm_session: Option<u32>,
+    /// Human-readable context (e.g. "in #General", "DM with Alice").
+    pub context: String,
+    /// Message timestamp (epoch ms), if available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<u64>,
 }
 
 // --- Audio device type --------------------------------------------

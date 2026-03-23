@@ -660,8 +660,15 @@ pub(crate) fn handle_proto_key_announce(shared: &Arc<Mutex<SharedState>>, msg: &
     // After successfully recording a peer's public key, instead of
     // proactively pushing our channel keys, emit a consent request to
     // the frontend so the user can decide whether to share.
+    // We also collect channels that need a key-holder refresh so the
+    // server can tell us whether this peer already holds the key (in
+    // which case the consent prompt is auto-dismissed).
+    let channels_to_query: Vec<u32>;
+
     if should_push_keys {
         let channels_for_peer = find_shareable_channels(&state, &peer_cert_hash);
+        channels_to_query = channels_for_peer.clone();
+
         if !channels_for_peer.is_empty() {
             // Resolve peer name from current users.
             let peer_name = state
@@ -709,6 +716,18 @@ pub(crate) fn handle_proto_key_announce(shared: &Arc<Mutex<SharedState>>, msg: &
                 );
             }
         }
+    } else {
+        channels_to_query = Vec::new();
+    }
+
+    // Drop the lock before sending network queries.
+    drop(state);
+
+    // Ask the server for fresh key-holder lists.  When the response arrives,
+    // the handler will auto-dismiss consent prompts for peers that already
+    // hold the key.
+    for ch_id in channels_to_query {
+        query_key_holders(shared, ch_id);
     }
 }
 
@@ -1406,7 +1425,7 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
 }
 
 pub(crate) fn handle_proto_ack(msg: &mumble_tcp::PchatAck) {
-    let message_id = msg.message_id.as_deref().unwrap_or("");
+    let message_ids = &msg.message_ids;
     let status = msg.status.unwrap_or(0);
     let reason = msg.reason.as_deref();
 
@@ -1414,18 +1433,75 @@ pub(crate) fn handle_proto_ack(msg: &mumble_tcp::PchatAck) {
         || status == mumble_tcp::PchatAckStatus::PchatAckQuotaExceeded as i32
     {
         warn!(
-            message_id,
+            ?message_ids,
             status,
             reason = ?reason,
             "pchat message rejected by server"
         );
     } else {
         info!(
-            message_id,
+            ?message_ids,
             status,
             "received pchat ack"
         );
     }
+}
+
+/// Handle a `PchatDeleteMessages` broadcast from the server.
+///
+/// Evicts matching messages from the local in-memory store based on the
+/// deletion criteria (message IDs, time range, sender hash).
+pub(crate) fn handle_proto_delete_messages(
+    shared: &Arc<Mutex<SharedState>>,
+    msg: &mumble_tcp::PchatDeleteMessages,
+) {
+    let channel_id = msg.channel_id.unwrap_or(0);
+    let Ok(mut state) = shared.lock() else {
+        return;
+    };
+
+    let Some(messages) = state.messages.get_mut(&channel_id) else {
+        debug!(channel_id, "pchat delete: no local messages for channel");
+        return;
+    };
+
+    let before = messages.len();
+
+    let ids = &msg.message_ids;
+    let time_range = msg.time_range.as_ref();
+    let sender_hash = msg.sender_hash.as_deref();
+
+    messages.retain(|m| {
+        // By specific message IDs
+        if !ids.is_empty() {
+            if let Some(ref mid) = m.message_id {
+                if ids.iter().any(|id| id == mid) {
+                    return false;
+                }
+            }
+        }
+        // By time range
+        if let Some(range) = time_range {
+            if let Some(ts) = m.timestamp {
+                let after_from = range.from.is_none_or(|f| ts >= f);
+                let before_to = range.to.is_none_or(|t| ts <= t);
+                if after_from && before_to {
+                    return false;
+                }
+            }
+        }
+        // By sender hash - match against sender_name as a fallback,
+        // since ChatMessage does not store the cert hash directly.
+        if let Some(hash) = sender_hash {
+            if m.sender_name == hash {
+                return false;
+            }
+        }
+        true
+    });
+
+    let removed = before - messages.len();
+    info!(channel_id, removed, "pchat delete: evicted messages from local store");
 }
 
 // ---- Key-possession challenge handlers ------------------------------
@@ -1627,6 +1703,27 @@ pub(crate) fn send_key_holder_report(shared: &Arc<Mutex<SharedState>>, channel_i
             }
         });
     }
+}
+
+/// Ask the server for the latest key holders of a channel.
+///
+/// Fire-and-forget: spawns a task for the network send.
+/// When the response arrives the handler in `handler/pchat.rs` updates
+/// the local cache and auto-dismisses stale "Share Key" consent prompts.
+pub(crate) fn query_key_holders(shared: &Arc<Mutex<SharedState>>, channel_id: u32) {
+    let handle = {
+        let Ok(state) = shared.lock() else { return };
+        state.client_handle.clone()
+    };
+    let Some(handle) = handle else { return };
+    let query = mumble_tcp::PchatKeyHoldersQuery {
+        channel_id: Some(channel_id),
+    };
+    let _query_task = tokio::spawn(async move {
+        if let Err(e) = handle.send(command::SendPchatKeyHoldersQuery { query }).await {
+            warn!(channel_id, "failed to query key holders: {e}");
+        }
+    });
 }
 
 pub(crate) fn now_millis() -> u64 {

@@ -24,7 +24,7 @@ pub mod types;
 // Re-export everything that lib.rs needs.
 pub use types::{
     AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus, DebugStats,
-    GroupChat, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
+    GroupChat, PhotoEntry, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
 };
 
 use std::collections::{HashMap, HashSet};
@@ -165,6 +165,15 @@ pub(super) struct SharedState {
     pub key_holders: HashMap<u32, Vec<KeyHolderEntry>>,
     /// Resolves cert hashes to human-readable names (persisted across sessions).
     pub hash_name_resolver: Option<Arc<dyn hash_names::HashNameResolver>>,
+    /// Pending oneshot sender for `delete_pchat_messages` to wait for the server
+    /// `PchatAck`.  Set before sending the delete request, consumed by the
+    /// `PchatAck` handler.
+    pub pending_delete_ack: Option<tokio::sync::oneshot::Sender<DeleteAckResult>>,
+    /// Permission bitmask from `ServerSync.permissions` (root channel).
+    /// Used as a fallback for channels that never receive a dedicated
+    /// `PermissionQuery` response (e.g. `SuperUser`: the server skips
+    /// per-channel replies when `user_id == 0`).
+    pub root_permissions: Option<u32>,
     /// Tauri app handle for emitting events from spawned async tasks
     /// (e.g. pchat key exchange / history loading notifications).
     pub tauri_app_handle: Option<AppHandle>,
@@ -225,7 +234,19 @@ impl AppState {
             .lock()
             .map(|mut s| {
                 Self::refresh_user_counts(&mut s);
+                let root_perms = s.root_permissions;
                 let mut channels: Vec<_> = s.channels.values().cloned().collect();
+                // Fill in channels that never received a dedicated
+                // PermissionQuery response with the root permissions
+                // fallback (e.g. SuperUser where the server skips
+                // per-channel replies).
+                if let Some(fallback) = root_perms {
+                    for ch in &mut channels {
+                        if ch.permissions.is_none() {
+                            ch.permissions = Some(fallback);
+                        }
+                    }
+                }
                 channels.sort_by_key(|c| c.id);
                 channels
             })
@@ -676,20 +697,87 @@ impl AppState {
         Ok(())
     }
 
+    // -- Pchat delete -----------------------------------------------
+
+    /// Request deletion of persisted chat messages on the server.
+    ///
+    /// Blocks until the server acknowledges the request (or times out).
+    /// Returns `Ok(())` on success, or `Err` with the server's rejection
+    /// reason if the deletion was denied (e.g. missing `DeleteMessage` ACL).
+    pub async fn delete_pchat_messages(
+        &self,
+        channel_id: u32,
+        message_ids: Vec<String>,
+        time_from: Option<u64>,
+        time_to: Option<u64>,
+        sender_hash: Option<String>,
+    ) -> Result<(), String> {
+        let (handle, rx) = {
+            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            let h = state.client_handle.clone().ok_or("Not connected")?;
+
+            // Install a oneshot so the PchatAck handler can send us the result.
+            let (tx, rx) = tokio::sync::oneshot::channel::<DeleteAckResult>();
+            state.pending_delete_ack = Some(tx);
+            (h, rx)
+        };
+
+        let time_range = if time_from.is_some() || time_to.is_some() {
+            Some(mumble_protocol::proto::mumble_tcp::pchat_delete_messages::TimeRange {
+                from: time_from,
+                to: time_to,
+            })
+        } else {
+            None
+        };
+
+        handle
+            .send(command::SendPchatDeleteMessages {
+                message: mumble_protocol::proto::mumble_tcp::PchatDeleteMessages {
+                    channel_id: Some(channel_id),
+                    message_ids,
+                    time_range,
+                    sender_hash,
+                },
+            })
+            .await
+            .map_err(|e| format!("Failed to send pchat delete: {e}"))?;
+
+        // Wait for the server's PchatAck (with a generous timeout).
+        match tokio::time::timeout(std::time::Duration::from_secs(15), rx).await {
+            Ok(Ok(ack)) if ack.success => Ok(()),
+            Ok(Ok(ack)) => Err(format!(
+                "Server rejected deletion: {}",
+                ack.reason.unwrap_or_else(|| "permission denied".to_string())
+            )),
+            Ok(Err(_)) => Err("Delete acknowledgement channel closed".to_string()),
+            Err(_) => Err("Delete request timed out".to_string()),
+        }
+    }
+
     // -- Channel browse / join / listen ------------------------------
 
     /// Select a channel in the UI for viewing (does NOT join it).
     /// Clears any active DM or group view.
-    pub fn select_channel(&self, channel_id: u32) -> Result<(), String> {
-        {
+    pub async fn select_channel(&self, channel_id: u32) -> Result<(), String> {
+        let handle = {
             let mut state = self.inner.lock().map_err(|e| e.to_string())?;
             state.selected_channel = Some(channel_id);
             state.selected_dm_user = None;
             state.selected_group = None;
             // Mark the channel as read.
             let _ = state.unread_counts.remove(&channel_id);
-        }
+            state.client_handle.clone()
+        };
         self.emit_unreads();
+
+        // Request fresh permissions so the UI can gate actions correctly.
+        if let Some(handle) = handle {
+            let _ = handle
+                .send(command::PermissionQuery { channel_id })
+                .await;
+        }
+
         Ok(())
     }
 
@@ -704,6 +792,10 @@ impl AppState {
         if let Some(handle) = handle {
             let _ = handle
                 .send(command::JoinChannel { channel_id })
+                .await;
+            // Request fresh permissions for the joined channel.
+            let _ = handle
+                .send(command::PermissionQuery { channel_id })
                 .await;
         }
 
@@ -1387,6 +1479,21 @@ impl AppState {
         match handle {
             Some(h) => h
                 .send(command::BanUser { session, reason })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
+    /// Register a user on the server using their current certificate.
+    pub async fn register_user(&self, session: u32) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::RegisterUser { session })
                 .await
                 .map_err(|e| e.to_string()),
             None => Err("Not connected".into()),

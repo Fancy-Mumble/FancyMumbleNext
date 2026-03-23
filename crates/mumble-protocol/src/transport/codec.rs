@@ -102,6 +102,7 @@ fn serialize_control_message(msg: &ControlMessage) -> Result<(u16, Vec<u8>)> {
         PchatKeyChallenge(m) => (TcpMessageType::PchatKeyChallenge as u16, m.encode_to_vec()),
         PchatKeyChallengeResponse(m) => (TcpMessageType::PchatKeyChallengeResponse as u16, m.encode_to_vec()),
         PchatKeyChallengeResult(m) => (TcpMessageType::PchatKeyChallengeResult as u16, m.encode_to_vec()),
+        PchatDeleteMessages(m) => (TcpMessageType::PchatDeleteMessages as u16, m.encode_to_vec()),
         UdpTunnel(data) => (TcpMessageType::UdpTunnel as u16, data.clone()),
     };
 
@@ -155,6 +156,7 @@ fn deserialize_control_message(type_id: u16, payload: &[u8]) -> Result<ControlMe
         PchatKeyChallenge => ControlMessage::PchatKeyChallenge(mumble_tcp::PchatKeyChallenge::decode(payload)?),
         PchatKeyChallengeResponse => ControlMessage::PchatKeyChallengeResponse(mumble_tcp::PchatKeyChallengeResponse::decode(payload)?),
         PchatKeyChallengeResult => ControlMessage::PchatKeyChallengeResult(mumble_tcp::PchatKeyChallengeResult::decode(payload)?),
+        PchatDeleteMessages => ControlMessage::PchatDeleteMessages(mumble_tcp::PchatDeleteMessages::decode(payload)?),
     };
     Ok(msg)
 }

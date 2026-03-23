@@ -61,6 +61,7 @@ impl AppState {
             state.unread_counts.clear();
             state.server_config = ServerConfig::default();
             state.voice_state = VoiceState::Inactive;
+            state.root_permissions = None;
             state.pchat = None;
             state.pchat_seed = None;
             state.pchat_identity_dir = None;
@@ -275,6 +276,7 @@ impl AppState {
             state.unread_counts.clear();
             state.server_config = ServerConfig::default();
             state.voice_state = VoiceState::Inactive;
+            state.root_permissions = None;
             state.pchat = None;
             state.pchat_seed = None;
             state.pchat_identity_dir = None;

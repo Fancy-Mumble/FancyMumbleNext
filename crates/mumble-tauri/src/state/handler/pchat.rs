@@ -58,8 +58,26 @@ impl HandleMessage for mumble_tcp::PchatKeyRequest {
 }
 
 impl HandleMessage for mumble_tcp::PchatAck {
-    fn handle(&self, _ctx: &HandlerContext) {
+    fn handle(&self, ctx: &HandlerContext) {
         debug!("received PchatAck");
+
+        let status = self.status.unwrap_or(0);
+        let is_deleted = status == mumble_tcp::PchatAckStatus::PchatAckDeleted as i32;
+        let is_rejected = status == mumble_tcp::PchatAckStatus::PchatAckRejected as i32
+            || status == mumble_tcp::PchatAckStatus::PchatAckQuotaExceeded as i32;
+
+        // If a delete request is pending, resolve its oneshot channel.
+        if is_deleted || is_rejected {
+            if let Ok(mut state) = ctx.shared.lock() {
+                if let Some(tx) = state.pending_delete_ack.take() {
+                    let _ = tx.send(crate::state::types::DeleteAckResult {
+                        success: is_deleted,
+                        reason: self.reason.clone(),
+                    });
+                }
+            }
+        }
+
         pchat::handle_proto_ack(self);
     }
 }
@@ -182,5 +200,14 @@ impl HandleMessage for mumble_tcp::PchatKeyChallengeResult {
         debug!("received PchatKeyChallengeResult");
         pchat::handle_proto_key_challenge_result(&ctx.shared, self);
         ctx.emit_empty("state-changed");
+    }
+}
+
+impl HandleMessage for mumble_tcp::PchatDeleteMessages {
+    fn handle(&self, ctx: &HandlerContext) {
+        debug!("received PchatDeleteMessages");
+        let channel_id = self.channel_id.unwrap_or(0);
+        pchat::handle_proto_delete_messages(&ctx.shared, self);
+        ctx.emit("new-message", NewMessagePayload { channel_id });
     }
 }

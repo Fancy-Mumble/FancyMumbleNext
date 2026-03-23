@@ -3,7 +3,13 @@ import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import type { UserEntry } from "../types";
 import { useAppStore } from "../store";
+import { canDeleteMessages } from "./ChannelEditorDialog";
+import ConfirmDialog from "./elements/ConfirmDialog";
+import Toast, { type ToastData } from "./elements/Toast";
 import styles from "./UserContextMenu.module.css";
+
+/** Mumble permission bitmask: Register users (root channel only). */
+const PERM_REGISTER = 0x40000;
 
 // -- Local per-session state for volume and blocked users ----------
 
@@ -74,12 +80,26 @@ interface UserContextMenuProps {
 export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
   const { user } = menu;
   const ownSession = useAppStore((s) => s.ownSession);
+  const channels = useAppStore((s) => s.channels);
+  const selectedChannel = useAppStore((s) => s.selectedChannel);
+  const deletePchatMessages = useAppStore((s) => s.deletePchatMessages);
   const isSelf = user.session === ownSession;
+
+  const channel = channels.find((c) => c.id === selectedChannel);
+  const showDeleteMessages = !isSelf && canDeleteMessages(channel) && user.hash;
+
+  const rootChannel = channels.find((c) => c.id === 0);
+  const hasRegisterPerm =
+    rootChannel?.permissions != null && (rootChannel.permissions & PERM_REGISTER) !== 0;
+  const isUnregistered = user.user_id == null || user.user_id === 0;
+  const canRegister = !isSelf && hasRegisterPerm && isUnregistered;
 
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<MenuPosition | null>(null);
   const [volume, setVolume] = useState(() => getLocalVolume(user.session));
   const [blocked, setBlocked] = useState(() => isUserBlocked(user.session));
+  const [toast, setToast] = useState<ToastData | null>(null);
+  const [deleteUserConfirm, setDeleteUserConfirm] = useState(false);
 
   // Compute position once the menu is rendered and we know its size.
   useEffect(() => {
@@ -150,6 +170,15 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
             break;
           case "remove_avatar":
             await invoke("remove_user_avatar", { session: user.session });
+            break;
+          case "register":
+            try {
+              await invoke("register_user", { session: user.session });
+              setToast({ message: `Registered ${user.name}`, variant: "success" });
+            } catch (regErr) {
+              console.error("register_user failed:", regErr);
+              setToast({ message: "Failed to register user", variant: "error" });
+            }
             break;
         }
       } catch (err) {
@@ -255,6 +284,20 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
               {user.priority_speaker ? "Remove priority" : "Priority speaker"}
             </button>
 
+            {canRegister && (
+              <button type="button" className={styles.menuItem} onClick={() => handleAction("register")}>
+                <span className={styles.menuIcon}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                    <circle cx="8.5" cy="7" r="4" />
+                    <line x1="20" y1="8" x2="20" y2="14" />
+                    <line x1="23" y1="11" x2="17" y2="11" />
+                  </svg>
+                </span>
+                Register
+              </button>
+            )}
+
             <div className={styles.divider} />
 
             <button type="button" className={styles.menuItem} onClick={() => handleAction("reset_comment")}>
@@ -278,6 +321,18 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
             </button>
 
             <div className={styles.divider} />
+
+            {showDeleteMessages && (
+              <button type="button" className={`${styles.menuItem} ${styles.menuItemDanger}`} onClick={() => setDeleteUserConfirm(true)}>
+                <span className={styles.menuIcon}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                </span>
+                Delete messages
+              </button>
+            )}
 
             <button type="button" className={`${styles.menuItem} ${styles.menuItemDanger}`} onClick={() => handleAction("kick")}>
               <span className={styles.menuIcon}>
@@ -309,6 +364,32 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
           </div>
         )}
       </div>
+
+      {/* Delete-by-user confirmation dialog */}
+      {deleteUserConfirm && (
+        <ConfirmDialog
+          title="Delete messages"
+          body={`Are you sure you want to delete all messages from ${user.name} in this channel? This action cannot be undone.`}
+          confirmLabel="Delete"
+          danger
+          onConfirm={async () => {
+            if (selectedChannel !== null && user.hash) {
+              try {
+                await deletePchatMessages(selectedChannel, { senderHash: user.hash });
+                setToast({ message: `Deleted messages from ${user.name}`, variant: "success" });
+              } catch (err) {
+                console.error("delete user messages error:", err);
+                setToast({ message: "Failed to delete messages", variant: "error" });
+              }
+            }
+            setDeleteUserConfirm(false);
+            onClose();
+          }}
+          onCancel={() => setDeleteUserConfirm(false)}
+        />
+      )}
+
+      {toast && <Toast {...toast} onDismiss={() => setToast(null)} />}
     </>,
     document.body,
   );

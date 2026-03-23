@@ -20,6 +20,49 @@ use crate::transport::tcp::{TcpConfig, TcpTransport};
 use crate::transport::udp::{PlaintextCryptState, UdpConfig, UdpTransport};
 use crate::work_queue::{self, WorkItem, WorkQueueSender};
 
+/// The Mumble protocol version advertised to the server.
+///
+/// The server uses this to decide which features to enable (e.g. channel
+/// listen requires >= 1.4, protobuf audio requires >= 1.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MumbleVersion {
+    /// Major version component (e.g. **1** in 1.6.0).
+    pub major: u16,
+    /// Minor version component (e.g. **6** in 1.6.0).
+    pub minor: u16,
+    /// Patch version component (e.g. **0** in 1.6.0).
+    pub patch: u16,
+}
+
+impl MumbleVersion {
+    /// Create a new version from major/minor/patch components.
+    pub const fn new(major: u16, minor: u16, patch: u16) -> Self {
+        Self { major, minor, patch }
+    }
+
+    /// Legacy v1 encoding: `(major << 16) | (minor << 8) | patch`.
+    pub const fn encode_v1(self) -> u32 {
+        ((self.major as u32) << 16) | ((self.minor as u32) << 8) | (self.patch as u32)
+    }
+
+    /// v2 encoding: `(major << 48) | (minor << 32) | (patch << 16)`.
+    pub const fn encode_v2(self) -> u64 {
+        ((self.major as u64) << 48) | ((self.minor as u64) << 32) | ((self.patch as u64) << 16)
+    }
+}
+
+impl std::fmt::Display for MumbleVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+
+impl Default for MumbleVersion {
+    fn default() -> Self {
+        Self::new(1, 6, 0)
+    }
+}
+
 /// Top-level configuration for the Mumble client.
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -29,6 +72,8 @@ pub struct ClientConfig {
     pub udp: UdpConfig,
     /// Interval between keep-alive TCP pings.
     pub ping_interval: Duration,
+    /// Mumble protocol version advertised to the server.
+    pub version: MumbleVersion,
 }
 
 impl Default for ClientConfig {
@@ -37,6 +82,7 @@ impl Default for ClientConfig {
             tcp: TcpConfig::default(),
             udp: UdpConfig::default(),
             ping_interval: Duration::from_secs(15),
+            version: MumbleVersion::default(),
         }
     }
 }
@@ -111,12 +157,11 @@ pub async fn run<H: EventHandler>(
 
     // 2. Send the Version message FIRST - before anything else touches the
     //    stream.  The server requires version >= 1.4 for channel listen.
+    let ver = config.version;
     let version_msg = ControlMessage::Version(mumble_tcp::Version {
-        // Legacy v1 encoding: (major << 16) | (minor << 8) | patch
-        version_v1: Some((1 << 16) | (5 << 8)),
-        // v2 encoding: (major << 48) | (minor << 32) | (patch << 16)
-        version_v2: Some((1u64 << 48) | (5u64 << 32)),
-        release: Some("FancyMumble 0.1.0".into()),
+        version_v1: Some(ver.encode_v1()),
+        version_v2: Some(ver.encode_v2()),
+        release: Some(format!("FancyMumble {}", env!("CARGO_PKG_VERSION"))),
         os: Some(std::env::consts::OS.into()),
         os_version: None,
         // Announce Fancy Mumble extension support, version derived from Cargo.toml.
@@ -124,7 +169,7 @@ pub async fn run<H: EventHandler>(
         fancy_version: Some(crate::FANCY_VERSION),
     });
     tcp.send(&version_msg).await?;
-    info!("Version 1.5.0 sent");
+    info!("Version {ver} sent");
 
     let (tcp_reader, tcp_writer) = tcp.split();
 
@@ -446,4 +491,42 @@ async fn start_udp(
     // This is a placeholder; real OCB2 encryption + split is needed.
     debug!("UDP transport connected (plaintext mode)");
     Ok(transport)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mumble_version_v1_encoding() {
+        let v = MumbleVersion::new(1, 6, 0);
+        // (1 << 16) | (6 << 8) | 0 = 0x0001_0600
+        assert_eq!(v.encode_v1(), 0x0001_0600);
+    }
+
+    #[test]
+    fn mumble_version_v2_encoding() {
+        let v = MumbleVersion::new(1, 6, 0);
+        assert_eq!(v.encode_v2(), (1u64 << 48) | (6u64 << 32));
+    }
+
+    #[test]
+    fn mumble_version_display() {
+        assert_eq!(MumbleVersion::new(1, 6, 0).to_string(), "1.6.0");
+        assert_eq!(MumbleVersion::new(1, 5, 1).to_string(), "1.5.1");
+    }
+
+    #[test]
+    fn mumble_version_default_is_1_6_0() {
+        let v = MumbleVersion::default();
+        assert_eq!(v, MumbleVersion::new(1, 6, 0));
+    }
+
+    #[test]
+    fn mumble_version_v1_v2_consistency() {
+        // v1 and v2 should encode the same version, just different bit layout
+        let v = MumbleVersion::new(1, 5, 0);
+        assert_eq!(v.encode_v1(), (1 << 16) | (5 << 8));
+        assert_eq!(v.encode_v2(), 0x0001_0005_0000_0000);
+    }
 }
