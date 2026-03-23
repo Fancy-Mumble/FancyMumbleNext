@@ -122,6 +122,26 @@
   text-overflow: ellipsis;
 }
 
+.users {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+
+.serverCard:hover .users {
+  opacity: 0;
+}
+
 /* ─── Delete button - fades in on hover ────────────────────────── */
 
 .deleteBtn {

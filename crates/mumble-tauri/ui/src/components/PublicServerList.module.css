@@ -180,6 +180,13 @@
   line-height: 1;
 }
 
+/* Users cell */
+.usersCell {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--color-text-secondary);
+}
+
 /* Ping cell */
 .pingValue {
   font-variant-numeric: tabular-nums;

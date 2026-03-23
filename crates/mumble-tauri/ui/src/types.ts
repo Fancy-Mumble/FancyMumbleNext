@@ -116,11 +116,15 @@ export interface SavedServer {
   cert_label: string | null;
 }
 
-/** Result of pinging a server via TCP. */
+/** Result of pinging a server via TCP + UDP. */
 export interface ServerPingResult {
   online: boolean;
   /** Round-trip time in ms, null when offline. */
   latency_ms: number | null;
+  /** Current user count from UDP ping, null if unavailable. */
+  user_count: number | null;
+  /** Max user count from UDP ping, null if unavailable. */
+  max_user_count: number | null;
 }
 
 // --- Public Server List -------------------------------------------

@@ -2722,6 +2722,7 @@ dependencies = [
  "cpal",
  "fancy-utils",
  "mumble-protocol",
+ "prost",
  "quick-xml 0.39.2",
  "rand 0.10.0",
  "rcgen 0.14.7",

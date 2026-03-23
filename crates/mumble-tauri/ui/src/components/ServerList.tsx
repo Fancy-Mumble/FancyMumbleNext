@@ -52,6 +52,21 @@ function PingDot({ ping }: Readonly<{ ping?: ServerPingResult }>) {
   );
 }
 
+function UsersInfo({ ping }: Readonly<{ ping?: ServerPingResult }>) {
+  if (!ping?.online || ping.user_count == null) return null;
+  const text = ping.max_user_count != null
+    ? `${ping.user_count}/${ping.max_user_count}`
+    : `${ping.user_count}`;
+  return (
+    <span className={styles.users}>
+      {text}
+      <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+        <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm4.735 6C12.93 14 13 13.929 13 13.446c0-1.648-1.932-3.446-5-3.446S3 11.798 3 13.446C3 13.93 3.07 14 3.265 14h9.47z" />
+      </svg>
+    </span>
+  );
+}
+
 export default function ServerList({
   servers,
   pings,
@@ -140,6 +155,9 @@ export default function ServerList({
                     {isThisConnecting ? "Connecting..." : s.username}
                   </div>
                 </div>
+
+                {/* User count - top-right, hidden on hover when delete shows */}
+                {!isThisConnecting && <UsersInfo ping={pings[s.id]} />}
 
                 {/* Delete - visible on hover */}
                 <button
