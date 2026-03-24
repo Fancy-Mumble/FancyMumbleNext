@@ -3,6 +3,7 @@ import { useAppStore } from "../store";
 import type { PersistenceMode } from "../types";
 import { getDismissedBanners, dismissBanner } from "../preferencesStorage";
 import { InfoBanner } from "./InfoBanner";
+import ShieldIcon from "../assets/icons/status/shield.svg?react";
 import styles from "./InfoBanner.module.css";
 
 interface PersistenceBannerProps {
@@ -75,12 +76,7 @@ export default function PersistenceBanner({ channelId }: PersistenceBannerProps)
     return () => observer.disconnect();
   }, [persistence?.hasMore, handleLoadMore]);
 
-  const shieldIcon = (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    </svg>
-  );
+  const shieldIcon = <ShieldIcon aria-hidden="true" />;
 
   // Show loading indicator even before persistence config is known.
   if (isLoadingKeys && (!persistence || persistence.mode === "NONE")) {

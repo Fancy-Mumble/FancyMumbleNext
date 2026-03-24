@@ -114,6 +114,8 @@ export interface SavedServer {
   username: string;
   /** TLS client certificate label, or null to connect anonymously. */
   cert_label: string | null;
+  /** Whether this server is pinned as a favourite (shown at the top). */
+  favorite?: boolean;
 }
 
 /** Result of pinging a server via TCP + UDP. */

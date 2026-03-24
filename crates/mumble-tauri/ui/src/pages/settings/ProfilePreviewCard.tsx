@@ -9,6 +9,8 @@ import {
   CARD_BACKGROUNDS,
   AVATAR_BORDERS,
 } from "./profileData";
+import ShieldCheckIcon from "../../assets/icons/status/shield-check.svg?react";
+import MoonIcon from "../../assets/icons/status/moon.svg?react";
 import styles from "./SettingsPage.module.css";
 
 interface ProfilePreviewCardProps {
@@ -159,10 +161,7 @@ export function ProfilePreviewCard({
             </span>
             {isRegistered && (
               <span className={styles.previewRegisteredBadge} title="Registered">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                  <polyline points="9 12 11 14 15 10" />
-                </svg>
+                <ShieldCheckIcon width={12} height={12} strokeWidth={2.5} />
               </span>
             )}
           </div>
@@ -178,9 +177,7 @@ export function ProfilePreviewCard({
               )}
               {idlesecs != null && idlesecs > 0 && (
                 <span className={`${styles.previewActivityPill} ${styles.previewActivityIdle}`}>
-                  <svg className={styles.previewActivityIcon} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                  </svg>
+                  <MoonIcon className={styles.previewActivityIcon} width={11} height={11} strokeWidth={2.5} />
                   {formatDuration(idlesecs)}
                 </span>
               )}

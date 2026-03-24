@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { RegisteredUser, RegisteredUserUpdate } from "../../types";
 import { formatRelativeDate } from "../../utils/format";
+import SearchIcon from "../../assets/icons/action/search.svg?react";
 import styles from "./AdminPanel.module.css";
 
 type SortKey = "name" | "last_seen" | "last_channel";
@@ -132,10 +133,7 @@ export function RegisteredUsersTab() {
 
       <div className={styles.toolbar}>
         <div className={styles.searchWrap}>
-          <svg className={styles.searchIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
+          <SearchIcon className={styles.searchIcon} width={14} height={14} />
           <input
             ref={searchRef}
             className={styles.searchInput}

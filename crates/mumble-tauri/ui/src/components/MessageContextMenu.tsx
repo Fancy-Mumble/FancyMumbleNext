@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { ChatMessage } from "../types";
+import TrashIcon from "../assets/icons/action/trash.svg?react";
+import CheckboxIcon from "../assets/icons/status/checkbox.svg?react";
 import styles from "./MessageContextMenu.module.css";
 
 // -- Overflow-aware position computation --------------------------
@@ -88,10 +90,7 @@ export default function MessageContextMenu({
         {canDelete && (
           <button type="button" className={`${styles.menuItem} ${styles.menuItemDanger}`} onClick={handleDelete}>
             <span className={styles.menuIcon}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
+              <TrashIcon width={14} height={14} />
             </span>
             Delete message
           </button>
@@ -99,10 +98,7 @@ export default function MessageContextMenu({
         {canDelete && (
           <button type="button" className={styles.menuItem} onClick={handleSelect}>
             <span className={styles.menuIcon}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="9 11 12 14 22 4" />
-                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-              </svg>
+              <CheckboxIcon width={14} height={14} />
             </span>
             Select messages
           </button>

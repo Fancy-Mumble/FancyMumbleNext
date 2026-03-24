@@ -172,7 +172,63 @@
   background: var(--color-glass-hover);
 }
 
-/* ─── Empty state ──────────────────────────────────────────────── */
+/* --- Favourite star badge - top-right, replaces user count; hides on hover --- */
+
+.favoriteStarBadge {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  color: #f59e0b;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.15s;
+}
+
+.serverCard:hover .favoriteStarBadge {
+  opacity: 0;
+}
+
+/* --- Favourite star button - bottom-right, fades in on hover for all cards -- */
+
+.favoriteBtn {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  line-height: 1;
+}
+
+.serverCard:hover .favoriteBtn {
+  opacity: 1;
+}
+
+.favoriteBtn:hover {
+  color: #f59e0b;
+  background: var(--color-glass-hover);
+}
+
+/* --- Empty state ── */
 
 .empty {
   text-align: center;

@@ -7,6 +7,10 @@ import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
 import { useUserStats } from "../hooks/useUserStats";
 import { colorFor } from "../utils/format";
 import { isMobilePlatform } from "../utils/platform";
+import MicOffIcon from "../assets/icons/audio/mic-off.svg?react";
+import HeadphonesOffIcon from "../assets/icons/audio/headphones-off.svg?react";
+import StarIcon from "../assets/icons/status/star.svg?react";
+import ShieldCheckIcon from "../assets/icons/status/shield-check.svg?react";
 import styles from "./UserListItem.module.css";
 
 // Re-export so existing consumers (e.g. ChannelSidebar) keep working.
@@ -33,41 +37,19 @@ const HOVER_CARD_GAP = 8;
 // -- SVG icons -----------------------------------------------------
 
 function MutedIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="1" y1="1" x2="23" y2="23" />
-      <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
-      <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.13 1.49-.36 2.18" />
-      <line x1="12" y1="19" x2="12" y2="23" />
-      <line x1="8" y1="23" x2="16" y2="23" />
-    </svg>
-  );
+  return <MicOffIcon width={14} height={14} />;
 }
 
 function DeafenedIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="1" y1="1" x2="23" y2="23" />
-      <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" />
-    </svg>
-  );
+  return <HeadphonesOffIcon width={14} height={14} />;
 }
 
 function PriorityIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
-  );
+  return <StarIcon width={14} height={14} />;
 }
 
 function RegisteredIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      <polyline points="9 12 11 14 15 10" />
-    </svg>
-  );
+  return <ShieldCheckIcon width={14} height={14} />;
 }
 
 // -- Component -----------------------------------------------------

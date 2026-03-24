@@ -16,6 +16,10 @@ import type { ServerInfo, DebugStats, AudioSettings } from "../types";
 import { getPreferences, getSavedAudioSettings } from "../preferencesStorage";
 import { formatBandwidth, formatDuration } from "../utils/format";
 import { SafeHtml } from "./SafeHtml";
+import ChevronRightIcon from "../assets/icons/navigation/chevron-right.svg?react";
+import CloseIcon from "../assets/icons/action/close.svg?react";
+import ServerIcon from "../assets/icons/general/server.svg?react";
+import RefreshCwIcon from "../assets/icons/action/refresh-cw.svg?react";
 import styles from "./ServerInfoPanel.module.css";
 
 function Accordion({ title, defaultOpen = false, children }: {
@@ -32,19 +36,11 @@ function Accordion({ title, defaultOpen = false, children }: {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
       >
-        <svg
+        <ChevronRightIcon
           className={`${styles.accordionChevron} ${open ? styles.accordionChevronOpen : ""}`}
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
+          width={14}
+          height={14}
+        />
         <span>{title}</span>
       </button>
       {open && <div className={styles.accordionBody}>{children}</div>}
@@ -237,30 +233,13 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
         onClick={onClose}
         aria-label="Close server info"
       >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
+        <CloseIcon width={18} height={18} />
       </button>
 
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.serverIcon}>
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
-            <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
-            <line x1="6" y1="6" x2="6.01" y2="6" />
-            <line x1="6" y1="18" x2="6.01" y2="18" />
-          </svg>
+          <ServerIcon width={32} height={32} strokeWidth={1.5} />
         </div>
         <h2 className={styles.title}>Server Info</h2>
       </div>
@@ -360,11 +339,7 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
                   aria-label="Refresh debug stats"
                   title="Refresh"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="23 4 23 10 17 10" />
-                    <polyline points="1 20 1 14 7 14" />
-                    <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-                  </svg>
+                  <RefreshCwIcon width={14} height={14} />
                 </button>
               </div>
 

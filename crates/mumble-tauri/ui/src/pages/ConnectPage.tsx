@@ -5,6 +5,7 @@ import {
   getSavedServers,
   addServer,
   removeServer,
+  updateServer,
 } from "../serverStorage";
 import { getPreferences } from "../preferencesStorage";
 import type { SavedServer, ServerPingResult, UserMode } from "../types";
@@ -233,6 +234,16 @@ export default function ConnectPage() {
     });
   };
 
+  const handleToggleFavorite = async (id: string) => {
+    const server = savedServers.find((s) => s.id === id);
+    if (!server) return;
+    const next = !server.favorite;
+    await updateServer(id, { favorite: next });
+    setSavedServers((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, favorite: next } : s)),
+    );
+  };
+
   const handleShowWizard = () => {
     resetWizard();
     setView("wizard");
@@ -294,6 +305,7 @@ export default function ConnectPage() {
               pings={pings}
               onConnect={handleQuickConnect}
               onDelete={handleDelete}
+              onToggleFavorite={handleToggleFavorite}
               onAddNew={handleShowWizard}
               onCancelConnect={handleCancelConnect}
               disabled={isConnecting}

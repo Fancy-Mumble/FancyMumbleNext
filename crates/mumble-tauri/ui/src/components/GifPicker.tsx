@@ -10,6 +10,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import SearchIcon from "../assets/icons/action/search.svg?react";
 import styles from "./GifPicker.module.css";
 
 // --- Klipy API Types ----------------------------------------------
@@ -379,10 +380,7 @@ export default function GifPicker({ onSelect, onClose }: Readonly<GifPickerProps
 
       {/* Search bar */}
       <div className={styles.searchBar}>
-        <svg className={styles.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="11" cy="11" r="8" />
-          <path d="M21 21l-4.35-4.35" />
-        </svg>
+        <SearchIcon className={styles.searchIcon} width={16} height={16} />
         <input
           className={styles.searchInput}
           placeholder={`Search ${tab}...`}

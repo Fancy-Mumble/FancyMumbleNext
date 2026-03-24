@@ -10,6 +10,7 @@ import ChannelInfoPanel from "../components/ChannelInfoPanel";
 import UserProfileView from "../components/UserProfileView";
 import MobileProfileSheet from "../components/MobileProfileSheet";
 import MobileBottomSheet from "../components/MobileBottomSheet";
+import MenuIcon from "../assets/icons/navigation/menu.svg?react";
 import styles from "./ChatPage.module.css";
 
 export default function ChatPage() {
@@ -88,9 +89,7 @@ export default function ChatPage() {
           onClick={toggleSidebar}
           aria-label="Open channels"
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
+          <MenuIcon width={24} height={24} />
         </button>
       )}
 

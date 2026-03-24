@@ -1,4 +1,7 @@
-﻿import type { SavedServer, ServerPingResult } from "../types";
+﻿import { useMemo } from "react";
+import type { SavedServer, ServerPingResult } from "../types";
+import UserFilledIcon from "../assets/icons/user/user-filled.svg?react";
+import PauseIcon from "../assets/icons/status/pause.svg?react";
 import styles from "./ServerList.module.css";
 
 interface Props {
@@ -10,6 +13,8 @@ interface Props {
   onAddNew: () => void;
   /** Called when the user cancels an in-progress connection attempt. */
   onCancelConnect?: (id: string) => void;
+  /** Called when the user toggles the favourite star for a server. */
+  onToggleFavorite: (id: string) => void;
   disabled?: boolean;
   /** ID of the server currently being connected to (shows pause button). */
   connectingId?: string | null;
@@ -60,9 +65,7 @@ function UsersInfo({ ping }: Readonly<{ ping?: ServerPingResult }>) {
   return (
     <span className={styles.users}>
       {text}
-      <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-        <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm4.735 6C12.93 14 13 13.929 13 13.446c0-1.648-1.932-3.446-5-3.446S3 11.798 3 13.446C3 13.93 3.07 14 3.265 14h9.47z" />
-      </svg>
+      <UserFilledIcon width={10} height={10} />
     </span>
   );
 }
@@ -74,9 +77,16 @@ export default function ServerList({
   onDelete,
   onAddNew,
   onCancelConnect,
+  onToggleFavorite,
   disabled,
   connectingId,
 }: Readonly<Props>) {
+  // Favourites always appear before non-favourites; relative order is preserved.
+  const displayed = useMemo(
+    () => [...servers].sort((a, b) => Number(b.favorite) - Number(a.favorite)),
+    [servers],
+  );
+
   return (
     <div>
       {/* Header row */}
@@ -92,7 +102,7 @@ export default function ServerList({
         </button>
       </div>
 
-      {servers.length === 0 ? (
+      {displayed.length === 0 ? (
         <div className={styles.empty}>
           No saved servers yet.
           <br />
@@ -100,7 +110,7 @@ export default function ServerList({
         </div>
       ) : (
         <div className={styles.list}>
-          {servers.map((s) => {
+          {displayed.map((s) => {
             const isThisConnecting = connectingId === s.id;
             const cardClasses = [
               styles.serverCard,
@@ -136,10 +146,7 @@ export default function ServerList({
                           onCancelConnect?.(s.id);
                         }}
                       >
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
-                          <rect x="2" y="1" width="4" height="12" rx="1" />
-                          <rect x="8" y="1" width="4" height="12" rx="1" />
-                        </svg>
+                        <PauseIcon width={14} height={14} />
                       </button>
                     ) : (
                       (s.label || s.host).charAt(0)
@@ -156,8 +163,13 @@ export default function ServerList({
                   </div>
                 </div>
 
-                {/* User count - top-right, hidden on hover when delete shows */}
-                {!isThisConnecting && <UsersInfo ping={pings[s.id]} />}
+                {/* User count - non-favorites only; hidden on hover */}
+                {!isThisConnecting && !s.favorite && <UsersInfo ping={pings[s.id]} />}
+
+                {/* Favourite star badge (top-right) - favorites only; hidden on hover */}
+                {!isThisConnecting && s.favorite && (
+                  <span className={styles.favoriteStarBadge} aria-hidden="true">&#x2605;</span>
+                )}
 
                 {/* Delete - visible on hover */}
                 <button
@@ -169,8 +181,25 @@ export default function ServerList({
                   }}
                   type="button"
                 >
-                  ✕
+                  &#x2715;
                 </button>
+
+                {/* Favourite star button (bottom-right, below delete) - fades in on hover for all cards */}
+                {!isThisConnecting && (
+                  <button
+                    className={styles.favoriteBtn}
+                    title={s.favorite ? "Remove from favourites" : "Add to favourites"}
+                    aria-label={s.favorite ? "Remove from favourites" : "Add to favourites"}
+                    aria-pressed={s.favorite ?? false}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!disabled) onToggleFavorite(s.id);
+                    }}
+                    type="button"
+                  >
+                    {s.favorite ? "\u2605" : "\u2606"}
+                  </button>
+                )}
 
                 {/* Loading bar at the bottom of the card */}
                 {isThisConnecting && <div className={styles.connectingBar} />}

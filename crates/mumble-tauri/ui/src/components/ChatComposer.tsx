@@ -3,6 +3,10 @@ import MarkdownInput from "./MarkdownInput";
 import GifPicker from "./GifPicker";
 import PollCreator from "./PollCreator";
 import styles from "./ChatView.module.css";
+import AttachIcon from "../assets/icons/action/attach.svg?react";
+import GifIcon from "../assets/icons/communication/gif.svg?react";
+import PollIcon from "../assets/icons/communication/poll.svg?react";
+import SendIcon from "../assets/icons/action/send.svg?react";
 import { isMobilePlatform } from "../utils/platform";
 
 interface ChatComposerProps {
@@ -76,9 +80,7 @@ export default function ChatComposer({
           disabled={disabled}
           title="Attach image, GIF, or video"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
-          </svg>
+          <AttachIcon width={20} height={20} />
         </button>
 
         {/* GIF button */}
@@ -88,10 +90,7 @@ export default function ChatComposer({
           disabled={disabled}
           title="GIF picker"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2" y="2" width="20" height="20" rx="5" />
-            <text x="12" y="16" textAnchor="middle" fill="currentColor" stroke="none" fontSize="10" fontWeight="bold">GIF</text>
-          </svg>
+          <GifIcon width={20} height={20} />
         </button>
 
         {/* Poll button */}
@@ -101,9 +100,7 @@ export default function ChatComposer({
           disabled={disabled}
           title="Create a poll"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-            <path d="M3 3h4v18H3V3zm7 4h4v14h-4V7zm7 4h4v10h-4V11z" />
-          </svg>
+          <PollIcon width={20} height={20} />
         </button>
 
         <MarkdownInput
@@ -120,9 +117,7 @@ export default function ChatComposer({
           onClick={onSend}
           disabled={!draft.trim() || disabled}
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-          </svg>
+          <SendIcon width={20} height={20} />
         </button>
       </div>
     </div>

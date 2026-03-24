@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AclEntry } from "../../types";
+import ChevronRightIcon from "../../assets/icons/navigation/chevron-right.svg?react";
 import styles from "./AdminPanel.module.css";
 
 /** Mumble permission bit definitions. */
@@ -93,20 +94,12 @@ function AclRuleCard({
   return (
     <div className={styles.aclCard}>
       <button type="button" className={styles.aclCardHeader} onClick={onToggleOpen}>
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+        <ChevronRightIcon
+          width={12}
+          height={12}
           className={styles.aclCardChevron}
           style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}
-        >
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
+        />
         <span className={styles.aclRuleLabel}>{label}</span>
         {entry.inherited && <span className={styles.inheritBadge}>Inherited</span>}
         {!entry.inherited && (

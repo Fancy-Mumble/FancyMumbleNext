@@ -17,8 +17,8 @@ async function getStore() {
 export async function getSavedServers(): Promise<SavedServer[]> {
   const store = await getStore();
   const servers = await store.get<SavedServer[]>(KEY);
-  // Normalize legacy entries that may not have cert_label.
-  return (servers ?? []).map((s) => ({ ...s, cert_label: s.cert_label ?? null }));
+  // Normalize legacy entries that may not have cert_label or favorite.
+  return (servers ?? []).map((s) => ({ ...s, cert_label: s.cert_label ?? null, favorite: s.favorite ?? false }));
 }
 
 /** Persist a new server entry. Returns the created entry. */
