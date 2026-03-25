@@ -13,18 +13,6 @@
 }
 
 @media (max-width: 768px) {
-  .panel {
-    position: fixed;
-    top: 40px;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    max-width: none;
-    z-index: 210;
-    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
-  }
-
   .closeBtn {
     width: 40px;
     height: 40px;
@@ -34,7 +22,7 @@
   }
 }
 
-/* ── Close button ──────────────────────────────────────────────── */
+/* -- Close button ------------------------------------------------ */
 
 .closeBtn {
   position: absolute;
@@ -59,7 +47,7 @@
   color: var(--color-text-primary);
 }
 
-/* ── Header ────────────────────────────────────────────────────── */
+/* -- Header ------------------------------------------------------ */
 
 .header {
   display: flex;
@@ -88,7 +76,7 @@
   margin: 0;
 }
 
-/* ── Content sections ──────────────────────────────────────────── */
+/* -- Content sections -------------------------------------------- */
 
 .section {
   padding: 16px 20px;
@@ -108,7 +96,7 @@
   margin: 0 0 10px;
 }
 
-/* ── Info grid ─────────────────────────────────────────────────── */
+/* -- Info grid --------------------------------------------------- */
 
 .infoGrid {
   display: grid;
@@ -127,7 +115,7 @@
   word-break: break-all;
 }
 
-/* ── Developer section header ──────────────────────────────────── */
+/* -- Developer section header ------------------------------------ */
 
 .devHeader {
   display: flex;
@@ -159,7 +147,7 @@
   color: var(--color-text-primary);
 }
 
-/* ── Accordion ─────────────────────────────────────────────────── */
+/* -- Accordion --------------------------------------------------- */
 
 .accordion {
   border: 1px solid var(--color-glass-border);
@@ -207,7 +195,7 @@
   border-top: 1px solid var(--color-glass-border);
 }
 
-/* ── Welcome text ──────────────────────────────────────────────── */
+/* -- Welcome text ------------------------------------------------ */
 
 .welcomeText {
   max-height: 200px;
@@ -227,7 +215,7 @@
   text-decoration: underline;
 }
 
-/* ── Debug grid ────────────────────────────────────────────────── */
+/* -- Debug grid -------------------------------------------------- */
 
 .debugGrid {
   display: grid;
@@ -258,9 +246,12 @@
 /* When rendered inside a MobileBottomSheet, fill the available width. */
 @media (max-width: 768px) {
   .panel {
+    position: static;
     width: 100%;
     height: auto;
+    max-width: none;
     border-left: none;
+    box-shadow: none;
     overflow-y: visible;
   }
 }

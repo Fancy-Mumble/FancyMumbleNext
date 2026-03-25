@@ -1,0 +1,54 @@
+.wrapper {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+}
+
+/* Revealed action panels behind the sliding content */
+.actionRight,
+.actionLeft {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Left swipe -> action revealed on the RIGHT side */
+.actionRight {
+  right: 0;
+  justify-content: flex-end;
+  padding-right: 20px;
+}
+
+/* Right swipe -> action revealed on the LEFT side */
+.actionLeft {
+  left: 0;
+  justify-content: flex-start;
+  padding-left: 20px;
+}
+
+.actionLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.actionIcon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+/* The sliding content layer sits on top of the actions */
+.content {
+  position: relative;
+  z-index: 1;
+  will-change: transform;
+  touch-action: pan-y;
+}

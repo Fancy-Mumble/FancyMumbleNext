@@ -1,4 +1,4 @@
-/* ─── Public Server List ────────────────────────────────────────── */
+/* --- Public Server List ------------------------------------------ */
 
 .container {
   display: flex;
@@ -7,7 +7,7 @@
   width: 100%;
 }
 
-/* ─── Privacy consent gate ─────────────────────────────────────── */
+/* --- Privacy consent gate --------------------------------------- */
 
 .consent {
   display: flex;
@@ -60,7 +60,7 @@
   box-shadow: 0 6px 24px var(--color-accent-glow);
 }
 
-/* ─── Search bar ───────────────────────────────────────────────── */
+/* --- Search bar ------------------------------------------------- */
 
 .searchBar {
   position: relative;
@@ -97,7 +97,7 @@
   background: var(--color-glass-hover);
 }
 
-/* ─── Table ────────────────────────────────────────────────────── */
+/* --- Table ------------------------------------------------------ */
 
 .tableWrap {
   max-height: 360px;
@@ -209,7 +209,7 @@
   font-size: 12px;
 }
 
-/* ─── Loading / empty state ────────────────────────────────────── */
+/* --- Loading / empty state -------------------------------------- */
 
 .statusRow {
   text-align: center;
@@ -236,7 +236,7 @@
   }
 }
 
-/* ─── Header row with back link ────────────────────────────────── */
+/* --- Header row with back link ---------------------------------- */
 
 .header {
   display: flex;
@@ -271,7 +271,7 @@
   background: var(--color-glass-hover);
 }
 
-/* ─── Mobile ───────────────────────────────────────────────────── */
+/* --- Mobile ----------------------------------------------------- */
 
 @media (max-width: 768px) {
   .tableWrap {

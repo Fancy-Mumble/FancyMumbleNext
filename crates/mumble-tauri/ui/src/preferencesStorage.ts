@@ -113,3 +113,44 @@ export async function dismissBanner(channelId: number): Promise<void> {
     await store.set(DISMISSED_BANNERS_KEY, [...current, channelId]);
   }
 }
+
+// -- Silenced channels (per-server, local-only) --------------------
+
+/**
+ * Silenced channels are keyed by server address ("host:port") so each
+ * server has its own independent blacklist.
+ */
+const SILENCED_CHANNELS_KEY = "silencedChannels";
+
+type SilencedMap = Record<string, number[]>;
+
+/** Return the channel IDs silenced for a given server. */
+export async function getSilencedChannels(
+  serverKey: string,
+): Promise<number[]> {
+  const store = await getStore();
+  const map = (await store.get<SilencedMap>(SILENCED_CHANNELS_KEY)) ?? {};
+  return map[serverKey] ?? [];
+}
+
+/** Toggle the silenced state for a single channel on a server. */
+export async function setSilencedChannel(
+  serverKey: string,
+  channelId: number,
+  silenced: boolean,
+): Promise<number[]> {
+  const store = await getStore();
+  const map = (await store.get<SilencedMap>(SILENCED_CHANNELS_KEY)) ?? {};
+  const current = map[serverKey] ?? [];
+  let updated: number[];
+  if (silenced && !current.includes(channelId)) {
+    updated = [...current, channelId];
+  } else if (!silenced) {
+    updated = current.filter((id) => id !== channelId);
+  } else {
+    return current;
+  }
+  map[serverKey] = updated;
+  await store.set(SILENCED_CHANNELS_KEY, map);
+  return updated;
+}

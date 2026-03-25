@@ -313,6 +313,8 @@ cargo tauri android dev
 # Usage:
 .\scripts\android-dev.ps1                        # Check prerequisites only
 .\scripts\android-dev.ps1 -Run                   # Check + start dev server (cargo tauri android dev)
+.\scripts\android-dev.ps1 -Emulator              # Launch an emulator (pick AVD interactively)
+.\scripts\android-dev.ps1 -Emulator -Run         # Launch emulator, then start dev server
 .\scripts\android-dev.ps1 -Inspect               # Set up WebView DevTools forwarding for chrome://inspect
 .\scripts\android-dev.ps1 -Inspect -Serial emulator-5554  # Target a specific device
 #

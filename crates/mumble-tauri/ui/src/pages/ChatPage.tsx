@@ -80,6 +80,25 @@ export default function ChatPage() {
     }
   }, [status, navigate]);
 
+  // On mobile, block the Android swipe-back gesture / hardware back button
+  // from navigating away from the chat page (which would break the connection).
+  // We push a sentinel history entry and suppress any popstate that tries to
+  // leave while we are still connected.
+  useEffect(() => {
+    if (!isMobile || status !== "connected") return;
+
+    // Push a guard entry so there is always something to "go back" to.
+    window.history.pushState({ chatGuard: true }, "");
+
+    const onPopState = () => {
+      // Re-push the guard entry to stay on the chat page.
+      window.history.pushState({ chatGuard: true }, "");
+    };
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [isMobile, status]);
+
   return (
     <div ref={pageRef} className={styles.page}>
       {/* Burger toggle - shown when drawer mode is active and sidebar is closed */}

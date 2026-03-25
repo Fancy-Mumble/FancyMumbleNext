@@ -42,13 +42,13 @@ if (releaseKeystorePath != null && releaseKeystoreFile == null) {
 }
 
 android {
-    compileSdk = 34
+    compileSdk = 36
     namespace = "com.fancymumble.app"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "com.fancymumble.app"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }

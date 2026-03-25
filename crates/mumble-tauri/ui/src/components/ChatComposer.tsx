@@ -1,11 +1,9 @@
 ﻿import { useState, useRef, useCallback, type ClipboardEvent } from "react";
 import MarkdownInput from "./MarkdownInput";
 import GifPicker from "./GifPicker";
-import PollCreator from "./PollCreator";
 import styles from "./ChatView.module.css";
 import AttachIcon from "../assets/icons/action/attach.svg?react";
 import GifIcon from "../assets/icons/communication/gif.svg?react";
-import PollIcon from "../assets/icons/communication/poll.svg?react";
 import SendIcon from "../assets/icons/action/send.svg?react";
 import { isMobilePlatform } from "../utils/platform";
 
@@ -16,7 +14,6 @@ interface ChatComposerProps {
   readonly onPaste: (e: ClipboardEvent) => void;
   readonly onFileSelected: (file: File) => Promise<void>;
   readonly onGifSelect: (url: string, alt: string) => Promise<void>;
-  readonly onPollCreate: (question: string, options: string[], multiple: boolean) => Promise<void>;
   readonly disabled?: boolean;
 }
 
@@ -27,11 +24,9 @@ export default function ChatComposer({
   onPaste,
   onFileSelected,
   onGifSelect,
-  onPollCreate,
   disabled = false,
 }: ChatComposerProps) {
   const [showGifPicker, setShowGifPicker] = useState(false);
-  const [showPollCreator, setShowPollCreator] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleAttach = useCallback(() => {
@@ -56,12 +51,6 @@ export default function ChatComposer({
         <GifPicker
           onSelect={onGifSelect}
           onClose={() => setShowGifPicker(false)}
-        />
-      )}
-      {showPollCreator && (
-        <PollCreator
-          onSubmit={onPollCreate}
-          onClose={() => setShowPollCreator(false)}
         />
       )}
       <div className={styles.composer}>
@@ -91,16 +80,6 @@ export default function ChatComposer({
           title="GIF picker"
         >
           <GifIcon width={20} height={20} />
-        </button>
-
-        {/* Poll button */}
-        <button
-          className={styles.attachBtn}
-          onClick={() => setShowPollCreator(true)}
-          disabled={disabled}
-          title="Create a poll"
-        >
-          <PollIcon width={20} height={20} />
         </button>
 
         <MarkdownInput

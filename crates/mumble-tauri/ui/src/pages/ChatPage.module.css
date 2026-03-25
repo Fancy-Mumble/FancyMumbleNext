@@ -28,7 +28,7 @@
   .sidebarContainer {
     display: block;
     position: fixed;
-    top: 40px;
+    top: var(--titlebar-height);
     left: 0;
     bottom: 0;
     width: 85vw;
@@ -45,7 +45,7 @@
   .backdrop {
     display: block;
     position: fixed;
-    top: 40px;
+    top: var(--titlebar-height);
     left: 0;
     right: 0;
     bottom: 0;

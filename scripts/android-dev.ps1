@@ -5,11 +5,16 @@
     Validates that all required tools (JDK, Android SDK, NDK, Rust targets,
     Tauri CLI, emulator) are properly configured for Fancy Mumble Android
     development. Pass -Run to also start the dev server. Pass -Inspect to
-    refresh WebView DevTools forwarding for chrome://inspect.
+    refresh WebView DevTools forwarding for chrome://inspect. Pass -Emulator
+    to start an AVD emulator (optionally combined with -Run).
 .EXAMPLE
     .\android-dev.ps1          # Check prerequisites only
 .EXAMPLE
     .\android-dev.ps1 -Run     # Check prerequisites and start dev server
+.EXAMPLE
+    .\android-dev.ps1 -Emulator           # Launch emulator (pick AVD interactively)
+.EXAMPLE
+    .\android-dev.ps1 -Emulator -Run      # Launch emulator, then start dev server
 .EXAMPLE
     .\android-dev.ps1 -Inspect # Set up WebView debugging for all devices
 .EXAMPLE
@@ -18,6 +23,7 @@
 param(
     [switch]$Run,
     [switch]$Inspect,
+    [switch]$Emulator,
     [string]$Serial  # Target a specific ADB device serial (used with -Inspect)
 )
 
@@ -345,7 +351,7 @@ if ($androidHome) {
 
 $adb = Get-Command adb -ErrorAction SilentlyContinue
 if ($adb) {
-    $devices = (adb devices 2>&1) | Select-String "device$"
+    $devices = (adb devices 2>&1) | Select-String "^\S+\s+device\b"
     $deviceCount = ($devices | Measure-Object).Count
     Write-Check "ADB" $true "$deviceCount device(s)/emulator(s) connected"
 } else {
@@ -381,6 +387,70 @@ if ($script:hasErrors) {
     Write-Host "All prerequisites satisfied!" -ForegroundColor Green
 }
 
+if ($Emulator) {
+    $emulatorExe = Get-Command emulator -ErrorAction SilentlyContinue
+    if (-not $emulatorExe) {
+        Write-Host "emulator not found in PATH. Install via Android Studio SDK Manager." -ForegroundColor Red
+        exit 1
+    }
+    $avdList = @(emulator -list-avds 2>&1 | Where-Object { $_ -and $_ -notmatch "^(INFO|WARNING)" })
+    if ($avdList.Count -eq 0) {
+        Write-Host "No AVDs found. Create one in Android Studio > Device Manager." -ForegroundColor Red
+        exit 1
+    }
+    if ($avdList.Count -eq 1) {
+        $avdName = $avdList[0]
+    } else {
+        Write-Host "`nAvailable AVDs:" -ForegroundColor Cyan
+        for ($i = 0; $i -lt $avdList.Count; $i++) {
+            Write-Host "  [$($i + 1)] $($avdList[$i])" -ForegroundColor White
+        }
+        $choice = Read-Host "`nSelect AVD (1-$($avdList.Count))"
+        $idx = 0
+        if (-not [int]::TryParse($choice, [ref]$idx) -or $idx -lt 1 -or $idx -gt $avdList.Count) {
+            Write-Host "Invalid selection." -ForegroundColor Red
+            exit 1
+        }
+        $avdName = $avdList[$idx - 1]
+    }
+    Write-Host "`nLaunching emulator: $avdName ..." -ForegroundColor Cyan
+    Start-Process -FilePath $emulatorExe.Source -ArgumentList @("-avd", $avdName) -WindowStyle Minimized
+    # Wait for the emulator to become ready
+    Write-Host "Waiting for emulator to boot..." -ForegroundColor DarkGray
+    $timeout = 120
+    $elapsed = 0
+    $booted = $false
+    $emulatorSerial = $null
+    # Phase 1: wait for the new emulator to appear in adb devices
+    while ($elapsed -lt $timeout -and -not $emulatorSerial) {
+        Start-Sleep -Seconds 2
+        $elapsed += 2
+        $emulatorSerial = adb devices 2>$null |
+            Select-String "^(emulator-\d+)\s+device" |
+            ForEach-Object { $_.Matches[0].Groups[1].Value } |
+            Select-Object -Last 1
+    }
+    # Phase 2: poll sys.boot_completed on the detected emulator
+    if ($emulatorSerial) {
+        while ($elapsed -lt $timeout) {
+            $bootVal = adb -s $emulatorSerial shell getprop sys.boot_completed 2>$null
+            if ("$bootVal".Trim() -eq "1") {
+                $booted = $true
+                break
+            }
+            Start-Sleep -Seconds 2
+            $elapsed += 2
+        }
+    }
+    if ($booted) {
+        Write-Host "  [OK] Emulator booted ($avdName)" -ForegroundColor Green
+    } else {
+        Write-Host "  [!!] Emulator did not finish booting within ${timeout}s." -ForegroundColor Yellow
+        Write-Host "       Continuing anyway - it may still be starting up." -ForegroundColor Yellow
+    }
+    Write-Host ""
+}
+
 if ($Run) {
     Write-Host "`nStarting Tauri Android dev server..." -ForegroundColor Cyan
     Push-Location "$PSScriptRoot\..\crates\mumble-tauri"
@@ -403,6 +473,10 @@ if ($Run) {
     Write-Host "Run with -Run to start the dev server, or manually:" -ForegroundColor DarkGray
     Write-Host "  cd crates\mumble-tauri" -ForegroundColor DarkGray
     Write-Host "  cargo tauri android dev" -ForegroundColor DarkGray
+    Write-Host "Run with -Emulator to launch an emulator:" -ForegroundColor DarkGray
+    Write-Host "  .\scripts\android-dev.ps1 -Emulator" -ForegroundColor DarkGray
+    Write-Host "Run with -Emulator -Run to launch emulator and start dev server:" -ForegroundColor DarkGray
+    Write-Host "  .\scripts\android-dev.ps1 -Emulator -Run" -ForegroundColor DarkGray
     Write-Host "Run with -Inspect to refresh chrome://inspect forwarding:" -ForegroundColor DarkGray
     Write-Host "  .\scripts\android-dev.ps1 -Inspect" -ForegroundColor DarkGray
 }

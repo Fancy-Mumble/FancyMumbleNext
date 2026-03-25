@@ -1,4 +1,4 @@
-/* ─── Server List ───────────────────────────────────────────────── */
+/* --- Server List ------------------------------------------------- */
 
 .list {
   display: flex;
@@ -36,7 +36,7 @@
   transform: scale(0.99);
 }
 
-/* ─── Avatar with status dot overlay ───────────────────────────── */
+/* --- Avatar with status dot overlay ----------------------------- */
 
 .avatarWrap {
   position: relative;
@@ -98,7 +98,7 @@
   50% { opacity: 1; }
 }
 
-/* ─── Text block ───────────────────────────────────────────────── */
+/* --- Text block ------------------------------------------------- */
 
 .info {
   flex: 1;
@@ -142,14 +142,29 @@
   opacity: 0;
 }
 
-/* ─── Delete button - fades in on hover ────────────────────────── */
+/* --- Action buttons container - right side, fades in on hover --- */
+
+.cardActions {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.serverCard:hover .cardActions {
+  opacity: 1;
+}
 
 .deleteBtn {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -158,17 +173,32 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 12px;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s, background 0.15s;
-}
-
-.serverCard:hover .deleteBtn {
-  opacity: 1;
+  font-size: 10px;
+  transition: color 0.15s, background 0.15s;
 }
 
 .deleteBtn:hover {
   color: var(--color-danger);
+  background: var(--color-glass-hover);
+}
+
+.editBtn {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 11px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.editBtn:hover {
+  color: var(--color-accent);
   background: var(--color-glass-hover);
 }
 
@@ -193,18 +223,18 @@
   transition: opacity 0.15s;
 }
 
-.serverCard:hover .favoriteStarBadge {
-  opacity: 0;
+/* Only hide the star on devices that truly support hover (desktop). */
+@media (hover: hover) {
+  .serverCard:hover .favoriteStarBadge {
+    opacity: 0;
+  }
 }
 
-/* --- Favourite star button - bottom-right, fades in on hover for all cards -- */
+/* --- Favourite star button - in action column, below delete -- */
 
 .favoriteBtn {
-  position: absolute;
-  bottom: 6px;
-  right: 6px;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -213,14 +243,9 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 13px;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  font-size: 11px;
+  transition: color 0.15s, background 0.15s;
   line-height: 1;
-}
-
-.serverCard:hover .favoriteBtn {
-  opacity: 1;
 }
 
 .favoriteBtn:hover {
@@ -228,7 +253,7 @@
   background: var(--color-glass-hover);
 }
 
-/* --- Empty state ── */
+/* --- Empty state -- */
 
 .empty {
   text-align: center;
@@ -237,7 +262,7 @@
   font-size: 14px;
 }
 
-/* ─── Section header with "Add server" link ────────────────────── */
+/* --- Section header with "Add server" link ---------------------- */
 
 .header {
   display: flex;
@@ -278,9 +303,14 @@
   .serverCard {
     padding: 14px;
   }
+
+  /* On touch devices, swipe gestures replace hover-based actions */
+  .cardActions {
+    display: none;
+  }
 }
 
-/* ─── Connecting state ─────────────────────────────────────────── */
+/* --- Connecting state ------------------------------------------- */
 
 .serverCardConnecting {
   border-color: var(--color-accent);

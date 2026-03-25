@@ -7,6 +7,7 @@ import { loadPersonalization, type PersonalizationData } from "../personalizatio
 import ChatHeader from "./ChatHeader";
 import MessageItem, { MessageAvatar } from "./MessageItem";
 import ChatComposer from "./ChatComposer";
+import PollCreator from "./PollCreator";
 import MessageContextMenu, { type MessageContextMenuState } from "./MessageContextMenu";
 import CheckIcon from "../assets/icons/status/check.svg?react";
 import ChevronDownIcon from "../assets/icons/navigation/chevron-down.svg?react";
@@ -94,6 +95,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   const polls = useAppStore((s) => s.polls);
   const pollMessages = useAppStore((s) => s.pollMessages);
   const selectUser = useAppStore((s) => s.selectUser);
+  const toggleSilenceChannel = useAppStore((s) => s.toggleSilenceChannel);
+  const silencedChannels = useAppStore((s) => s.silencedChannels);
 
   // DM state
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
@@ -113,6 +116,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [showPollCreator, setShowPollCreator] = useState(false);
   const [, forceRender] = useReducer((c: number) => c + 1, 0);
 
   // Time display preferences (loaded once from persistent storage).
@@ -1004,6 +1008,9 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onChannelSearch={onChannelSearch}
           keyTrustLevel={persistent.trustLevel}
           onVerifyClick={persistent.onVerifyClick}
+          onPollCreate={() => setShowPollCreator(true)}
+          isSilenced={selectedChannel !== null && silencedChannels.has(selectedChannel)}
+          onToggleSilence={selectedChannel !== null ? () => toggleSilenceChannel(selectedChannel) : undefined}
         />
       )}
 
@@ -1187,9 +1194,15 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         onPaste={handlePaste}
         onFileSelected={sendMediaFile}
         onGifSelect={handleGifSelect}
-        onPollCreate={handlePollCreate}
         disabled={sending || persistent.keyRevoked}
       />
+
+      {showPollCreator && (
+        <PollCreator
+          onSubmit={handlePollCreate}
+          onClose={() => setShowPollCreator(false)}
+        />
+      )}
 
       {/* Persistent chat dialogs (key verification, custodian prompt) */}
       {persistent.dialogs}

@@ -41,6 +41,7 @@
 
   /* Layout */
   --sidebar-width: 320px;
+  --titlebar-height: 40px;
 
   /* Touch targets (minimum recommended size for mobile) */
   --touch-target-min: 44px;

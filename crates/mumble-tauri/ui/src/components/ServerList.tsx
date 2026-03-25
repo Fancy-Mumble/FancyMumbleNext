@@ -1,7 +1,9 @@
-﻿import { useMemo } from "react";
+﻿import { useMemo, useRef, useCallback } from "react";
 import type { SavedServer, ServerPingResult } from "../types";
+import { isMobilePlatform } from "../utils/platform";
 import UserFilledIcon from "../assets/icons/user/user-filled.svg?react";
 import PauseIcon from "../assets/icons/status/pause.svg?react";
+import SwipeableCard from "./elements/SwipeableCard";
 import styles from "./ServerList.module.css";
 
 interface Props {
@@ -15,6 +17,8 @@ interface Props {
   onCancelConnect?: (id: string) => void;
   /** Called when the user toggles the favourite star for a server. */
   onToggleFavorite: (id: string) => void;
+  /** Called when the user wants to edit a server (long-press on mobile, hover button on desktop). */
+  onEdit?: (server: SavedServer) => void;
   disabled?: boolean;
   /** ID of the server currently being connected to (shows pause button). */
   connectingId?: string | null;
@@ -70,6 +74,79 @@ function UsersInfo({ ping }: Readonly<{ ping?: ServerPingResult }>) {
   );
 }
 
+const LONG_PRESS_MS = 500;
+
+/** Avatar wrapper that supports long-press-to-edit on mobile. */
+function AvatarWithLongPress({
+  server,
+  isConnecting,
+  ping,
+  isMobile,
+  disabled,
+  onEdit,
+  onCancelConnect,
+}: Readonly<{
+  server: SavedServer;
+  isConnecting: boolean;
+  ping?: ServerPingResult;
+  isMobile: boolean;
+  disabled?: boolean;
+  onEdit?: (server: SavedServer) => void;
+  onCancelConnect?: (id: string) => void;
+}>) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firedRef = useRef(false);
+
+  const startPress = useCallback(() => {
+    if (!isMobile || !onEdit || disabled || isConnecting) return;
+    firedRef.current = false;
+    timerRef.current = setTimeout(() => {
+      firedRef.current = true;
+      onEdit(server);
+    }, LONG_PRESS_MS);
+  }, [isMobile, onEdit, disabled, isConnecting, server]);
+
+  const cancelPress = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  return (
+    <div
+      className={styles.avatarWrap}
+      onTouchStart={startPress}
+      onTouchEnd={cancelPress}
+      onTouchCancel={cancelPress}
+      onContextMenu={(e) => {
+        // Prevent browser context menu on long-press
+        if (isMobile) e.preventDefault();
+      }}
+    >
+      <div className={styles.avatar}>
+        {isConnecting ? (
+          <button
+            type="button"
+            className={styles.cancelBtn}
+            title="Cancel connection"
+            aria-label="Cancel connection"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancelConnect?.(server.id);
+            }}
+          >
+            <PauseIcon width={14} height={14} />
+          </button>
+        ) : (
+          (server.label || server.host).charAt(0)
+        )}
+      </div>
+      <PingDot ping={ping} />
+    </div>
+  );
+}
+
 export default function ServerList({
   servers,
   pings,
@@ -78,9 +155,12 @@ export default function ServerList({
   onAddNew,
   onCancelConnect,
   onToggleFavorite,
+  onEdit,
   disabled,
   connectingId,
 }: Readonly<Props>) {
+  const isMobile = isMobilePlatform();
+
   // Favourites always appear before non-favourites; relative order is preserved.
   const displayed = useMemo(
     () => [...servers].sort((a, b) => Number(b.favorite) - Number(a.favorite)),
@@ -118,8 +198,23 @@ export default function ServerList({
             ].filter(Boolean).join(" ");
 
             return (
-              <div
+              <SwipeableCard
                 key={s.id}
+                leftSwipeAction={!isThisConnecting ? {
+                  label: "Delete",
+                  icon: "\u2715",
+                  color: "var(--color-danger, #ef4444)",
+                  onTrigger: () => onDelete(s.id),
+                } : undefined}
+                rightSwipeAction={!isThisConnecting ? {
+                  label: s.favorite ? "Unfavorite" : "Favorite",
+                  icon: s.favorite ? "\u2606" : "\u2605",
+                  color: "#f59e0b",
+                  onTrigger: () => onToggleFavorite(s.id),
+                } : undefined}
+                disabled={disabled || isThisConnecting}
+              >
+              <div
                 className={cardClasses}
                 onClick={() => !disabled && onConnect(s)}
                 role="button"
@@ -133,27 +228,15 @@ export default function ServerList({
                 aria-disabled={disabled}
               >
                 {/* Avatar with status dot */}
-                <div className={styles.avatarWrap}>
-                  <div className={styles.avatar}>
-                    {isThisConnecting ? (
-                      <button
-                        type="button"
-                        className={styles.cancelBtn}
-                        title="Cancel connection"
-                        aria-label="Cancel connection"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onCancelConnect?.(s.id);
-                        }}
-                      >
-                        <PauseIcon width={14} height={14} />
-                      </button>
-                    ) : (
-                      (s.label || s.host).charAt(0)
-                    )}
-                  </div>
-                  <PingDot ping={pings[s.id]} />
-                </div>
+                <AvatarWithLongPress
+                  server={s}
+                  isConnecting={isThisConnecting}
+                  ping={pings[s.id]}
+                  isMobile={isMobile}
+                  disabled={disabled}
+                  onEdit={onEdit}
+                  onCancelConnect={onCancelConnect}
+                />
 
                 {/* Info - just label and username */}
                 <div className={styles.info}>
@@ -171,39 +254,54 @@ export default function ServerList({
                   <span className={styles.favoriteStarBadge} aria-hidden="true">&#x2605;</span>
                 )}
 
-                {/* Delete - visible on hover */}
-                <button
-                  className={styles.deleteBtn}
-                  title="Remove server"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!disabled) onDelete(s.id);
-                  }}
-                  type="button"
-                >
-                  &#x2715;
-                </button>
-
-                {/* Favourite star button (bottom-right, below delete) - fades in on hover for all cards */}
-                {!isThisConnecting && (
+                {/* Action buttons (right side) - fade in on hover */}
+                <div className={styles.cardActions}>
+                  {onEdit && (
+                    <button
+                      className={styles.editBtn}
+                      title="Edit server"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!disabled) onEdit(s);
+                      }}
+                      type="button"
+                    >
+                      &#x270E;
+                    </button>
+                  )}
                   <button
-                    className={styles.favoriteBtn}
-                    title={s.favorite ? "Remove from favourites" : "Add to favourites"}
-                    aria-label={s.favorite ? "Remove from favourites" : "Add to favourites"}
-                    aria-pressed={s.favorite ?? false}
+                    className={styles.deleteBtn}
+                    title="Remove server"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (!disabled) onToggleFavorite(s.id);
+                      if (!disabled) onDelete(s.id);
                     }}
                     type="button"
                   >
-                    {s.favorite ? "\u2605" : "\u2606"}
+                    &#x2715;
                   </button>
-                )}
+
+                  {!isThisConnecting && (
+                    <button
+                      className={styles.favoriteBtn}
+                      title={s.favorite ? "Remove from favourites" : "Add to favourites"}
+                      aria-label={s.favorite ? "Remove from favourites" : "Add to favourites"}
+                      aria-pressed={s.favorite ?? false}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!disabled) onToggleFavorite(s.id);
+                      }}
+                      type="button"
+                    >
+                      {s.favorite ? "\u2605" : "\u2606"}
+                    </button>
+                  )}
+                </div>
 
                 {/* Loading bar at the bottom of the card */}
                 {isThisConnecting && <div className={styles.connectingBar} />}
               </div>
+              </SwipeableCard>
             );
           })}
         </div>

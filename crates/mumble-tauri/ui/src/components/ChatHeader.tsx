@@ -1,6 +1,10 @@
 import { isMobilePlatform } from "../utils/platform";
 import type { KeyTrustLevel } from "../types";
 import KeyTrustIndicator from "./KeyTrustIndicator";
+import KebabMenu, { type KebabMenuItem } from "./elements/KebabMenu";
+import PollIcon from "../assets/icons/communication/poll.svg?react";
+import BellIcon from "../assets/icons/status/bell.svg?react";
+import BellOffIcon from "../assets/icons/status/bell-off.svg?react";
 import styles from "./ChatView.module.css";
 import UsersGroupIcon from "../assets/icons/user/users-group.svg?react";
 import DatabaseIcon from "../assets/icons/general/database.svg?react";
@@ -19,6 +23,37 @@ interface ChatHeaderProps {
   readonly onChannelSearch?: () => void;
   readonly keyTrustLevel?: KeyTrustLevel;
   readonly onVerifyClick?: () => void;
+  readonly onPollCreate?: () => void;
+  readonly isSilenced?: boolean;
+  readonly onToggleSilence?: () => void;
+}
+
+function buildKebabItems({
+  onPollCreate,
+  isSilenced,
+  onToggleSilence,
+}: Pick<ChatHeaderProps, "onPollCreate" | "isSilenced" | "onToggleSilence">): KebabMenuItem[] {
+  const items: KebabMenuItem[] = [];
+  if (onPollCreate) {
+    items.push({
+      id: "create-poll",
+      label: "Create poll",
+      icon: <PollIcon width={16} height={16} />,
+      onClick: onPollCreate,
+    });
+  }
+  if (onToggleSilence) {
+    items.push({
+      id: "toggle-silence",
+      label: isSilenced ? "Unmute channel" : "Mute channel",
+      icon: isSilenced
+        ? <BellIcon width={16} height={16} />
+        : <BellOffIcon width={16} height={16} />,
+      active: isSilenced,
+      onClick: onToggleSilence,
+    });
+  }
+  return items;
 }
 
 export default function ChatHeader({
@@ -33,6 +68,9 @@ export default function ChatHeader({
   onChannelSearch,
   keyTrustLevel,
   onVerifyClick,
+  onPollCreate,
+  isSilenced,
+  onToggleSilence,
 }: ChatHeaderProps) {
   let prefix: string;
   if (isGroup) prefix = "";
@@ -93,6 +131,12 @@ export default function ChatHeader({
           >
             <FolderIcon width={18} height={18} />
           </button>
+        )}
+        {!privateBadge && (
+          <KebabMenu
+            items={buildKebabItems({ onPollCreate, isSilenced, onToggleSilence })}
+            ariaLabel="Channel options"
+          />
         )}
         {!isInChannel && onJoin && (
           <button className={styles.joinBtn} onClick={onJoin}>

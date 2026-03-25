@@ -12,29 +12,7 @@
   border-left: 1px solid var(--color-glass-border);
 }
 
-@media (max-width: 768px) {
-  .panel {
-    position: fixed;
-    top: 40px;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    max-width: none;
-    z-index: 210;
-    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
-  }
-
-  .closeBtn {
-    width: 40px;
-    height: 40px;
-    top: 12px;
-    right: 12px;
-    background: rgba(0, 0, 0, 0.6);
-  }
-}
-
-/* ── Close button ──────────────────────────────────────────────── */
+/* -- Close button ------------------------------------------------ */
 
 .closeBtn {
   position: absolute;
@@ -59,7 +37,7 @@
   color: var(--color-text-primary);
 }
 
-/* ── Header ────────────────────────────────────────────────────── */
+/* -- Header ------------------------------------------------------ */
 
 .header {
   display: flex;
@@ -93,7 +71,7 @@
   color: var(--color-text-secondary);
 }
 
-/* ── Sections ──────────────────────────────────────────────────── */
+/* -- Sections ---------------------------------------------------- */
 
 .section {
   padding: 16px 20px;
@@ -120,7 +98,7 @@
   margin: 0;
 }
 
-/* ── Edit button ───────────────────────────────────────────────── */
+/* -- Edit button ------------------------------------------------- */
 
 .editBtn {
   display: flex;
@@ -142,7 +120,7 @@
   border-color: rgba(255, 255, 255, 0.15);
 }
 
-/* ── Info grid ─────────────────────────────────────────────────── */
+/* -- Info grid --------------------------------------------------- */
 
 .infoGrid {
   display: grid;
@@ -161,7 +139,7 @@
   word-break: break-word;
 }
 
-/* ── Description ───────────────────────────────────────────────── */
+/* -- Description ------------------------------------------------- */
 
 .descriptionSection {
   margin-top: 12px;
@@ -207,7 +185,7 @@
   color: #93c5fd;
 }
 
-/* ── Edit form ─────────────────────────────────────────────────── */
+/* -- Edit form --------------------------------------------------- */
 
 .editForm {
   display: flex;
@@ -305,7 +283,7 @@
   cursor: not-allowed;
 }
 
-/* ── Welcome text ──────────────────────────────────────────────── */
+/* -- Welcome text ------------------------------------------------ */
 
 .welcomeText {
   font-size: 13px;
@@ -408,14 +386,17 @@
 /* When rendered inside a MobileBottomSheet, fill the available width. */
 @media (max-width: 768px) {
   .panel {
+    position: static;
     width: 100%;
     height: auto;
+    max-width: none;
     border-left: none;
+    box-shadow: none;
     overflow-y: visible;
   }
 }
 
-/* ── Permission bits (developer mode) ─────────────────────────── */
+/* -- Permission bits (developer mode) --------------------------- */
 
 .permBits {
   display: flex;
