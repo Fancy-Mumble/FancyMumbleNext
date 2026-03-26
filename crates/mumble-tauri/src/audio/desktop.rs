@@ -1,8 +1,8 @@
-﻿//! Cpal-based audio capture and playback implementations.
+﻿//! Cpal-based audio capture and mixing playback implementations.
 //!
 //! Bridges the OS audio subsystem (via `cpal`) to the protocol
-//! library's [`AudioCapture`] / [`AudioPlayback`] traits so that
-//! the existing pipeline infrastructure can drive real hardware.
+//! library's [`AudioCapture`] trait and the [`MixingPlayback`] trait
+//! so that real hardware can be driven by the mixer infrastructure.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -12,7 +12,6 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tracing::{error, warn};
 
 use mumble_protocol::audio::capture::AudioCapture;
-use mumble_protocol::audio::playback::AudioPlayback;
 use mumble_protocol::audio::sample::{AudioFormat, AudioFrame};
 use mumble_protocol::error::{Error, Result};
 
@@ -181,30 +180,58 @@ impl AudioCapture for CpalCapture {
     }
 }
 
-// -- Playback -------------------------------------------------------
+// -- Factory -------------------------------------------------------
 
-/// Plays decoded PCM audio through the default output device.
-///
-/// [`write_frame`](AudioPlayback::write_frame) pushes mono F32
-/// samples into a shared buffer that the cpal output callback
-/// drains, duplicating mono -> stereo for the hardware.
-pub struct CpalPlayback {
-    format: AudioFormat,
-    buffer: Arc<Mutex<VecDeque<f32>>>,
-    stream: Option<cpal::Stream>,
-    device: cpal::Device,
-    /// Live output volume multiplier (`f32` bits in `AtomicU32`).
-    volume: Arc<AtomicU32>,
+/// Desktop audio device factory backed by cpal.
+pub struct CpalAudioFactory;
+
+impl super::AudioDeviceFactory for CpalAudioFactory {
+    fn create_capture(
+        device_name: Option<&str>,
+        frame_size: usize,
+        volume: Arc<AtomicU32>,
+    ) -> std::result::Result<Box<dyn AudioCapture>, String> {
+        CpalCapture::new(device_name, frame_size, volume)
+            .map(|c| Box::new(c) as _)
+            .map_err(|e| format!("Capture init: {e}"))
+    }
+
+    fn create_mixing_playback(
+        device_name: Option<&str>,
+        volume: Arc<AtomicU32>,
+        buffers: mumble_protocol::audio::mixer::SpeakerBuffers,
+    ) -> std::result::Result<Box<dyn super::MixingPlayback>, String> {
+        CpalMixingPlayback::new(device_name, volume, buffers)
+            .map(|c| Box::new(c) as _)
+            .map_err(|e| format!("Mixing playback init: {e}"))
+    }
 }
 
-// SAFETY: See `CpalCapture` - same justification applies.
+// -- Mixing playback -----------------------------------------------
+
+/// Multi-speaker mixing playback backed by cpal.
+///
+/// Instead of receiving frames via `write_frame`, this device reads
+/// decoded samples directly from per-speaker ring buffers (managed by
+/// [`AudioMixer`](mumble_protocol::audio::mixer::AudioMixer)) and sums
+/// them in the cpal output callback.
+pub struct CpalMixingPlayback {
+    stream: Option<cpal::Stream>,
+    device: cpal::Device,
+    volume: Arc<AtomicU32>,
+    buffers: mumble_protocol::audio::mixer::SpeakerBuffers,
+}
+
+// SAFETY: See CpalCapture.
 #[allow(unsafe_code, reason = "WASAPI COM objects are MTA-safe; cpal's !Send is a conservative cross-platform guard")]
-unsafe impl Send for CpalPlayback {}
+unsafe impl Send for CpalMixingPlayback {}
 
-impl CpalPlayback {
-    pub fn new(device_name: Option<&str>, volume: Arc<AtomicU32>) -> Result<Self> {
-        use cpal::traits::{DeviceTrait, HostTrait};
-
+impl CpalMixingPlayback {
+    pub fn new(
+        device_name: Option<&str>,
+        volume: Arc<AtomicU32>,
+        buffers: mumble_protocol::audio::mixer::SpeakerBuffers,
+    ) -> Result<Self> {
         let host = cpal::default_host();
         let device = if let Some(name) = device_name {
             host.output_devices()
@@ -224,74 +251,38 @@ impl CpalPlayback {
         };
 
         Ok(Self {
-            format: AudioFormat::MONO_48KHZ_F32,
-            buffer: Arc::new(Mutex::new(VecDeque::with_capacity(96_000))),
             stream: None,
             device,
             volume,
+            buffers,
         })
     }
 }
 
-impl AudioPlayback for CpalPlayback {
-    fn format(&self) -> AudioFormat {
-        self.format
-    }
-
-    fn write_frame(&mut self, frame: &AudioFrame) -> Result<()> {
-        let samples = frame.as_f32_samples();
-        let mut buf = self
-            .buffer
-            .lock()
-            .map_err(|e| Error::InvalidState(e.to_string()))?;
-        buf.extend(samples.iter().copied());
-        // Cap at ~2 seconds.
-        if buf.len() > 96_000 {
-            warn!("cpal playback buffer overflow, discarding oldest samples");
-            while buf.len() > 96_000 {
-                let _ = buf.pop_front();
-            }
-        }
-        Ok(())
-    }
-
+impl super::MixingPlayback for CpalMixingPlayback {
     fn start(&mut self) -> Result<()> {
-        let buffer = self.buffer.clone();
+        let buffers = self.buffers.clone();
         let volume = self.volume.clone();
 
-        // Pre-buffer: accumulate samples before starting playback to
-        // absorb network jitter and prevent pops at stream start.
-        // 60 ms @ 48 kHz mono = 2880 samples.
-        const PRE_BUFFER_SAMPLES: usize = 2880;
+        // Pre-buffer: wait until at least one speaker has 60 ms
+        // of decoded audio before starting output, to absorb
+        // network jitter and prevent pops.
+        const PRE_BUFFER_SAMPLES: usize = 2880; // 60 ms @ 48 kHz
         let primed = Arc::new(AtomicBool::new(false));
         let primed_cb = primed.clone();
-        let volume_cb = volume;
 
-        // Most output devices are stereo; duplicate mono to both channels.
         let stream_config = cpal::StreamConfig {
             channels: 2,
             sample_rate: 48_000,
             buffer_size: cpal::BufferSize::Default,
         };
 
-        // Mutable state owned by the callback closure for smooth
-        // underrun handling: exponential decay on underrun instead of
-        // hard silence, and a raised-cosine crossfade ramp on recovery.
         let mut last_sample: f32 = 0.0;
         let mut in_underrun = false;
         let mut ramp_pos: usize = 0;
         let mut underrun_samples: usize = 0;
-        // 2 ms crossfade at 48 kHz - long enough to avoid clicks,
-        // short enough to avoid smearing transients.
         const RAMP_SAMPLES: usize = 96;
-        // Gentle decay: reaches -60 dB in ~8 ms (vs 2 ms at 0.95).
-        // This reduces harmonic distortion from non-linear processing
-        // while still preventing hard-edge pops.
         const DECAY: f32 = 0.99;
-        // If underrun lasts longer than 200 ms (9600 samples), re-prime
-        // the pre-buffer so the next burst plays smoothly.  This only
-        // triggers for extended silence (e.g. end of speech), not for
-        // brief network hiccups.
         const REPRIME_THRESHOLD: usize = 9600;
 
         let stream = self
@@ -299,29 +290,42 @@ impl AudioPlayback for CpalPlayback {
             .build_output_stream(
                 &stream_config,
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                    let Ok(mut buf) = buffer.lock() else {
+                    let vol = f32::from_bits(volume.load(Ordering::Relaxed));
+
+                    let Ok(mut bufs) = buffers.lock() else {
                         data.fill(0.0);
                         return;
                     };
 
-                    // Read volume once per callback for consistency.
-                    let vol = f32::from_bits(volume_cb.load(Ordering::Relaxed));
-
-                    // Wait for pre-buffer level before starting playback.
+                    // Pre-buffer: wait for enough data before playing.
                     if !primed_cb.load(Ordering::Relaxed) {
-                        if buf.len() < PRE_BUFFER_SAMPLES {
+                        let total_available: usize =
+                            bufs.values().map(VecDeque::len).max().unwrap_or(0);
+                        if total_available < PRE_BUFFER_SAMPLES {
                             data.fill(0.0);
                             return;
                         }
                         primed_cb.store(true, Ordering::Relaxed);
                     }
 
-                    // Fill interleaved stereo: each mono sample -> L + R.
+                    // Fill interleaved stereo output.
                     for chunk in data.chunks_exact_mut(2) {
-                        if let Some(sample) = buf.pop_front() {
+                        // Sum one sample from each active speaker.
+                        let mut mixed: f32 = 0.0;
+                        let mut had_sample = false;
+                        for buf in bufs.values_mut() {
+                            if let Some(s) = buf.pop_front() {
+                                mixed += s;
+                                had_sample = true;
+                            }
+                        }
+
+                        if had_sample {
+                            // Soft-clip: tanh prevents harsh clipping when
+                            // multiple loud speakers overlap.
+                            let sample = mixed.tanh();
+
                             let out = if in_underrun {
-                                // Recovering: raised-cosine crossfade from
-                                // decayed value to incoming signal.
                                 ramp_pos += 1;
                                 if ramp_pos >= RAMP_SAMPLES {
                                     in_underrun = false;
@@ -330,8 +334,8 @@ impl AudioPlayback for CpalPlayback {
                                     sample
                                 } else {
                                     let t = ramp_pos as f32 / RAMP_SAMPLES as f32;
-                                    let gain =
-                                        0.5 * (1.0 - (std::f32::consts::PI * t).cos());
+                                    let gain = 0.5
+                                        * (1.0 - (std::f32::consts::PI * t).cos());
                                     last_sample * (1.0 - gain) + sample * gain
                                 }
                             } else {
@@ -341,8 +345,7 @@ impl AudioPlayback for CpalPlayback {
                             chunk[0] = out * vol;
                             chunk[1] = out * vol;
                         } else {
-                            // Buffer empty: smooth fade-out via
-                            // exponential decay to avoid pop.
+                            // All speaker buffers empty: smooth decay.
                             in_underrun = true;
                             ramp_pos = 0;
                             underrun_samples += 1;
@@ -350,19 +353,19 @@ impl AudioPlayback for CpalPlayback {
                             if last_sample.abs() < 1e-6 {
                                 last_sample = 0.0;
                             }
-
-                            // Extended underrun: re-prime so the next
-                            // burst of audio buffers up before playing.
                             if underrun_samples >= REPRIME_THRESHOLD {
                                 primed_cb.store(false, Ordering::Relaxed);
                             }
-
                             chunk[0] = last_sample * vol;
                             chunk[1] = last_sample * vol;
                         }
                     }
+
+                    // Clean up empty speaker buffers to avoid accumulating
+                    // stale entries from speakers who stopped talking.
+                    bufs.retain(|_, b| !b.is_empty());
                 },
-                |err| error!("cpal output error: {err}"),
+                |err| error!("cpal mixing output error: {err}"),
                 None,
             )
             .map_err(|e| Error::InvalidState(e.to_string()))?;
@@ -377,9 +380,45 @@ impl AudioPlayback for CpalPlayback {
 
     fn stop(&mut self) -> Result<()> {
         self.stream = None;
-        if let Ok(mut buf) = self.buffer.lock() {
-            buf.clear();
+        if let Ok(mut bufs) = self.buffers.lock() {
+            bufs.clear();
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mumble_protocol::audio::sample::AudioFormat;
+
+    #[test]
+    fn capture_reports_mono_48khz_f32_format() {
+        let vol = Arc::new(AtomicU32::new(1.0_f32.to_bits()));
+        let Ok(capture) = CpalCapture::new(None, 960, vol) else {
+            eprintln!("Skipping: no audio input device available");
+            return;
+        };
+        assert_eq!(capture.format(), AudioFormat::MONO_48KHZ_F32);
+    }
+
+    #[test]
+    fn mixing_playback_can_be_created() {
+        let vol = Arc::new(AtomicU32::new(1.0_f32.to_bits()));
+        let bufs: mumble_protocol::audio::mixer::SpeakerBuffers = Arc::new(
+            Mutex::new(std::collections::HashMap::new()),
+        );
+        let Ok(_p) = CpalMixingPlayback::new(None, vol, bufs) else {
+            eprintln!("Skipping: no audio output device available");
+            return;
+        };
+    }
+
+    #[test]
+    fn capture_read_before_start_returns_error() {
+        let vol = Arc::new(AtomicU32::new(1.0_f32.to_bits()));
+        let Ok(mut capture) = CpalCapture::new(None, 960, vol) else { return };
+        // Without calling start(), the buffer is empty so read_frame should fail.
+        assert!(capture.read_frame().is_err());
     }
 }

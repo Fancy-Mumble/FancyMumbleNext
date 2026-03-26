@@ -29,6 +29,8 @@ import ShieldIcon from "../assets/icons/status/shield.svg?react";
 import LogoutIcon from "../assets/icons/action/logout.svg?react";
 import EditIcon from "../assets/icons/action/edit.svg?react";
 import TrashIcon from "../assets/icons/action/trash.svg?react";
+import PhoneIcon from "../assets/icons/communication/phone.svg?react";
+import PhoneOffIcon from "../assets/icons/communication/phone-off.svg?react";
 
 /** Mumble permission bitmask: Listen to channel (bit 11). */
 const PERM_LISTEN = 0x800;
@@ -316,6 +318,9 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
   const voiceState = useAppStore((s) => s.voiceState);
   const toggleMute = useAppStore((s) => s.toggleMute);
   const toggleDeafen = useAppStore((s) => s.toggleDeafen);
+  const enableVoice = useAppStore((s) => s.enableVoice);
+  const disableVoice = useAppStore((s) => s.disableVoice);
+  const inCall = useAppStore((s) => s.inCall);
   const navigate = useNavigate();
 
   // Group chat state
@@ -877,8 +882,9 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
               onClick={() => selectUser(self.session)}
               onContextMenu={(e) => openUserCtxMenu(e, self)}
             />
-            {currentChannel != null && (
-              <div className={styles.selfVoiceActions}>
+            {currentChannel != null && (<>
+              {/* Desktop: mute + deaf toggles (hidden on mobile via CSS) */}
+              <div className={`${styles.selfVoiceActions} ${styles.desktopOnly}`}>
                 <button
                   className={`${styles.voiceToggle} ${isVoiceActive ? styles.voiceActive : ""}`}
                   onClick={toggleMute}
@@ -902,7 +908,27 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
                   )}
                 </button>
               </div>
-            )}
+              {/* Mobile: single call / hang-up button (hidden on desktop via CSS) */}
+              <div className={`${styles.selfVoiceActions} ${styles.mobileOnly}`}>
+                {!inCall ? (
+                  <button
+                    className={`${styles.voiceToggle} ${styles.callBtnStart}`}
+                    onClick={() => { enableVoice(); onCollapse?.(); }}
+                    title="Start call"
+                  >
+                    <PhoneIcon width={18} height={18} />
+                  </button>
+                ) : (
+                  <button
+                    className={`${styles.voiceToggle} ${styles.callBtnEnd}`}
+                    onClick={() => { disableVoice(); onCollapse?.(); }}
+                    title="End call"
+                  >
+                    <PhoneOffIcon width={18} height={18} />
+                  </button>
+                )}
+              </div>
+            </>)}
           </div>
         );
       })()}

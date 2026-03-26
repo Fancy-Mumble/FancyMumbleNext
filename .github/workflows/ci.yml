@@ -303,6 +303,13 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ env.ANDROID_KEY_PASSWORD_EFFECTIVE }}
         run: cargo tauri android build --apk
 
+      - name: Verify Android .so (no unresolved C++ symbols)
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: |
+          chmod +x scripts/check-android-so.sh
+          ./scripts/check-android-so.sh
+
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:

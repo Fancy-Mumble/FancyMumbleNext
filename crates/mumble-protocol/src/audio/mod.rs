@@ -38,6 +38,7 @@ pub mod capture;
 pub mod decoder;
 pub mod encoder;
 pub mod filter;
+pub mod mixer;
 pub mod pipeline;
 pub mod playback;
 pub mod sample;

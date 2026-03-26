@@ -7,7 +7,6 @@
 // intentional (proc-macro visibility, Tauri command system, internal APIs).
 #![allow(unreachable_pub, reason = "application crate: pub items in private modules are intentional for Tauri command system")]
 
-#[cfg(not(target_os = "android"))]
 mod audio;
 mod state;
 

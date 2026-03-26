@@ -553,6 +553,42 @@
   height: auto;
 }
 
+/* --- Desktop/Mobile visibility --------------------------------- */
+
+.desktopOnly {
+  display: flex;
+}
+
+.mobileOnly {
+  display: none;
+}
+
+/* --- Call button (mobile) --------------------------------------- */
+
+.callBtnStart {
+  color: #fff;
+  background: var(--color-online, #22c55e);
+  border-color: var(--color-online, #22c55e);
+}
+
+.callBtnStart:hover {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
+
+.callBtnEnd {
+  color: #fff;
+  background: var(--color-danger, #ef4444);
+  border-color: var(--color-danger, #ef4444);
+}
+
+.callBtnEnd:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+
 .userItem {
   display: flex;
   align-items: center;
@@ -918,6 +954,20 @@
   /* Hide hover-only profile cards on mobile */
   .profilePopover {
     display: none;
+  }
+
+  /* Swap desktop voice buttons for mobile call button */
+  .desktopOnly {
+    display: none;
+  }
+
+  .mobileOnly {
+    display: flex;
+  }
+
+  /* Call button spans width of both voice toggles */
+  .mobileOnly .voiceToggle {
+    width: calc(var(--touch-target-min) * 2 + 4px);
   }
 }
 

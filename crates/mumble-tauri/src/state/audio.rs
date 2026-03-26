@@ -1,9 +1,9 @@
 ﻿//! Audio / voice pipeline management: enable, disable, mute, deafen,
 //! and the background outbound audio loop.
 //!
-//! On Android, audio hardware access via cpal is not available.  The
-//! voice commands gracefully return errors so the frontend can
-//! disable audio controls.
+//! Platform-specific audio I/O is abstracted behind factory functions
+//! (`create_capture` / `create_playback`) that return trait objects.
+//! On desktop, cpal is used; on Android, oboe.
 
 use tauri::Emitter;
 
@@ -39,7 +39,6 @@ impl AppState {
         let restart_inbound = voice_active && old_settings.needs_inbound_restart(&settings);
 
         // Update live volume handles (no pipeline restart needed).
-        #[cfg(not(target_os = "android"))]
         if let Ok(state) = self.inner.lock() {
             use std::sync::atomic::Ordering;
             if let Some(ref h) = state.input_volume_handle {
@@ -66,7 +65,6 @@ impl AppState {
     }
 
     /// Emit voice-state-changed event to the frontend.
-    #[cfg_attr(target_os = "android", allow(dead_code))]
     pub(super) fn emit_voice_state(&self) {
         if let Some(app) = self.app_handle() {
             let vs = self.voice_state();
@@ -75,27 +73,28 @@ impl AppState {
     }
 }
 
-// -- Desktop: full cpal-based audio pipeline -----------------------
+// -- Voice pipeline (all platforms) ---------------------------------
 
-#[cfg(not(target_os = "android"))]
-mod desktop {
+mod voice_pipeline {
     use std::sync::atomic::AtomicU32;
     use std::sync::Arc;
     use std::time::Duration;
 
     use tracing::{info, warn};
 
-    use mumble_protocol::audio::decoder::OpusDecoder;
     use mumble_protocol::audio::encoder::{OpusEncoder, OpusEncoderConfig};
     use mumble_protocol::audio::filter::automatic_gain::{AgcConfig, AutomaticGainControl};
     use mumble_protocol::audio::filter::noise_gate::{NoiseGate, NoiseGateConfig};
     use mumble_protocol::audio::filter::FilterChain;
-    use mumble_protocol::audio::pipeline::{InboundPipeline, OutboundPipeline, OutboundTick};
+    use mumble_protocol::audio::mixer::{AudioMixer, SpeakerBuffers};
+    use mumble_protocol::audio::pipeline::{OutboundPipeline, OutboundTick};
     use mumble_protocol::audio::sample::AudioFormat;
     use mumble_protocol::client::ClientHandle;
     use mumble_protocol::command;
 
-    use crate::audio::{CpalCapture, CpalPlayback};
+    use crate::audio::{AudioDeviceFactory, PlatformAudioFactory};
+    use mumble_protocol::audio::capture::AudioCapture;
+
     use crate::state::types::{AudioSettings, MicAmplitudePayload, VoiceState};
     use crate::state::{AppState, SharedState};
 
@@ -113,28 +112,26 @@ mod desktop {
             let input_vol = Arc::new(AtomicU32::new(audio_settings.input_volume.to_bits()));
             let output_vol = Arc::new(AtomicU32::new(audio_settings.output_volume.to_bits()));
 
-            // Inbound: network -> decoder -> playback.
-            let playback = CpalPlayback::new(
+            // Inbound: per-speaker decoders + mixing playback.
+            let speaker_buffers: SpeakerBuffers = Arc::new(
+                std::sync::Mutex::new(std::collections::HashMap::new()),
+            );
+            let mixer = AudioMixer::new(speaker_buffers.clone(), AudioFormat::MONO_48KHZ_F32);
+            let mut mixing_playback = PlatformAudioFactory::create_mixing_playback(
                 audio_settings.selected_output_device.as_deref(),
                 output_vol.clone(),
-            )
-            .map_err(|e| format!("Playback init: {e}"))?;
-            let decoder = OpusDecoder::new(AudioFormat::MONO_48KHZ_F32)
-                .map_err(|e| format!("Decoder init: {e}"))?;
-            let mut inbound = InboundPipeline::new(
-                Box::new(decoder),
-                FilterChain::new(),
-                Box::new(playback),
-            );
-            inbound.start().map_err(|e| format!("Playback start: {e}"))?;
+                speaker_buffers,
+            )?;
+            mixing_playback
+                .start()
+                .map_err(|e| format!("Playback start: {e}"))?;
 
             // Outbound: capture -> filters -> encoder -> network.
-            let capture = CpalCapture::new(
+            let capture = PlatformAudioFactory::create_capture(
                 audio_settings.selected_device.as_deref(),
                 audio_settings.frame_size_samples(),
                 input_vol.clone(),
-            )
-            .map_err(|e| format!("Capture init: {e}"))?;
+            )?;
 
             let encoder_config = OpusEncoderConfig {
                 bitrate: audio_settings.bitrate_bps,
@@ -145,6 +142,27 @@ mod desktop {
                 .map_err(|e| format!("Encoder init: {e}"))?;
 
             let mut outbound_filters = FilterChain::new();
+            // AGC runs before the noise gate so the gate evaluates
+            // the post-gain signal level.
+            //
+            // On Android the VoiceRecognition input preset applies
+            // platform-level AGC (but no noise suppression / AEC),
+            // so we cap our AGC at 6 dB (2x) to gently normalise
+            // without over-amplifying the already-gained signal.
+            if audio_settings.auto_gain {
+                let max_gain_linear = 10.0_f32.powf(audio_settings.max_gain_db / 20.0);
+                #[cfg(target_os = "android")]
+                let agc_config = AgcConfig {
+                    max_gain: max_gain_linear.min(2.0),
+                    ..AgcConfig::default()
+                };
+                #[cfg(not(target_os = "android"))]
+                let agc_config = AgcConfig {
+                    max_gain: max_gain_linear,
+                    ..AgcConfig::default()
+                };
+                outbound_filters.push(Box::new(AutomaticGainControl::new(agc_config)));
+            }
             if audio_settings.noise_suppression {
                 let noise_gate = NoiseGate::new(NoiseGateConfig {
                     open_threshold: audio_settings.vad_threshold,
@@ -154,16 +172,9 @@ mod desktop {
                 });
                 outbound_filters.push(Box::new(noise_gate));
             }
-            if audio_settings.auto_gain {
-                let max_gain_linear = 10.0_f32.powf(audio_settings.max_gain_db / 20.0);
-                outbound_filters.push(Box::new(AutomaticGainControl::new(AgcConfig {
-                    max_gain: max_gain_linear,
-                    ..AgcConfig::default()
-                })));
-            }
 
             let mut outbound = OutboundPipeline::new(
-                Box::new(capture),
+                capture,
                 outbound_filters,
                 Box::new(encoder),
             );
@@ -181,7 +192,8 @@ mod desktop {
             {
                 let mut state = self.inner.lock().map_err(|e| e.to_string())?;
                 state.voice_state = VoiceState::Active;
-                state.inbound_pipeline = Some(inbound);
+                state.audio_mixer = Some(mixer);
+                state.mixing_playback = Some(mixing_playback);
                 state.outbound_task_handle = outbound_handle;
                 state.input_volume_handle = Some(input_vol);
                 state.output_volume_handle = Some(output_vol);
@@ -233,7 +245,10 @@ mod desktop {
                 if let Some(handle) = state.latency_test_handle.take() {
                     handle.abort();
                 }
-                state.inbound_pipeline = None;
+                if let Some(mut playback) = state.mixing_playback.take() {
+                    let _ = playback.stop();
+                }
+                state.audio_mixer = None;
                 state.input_volume_handle = None;
                 state.output_volume_handle = None;
             }
@@ -272,7 +287,10 @@ mod desktop {
 
             // Stop the old inbound pipeline.
             if let Ok(mut state) = self.inner.lock() {
-                state.inbound_pipeline = None;
+                if let Some(mut playback) = state.mixing_playback.take() {
+                    let _ = playback.stop();
+                }
+                state.audio_mixer = None;
             }
 
             let audio_settings = {
@@ -282,22 +300,22 @@ mod desktop {
 
             let output_vol = Arc::new(AtomicU32::new(audio_settings.output_volume.to_bits()));
 
-            let playback = CpalPlayback::new(
+            let speaker_buffers: SpeakerBuffers = Arc::new(
+                std::sync::Mutex::new(std::collections::HashMap::new()),
+            );
+            let mixer = AudioMixer::new(speaker_buffers.clone(), AudioFormat::MONO_48KHZ_F32);
+            let mut mixing_playback = PlatformAudioFactory::create_mixing_playback(
                 audio_settings.selected_output_device.as_deref(),
                 output_vol.clone(),
-            )
-            .map_err(|e| format!("Playback init: {e}"))?;
-            let decoder = OpusDecoder::new(AudioFormat::MONO_48KHZ_F32)
-                .map_err(|e| format!("Decoder init: {e}"))?;
-            let mut inbound = InboundPipeline::new(
-                Box::new(decoder),
-                FilterChain::new(),
-                Box::new(playback),
-            );
-            inbound.start().map_err(|e| format!("Playback start: {e}"))?;
+                speaker_buffers,
+            )?;
+            mixing_playback
+                .start()
+                .map_err(|e| format!("Playback start: {e}"))?;
 
             let mut state = self.inner.lock().map_err(|e| e.to_string())?;
-            state.inbound_pipeline = Some(inbound);
+            state.audio_mixer = Some(mixer);
+            state.mixing_playback = Some(mixing_playback);
             state.output_volume_handle = Some(output_vol);
             Ok(())
         }
@@ -315,12 +333,11 @@ mod desktop {
             }
             .unwrap_or_else(|| Arc::new(AtomicU32::new(audio_settings.input_volume.to_bits())));
 
-            let capture = CpalCapture::new(
+            let capture = PlatformAudioFactory::create_capture(
                 audio_settings.selected_device.as_deref(),
                 audio_settings.frame_size_samples(),
                 input_vol.clone(),
-            )
-            .map_err(|e| format!("Capture init: {e}"))?;
+            )?;
 
             let encoder_config = OpusEncoderConfig {
                 bitrate: audio_settings.bitrate_bps,
@@ -331,6 +348,21 @@ mod desktop {
                 .map_err(|e| format!("Encoder init: {e}"))?;
 
             let mut outbound_filters = FilterChain::new();
+            // AGC before noise gate (see enable_voice for rationale).
+            if audio_settings.auto_gain {
+                let max_gain_linear = 10.0_f32.powf(audio_settings.max_gain_db / 20.0);
+                #[cfg(target_os = "android")]
+                let agc_config = AgcConfig {
+                    max_gain: max_gain_linear.min(2.0),
+                    ..AgcConfig::default()
+                };
+                #[cfg(not(target_os = "android"))]
+                let agc_config = AgcConfig {
+                    max_gain: max_gain_linear,
+                    ..AgcConfig::default()
+                };
+                outbound_filters.push(Box::new(AutomaticGainControl::new(agc_config)));
+            }
             if audio_settings.noise_suppression {
                 outbound_filters.push(Box::new(NoiseGate::new(NoiseGateConfig {
                     open_threshold: audio_settings.vad_threshold,
@@ -339,16 +371,9 @@ mod desktop {
                     ..NoiseGateConfig::default()
                 })));
             }
-            if audio_settings.auto_gain {
-                let max_gain_linear = 10.0_f32.powf(audio_settings.max_gain_db / 20.0);
-                outbound_filters.push(Box::new(AutomaticGainControl::new(AgcConfig {
-                    max_gain: max_gain_linear,
-                    ..AgcConfig::default()
-                })));
-            }
 
             let mut outbound = OutboundPipeline::new(
-                Box::new(capture),
+                capture,
                 outbound_filters,
                 Box::new(encoder),
             );
@@ -383,24 +408,24 @@ mod desktop {
 
             let output_vol = Arc::new(AtomicU32::new(audio_settings.output_volume.to_bits()));
 
-            let playback = CpalPlayback::new(
+            let speaker_buffers: SpeakerBuffers = Arc::new(
+                std::sync::Mutex::new(std::collections::HashMap::new()),
+            );
+            let mixer = AudioMixer::new(speaker_buffers.clone(), AudioFormat::MONO_48KHZ_F32);
+            let mut mixing_playback = PlatformAudioFactory::create_mixing_playback(
                 audio_settings.selected_output_device.as_deref(),
                 output_vol.clone(),
-            )
-            .map_err(|e| format!("Playback init: {e}"))?;
-            let decoder = OpusDecoder::new(AudioFormat::MONO_48KHZ_F32)
-                .map_err(|e| format!("Decoder init: {e}"))?;
-            let mut inbound = InboundPipeline::new(
-                Box::new(decoder),
-                FilterChain::new(),
-                Box::new(playback),
-            );
-            inbound.start().map_err(|e| format!("Playback start: {e}"))?;
+                speaker_buffers,
+            )?;
+            mixing_playback
+                .start()
+                .map_err(|e| format!("Playback start: {e}"))?;
 
             {
                 let mut state = self.inner.lock().map_err(|e| e.to_string())?;
                 state.voice_state = VoiceState::Muted;
-                state.inbound_pipeline = Some(inbound);
+                state.audio_mixer = Some(mixer);
+                state.mixing_playback = Some(mixing_playback);
                 state.output_volume_handle = Some(output_vol);
             }
 
@@ -518,14 +543,12 @@ mod desktop {
 
             let input_vol = Arc::new(AtomicU32::new(audio_settings.input_volume.to_bits()));
 
-            let mut capture = CpalCapture::new(
+            let mut capture = PlatformAudioFactory::create_capture(
                 audio_settings.selected_device.as_deref(),
                 960, // 20ms @ 48kHz
                 input_vol,
-            )
-            .map_err(|e| format!("Mic test capture init: {e}"))?;
+            )?;
 
-            use mumble_protocol::audio::capture::AudioCapture;
             capture.start().map_err(|e| format!("Mic test capture start: {e}"))?;
 
             let app = self.app_handle().ok_or("No app handle")?;
@@ -707,12 +730,11 @@ mod desktop {
     /// sliding window and writes the auto-computed `vad_threshold`
     /// back into `AudioSettings`.
     async fn mic_test_loop(
-        mut capture: CpalCapture,
+        mut capture: Box<dyn AudioCapture>,
         app: tauri::AppHandle,
         auto_sensitivity: bool,
         inner: Arc<std::sync::Mutex<SharedState>>,
     ) {
-        use mumble_protocol::audio::capture::AudioCapture;
         use tauri::Emitter;
 
         // Emit at ~30 Hz (every ~33 ms).
@@ -813,59 +835,57 @@ mod desktop {
             }
         }
     }
-}
 
-// -- Android: stub audio (no cpal) ---------------------------------
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use mumble_protocol::audio::sample::AudioFormat;
 
-#[cfg(target_os = "android")]
-impl AppState {
-    /// Audio is not yet supported on Android.
-    pub async fn enable_voice(&self) -> Result<(), String> {
-        Err("Audio is not yet supported on Android".into())
+        #[test]
+        fn create_capture_returns_correct_format() {
+            let vol = Arc::new(AtomicU32::new(1.0_f32.to_bits()));
+            let Ok(capture) = PlatformAudioFactory::create_capture(None, 960, vol) else {
+                eprintln!("Skipping: no audio input device available");
+                return;
+            };
+            assert_eq!(capture.format(), AudioFormat::MONO_48KHZ_F32);
+        }
+
+        #[test]
+        fn factory_capture_is_compatible_with_pipeline() {
+            use mumble_protocol::audio::filter::FilterChain;
+            use mumble_protocol::audio::pipeline::OutboundPipeline;
+
+            let vol = Arc::new(AtomicU32::new(1.0_f32.to_bits()));
+            let Ok(capture) = PlatformAudioFactory::create_capture(None, 960, vol) else { return };
+
+            let Ok(encoder) = OpusEncoder::new(
+                OpusEncoderConfig::default(),
+                AudioFormat::MONO_48KHZ_F32,
+            ) else {
+                return;
+            };
+
+            let _pipeline = OutboundPipeline::new(
+                capture,
+                FilterChain::new(),
+                Box::new(encoder),
+            );
+        }
+
+        #[test]
+        fn factory_mixing_playback_can_be_started() {
+            let vol = Arc::new(AtomicU32::new(1.0_f32.to_bits()));
+            let bufs: SpeakerBuffers = Arc::new(
+                std::sync::Mutex::new(std::collections::HashMap::new()),
+            );
+            let Ok(mut playback) = PlatformAudioFactory::create_mixing_playback(None, vol, bufs)
+            else {
+                eprintln!("Skipping: no audio output device available");
+                return;
+            };
+            assert!(playback.start().is_ok());
+            assert!(playback.stop().is_ok());
+        }
     }
-
-    /// Audio is not yet supported on Android.
-    pub async fn disable_voice(&self) -> Result<(), String> {
-        tracing::info!("disable_voice: no-op on Android");
-        Ok(())
-    }
-
-    /// No-op on Android (no audio pipelines to stop).
-    pub(super) fn stop_audio(&self) {}
-
-    /// No-op on Android (no audio pipelines to restart).
-    pub fn restart_outbound(&self) -> Result<(), String> {
-        Ok(())
-    }
-
-    /// No-op on Android (no audio pipelines to restart).
-    pub fn restart_inbound(&self) -> Result<(), String> {
-        Ok(())
-    }
-
-    /// Audio is not yet supported on Android.
-    pub async fn toggle_mute(&self) -> Result<(), String> {
-        Err("Audio is not yet supported on Android".into())
-    }
-
-    /// Audio is not yet supported on Android.
-    pub async fn toggle_deafen(&self) -> Result<(), String> {
-        Err("Audio is not yet supported on Android".into())
-    }
-
-    /// No-op on Android.
-    pub fn start_mic_test(&self) -> Result<(), String> {
-        Err("Audio is not yet supported on Android".into())
-    }
-
-    /// No-op on Android.
-    pub fn stop_mic_test(&self) {}
-
-    /// No-op on Android.
-    pub fn start_latency_test(&self) -> Result<(), String> {
-        Err("Not supported on Android".into())
-    }
-
-    /// No-op on Android.
-    pub fn stop_latency_test(&self) {}
 }

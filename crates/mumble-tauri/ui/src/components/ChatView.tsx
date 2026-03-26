@@ -5,6 +5,7 @@ import type { ChatMessage, TimeFormat } from "../types";
 import { getPreferences } from "../preferencesStorage";
 import { loadPersonalization, type PersonalizationData } from "../personalizationStorage";
 import ChatHeader from "./ChatHeader";
+import MobileCallControls from "./MobileCallControls";
 import MessageItem, { MessageAvatar } from "./MessageItem";
 import ChatComposer from "./ChatComposer";
 import PollCreator from "./PollCreator";
@@ -1013,6 +1014,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onToggleSilence={selectedChannel !== null ? () => toggleSilenceChannel(selectedChannel) : undefined}
         />
       )}
+
+      <MobileCallControls />
 
       {/* Messages */}
       <div

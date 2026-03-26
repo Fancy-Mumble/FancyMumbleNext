@@ -28,7 +28,6 @@ pub use types::{
 };
 
 use std::collections::{HashMap, HashSet};
-#[cfg(not(target_os = "android"))]
 use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -38,8 +37,7 @@ use tracing::info;
 
 use offload::OffloadStore;
 
-#[cfg(not(target_os = "android"))]
-use mumble_protocol::audio::pipeline::InboundPipeline;
+use mumble_protocol::audio::mixer::AudioMixer;
 use mumble_protocol::client::ClientHandle;
 use mumble_protocol::command;
 use mumble_protocol::persistent::PersistenceMode;
@@ -127,24 +125,20 @@ pub(super) struct SharedState {
     pub voice_state: VoiceState,
     /// Encrypted temp-file store for offloaded heavy message content.
     pub offload_store: Option<OffloadStore>,
-    /// Inbound audio pipeline (network -> speakers).  Desktop only.
-    #[cfg(not(target_os = "android"))]
-    pub inbound_pipeline: Option<InboundPipeline>,
-    /// Handle to the outbound audio capture task (mic -> network).  Desktop only.
-    #[cfg(not(target_os = "android"))]
+    /// Inbound audio mixer (per-speaker decoders + shared output).
+    pub audio_mixer: Option<AudioMixer>,
+    /// Mixing playback device that reads from per-speaker buffers.
+    pub mixing_playback: Option<Box<dyn crate::audio::MixingPlayback>>,
+    /// Handle to the outbound audio capture task (mic -> network).
     pub outbound_task_handle: Option<tokio::task::JoinHandle<()>>,
     /// Live input volume multiplier (f32 stored as u32 bits). Updated atomically
     /// so volume slider changes take effect without pipeline restart.
-    #[cfg(not(target_os = "android"))]
     pub input_volume_handle: Option<Arc<AtomicU32>>,
     /// Live output volume multiplier (f32 stored as u32 bits).
-    #[cfg(not(target_os = "android"))]
     pub output_volume_handle: Option<Arc<AtomicU32>>,
-    /// Handle to the background mic-test task (emits amplitude events). Desktop only.
-    #[cfg(not(target_os = "android"))]
+    /// Handle to the background mic-test task (emits amplitude events).
     pub mic_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
-    /// Handle to the background latency-test task (sends periodic pings). Desktop only.
-    #[cfg(not(target_os = "android"))]
+    /// Handle to the background latency-test task (sends periodic pings).
     pub latency_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
     /// Persistent encrypted chat state (identity, key manager, codec).
     /// Initialised on connect when a cert hash is available.

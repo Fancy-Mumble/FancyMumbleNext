@@ -58,6 +58,8 @@ interface AppState {
   unreadCounts: Record<number, number>;
   serverConfig: MumbleServerConfig;
   voiceState: VoiceState;
+  /** True while the user is in an active mobile call session (set by Start/End Call). */
+  inCall: boolean;
 
   // -- DM state --------------------------------------------------
   /** Session ID of the user whose DM chat is currently viewed. */
@@ -211,6 +213,7 @@ const INITIAL: Pick<
   | "unreadCounts"
   | "serverConfig"
   | "voiceState"
+  | "inCall"
   | "selectedDmUser"
   | "dmMessages"
   | "dmUnreadCounts"
@@ -250,6 +253,7 @@ const INITIAL: Pick<
     allow_html: true,
   },
   voiceState: "inactive" as VoiceState,
+  inCall: false,
   selectedDmUser: null,
   dmMessages: [],
   dmUnreadCounts: {},
@@ -466,7 +470,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   enableVoice: async () => {
     try {
       await invoke("enable_voice");
-      set({ voiceState: "active" });
+      set({ voiceState: "active", inCall: true });
     } catch (e) {
       console.error("enable_voice error:", e);
     }
@@ -475,7 +479,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   disableVoice: async () => {
     try {
       await invoke("disable_voice");
-      set({ voiceState: "inactive" });
+      set({ voiceState: "inactive", inCall: false });
     } catch (e) {
       console.error("disable_voice error:", e);
     }

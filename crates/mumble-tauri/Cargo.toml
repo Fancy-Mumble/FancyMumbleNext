@@ -41,9 +41,10 @@ cpal = "0.17.3"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-window-state = "2"
 
-# Android: mumble-protocol without Opus (audio is not supported on Android).
+# Android: mumble-protocol with Opus codec + oboe for native audio I/O.
 [target.'cfg(target_os = "android")'.dependencies]
-mumble-protocol = { path = "../mumble-protocol", features = ["persistent-chat"] }
+mumble-protocol = { path = "../mumble-protocol", features = ["opus-codec", "persistent-chat"] }
+oboe = "0.6.1"
 
 [lints]
 workspace = true
@@ -53,3 +54,4 @@ tempfile = "3"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+cc = "1"

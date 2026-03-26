@@ -2719,9 +2719,11 @@ name = "mumble-tauri"
 version = "0.2.1"
 dependencies = [
  "base64 0.22.1",
+ "cc",
  "cpal",
  "fancy-utils",
  "mumble-protocol",
+ "oboe",
  "prost",
  "quick-xml 0.39.2",
  "rand 0.10.0",
@@ -3060,6 +3062,26 @@ dependencies = [
  "objc2-app-kit",
  "objc2-core-foundation",
  "objc2-foundation",
+]
+
+[[package]]
+name = "oboe"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8b61bebd49e5d43f5f8cc7ee2891c16e0f41ec7954d36bcb6c14c5e0de867fb"
+dependencies = [
+ "num-derive",
+ "num-traits",
+ "oboe-sys",
+]
+
+[[package]]
+name = "oboe-sys"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c8bb09a4a2b1d668170cfe0a7d5bc103f8999fb316c98099b6a9939c9f2e79d"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
