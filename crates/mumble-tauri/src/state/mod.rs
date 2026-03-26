@@ -32,7 +32,7 @@ use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tracing::info;
 
 use offload::OffloadStore;
@@ -173,6 +173,11 @@ pub(super) struct SharedState {
     pub tauri_app_handle: Option<AppHandle>,
     /// Whether native OS notifications are enabled (user preference).
     pub notifications_enabled: bool,
+    /// Whether the app window is currently focused (visible and on top).
+    /// When `false`, notification suppression for the selected channel is
+    /// bypassed so the user still receives notifications while the app
+    /// is in the background.
+    pub app_focused: bool,
 }
 
 // --- Tauri-managed application state ------------------------------
@@ -187,7 +192,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(SharedState { notifications_enabled: true, ..Default::default() })),
+            inner: Arc::new(Mutex::new(SharedState { notifications_enabled: true, app_focused: true, ..Default::default() })),
             app_handle: Mutex::new(None),
             start_time: Instant::now(),
         }
@@ -278,12 +283,27 @@ impl AppState {
 
     /// Initialise the encrypted offload store (called once during setup).
     pub fn init_offload_store(&self) -> Result<(), String> {
-        OffloadStore::cleanup_stale();
-        let store = OffloadStore::new()?;
+        let base_dir = self.offload_base_dir()?;
+        OffloadStore::cleanup_stale(&base_dir);
+        let store = OffloadStore::new(base_dir)?;
         if let Ok(mut state) = self.inner.lock() {
             state.offload_store = Some(store);
         }
         Ok(())
+    }
+
+    /// Returns the base directory for the offload temp store.
+    ///
+    /// On Android `std::env::temp_dir()` is not writable, so we use
+    /// Tauri's cache directory instead.  On desktop we fall back to
+    /// the OS temp directory.
+    fn offload_base_dir(&self) -> Result<std::path::PathBuf, String> {
+        if let Some(app) = self.app_handle() {
+            if let Ok(cache) = app.path().cache_dir() {
+                return Ok(cache);
+            }
+        }
+        Ok(std::env::temp_dir())
     }
 
     /// Encrypt a message body and write it to a temp file, replacing

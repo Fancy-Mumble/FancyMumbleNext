@@ -268,7 +268,7 @@ impl OboeMixingPlayback {
 }
 
 impl super::MixingPlayback for OboeMixingPlayback {
-    fn start(&mut self) -> mumble_protocol::error::Result<()> {
+    fn start(&mut self) -> Result<()> {
         let callback = MixingPlaybackCallback {
             buffers: self.buffers.clone(),
             volume: self.volume.clone(),
@@ -295,7 +295,7 @@ impl super::MixingPlayback for OboeMixingPlayback {
         Ok(())
     }
 
-    fn stop(&mut self) -> mumble_protocol::error::Result<()> {
+    fn stop(&mut self) -> Result<()> {
         if let Some(mut stream) = self.stream.take() {
             let _ = stream.stop();
         }

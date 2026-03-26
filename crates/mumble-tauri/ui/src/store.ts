@@ -867,7 +867,7 @@ export async function initEventListeners(
         id: "messages",
         name: "Messages",
         description: "Chat message notifications",
-        importance: Importance.Default,
+        importance: Importance.High,
         visibility: Visibility.Public,
       });
     }
@@ -1077,6 +1077,15 @@ export async function initEventListeners(
   unlisteners.push(
     await listen<{ channel_id: number }>("current-channel-changed", (event) => {
       useAppStore.setState({ currentChannel: event.payload.channel_id });
+    }),
+  );
+
+  // User tapped a chat notification - navigate to the target channel.
+  unlisteners.push(
+    await listen<{ channel_id: number }>("navigate-to-channel", (event) => {
+      const channelId = event.payload.channel_id;
+      navigate("/chat");
+      useAppStore.getState().selectChannel(channelId);
     }),
   );
 

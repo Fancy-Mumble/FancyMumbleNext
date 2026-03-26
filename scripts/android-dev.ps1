@@ -617,6 +617,17 @@ if ($Emulator) {
 
 if ($Run) {
     Write-Host "`nStarting Tauri Android dev server..." -ForegroundColor Cyan
+
+    # Free port 1420 (Vite dev server) if something is still holding it.
+    $vitePort = 1420
+    $existing = Get-NetTCPConnection -LocalPort $vitePort -ErrorAction SilentlyContinue
+    if ($existing) {
+        $pids = $existing.OwningProcess | Sort-Object -Unique
+        Write-Host "  Freeing port $vitePort (PID(s): $($pids -join ', '))..." -ForegroundColor Yellow
+        Stop-Process -Id $pids -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 500
+    }
+
     Push-Location "$PSScriptRoot\..\crates\mumble-tauri"
     try {
         # --no-watch: disable the Tauri file watcher so frontend file changes

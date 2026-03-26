@@ -42,6 +42,38 @@ impl EventEmitter for TauriEmitter {
     }
 
     fn send_notification(&self, title: &str, body: &str) {
+        self.send_notification_with_icon(title, body, None, None);
+    }
+
+    fn send_notification_with_icon(
+        &self,
+        title: &str,
+        body: &str,
+        icon: Option<&[u8]>,
+        channel_id: Option<u32>,
+    ) {
+        // On Android, route through our ConnectionServicePlugin so we can
+        // decode the sender avatar as a Bitmap for the notification large-icon.
+        #[cfg(target_os = "android")]
+        {
+            use tauri::Manager;
+            if let Some(cs_handle) = self
+                .app
+                .try_state::<crate::connection_service::ConnectionServiceHandle>()
+            {
+                crate::connection_service::show_chat_notification(
+                    &cs_handle,
+                    title,
+                    body,
+                    icon,
+                    channel_id,
+                );
+                return;
+            }
+        }
+        // Non-Android fallback: standard Tauri notification API (no avatar).
+        let _ = icon;
+        let _ = channel_id;
         let _ = self
             .app
             .notification()
@@ -143,5 +175,16 @@ impl EventHandler for TauriEventHandler {
         }
         let reason = if user_initiated { None } else { Some("Connection to server was lost.") };
         let _ = self.app.emit("server-disconnected", reason);
+
+        // Stop Android foreground service now that we are disconnected.
+        #[cfg(target_os = "android")]
+        {
+            use tauri::Manager;
+            if let Some(handle) =
+                self.app.try_state::<crate::connection_service::ConnectionServiceHandle>()
+            {
+                crate::connection_service::stop_service(&handle);
+            }
+        }
     }
 }

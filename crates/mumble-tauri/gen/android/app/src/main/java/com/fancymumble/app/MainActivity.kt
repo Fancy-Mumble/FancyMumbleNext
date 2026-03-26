@@ -1,6 +1,7 @@
 package com.fancymumble.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.OnBackPressedCallback
@@ -8,6 +9,12 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 class MainActivity : TauriActivity() {
+
+    companion object {
+        private const val REQUEST_RECORD_AUDIO = 1
+        const val EXTRA_CHANNEL_ID = "channel_id"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -31,9 +38,27 @@ class MainActivity : TauriActivity() {
                 // Intentionally empty: swallow the back event.
             }
         })
+
+        // Handle channel navigation from notification tap at cold start.
+        handleChannelIntent(intent)
     }
 
-    companion object {
-        private const val REQUEST_RECORD_AUDIO = 1
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleChannelIntent(intent)
+    }
+
+    /**
+     * If the intent carries an [EXTRA_CHANNEL_ID], notify the Rust
+     * backend via the Tauri plugin so the frontend can navigate to
+     * the correct channel.
+     */
+    private fun handleChannelIntent(intent: Intent?) {
+        val channelId = intent?.getIntExtra(EXTRA_CHANNEL_ID, -1) ?: -1
+        if (channelId >= 0) {
+            ConnectionServicePlugin.navigateToChannel(channelId)
+            // Clear the extra so re-delivery does not re-navigate.
+            intent?.removeExtra(EXTRA_CHANNEL_ID)
+        }
     }
 }

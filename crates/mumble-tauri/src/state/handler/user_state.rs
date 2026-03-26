@@ -130,6 +130,30 @@ impl HandleMessage for mumble_tcp::UserState {
                     CurrentChannelPayload { channel_id: ch },
                 );
 
+                // Update the foreground-service notification to show the
+                // current channel name alongside the server name.
+                #[cfg(target_os = "android")]
+                {
+                    use tauri::Manager;
+                    let info = ctx.shared.lock().ok().and_then(|s| {
+                        let channel_name = s.channels.get(&ch).map(|c| c.name.clone())?;
+                        let host = s.connected_host.clone();
+                        let app = s.tauri_app_handle.clone()?;
+                        Some((app, host, channel_name))
+                    });
+                    if let Some((app, host, channel_name)) = info {
+                        if let Some(handle) =
+                            app.try_state::<crate::connection_service::ConnectionServiceHandle>()
+                        {
+                            crate::connection_service::update_service_channel(
+                                &handle,
+                                &host,
+                                &channel_name,
+                            );
+                        }
+                    }
+                }
+
                 // Send pchat-fetch for persistent channels (if not yet fetched).
                 let should_fetch = {
                     let state = ctx.shared.lock().ok();

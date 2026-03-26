@@ -9,6 +9,8 @@
 
 mod audio;
 mod state;
+#[cfg(target_os = "android")]
+mod connection_service;
 
 use state::{
     AppState, AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus,
@@ -1522,6 +1524,26 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init());
 
+    // Register the foreground connection service plugin on Android so
+    // the process stays alive (and keeps receiving messages / showing
+    // notifications) when the app is in the background.
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(
+        tauri::plugin::Builder::<tauri::Wry, ()>::new("connection-service")
+            .setup(|app, api| {
+                let handle = api.register_android_plugin(
+                    "com.fancymumble.app",
+                    "ConnectionServicePlugin",
+                )?;
+                let cs_handle = connection_service::ConnectionServiceHandle(handle);
+                connection_service::register_disconnect_listener(&cs_handle, app.clone());
+                connection_service::register_navigate_listener(&cs_handle, app.clone());
+                let _ = app.manage(cs_handle);
+                Ok(())
+            })
+            .build(),
+    );
+
     // Window state persistence is desktop-only.
     #[cfg(not(target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_window_state::Builder::new().build());
@@ -1636,6 +1658,15 @@ pub fn run() {
             blur_image,
             process_background,
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Focused(focused) = event {
+                if let Some(state) = window.try_state::<AppState>() {
+                    if let Ok(mut s) = state.inner.lock() {
+                        s.app_focused = *focused;
+                    }
+                }
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
