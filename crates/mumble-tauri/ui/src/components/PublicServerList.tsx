@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { PublicServer, ServerPingResult } from "../types";
 import styles from "./PublicServerList.module.css";
 
-type SortKey = "country" | "name" | "ping";
+type SortKey = "country" | "name" | "users" | "ping";
 type SortDir = "asc" | "desc";
 
 interface Props {
@@ -14,6 +14,11 @@ interface Props {
 
 /** Module-level cache: "host:port" -> last ping epoch-ms. */
 const publicPingCache = new Map<string, number>();
+
+/** Clear throttle cache (for testing). */
+export function clearPingCache() {
+  publicPingCache.clear();
+}
 
 /** Country code to flag emoji. */
 function countryFlag(code: string): string {
@@ -83,7 +88,7 @@ export default function PublicServerList({
         .catch(() =>
           setPings((prev) => ({
             ...prev,
-            [key]: { online: false, latency_ms: null },
+            [key]: { online: false, latency_ms: null, user_count: null, max_user_count: null },
           })),
         );
     }
@@ -135,6 +140,10 @@ export default function PublicServerList({
         cmp = a.country.localeCompare(b.country);
       } else if (sortKey === "name") {
         cmp = a.name.localeCompare(b.name);
+      } else if (sortKey === "users") {
+        const ua = pings[`${a.ip}:${a.port}`]?.user_count ?? -1;
+        const ub = pings[`${b.ip}:${b.port}`]?.user_count ?? -1;
+        cmp = ua - ub;
       } else if (sortKey === "ping") {
         const pa = pings[`${a.ip}:${a.port}`]?.latency_ms ?? 9999;
         const pb = pings[`${b.ip}:${b.port}`]?.latency_ms ?? 9999;
@@ -239,6 +248,9 @@ export default function PublicServerList({
                 <th onClick={() => handleSort("name")}>
                   Server{sortIndicator("name")}
                 </th>
+                <th onClick={() => handleSort("users")}>
+                  Users{sortIndicator("users")}
+                </th>
                 <th onClick={() => handleSort("ping")}>
                   Ping{sortIndicator("ping")}
                 </th>
@@ -262,6 +274,9 @@ export default function PublicServerList({
                       </span>
                     </td>
                     <td title={s.name}>{s.name}</td>
+                    <td className={styles.usersCell}>
+                      <UsersCell ping={pings[`${s.ip}:${s.port}`]} />
+                    </td>
                     <td>
                       <PingCell ping={ping} />
                     </td>
@@ -270,7 +285,7 @@ export default function PublicServerList({
               })}
               {displayed.length === 0 && (
                 <tr>
-                  <td colSpan={3} className={styles.statusRow}>
+                  <td colSpan={4} className={styles.statusRow}>
                     No servers match your search.
                   </td>
                 </tr>
@@ -304,6 +319,21 @@ function PingCell({ ping }: Readonly<{ ping?: ServerPingResult }>) {
   return (
     <span className={`${styles.pingValue} ${cls}`}>
       {ms} ms
+    </span>
+  );
+}
+
+function UsersCell({ ping }: Readonly<{ ping?: ServerPingResult }>) {
+  if (!ping) {
+    return <span className={styles.pingNa}>...</span>;
+  }
+  if (ping.user_count == null) {
+    return <span className={styles.pingNa}>-</span>;
+  }
+  const max = ping.max_user_count;
+  return (
+    <span>
+      {ping.user_count}{max != null && max > 0 ? `/${max}` : ""}
     </span>
   );
 }

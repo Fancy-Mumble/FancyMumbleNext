@@ -1,4 +1,4 @@
-/* ─── User Context Menu ────────────────────────────────────────── */
+/* --- User Context Menu ------------------------------------------ */
 
 .overlay {
   position: fixed;
@@ -18,7 +18,7 @@
   box-shadow: var(--shadow-lg);
 }
 
-/* ─── Menu items ───────────────────────────────────────────────── */
+/* --- Menu items ------------------------------------------------- */
 
 .menuItem {
   width: 100%;
@@ -72,7 +72,7 @@
   color: var(--color-danger, #ef4444);
 }
 
-/* ─── Section divider ──────────────────────────────────────────── */
+/* --- Section divider -------------------------------------------- */
 
 .divider {
   height: 1px;
@@ -80,7 +80,7 @@
   background: var(--color-glass-border);
 }
 
-/* ─── Section label ────────────────────────────────────────────── */
+/* --- Section label ---------------------------------------------- */
 
 .sectionLabel {
   padding: 6px 12px 2px;
@@ -92,7 +92,7 @@
   user-select: none;
 }
 
-/* ─── Volume slider ────────────────────────────────────────────── */
+/* --- Volume slider ---------------------------------------------- */
 
 .volumeRow {
   display: flex;

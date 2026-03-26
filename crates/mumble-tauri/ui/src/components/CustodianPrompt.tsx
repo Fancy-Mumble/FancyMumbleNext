@@ -1,4 +1,7 @@
 import { useEffect, useCallback } from "react";
+import CloseIcon from "../assets/icons/action/close.svg?react";
+import WarningIcon from "../assets/icons/status/warning.svg?react";
+import ShieldIcon from "../assets/icons/status/shield.svg?react";
 import styles from "./CustodianPrompt.module.css";
 
 interface Custodian {
@@ -54,11 +57,7 @@ export default function CustodianPrompt({
         <div className={styles.header}>
           <h3 className={styles.title}>{title}</h3>
           <button className={styles.closeBtn} onClick={onClose} aria-label="Close">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <CloseIcon width={16} height={16} />
           </button>
         </div>
 
@@ -67,12 +66,7 @@ export default function CustodianPrompt({
 
           {isChange && (
             <div className={styles.warning}>
-              <svg className={styles.warningIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                <line x1="12" y1="9" x2="12" y2="13" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
-              </svg>
+              <WarningIcon className={styles.warningIcon} aria-hidden="true" />
               <span>
                 Until you accept, only previously pinned custodians are trusted
                 for key verification. New custodians cannot bypass consensus.
@@ -85,10 +79,7 @@ export default function CustodianPrompt({
             <ul className={styles.custodianList}>
               {addedCustodians.map((c) => (
                 <li key={c.hash} className={`${styles.custodianItem} ${styles.changeAdded}`}>
-                  <svg className={styles.custodianIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                  </svg>
+                  <ShieldIcon className={styles.custodianIcon} aria-hidden="true" />
                   <span className={styles.custodianName}>{c.name ?? "Unknown"}</span>
                   <span className={styles.custodianHash}>{c.hash.slice(0, 12)}...</span>
                   <span className={`${styles.changeBadge} ${styles.badgeAdded}`}>Added</span>
@@ -101,10 +92,7 @@ export default function CustodianPrompt({
             <ul className={styles.custodianList}>
               {removedCustodians.map((c) => (
                 <li key={c.hash} className={`${styles.custodianItem} ${styles.changeRemoved}`}>
-                  <svg className={styles.custodianIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                  </svg>
+                  <ShieldIcon className={styles.custodianIcon} aria-hidden="true" />
                   <span className={styles.custodianName}>{c.name ?? "Unknown"}</span>
                   <span className={styles.custodianHash}>{c.hash.slice(0, 12)}...</span>
                   <span className={`${styles.changeBadge} ${styles.badgeRemoved}`}>Removed</span>
@@ -118,10 +106,7 @@ export default function CustodianPrompt({
             <ul className={styles.custodianList}>
               {custodians.map((c) => (
                 <li key={c.hash} className={styles.custodianItem}>
-                  <svg className={styles.custodianIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                  </svg>
+                  <ShieldIcon className={styles.custodianIcon} aria-hidden="true" />
                   <span className={styles.custodianName}>{c.name ?? "Unknown"}</span>
                   <span className={styles.custodianHash}>{c.hash.slice(0, 12)}...</span>
                 </li>

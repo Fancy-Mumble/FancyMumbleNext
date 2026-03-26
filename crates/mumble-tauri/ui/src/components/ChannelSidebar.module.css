@@ -1,4 +1,4 @@
-/* ─── Sidebar ──────────────────────────────────────────────────── */
+/* --- Sidebar ---------------------------------------------------- */
 
 .sidebar {
   width: var(--sidebar-width);
@@ -14,7 +14,7 @@
   overflow: hidden;
 }
 
-/* ─── Header ───────────────────────────────────────────────────── */
+/* --- Header ----------------------------------------------------- */
 
 .header {
   display: flex;
@@ -52,7 +52,7 @@
   letter-spacing: -0.01em;
 }
 
-/* ─── Search bar (header) ──────────────────────────────────────── */
+/* --- Search bar (header) ---------------------------------------- */
 
 .searchBar {
   display: flex;
@@ -168,7 +168,7 @@
   border-color: rgba(42, 171, 238, 0.2);
 }
 
-/* ─── Channel List ─────────────────────────────────────────────── */
+/* --- Channel List ----------------------------------------------- */
 
 .channelList {
   flex: 3;
@@ -188,7 +188,7 @@
   flex-shrink: 0;
 }
 
-/* ─── Collapsible section header ───────────────────────────────── */
+/* --- Collapsible section header --------------------------------- */
 
 .collapsibleHeader {
   display: flex;
@@ -234,7 +234,7 @@
   transform: rotate(90deg);
 }
 
-/* ─── Sticky current channel ───────────────────────────────────── */
+/* --- Sticky current channel ------------------------------------- */
 
 .stickyCurrentChannel {
   position: sticky;
@@ -268,7 +268,7 @@
   );
 }
 
-/* ─── Channel Item (flat / leaf) ───────────────────────────────── */
+/* --- Channel Item (flat / leaf) --------------------------------- */
 
 .channelItem {
   width: 100%;
@@ -318,7 +318,7 @@
   margin-top: 1px;
 }
 
-/* ─── Folder Group ─────────────────────────────────────────────── */
+/* --- Folder Group ----------------------------------------------- */
 
 .folderGroup {
   margin-top: 2px;
@@ -394,7 +394,7 @@
   padding-left: 4px;
 }
 
-/* ─── Stacked Avatars ──────────────────────────────────────────── */
+/* --- Stacked Avatars -------------------------------------------- */
 
 .stackedAvatars {
   display: flex;
@@ -438,7 +438,7 @@
   font-weight: 700;
 }
 
-/* ─── Avatar Tooltip ───────────────────────────────────────────── */
+/* --- Avatar Tooltip --------------------------------------------- */
 
 .avatarTooltip {
   position: absolute;
@@ -488,7 +488,7 @@
   flex-shrink: 0;
 }
 
-/* ─── Divider ──────────────────────────────────────────────────── */
+/* --- Divider ---------------------------------------------------- */
 
 .divider {
   height: 1px;
@@ -496,7 +496,7 @@
   margin: 4px 16px;
 }
 
-/* ─── User Section ─────────────────────────────────────────────── */
+/* --- User Section ----------------------------------------------- */
 
 .userSection {
   padding: 8px 16px 8px;
@@ -551,6 +551,42 @@
 .selfVoiceActions .voiceToggle {
   width: 36px;
   height: auto;
+}
+
+/* --- Desktop/Mobile visibility --------------------------------- */
+
+.desktopOnly {
+  display: flex;
+}
+
+.mobileOnly {
+  display: none;
+}
+
+/* --- Call button (mobile) --------------------------------------- */
+
+.callBtnStart {
+  color: #fff;
+  background: var(--color-online, #22c55e);
+  border-color: var(--color-online, #22c55e);
+}
+
+.callBtnStart:hover {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
+
+.callBtnEnd {
+  color: #fff;
+  background: var(--color-danger, #ef4444);
+  border-color: var(--color-danger, #ef4444);
+}
+
+.callBtnEnd:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
 }
 
 .userItem {
@@ -631,7 +667,7 @@
   min-width: 0;
 }
 
-/* ─── User Channel Chip ───────────────────────────────────────── */
+/* --- User Channel Chip ----------------------------------------- */
 
 .userChannelChip {
   flex-shrink: 0;
@@ -648,7 +684,7 @@
   text-overflow: ellipsis;
 }
 
-/* ─── Unread Badge ─────────────────────────────────────────────── */
+/* --- Unread Badge ----------------------------------------------- */
 
 .unreadBadge {
   flex-shrink: 0;
@@ -667,7 +703,7 @@
   box-shadow: 0 0 6px rgba(42, 171, 238, 0.4);
 }
 
-/* ─── Listen Indicator ─────────────────────────────────────────── */
+/* --- Listen Indicator ------------------------------------------- */
 
 .listenIndicator {
   display: inline-flex;
@@ -678,7 +714,7 @@
   vertical-align: middle;
 }
 
-/* ─── Voice Panel ──────────────────────────────────────────────── */
+/* --- Voice Panel ------------------------------------------------ */
 
 .voicePanel {
   display: flex;
@@ -802,7 +838,7 @@
   border-color: rgba(245, 158, 11, 0.2);
 }
 
-/* ─── Profile Popover ──────────────────────────────────────────── */
+/* --- Profile Popover -------------------------------------------- */
 
 .profilePopover {
   position: fixed;
@@ -813,7 +849,7 @@
   padding-bottom: 12px;
 }
 
-/* ─── Context Menu ─────────────────────────────────────────────── */
+/* --- Context Menu ----------------------------------------------- */
 
 .contextMenu {
   position: fixed;
@@ -855,7 +891,7 @@
   background: none;
 }
 
-/* ─── Mobile responsive overrides ──────────────────────────────── */
+/* --- Mobile responsive overrides -------------------------------- */
 
 @media (max-width: 768px) {
   .sidebar {
@@ -919,9 +955,23 @@
   .profilePopover {
     display: none;
   }
+
+  /* Swap desktop voice buttons for mobile call button */
+  .desktopOnly {
+    display: none;
+  }
+
+  .mobileOnly {
+    display: flex;
+  }
+
+  /* Call button spans width of both voice toggles */
+  .mobileOnly .voiceToggle {
+    width: calc(var(--touch-target-min) * 2 + 4px);
+  }
 }
 
-/* ─── Group Chat Section ──────────────────────────────────────── */
+/* --- Group Chat Section ---------------------------------------- */
 
 .groupSectionHeader {
   display: flex;
@@ -955,7 +1005,7 @@
   color: var(--color-accent, #2AABEE);
 }
 
-/* ─── Group Create Modal ─────────────────────────────────────── */
+/* --- Group Create Modal --------------------------------------- */
 
 .modalBackdrop {
   position: fixed;
@@ -1122,7 +1172,7 @@
   opacity: 0.9;
 }
 
-/* ─── Context menu danger item ───────────────────────────────── */
+/* --- Context menu danger item --------------------------------- */
 
 .contextMenuItemDanger {
   color: var(--color-danger, #e05252);
@@ -1132,7 +1182,7 @@
   background: rgba(224, 82, 82, 0.15);
 }
 
-/* ─── Delete channel confirmation dialog ────────────────────── */
+/* --- Delete channel confirmation dialog ---------------------- */
 
 .modalOverlay {
   position: fixed;

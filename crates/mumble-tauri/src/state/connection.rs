@@ -225,6 +225,19 @@ impl AppState {
         // Stop audio before disconnecting.
         self.stop_audio();
 
+        // Stop Android foreground service before tearing down the connection.
+        #[cfg(target_os = "android")]
+        {
+            use tauri::Manager;
+            if let Some(app_handle) = self.app_handle() {
+                if let Some(handle) =
+                    app_handle.try_state::<crate::connection_service::ConnectionServiceHandle>()
+                {
+                    crate::connection_service::stop_service(&handle);
+                }
+            }
+        }
+
         let (handle, join, connect_task) = {
             let mut guard = self.inner.lock().map_err(|e| e.to_string())?;
             guard.user_initiated_disconnect = true;

@@ -18,6 +18,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 // Import after mocks so the module picks up the mocked invoke.
 import PublicServerList from "../PublicServerList";
+import { clearPingCache } from "../PublicServerList";
 import type { PublicServer } from "../../types";
 
 // --- Helpers ------------------------------------------------------
@@ -62,10 +63,20 @@ async function consentAndWait() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Default: fetch returns sample servers, ping returns nothing
-  invokeMock.mockImplementation((cmd: string) => {
+  clearPingCache();
+  // Default: fetch returns sample servers, ping returns per-server user counts
+  const pingData: Record<string, { online: boolean; latency_ms: number; user_count: number; max_user_count: number }> = {
+    "1.1.1.1": { online: true, latency_ms: 42, user_count: 5, max_user_count: 50 },
+    "2.2.2.2": { online: true, latency_ms: 80, user_count: 12, max_user_count: 100 },
+    "3.3.3.3": { online: true, latency_ms: 20, user_count: 3, max_user_count: 30 },
+  };
+  invokeMock.mockImplementation((cmd: string, args?: unknown) => {
     if (cmd === "fetch_public_servers") return Promise.resolve(SAMPLE_SERVERS);
-    if (cmd === "ping_server") return Promise.resolve({ online: true, latency_ms: 42 });
+    if (cmd === "ping_server") {
+      const { host } = (args ?? {}) as { host?: string };
+      const data = host ? pingData[host] : undefined;
+      return Promise.resolve(data ?? { online: true, latency_ms: 42, user_count: null, max_user_count: null });
+    }
     return Promise.reject(new Error(`Unknown command: ${cmd}`));
   });
 });
@@ -114,6 +125,17 @@ describe("Server rendering", () => {
       expect(screen.getByText("Canada")).toBeTruthy();
       expect(screen.getByText("Japan")).toBeTruthy();
       expect(screen.getByText("France")).toBeTruthy();
+    });
+  });
+
+  it("displays user counts from ping data", async () => {
+    renderList();
+    await consentAndWait();
+    await waitFor(() => {
+      // User counts: Alpha=5/50, Beta=12/100, Gamma=3/30
+      expect(screen.getByText("5/50")).toBeTruthy();
+      expect(screen.getByText("12/100")).toBeTruthy();
+      expect(screen.getByText("3/30")).toBeTruthy();
     });
   });
 
@@ -191,6 +213,20 @@ describe("Sorting", () => {
     expect(rows[0].textContent).toContain("Canada");
     expect(rows[1].textContent).toContain("France");
     expect(rows[2].textContent).toContain("Japan");
+  });
+
+  it("sorts by user count when clicking Users header", async () => {
+    renderList();
+    await consentAndWait();
+    // Wait for ping data to arrive
+    await waitFor(() => screen.getByText("5/50"));
+
+    fireEvent.click(screen.getByText("Users"));
+    const rows = screen.getAllByRole("row").slice(1);
+    // 3, 5, 12 (ascending by user_count from ping)
+    expect(rows[0].textContent).toContain("Gamma");
+    expect(rows[1].textContent).toContain("Alpha");
+    expect(rows[2].textContent).toContain("Beta");
   });
 });
 

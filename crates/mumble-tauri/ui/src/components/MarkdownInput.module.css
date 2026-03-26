@@ -1,4 +1,4 @@
-/* ─── MarkdownInput: overlay-based live preview ──────────────── */
+/* --- MarkdownInput: overlay-based live preview ---------------- */
 
 .wrapper {
   position: relative;
@@ -65,7 +65,7 @@
   color: var(--color-text-muted);
 }
 
-/* ─── Custom caret (rendered in the overlay) ──────────────────── */
+/* --- Custom caret (rendered in the overlay) -------------------- */
 
 .caret {
   display: inline-block;
@@ -84,14 +84,14 @@
   }
 }
 
-/* ─── Selection highlight ─────────────────────────────────────── */
+/* --- Selection highlight --------------------------------------- */
 
 .selection {
   background: rgba(42, 171, 238, 0.3);
   border-radius: 1px;
 }
 
-/* ─── Markdown decoration classes (real WYSIWYG formatting) ──── */
+/* --- Markdown decoration classes (real WYSIWYG formatting) ---- */
 
 .mdBold {
   font-weight: 700;

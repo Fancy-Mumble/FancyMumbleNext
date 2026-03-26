@@ -1,8 +1,11 @@
 ﻿//! Simple noise gate that silences audio below a threshold.
 //!
-//! This is the cheapest filter in the chain and should usually be
-//! placed first so that subsequent (more expensive) filters can skip
-//! silent frames.
+//! In the outbound filter chain the noise gate should run **after**
+//! the AGC so that it evaluates the post-gain signal level. Without
+//! this ordering, platforms whose audio stack pre-processes the mic
+//! signal (e.g. Android `VoiceCommunication`) may produce levels too
+//! quiet for the gate threshold, causing nearly all speech to be
+//! gated.
 
 use std::f32::consts::PI;
 

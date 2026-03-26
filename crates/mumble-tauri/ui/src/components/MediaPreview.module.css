@@ -1,4 +1,4 @@
-/* ─── Thumbnail grid ───────────────────────────────────────────── */
+/* --- Thumbnail grid --------------------------------------------- */
 
 .mediaGrid {
   display: flex;
@@ -52,7 +52,7 @@
   border-radius: 8px;
 }
 
-/* ─── Replay overlay (frozen GIF) ──────────────────────────────── */
+/* --- Replay overlay (frozen GIF) -------------------------------- */
 
 .replayOverlay {
   position: absolute;
@@ -76,7 +76,7 @@
   filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
 }
 
-/* ─── Badges (GIF / play) ──────────────────────────────────────── */
+/* --- Badges (GIF / play) ---------------------------------------- */
 
 .gifBadge,
 .playBadge {
@@ -102,7 +102,7 @@
   background: rgba(0, 0, 0, 0.55);
 }
 
-/* ─── Time chip (bottom-right, frosted glass) ──────────────────── */
+/* --- Time chip (bottom-right, frosted glass) -------------------- */
 
 .timeChip {
   position: absolute;
@@ -121,7 +121,7 @@
   line-height: 1.4;
 }
 
-/* ─── Lightbox overlay ─────────────────────────────────────────── */
+/* --- Lightbox overlay ------------------------------------------- */
 
 .lightboxOverlay {
   position: fixed;

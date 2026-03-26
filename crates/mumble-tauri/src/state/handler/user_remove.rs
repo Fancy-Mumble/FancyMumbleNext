@@ -44,7 +44,10 @@ impl HandleMessage for mumble_tcp::UserRemove {
                     if let Some(handle) = state.outbound_task_handle.take() {
                         handle.abort();
                     }
-                    state.inbound_pipeline = None;
+                    if let Some(mut playback) = state.mixing_playback.take() {
+                        let _ = playback.stop();
+                    }
+                    state.audio_mixer = None;
                 }
             }
             ctx.emit("connection-rejected", RejectedPayload { reason, reject_type: None });

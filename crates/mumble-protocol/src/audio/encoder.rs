@@ -42,8 +42,16 @@ pub trait AudioEncoder: Send + 'static {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpusApplication {
     /// Optimised for voice / `VoIP` (lower latency, better speech quality).
+    ///
+    /// Uses the SILK codec for narrowband-to-wideband speech and a
+    /// SILK+CELT hybrid for super-wideband, matching the official Mumble
+    /// desktop client.  Preferred for all Mumble use-cases.
     Voip,
     /// Optimised for general audio (higher quality music).
+    ///
+    /// Uses the CELT codec (full-band).  Not recommended for voice -
+    /// wastes bits on empty high-frequency bands and can produce
+    /// artifacts with narrow-bandwidth microphone input.
     Audio,
     /// Lowest possible latency (at the cost of quality).
     LowDelay,
@@ -93,12 +101,18 @@ pub struct OpusEncoderConfig {
 #[cfg(feature = "opus-codec")]
 impl Default for OpusEncoderConfig {
     fn default() -> Self {
+        let application = if cfg!(target_os = "android") {
+            OpusApplication::Voip
+        } else {
+            OpusApplication::Audio
+        };
+
         Self {
             bitrate: 72_000,
             frame_size: 960,
-            application: OpusApplication::Audio,
+            application,
             vbr: true,
-            complexity: 5,
+            complexity: 8,
             fec: true,
             packet_loss_percent: 3,
             dtx: false,

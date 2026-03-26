@@ -61,6 +61,37 @@ impl HandleMessage for mumble_tcp::ServerSync {
         }
         ctx.emit_empty("server-connected");
 
+        // Start Android foreground service to keep the process alive
+        // when the app is backgrounded (prevents Doze from killing the
+        // TCP connection).
+        #[cfg(target_os = "android")]
+        {
+            use tauri::Manager;
+            let (app_handle, host, channel_name) = {
+                let state = ctx.shared.lock().ok();
+                state
+                    .map(|s| {
+                        let ch_name = initial_channel
+                            .and_then(|ch| s.channels.get(&ch))
+                            .map(|c| c.name.clone());
+                        (s.tauri_app_handle.clone(), s.connected_host.clone(), ch_name)
+                    })
+                    .unwrap_or_default()
+            };
+            if let Some(app) = app_handle {
+                if let Some(handle) =
+                    app.try_state::<crate::connection_service::ConnectionServiceHandle>()
+                {
+                    crate::connection_service::start_service(&handle, &host);
+                    if let Some(ref ch_name) = channel_name {
+                        crate::connection_service::update_service_channel(
+                            &handle, &host, ch_name,
+                        );
+                    }
+                }
+            }
+        }
+
         // Notify frontend about the initial channel assignment.
         if let Some(ch) = initial_channel {
             ctx.emit(

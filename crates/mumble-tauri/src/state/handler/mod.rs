@@ -48,6 +48,21 @@ pub(crate) trait EventEmitter: Send + Sync {
 
     /// Send a native OS notification (e.g. Android notification when backgrounded).
     fn send_notification(&self, title: &str, body: &str);
+
+    /// Send a notification with the sender's avatar as the large icon.
+    ///
+    /// `channel_id` is passed to the notification intent on Android so
+    /// tapping the notification navigates to the correct channel.
+    /// The default implementation ignores the icon and `channel_id`.
+    fn send_notification_with_icon(
+        &self,
+        title: &str,
+        body: &str,
+        _icon: Option<&[u8]>,
+        _channel_id: Option<u32>,
+    ) {
+        self.send_notification(title, body);
+    }
 }
 
 /// Context passed to each message handler.
@@ -74,15 +89,25 @@ impl HandlerContext {
         self.emitter.request_user_attention();
     }
 
-    /// Send a native OS notification (only if notifications are enabled).
-    pub fn send_notification(&self, title: &str, body: &str) {
+    /// Send a notification with an optional sender avatar icon.
+    ///
+    /// On Android, `channel_id` is forwarded to the notification intent
+    /// so tapping the notification opens the correct channel.
+    pub fn send_notification_with_icon(
+        &self,
+        title: &str,
+        body: &str,
+        icon: Option<&[u8]>,
+        channel_id: Option<u32>,
+    ) {
         let enabled = self
             .shared
             .lock()
             .map(|s| s.notifications_enabled)
             .unwrap_or(true);
         if enabled {
-            self.emitter.send_notification(title, body);
+            self.emitter
+                .send_notification_with_icon(title, body, icon, channel_id);
         }
     }
 }

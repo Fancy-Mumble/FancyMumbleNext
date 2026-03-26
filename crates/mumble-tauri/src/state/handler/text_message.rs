@@ -52,6 +52,7 @@ enum DeferredEvent {
         group_id: String,
         sender_name: String,
         body: String,
+        sender_session: Option<u32>,
     },
     GroupUnreads,
     DirectMessage {
@@ -64,6 +65,7 @@ enum DeferredEvent {
         channel_id: u32,
         sender_name: String,
         body: String,
+        sender_session: Option<u32>,
     },
     ChannelUnreads,
 }
@@ -92,7 +94,8 @@ impl<'a> DeferredEmitter<'a> {
                     group_id,
                     sender_name,
                     body,
-                } => self.emit_group_message(group_id, sender_name, body),
+                    sender_session,
+                } => self.emit_group_message(group_id, sender_name, body, *sender_session),
                 DeferredEvent::GroupUnreads => self.emit_group_unreads(),
                 DeferredEvent::DirectMessage {
                     sender_session,
@@ -106,13 +109,20 @@ impl<'a> DeferredEmitter<'a> {
                     channel_id,
                     sender_name,
                     body,
-                } => self.emit_channel_notification(*channel_id, sender_name, body),
+                    sender_session,
+                } => self.emit_channel_notification(*channel_id, sender_name, body, *sender_session),
                 DeferredEvent::ChannelUnreads => self.emit_channel_unreads(),
             }
         }
     }
 
-    fn emit_group_message(&self, group_id: &str, sender_name: &str, body: &str) {
+    fn emit_group_message(
+        &self,
+        group_id: &str,
+        sender_name: &str,
+        body: &str,
+        sender_session: Option<u32>,
+    ) {
         self.ctx.emit(
             "new-group-message",
             NewGroupMessagePayload {
@@ -120,8 +130,9 @@ impl<'a> DeferredEmitter<'a> {
             },
         );
         self.ctx.request_user_attention();
+        let icon = self.lookup_texture(sender_session);
         self.ctx
-            .send_notification(sender_name, &strip_html_tags(body));
+            .send_notification_with_icon(sender_name, &strip_html_tags(body), icon.as_deref(), None);
     }
 
     fn emit_group_unreads(&self) {
@@ -143,8 +154,9 @@ impl<'a> DeferredEmitter<'a> {
             },
         );
         self.ctx.request_user_attention();
+        let icon = self.lookup_texture(Some(sender_session));
         self.ctx
-            .send_notification(sender_name, &strip_html_tags(body));
+            .send_notification_with_icon(sender_name, &strip_html_tags(body), icon.as_deref(), None);
     }
 
     fn emit_dm_unreads(&self) {
@@ -169,19 +181,43 @@ impl<'a> DeferredEmitter<'a> {
             .emit("unread-changed", UnreadPayload { unreads });
     }
 
-    fn emit_channel_notification(&self, channel_id: u32, sender_name: &str, body: &str) {
-        let channel_name = self
+    fn emit_channel_notification(
+        &self,
+        channel_id: u32,
+        sender_name: &str,
+        body: &str,
+        sender_session: Option<u32>,
+    ) {
+        let (channel_name, icon) = self
             .ctx
             .shared
             .lock()
             .ok()
-            .and_then(|s| s.channels.get(&channel_id).map(|c| c.name.clone()));
+            .map(|s| {
+                let name = s.channels.get(&channel_id).map(|c| c.name.clone());
+                let texture = sender_session
+                    .and_then(|sid| s.users.get(&sid).and_then(|u| u.texture.clone()));
+                (name, texture)
+            })
+            .unwrap_or_default();
         let title = match channel_name {
             Some(name) => format!("{sender_name} in #{name}"),
             None => sender_name.to_owned(),
         };
         self.ctx
-            .send_notification(&title, &strip_html_tags(body));
+            .send_notification_with_icon(&title, &strip_html_tags(body), icon.as_deref(), Some(channel_id));
+    }
+
+    fn lookup_texture(&self, session: Option<u32>) -> Option<Vec<u8>> {
+        let sid = session?;
+        self.ctx
+            .shared
+            .lock()
+            .ok()?
+            .users
+            .get(&sid)?
+            .texture
+            .clone()
     }
 }
 
@@ -238,6 +274,7 @@ fn handle_group_message(
         group_id: marker.group_id.clone(),
         sender_name: resolve_sender_name(state, tm.actor),
         body: marker.body.clone(),
+        sender_session: tm.actor,
     });
 }
 
@@ -298,6 +335,7 @@ fn handle_channel_message(
     };
 
     let selected = state.selected_channel;
+    let app_focused = state.app_focused;
     let sender_name = resolve_sender_name(state, tm.actor);
     let mut unreads_changed = false;
 
@@ -352,12 +390,14 @@ fn handle_channel_message(
             ctx.request_user_attention();
         }
 
-        // Native notification for messages arriving in non-viewed channels.
-        if selected != Some(ch_id) {
+        // Native notification for messages arriving in non-viewed channels,
+        // or for ANY channel when the app is not focused (backgrounded).
+        if selected != Some(ch_id) || !app_focused {
             deferred.push(DeferredEvent::ChannelMessage {
                 channel_id: ch_id,
                 sender_name: sender_name.clone(),
                 body: tm.message.clone(),
+                sender_session: tm.actor,
             });
         }
     }

@@ -12,9 +12,20 @@ CMAKE_POLICY_VERSION_MINIMUM = "3.5"
 # On Windows, CMake defaults to the Visual Studio generator which cannot
 # cross-compile for Android. Force Ninja for every Android target triple so
 # the NDK toolchain is used correctly regardless of host OS.
-# Note: audiopus_sys (Opus) is not compiled for Android targets (no opus-codec
-# feature), but these settings are kept so other C dependencies build correctly.
+# The actual CMAKE_TOOLCHAIN_FILE is set per-target by android-dev.ps1 using
+# wrapper files (scripts/cmake/*-android.toolchain.cmake) that pre-set
+# ANDROID_ABI before including the real NDK toolchain.
 CMAKE_GENERATOR_aarch64_linux_android     = "Ninja"
 CMAKE_GENERATOR_armv7_linux_androideabi   = "Ninja"
 CMAKE_GENERATOR_x86_64_linux_android      = "Ninja"
 CMAKE_GENERATOR_i686_linux_android        = "Ninja"
+
+# Disable outlined atomics on aarch64 Android.  The outlined-atomics
+# helpers (init_have_lse_atomics -> getauxval) from libclang_rt.builtins
+# crash with SIGSEGV (null-pointer in getauxval) when the .so is loaded
+# via dlopen because the ELF auxiliary vector pointer is uninitialised.
+# -mno-outline-atomics generates inline LL/SC atomics instead.
+# Note: Rust stable does not recognise outline-atomics as a target feature
+# for aarch64-linux-android, so only CFLAGS/CXXFLAGS are needed here.
+CFLAGS_aarch64_linux_android   = "-mno-outline-atomics"
+CXXFLAGS_aarch64_linux_android = "-mno-outline-atomics"

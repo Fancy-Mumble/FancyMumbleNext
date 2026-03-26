@@ -42,13 +42,13 @@ if (releaseKeystorePath != null && releaseKeystoreFile == null) {
 }
 
 android {
-    compileSdk = 34
+    compileSdk = 36
     namespace = "com.fancymumble.app"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "com.fancymumble.app"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
@@ -96,10 +96,64 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 rust {
     rootDirRel = "../../../"
+}
+
+// Workaround: Tauri CLI may create libc++_shared.so symlinks pointing to the
+// wrong NDK version. This task resolves NDK_HOME and copies the correct
+// libc++_shared.so into jniLibs, overwriting the stale symlink.
+val fixLibcppShared by tasks.registering {
+    val ndkHome = System.getenv("NDK_HOME")
+        ?: System.getenv("ANDROID_NDK_HOME")
+        ?: System.getenv("ANDROID_NDK_ROOT")
+
+    doLast {
+        if (ndkHome == null) {
+            logger.warn("NDK_HOME/ANDROID_NDK_HOME/ANDROID_NDK_ROOT not set, skipping libc++_shared.so fix")
+            return@doLast
+        }
+
+        val abiToTriple = mapOf(
+            "arm64-v8a" to "aarch64-linux-android",
+            "armeabi-v7a" to "arm-linux-androideabi",
+            "x86" to "i686-linux-android",
+            "x86_64" to "x86_64-linux-android",
+        )
+
+        val hostTag = when {
+            System.getProperty("os.name").lowercase().contains("win") -> "windows-x86_64"
+            System.getProperty("os.name").lowercase().contains("mac") -> "darwin-x86_64"
+            else -> "linux-x86_64"
+        }
+
+        val jniLibsDir = file("src/main/jniLibs")
+        for ((abi, triple) in abiToTriple) {
+            val src = file("$ndkHome/toolchains/llvm/prebuilt/$hostTag/sysroot/usr/lib/$triple/libc++_shared.so")
+            if (!src.exists()) continue
+            val dst = file("$jniLibsDir/$abi/libc++_shared.so")
+            if (!dst.parentFile.exists()) continue
+            // Delete the (possibly stale) symlink or file, then copy
+            dst.delete()
+            src.copyTo(dst, overwrite = true)
+            logger.lifecycle("Fixed libc++_shared.so for $abi -> ${src.absolutePath}")
+        }
+    }
+}
+
+// Run after all rustBuild tasks but before JNI lib merging
+afterEvaluate {
+    tasks.matching { it.name.startsWith("merge") && it.name.contains("JniLibFolders") }.configureEach {
+        dependsOn(fixLibcppShared)
+    }
+    tasks.matching { it.name.startsWith("rustBuild") }.configureEach {
+        finalizedBy(fixLibcppShared)
+    }
 }
 
 dependencies {
@@ -107,6 +161,9 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.8.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")
 }

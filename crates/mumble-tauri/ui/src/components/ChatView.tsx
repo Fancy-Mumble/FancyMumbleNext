@@ -5,9 +5,13 @@ import type { ChatMessage, TimeFormat } from "../types";
 import { getPreferences } from "../preferencesStorage";
 import { loadPersonalization, type PersonalizationData } from "../personalizationStorage";
 import ChatHeader from "./ChatHeader";
+import MobileCallControls from "./MobileCallControls";
 import MessageItem, { MessageAvatar } from "./MessageItem";
 import ChatComposer from "./ChatComposer";
+import PollCreator from "./PollCreator";
 import MessageContextMenu, { type MessageContextMenuState } from "./MessageContextMenu";
+import CheckIcon from "../assets/icons/status/check.svg?react";
+import ChevronDownIcon from "../assets/icons/navigation/chevron-down.svg?react";
 import MessageSelectionBar from "./MessageSelectionBar";
 import ConfirmDialog from "./elements/ConfirmDialog";
 import Toast, { type ToastData } from "./elements/Toast";
@@ -92,6 +96,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   const polls = useAppStore((s) => s.polls);
   const pollMessages = useAppStore((s) => s.pollMessages);
   const selectUser = useAppStore((s) => s.selectUser);
+  const toggleSilenceChannel = useAppStore((s) => s.toggleSilenceChannel);
+  const silencedChannels = useAppStore((s) => s.silencedChannels);
 
   // DM state
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
@@ -111,6 +117,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [showPollCreator, setShowPollCreator] = useState(false);
   const [, forceRender] = useReducer((c: number) => c + 1, 0);
 
   // Time display preferences (loaded once from persistent storage).
@@ -1002,8 +1009,13 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onChannelSearch={onChannelSearch}
           keyTrustLevel={persistent.trustLevel}
           onVerifyClick={persistent.onVerifyClick}
+          onPollCreate={() => setShowPollCreator(true)}
+          isSilenced={selectedChannel !== null && silencedChannels.has(selectedChannel)}
+          onToggleSilence={selectedChannel !== null ? () => toggleSilenceChannel(selectedChannel) : undefined}
         />
       )}
+
+      <MobileCallControls />
 
       {/* Messages */}
       <div
@@ -1147,9 +1159,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
                               {selectionMode && canDelete && hasMsgId && (
                                 <div className={`${styles.selectCheckbox} ${isSelected ? styles.selectCheckboxChecked : ""}`}>
                                   {isSelected && (
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                      <polyline points="20 6 9 17 4 12" />
-                                    </svg>
+                                    <CheckIcon width={12} height={12} />
                                   )}
                                 </div>
                               )}
@@ -1175,10 +1185,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           className={styles.newMessagesPill}
           onClick={handleScrollToBottom}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
+          <ChevronDownIcon width={16} height={16} aria-hidden="true" />
           {newMsgCount} new {newMsgCount === 1 ? "message" : "messages"}
         </button>
       )}
@@ -1190,9 +1197,15 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         onPaste={handlePaste}
         onFileSelected={sendMediaFile}
         onGifSelect={handleGifSelect}
-        onPollCreate={handlePollCreate}
         disabled={sending || persistent.keyRevoked}
       />
+
+      {showPollCreator && (
+        <PollCreator
+          onSubmit={handlePollCreate}
+          onClose={() => setShowPollCreator(false)}
+        />
+      )}
 
       {/* Persistent chat dialogs (key verification, custodian prompt) */}
       {persistent.dialogs}

@@ -3,11 +3,13 @@ import styles from "./PasswordDialog.module.css";
 
 interface PasswordDialogProps {
   readonly open: boolean;
-  readonly onSubmit: (password: string) => void;
+  readonly onSubmit: (password: string, savePassword: boolean) => void;
   readonly onCancel: () => void;
   readonly serverHost?: string;
   readonly username?: string;
   readonly error?: string | null;
+  /** Whether to show the "Save password" checkbox. Hidden when there's no saved server to attach to. */
+  readonly showSaveOption?: boolean;
 }
 
 export default function PasswordDialog({
@@ -17,13 +19,16 @@ export default function PasswordDialog({
   serverHost,
   username,
   error,
+  showSaveOption,
 }: PasswordDialogProps) {
   const [password, setPassword] = useState("");
+  const [savePassword, setSavePassword] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
       setPassword("");
+      setSavePassword(false);
       // Focus the input after the dialog appears.
       requestAnimationFrame(() => inputRef.current?.focus());
     }
@@ -32,9 +37,9 @@ export default function PasswordDialog({
   const handleSubmit = useCallback(
     (e: FormEvent) => {
       e.preventDefault();
-      if (password) onSubmit(password);
+      if (password) onSubmit(password, savePassword);
     },
-    [password, onSubmit],
+    [password, savePassword, onSubmit],
   );
 
   if (!open) return null;
@@ -84,6 +89,17 @@ export default function PasswordDialog({
           </div>
 
           <div className={styles.actions}>
+            {showSaveOption && (
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={savePassword}
+                  onChange={(e) => setSavePassword(e.target.checked)}
+                  className={styles.checkbox}
+                />
+                Save password
+              </label>
+            )}
             <button
               className={styles.cancelBtn}
               type="button"

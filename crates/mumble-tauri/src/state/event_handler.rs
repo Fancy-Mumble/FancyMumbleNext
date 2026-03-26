@@ -12,11 +12,8 @@ use tauri::{AppHandle, Emitter};
 #[cfg(target_os = "windows")]
 use tauri::Manager;
 use tauri_plugin_notification::NotificationExt;
-use tracing::info;
-#[cfg(not(target_os = "android"))]
-use tracing::warn;
+use tracing::{info, warn};
 
-#[cfg(not(target_os = "android"))]
 use mumble_protocol::audio::encoder::EncodedPacket;
 use mumble_protocol::event::EventHandler;
 use mumble_protocol::message::{ControlMessage, UdpMessage};
@@ -45,6 +42,38 @@ impl EventEmitter for TauriEmitter {
     }
 
     fn send_notification(&self, title: &str, body: &str) {
+        self.send_notification_with_icon(title, body, None, None);
+    }
+
+    fn send_notification_with_icon(
+        &self,
+        title: &str,
+        body: &str,
+        icon: Option<&[u8]>,
+        channel_id: Option<u32>,
+    ) {
+        // On Android, route through our ConnectionServicePlugin so we can
+        // decode the sender avatar as a Bitmap for the notification large-icon.
+        #[cfg(target_os = "android")]
+        {
+            use tauri::Manager;
+            if let Some(cs_handle) = self
+                .app
+                .try_state::<crate::connection_service::ConnectionServiceHandle>()
+            {
+                crate::connection_service::show_chat_notification(
+                    &cs_handle,
+                    title,
+                    body,
+                    icon,
+                    channel_id,
+                );
+                return;
+            }
+        }
+        // Non-Android fallback: standard Tauri notification API (no avatar).
+        let _ = icon;
+        let _ = channel_id;
         let _ = self
             .app
             .notification()
@@ -83,20 +112,19 @@ impl EventHandler for TauriEventHandler {
     }
 
     fn on_udp_message(&mut self, msg: &UdpMessage) {
-        if let UdpMessage::Audio(audio) = msg {
+            if let UdpMessage::Audio(audio) = msg {
             if audio.opus_data.is_empty() {
                 return;
             }
-            #[cfg(not(target_os = "android"))]
             {
                 let packet = EncodedPacket {
                     data: audio.opus_data.clone(),
                     sequence: audio.frame_number,
-                    frame_samples: 960, // 20 ms @ 48 kHz (Opus reports actual size)
+                    frame_samples: 960,
                 };
                 if let Ok(mut state) = self.shared.lock() {
-                    if let Some(ref mut pipeline) = state.inbound_pipeline {
-                        if let Err(e) = pipeline.tick(&packet) {
+                    if let Some(ref mut mixer) = state.audio_mixer {
+                        if let Err(e) = mixer.feed(audio.sender_session, &packet) {
                             warn!("inbound audio decode error: {e}");
                         }
                     }
@@ -123,14 +151,14 @@ impl EventHandler for TauriEventHandler {
             state.status = ConnectionStatus::Disconnected;
             state.client_handle = None;
             state.event_loop_handle = None;
-            // Stop audio pipelines on disconnect (desktop only).
-            #[cfg(not(target_os = "android"))]
-            {
-                if let Some(handle) = state.outbound_task_handle.take() {
-                    handle.abort();
-                }
-                state.inbound_pipeline = None;
+            // Stop audio pipelines on disconnect.
+            if let Some(handle) = state.outbound_task_handle.take() {
+                handle.abort();
             }
+            if let Some(mut playback) = state.mixing_playback.take() {
+                let _ = playback.stop();
+            }
+            state.audio_mixer = None;
             state.voice_state = VoiceState::Inactive;
             state.server_fancy_version = None;
             state.server_version_info = ServerVersionInfo::default();
@@ -147,5 +175,16 @@ impl EventHandler for TauriEventHandler {
         }
         let reason = if user_initiated { None } else { Some("Connection to server was lost.") };
         let _ = self.app.emit("server-disconnected", reason);
+
+        // Stop Android foreground service now that we are disconnected.
+        #[cfg(target_os = "android")]
+        {
+            use tauri::Manager;
+            if let Some(handle) =
+                self.app.try_state::<crate::connection_service::ConnectionServiceHandle>()
+            {
+                crate::connection_service::stop_service(&handle);
+            }
+        }
     }
 }

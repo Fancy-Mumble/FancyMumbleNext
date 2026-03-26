@@ -5,10 +5,14 @@ import {
   getSavedServers,
   addServer,
   removeServer,
+  updateServer,
+  getServerPassword,
+  setServerPassword,
 } from "../serverStorage";
 import { getPreferences } from "../preferencesStorage";
 import type { SavedServer, ServerPingResult, UserMode } from "../types";
 import ServerList from "../components/ServerList";
+import ServerEditSheet from "../components/ServerEditSheet";
 import PublicServerList from "../components/PublicServerList";
 import PasswordDialog from "../components/PasswordDialog";
 import styles from "./ConnectPage.module.css";
@@ -106,7 +110,7 @@ export default function ConnectPage() {
         .catch(() =>
           setPings((prev) => ({
             ...prev,
-            [s.id]: { online: false, latency_ms: null },
+            [s.id]: { online: false, latency_ms: null, user_count: null, max_user_count: null },
           })),
         );
     }
@@ -216,7 +220,8 @@ export default function ConnectPage() {
 
   const handleQuickConnect = async (server: SavedServer) => {
     setConnectingServerId(server.id);
-    await connect(server.host, server.port, server.username, server.cert_label);
+    const storedPw = await getServerPassword(server.id);
+    await connect(server.host, server.port, server.username, server.cert_label, storedPw);
   };
 
   const handleCancelConnect = useCallback(async () => {
@@ -232,6 +237,54 @@ export default function ConnectPage() {
       return next;
     });
   };
+
+  /* -- server editing ------------------------------------------ */
+  const [editingServer, setEditingServer] = useState<SavedServer | null>(null);
+
+  const handleEditServer = (server: SavedServer) => setEditingServer(server);
+
+  const handleSaveEdit = async (
+    id: string,
+    patch: Partial<Omit<SavedServer, "id">>,
+  ) => {
+    await updateServer(id, patch);
+    setSavedServers((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+    );
+    setEditingServer(null);
+  };
+
+  const handleToggleFavorite = async (id: string) => {
+    const server = savedServers.find((s) => s.id === id);
+    if (!server) return;
+    const next = !server.favorite;
+    await updateServer(id, { favorite: next });
+    setSavedServers((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, favorite: next } : s)),
+    );
+  };
+
+  /* -- password dialog helpers --------------------------------- */
+
+  /** Find the saved-server id matching the current pendingConnect, if any. */
+  const matchingServerId = pendingConnect
+    ? (savedServers.find(
+        (s) =>
+          s.host === pendingConnect.host &&
+          s.port === pendingConnect.port &&
+          s.username === pendingConnect.username,
+      )?.id ?? null)
+    : null;
+
+  const handlePasswordSubmit = useCallback(
+    async (password: string, save: boolean) => {
+      if (save && matchingServerId) {
+        await setServerPassword(matchingServerId, password);
+      }
+      retryWithPassword(password);
+    },
+    [matchingServerId, retryWithPassword],
+  );
 
   const handleShowWizard = () => {
     resetWizard();
@@ -294,6 +347,8 @@ export default function ConnectPage() {
               pings={pings}
               onConnect={handleQuickConnect}
               onDelete={handleDelete}
+              onToggleFavorite={handleToggleFavorite}
+              onEdit={handleEditServer}
               onAddNew={handleShowWizard}
               onCancelConnect={handleCancelConnect}
               disabled={isConnecting}
@@ -307,6 +362,14 @@ export default function ConnectPage() {
             >
               Browse public servers
             </button>
+
+            {editingServer && (
+              <ServerEditSheet
+                server={editingServer}
+                onSave={handleSaveEdit}
+                onClose={() => setEditingServer(null)}
+              />
+            )}
           </>
         )}
 
@@ -560,11 +623,12 @@ export default function ConnectPage() {
 
       <PasswordDialog
         open={passwordRequired}
-        onSubmit={retryWithPassword}
+        onSubmit={handlePasswordSubmit}
         onCancel={dismissPasswordPrompt}
         serverHost={pendingConnect?.host}
         username={pendingConnect?.username}
         error={error}
+        showSaveOption={matchingServerId !== null}
       />
     </div>
   );

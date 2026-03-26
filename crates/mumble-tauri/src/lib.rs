@@ -7,9 +7,10 @@
 // intentional (proc-macro visibility, Tauri command system, internal APIs).
 #![allow(unreachable_pub, reason = "application crate: pub items in private modules are intentional for Tauri command system")]
 
-#[cfg(not(target_os = "android"))]
 mod audio;
 mod state;
+#[cfg(target_os = "android")]
+mod connection_service;
 
 use state::{
     AppState, AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus,
@@ -77,6 +78,10 @@ struct PingResult {
     online: bool,
     /// Round-trip time in milliseconds (None when offline).
     latency_ms: Option<u32>,
+    /// Number of users currently connected (from UDP ping, None if unavailable).
+    user_count: Option<u32>,
+    /// Maximum number of users allowed (from UDP ping, None if unavailable).
+    max_user_count: Option<u32>,
 }
 
 // --- Badge overlay icon (Windows) ---------------------------------
@@ -434,8 +439,12 @@ async fn create_channel(
         .await
 }
 
-/// Ping a Mumble server by attempting a TCP connection and measuring
-/// how long it takes. Times out after 4 seconds.
+/// Ping a Mumble server to measure latency and retrieve server info.
+///
+/// Performs two concurrent probes:
+/// 1. **TCP connect** - measures round-trip latency.
+/// 2. **UDP ping** - sends a Mumble protocol ping with
+///    `request_extended_information` to retrieve user count and max users.
 #[tauri::command]
 async fn ping_server(host: String, port: u16) -> PingResult {
     use std::time::Instant;
@@ -445,16 +454,88 @@ async fn ping_server(host: String, port: u16) -> PingResult {
     let addr = format!("{host}:{port}");
     let start = Instant::now();
 
-    match timeout(Duration::from_secs(4), TcpStream::connect(&addr)).await {
-        Ok(Ok(_stream)) => PingResult {
-            online: true,
-            latency_ms: Some(start.elapsed().as_millis() as u32),
-        },
-        _ => PingResult {
-            online: false,
-            latency_ms: None,
-        },
+    // TCP latency probe
+    let tcp_online = timeout(Duration::from_secs(4), TcpStream::connect(&addr)).await;
+    let (online, latency_ms) = match tcp_online {
+        Ok(Ok(_stream)) => (true, Some(start.elapsed().as_millis() as u32)),
+        _ => (false, None),
+    };
+
+    // UDP ping for user count (best-effort, does not affect online status)
+    let (user_count, max_user_count) = udp_ping_server_info(&addr).await.unwrap_or((None, None));
+
+    PingResult {
+        online,
+        latency_ms,
+        user_count,
+        max_user_count,
     }
+}
+
+/// Send a Mumble UDP ping to retrieve extended server information.
+///
+/// Returns `(user_count, max_user_count)` on success.
+/// Tries the protobuf format first; falls back to the legacy 12-byte
+/// format if the server doesn't respond to protobuf within the timeout.
+async fn udp_ping_server_info(addr: &str) -> Result<(Option<u32>, Option<u32>), ()> {
+    use prost::Message;
+    use tokio::net::UdpSocket;
+    use tokio::time::{timeout, Duration};
+
+    let sock = UdpSocket::bind("0.0.0.0:0").await.map_err(|_| ())?;
+    sock.connect(addr).await.map_err(|_| ())?;
+
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    // Try protobuf ping first (Mumble 1.5+ servers)
+    let ping = mumble_protocol::proto::mumble_udp::Ping {
+        timestamp: ts,
+        request_extended_information: true,
+        ..Default::default()
+    };
+    let mut buf = Vec::with_capacity(16);
+    buf.push(0x20); // UDP Ping type marker
+    ping.encode(&mut buf).map_err(|_| ())?;
+    let _sent = sock.send(&buf).await.map_err(|_| ())?;
+
+    let mut recv_buf = [0u8; 128];
+    if let Ok(Ok(n)) = timeout(Duration::from_secs(2), sock.recv(&mut recv_buf)).await {
+        if n > 1 && recv_buf[0] == 0x20 {
+            // Protobuf response
+            if let Ok(resp) =
+                mumble_protocol::proto::mumble_udp::Ping::decode(&recv_buf[1..n])
+            {
+                if resp.user_count > 0 || resp.max_user_count > 0 {
+                    return Ok((Some(resp.user_count), Some(resp.max_user_count)));
+                }
+            }
+        }
+        // Legacy 24-byte response: 6 x u32 big-endian
+        // [version, ts_hi, ts_lo, users, max_users, bandwidth]
+        if n >= 24 {
+            let users = u32::from_be_bytes([recv_buf[12], recv_buf[13], recv_buf[14], recv_buf[15]]);
+            let max_users = u32::from_be_bytes([recv_buf[16], recv_buf[17], recv_buf[18], recv_buf[19]]);
+            return Ok((Some(users), Some(max_users)));
+        }
+    }
+
+    // Fallback: send legacy 12-byte ping (4 zero bytes + 8-byte timestamp)
+    let mut legacy = [0u8; 12];
+    legacy[4..12].copy_from_slice(&ts.to_be_bytes());
+    let _ = sock.send(&legacy).await;
+
+    if let Ok(Ok(n)) = timeout(Duration::from_secs(2), sock.recv(&mut recv_buf)).await {
+        if n >= 24 {
+            let users = u32::from_be_bytes([recv_buf[12], recv_buf[13], recv_buf[14], recv_buf[15]]);
+            let max_users = u32::from_be_bytes([recv_buf[16], recv_buf[17], recv_buf[18], recv_buf[19]]);
+            return Ok((Some(users), Some(max_users)));
+        }
+    }
+
+    Ok((None, None))
 }
 
 // --- Audio device commands ----------------------------------------
@@ -1443,6 +1524,26 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init());
 
+    // Register the foreground connection service plugin on Android so
+    // the process stays alive (and keeps receiving messages / showing
+    // notifications) when the app is in the background.
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(
+        tauri::plugin::Builder::<tauri::Wry, ()>::new("connection-service")
+            .setup(|app, api| {
+                let handle = api.register_android_plugin(
+                    "com.fancymumble.app",
+                    "ConnectionServicePlugin",
+                )?;
+                let cs_handle = connection_service::ConnectionServiceHandle(handle);
+                connection_service::register_disconnect_listener(&cs_handle, app.clone());
+                connection_service::register_navigate_listener(&cs_handle, app.clone());
+                let _ = app.manage(cs_handle);
+                Ok(())
+            })
+            .build(),
+    );
+
     // Window state persistence is desktop-only.
     #[cfg(not(target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_window_state::Builder::new().build());
@@ -1557,6 +1658,15 @@ pub fn run() {
             blur_image,
             process_background,
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Focused(focused) = event {
+                if let Some(state) = window.try_state::<AppState>() {
+                    if let Ok(mut s) = state.inner.lock() {
+                        s.app_focused = *focused;
+                    }
+                }
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {

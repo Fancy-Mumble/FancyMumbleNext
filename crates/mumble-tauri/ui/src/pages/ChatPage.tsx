@@ -10,6 +10,7 @@ import ChannelInfoPanel from "../components/ChannelInfoPanel";
 import UserProfileView from "../components/UserProfileView";
 import MobileProfileSheet from "../components/MobileProfileSheet";
 import MobileBottomSheet from "../components/MobileBottomSheet";
+import MenuIcon from "../assets/icons/navigation/menu.svg?react";
 import styles from "./ChatPage.module.css";
 
 export default function ChatPage() {
@@ -79,6 +80,25 @@ export default function ChatPage() {
     }
   }, [status, navigate]);
 
+  // On mobile, block the Android swipe-back gesture / hardware back button
+  // from navigating away from the chat page (which would break the connection).
+  // We push a sentinel history entry and suppress any popstate that tries to
+  // leave while we are still connected.
+  useEffect(() => {
+    if (!isMobile || status !== "connected") return;
+
+    // Push a guard entry so there is always something to "go back" to.
+    window.history.pushState({ chatGuard: true }, "");
+
+    const onPopState = () => {
+      // Re-push the guard entry to stay on the chat page.
+      window.history.pushState({ chatGuard: true }, "");
+    };
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [isMobile, status]);
+
   return (
     <div ref={pageRef} className={styles.page}>
       {/* Burger toggle - shown when drawer mode is active and sidebar is closed */}
@@ -88,9 +108,7 @@ export default function ChatPage() {
           onClick={toggleSidebar}
           aria-label="Open channels"
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
+          <MenuIcon width={24} height={24} />
         </button>
       )}
 

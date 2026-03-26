@@ -92,9 +92,11 @@ pub struct EncryptedFileProvider {
 impl EncryptedFileProvider {
     /// Create a new provider with a fresh random encryption key.
     ///
-    /// Creates the temp directory if it does not already exist.
-    pub fn new() -> Result<Self, String> {
-        let dir = std::env::temp_dir().join(OFFLOAD_DIR_NAME);
+    /// `base_dir` is the parent directory (e.g. the OS temp dir or
+    /// the app's cache directory on Android).  The offload sub-folder
+    /// is created inside it.
+    pub fn new(base_dir: PathBuf) -> Result<Self, String> {
+        let dir = base_dir.join(OFFLOAD_DIR_NAME);
         Self::with_dir(dir)
     }
 
@@ -126,8 +128,8 @@ impl EncryptedFileProvider {
 
     /// Remove stale offload data left behind by a previous session that
     /// did not shut down cleanly.  Called once during application startup.
-    pub fn cleanup_stale() {
-        let dir = std::env::temp_dir().join(OFFLOAD_DIR_NAME);
+    pub fn cleanup_stale(base_dir: &std::path::Path) {
+        let dir = base_dir.join(OFFLOAD_DIR_NAME);
         if dir.exists() {
             info!("Removing stale offload directory from a previous session");
             let _ = fs::remove_dir_all(&dir);
@@ -262,8 +264,10 @@ pub struct OffloadStore {
 
 impl OffloadStore {
     /// Create a store using the default [`EncryptedFileProvider`].
-    pub fn new() -> Result<Self, String> {
-        let provider = EncryptedFileProvider::new()?;
+    ///
+    /// `base_dir` is the parent directory for the offload sub-folder.
+    pub fn new(base_dir: PathBuf) -> Result<Self, String> {
+        let provider = EncryptedFileProvider::new(base_dir)?;
         Ok(Self {
             provider: Box::new(provider),
         })
@@ -312,8 +316,8 @@ impl OffloadStore {
     }
 
     /// Remove stale offload data from a previous session.
-    pub fn cleanup_stale() {
-        EncryptedFileProvider::cleanup_stale();
+    pub fn cleanup_stale(base_dir: &std::path::Path) {
+        EncryptedFileProvider::cleanup_stale(base_dir);
     }
 }
 

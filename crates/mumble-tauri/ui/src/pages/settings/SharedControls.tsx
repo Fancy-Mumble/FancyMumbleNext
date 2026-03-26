@@ -1,5 +1,6 @@
 ﻿import { useState, useCallback, type ReactNode } from "react";
 import { eventToShortcut } from "./shortcutHelpers";
+import ChevronRightIcon from "../../assets/icons/navigation/chevron-right.svg?react";
 import styles from "./SettingsPage.module.css";
 
 export function Accordion({
@@ -20,19 +21,11 @@ export function Accordion({
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
       >
-        <svg
+        <ChevronRightIcon
           className={`${styles.accordionChevron} ${open ? styles.accordionChevronOpen : ""}`}
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
+          width={14}
+          height={14}
+        />
         <span>{title}</span>
       </button>
       {open && <div className={styles.accordionBody}>{children}</div>}

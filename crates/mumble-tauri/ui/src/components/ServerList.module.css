@@ -1,4 +1,4 @@
-/* ─── Server List ───────────────────────────────────────────────── */
+/* --- Server List ------------------------------------------------- */
 
 .list {
   display: flex;
@@ -36,7 +36,7 @@
   transform: scale(0.99);
 }
 
-/* ─── Avatar with status dot overlay ───────────────────────────── */
+/* --- Avatar with status dot overlay ----------------------------- */
 
 .avatarWrap {
   position: relative;
@@ -98,7 +98,7 @@
   50% { opacity: 1; }
 }
 
-/* ─── Text block ───────────────────────────────────────────────── */
+/* --- Text block ------------------------------------------------- */
 
 .info {
   flex: 1;
@@ -122,14 +122,49 @@
   text-overflow: ellipsis;
 }
 
-/* ─── Delete button - fades in on hover ────────────────────────── */
+.users {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+
+.serverCard:hover .users {
+  opacity: 0;
+}
+
+/* --- Action buttons container - right side, fades in on hover --- */
+
+.cardActions {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.serverCard:hover .cardActions {
+  opacity: 1;
+}
 
 .deleteBtn {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -138,13 +173,8 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 12px;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s, background 0.15s;
-}
-
-.serverCard:hover .deleteBtn {
-  opacity: 1;
+  font-size: 10px;
+  transition: color 0.15s, background 0.15s;
 }
 
 .deleteBtn:hover {
@@ -152,7 +182,78 @@
   background: var(--color-glass-hover);
 }
 
-/* ─── Empty state ──────────────────────────────────────────────── */
+.editBtn {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 11px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.editBtn:hover {
+  color: var(--color-accent);
+  background: var(--color-glass-hover);
+}
+
+/* --- Favourite star badge - top-right, replaces user count; hides on hover --- */
+
+.favoriteStarBadge {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  color: #f59e0b;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.15s;
+}
+
+/* Only hide the star on devices that truly support hover (desktop). */
+@media (hover: hover) {
+  .serverCard:hover .favoriteStarBadge {
+    opacity: 0;
+  }
+}
+
+/* --- Favourite star button - in action column, below delete -- */
+
+.favoriteBtn {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 11px;
+  transition: color 0.15s, background 0.15s;
+  line-height: 1;
+}
+
+.favoriteBtn:hover {
+  color: #f59e0b;
+  background: var(--color-glass-hover);
+}
+
+/* --- Empty state -- */
 
 .empty {
   text-align: center;
@@ -161,7 +262,7 @@
   font-size: 14px;
 }
 
-/* ─── Section header with "Add server" link ────────────────────── */
+/* --- Section header with "Add server" link ---------------------- */
 
 .header {
   display: flex;
@@ -202,9 +303,14 @@
   .serverCard {
     padding: 14px;
   }
+
+  /* On touch devices, swipe gestures replace hover-based actions */
+  .cardActions {
+    display: none;
+  }
 }
 
-/* ─── Connecting state ─────────────────────────────────────────── */
+/* --- Connecting state ------------------------------------------- */
 
 .serverCardConnecting {
   border-color: var(--color-accent);

@@ -16,6 +16,12 @@ import { SafeHtml } from "./SafeHtml";
 import { UserListItem, colorFor } from "./UserListItem";
 import { UserContextMenu } from "./UserContextMenu";
 import type { UserContextMenuState } from "./UserContextMenu";
+import CloseIcon from "../assets/icons/action/close.svg?react";
+import FolderIcon from "../assets/icons/general/folder.svg?react";
+import EditIcon from "../assets/icons/action/edit.svg?react";
+import KeyIcon from "../assets/icons/status/key.svg?react";
+import WarningFilledIcon from "../assets/icons/status/warning-filled.svg?react";
+import RefreshIcon from "../assets/icons/action/refresh.svg?react";
 import styles from "./ChannelInfoPanel.module.css";
 
 /** Mumble permission bitmask: Write (bit 0). */
@@ -157,16 +163,11 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
     return (
       <div className={styles.panel}>
         <button className={styles.closeBtn} onClick={onClose} aria-label="Close">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
+          <CloseIcon width={14} height={14} />
         </button>
         <div className={styles.header}>
           <div className={styles.channelIcon}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
-            </svg>
+            <FolderIcon width={24} height={24} />
           </div>
           <h2 className={styles.title}>No channel</h2>
         </div>
@@ -177,18 +178,13 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
   return (
     <div className={styles.panel}>
       <button className={styles.closeBtn} onClick={onClose} aria-label="Close">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
+        <CloseIcon width={14} height={14} />
       </button>
 
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.channelIcon}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
-          </svg>
+          <FolderIcon width={24} height={24} />
         </div>
         <div>
           <h2 className={styles.title}># {channel.name}</h2>
@@ -208,10 +204,7 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
               onClick={startEditing}
               title="Edit channel"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-              </svg>
+              <EditIcon width={14} height={14} />
             </button>
           )}
         </div>
@@ -290,15 +283,12 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
                     onContextMenu={(e) => openUserCtxMenu(e, u.session)}
                   />
                   {u.hash && holderHashes.has(u.hash) && (
-                    <svg className={styles.memberKeyIcon} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Has encryption key">
-                      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-                    </svg>
+                    <KeyIcon className={styles.memberKeyIcon} width={12} height={12} aria-label="Has encryption key" />
                   )}
                   {isPersisted && (!u.hash || !holderHashes.has(u.hash)) && (
-                    <svg className={styles.memberWarningIcon} width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-label="Legacy client - cannot read encrypted messages">
+                    <WarningFilledIcon className={styles.memberWarningIcon} width={12} height={12} aria-label="Legacy client - cannot read encrypted messages">
                       <title>Legacy client - cannot read encrypted messages</title>
-                      <path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 16h2v2h-2zm0-6h2v4h-2z" />
-                    </svg>
+                    </WarningFilledIcon>
                   )}
                 </div>
               ))}
@@ -322,9 +312,7 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
                     </div>
                   </div>
                   <span className={styles.holderName}>{holder.name}</span>
-                  <svg className={styles.memberKeyIcon} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Has encryption key">
-                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-                  </svg>
+                  <KeyIcon className={styles.memberKeyIcon} width={12} height={12} aria-label="Has encryption key" />
                 </div>
               ))}
             </div>
@@ -351,11 +339,12 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
             <button
               className={styles.editBtn}
               onClick={() => {
-                useAppStore.getState().refreshState();
+              useAppStore.getState().refreshState();
               }}
               title="Force refresh state"
+              aria-label="Refresh"
             >
-              Refresh
+              <RefreshIcon width={14} height={14} />
             </button>
           </div>
           <div className={styles.infoGrid}>

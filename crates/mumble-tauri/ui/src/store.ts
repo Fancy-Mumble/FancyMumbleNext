@@ -36,6 +36,7 @@ import type {
 import type { PollPayload, PollVotePayload } from "./components/PollCreator";
 import { registerPoll, registerVote } from "./components/PollCard";
 import { offloadManager } from "./messageOffload";
+import { getSilencedChannels, setSilencedChannel } from "./preferencesStorage";
 
 // --- Store shape --------------------------------------------------
 
@@ -57,6 +58,8 @@ interface AppState {
   unreadCounts: Record<number, number>;
   serverConfig: MumbleServerConfig;
   voiceState: VoiceState;
+  /** True while the user is in an active mobile call session (set by Start/End Call). */
+  inCall: boolean;
 
   // -- DM state --------------------------------------------------
   /** Session ID of the user whose DM chat is currently viewed. */
@@ -99,6 +102,9 @@ interface AppState {
   keyHolders: Record<number, KeyHolderEntry[]>;
   /** Channels where the key-possession challenge failed (key revoked). */
   pchatKeyRevoked: Set<number>;
+
+  /** Channel IDs silenced for the current server (notifications suppressed). */
+  silencedChannels: Set<number>;
 
   /** Set when the server rejects with WrongUserPW/WrongServerPW - prompts the UI for a password. */
   passwordRequired: boolean;
@@ -154,6 +160,12 @@ interface AppState {
   /** Dismiss the password prompt without retrying. */
   dismissPasswordPrompt: () => void;
 
+  // Silenced channels
+  /** Toggle silence for a channel (local-only, persisted per server). */
+  toggleSilenceChannel: (channelId: number) => Promise<boolean>;
+  /** Check whether a channel is silenced. */
+  isChannelSilenced: (channelId: number) => boolean;
+
   // DM actions
   selectDmUser: (session: number) => Promise<void>;
   sendDm: (targetSession: number, body: string) => Promise<void>;
@@ -201,6 +213,7 @@ const INITIAL: Pick<
   | "unreadCounts"
   | "serverConfig"
   | "voiceState"
+  | "inCall"
   | "selectedDmUser"
   | "dmMessages"
   | "dmUnreadCounts"
@@ -218,6 +231,7 @@ const INITIAL: Pick<
   | "pendingKeyShares"
   | "keyHolders"
   | "pchatKeyRevoked"
+  | "silencedChannels"
   | "passwordRequired"
   | "passwordAttempted"
   | "pendingConnect"
@@ -239,6 +253,7 @@ const INITIAL: Pick<
     allow_html: true,
   },
   voiceState: "inactive" as VoiceState,
+  inCall: false,
   selectedDmUser: null,
   dmMessages: [],
   dmUnreadCounts: {},
@@ -256,6 +271,7 @@ const INITIAL: Pick<
   pendingKeyShares: {},
   keyHolders: {},
   pchatKeyRevoked: new Set(),
+  silencedChannels: new Set(),
   passwordRequired: false,
   passwordAttempted: false,
   pendingConnect: null,
@@ -265,8 +281,10 @@ const INITIAL: Pick<
 
 /** Update the taskbar badge with the total unread count (channels + DMs + groups). */
 function updateBadgeCount(): void {
-  const { unreadCounts, dmUnreadCounts, groupUnreadCounts } = useAppStore.getState();
-  const channelSum = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
+  const { unreadCounts, dmUnreadCounts, groupUnreadCounts, silencedChannels } = useAppStore.getState();
+  const channelSum = Object.entries(unreadCounts)
+    .filter(([id]) => !silencedChannels.has(Number(id)))
+    .reduce((a, [, b]) => a + b, 0);
   const dmSum = Object.values(dmUnreadCounts).reduce((a, b) => a + b, 0);
   const groupSum = Object.values(groupUnreadCounts).reduce((a, b) => a + b, 0);
   const total = channelSum + dmSum + groupSum;
@@ -452,7 +470,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   enableVoice: async () => {
     try {
       await invoke("enable_voice");
-      set({ voiceState: "active" });
+      set({ voiceState: "active", inCall: true });
     } catch (e) {
       console.error("enable_voice error:", e);
     }
@@ -461,7 +479,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   disableVoice: async () => {
     try {
       await invoke("disable_voice");
-      set({ voiceState: "inactive" });
+      set({ voiceState: "inactive", inCall: false });
     } catch (e) {
       console.error("disable_voice error:", e);
     }
@@ -603,6 +621,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   dismissPasswordPrompt: () => {
     set({ passwordRequired: false, passwordAttempted: false, pendingConnect: null });
+  },
+
+  // -- Silenced channels ------------------------------------------
+
+  toggleSilenceChannel: async (channelId) => {
+    const { silencedChannels, pendingConnect } = get();
+    if (!pendingConnect) return false;
+    const serverKey = `${pendingConnect.host}:${pendingConnect.port}`;
+    const isSilenced = silencedChannels.has(channelId);
+    const updated = await setSilencedChannel(serverKey, channelId, !isSilenced);
+    set({ silencedChannels: new Set(updated) });
+    updateBadgeCount();
+    return !isSilenced;
+  },
+
+  isChannelSilenced: (channelId) => {
+    return get().silencedChannels.has(channelId);
   },
 
   // -- Persistent chat actions ------------------------------------
@@ -832,7 +867,7 @@ export async function initEventListeners(
         id: "messages",
         name: "Messages",
         description: "Chat message notifications",
-        importance: Importance.Default,
+        importance: Importance.High,
         visibility: Visibility.Public,
       });
     }
@@ -853,9 +888,18 @@ export async function initEventListeners(
 
   // Server fully connected (ServerSync received).
   unlisteners.push(
-    await listen("server-connected", () => {
+    await listen("server-connected", async () => {
+      // Load silenced channels for this server (pendingConnect still available).
+      const pending = useAppStore.getState().pendingConnect;
+      let silenced = new Set<number>();
+      if (pending) {
+        const serverKey = `${pending.host}:${pending.port}`;
+        const ids = await getSilencedChannels(serverKey);
+        silenced = new Set(ids);
+      }
+
       // Navigate immediately - don't block on data fetching.
-      useAppStore.setState({ status: "connected", pendingConnect: null, passwordRequired: false });
+      useAppStore.setState({ status: "connected", passwordRequired: false, silencedChannels: silenced });
       navigate("/chat");
 
       // Load channels/users/messages lazily in the background.
@@ -1033,6 +1077,15 @@ export async function initEventListeners(
   unlisteners.push(
     await listen<{ channel_id: number }>("current-channel-changed", (event) => {
       useAppStore.setState({ currentChannel: event.payload.channel_id });
+    }),
+  );
+
+  // User tapped a chat notification - navigate to the target channel.
+  unlisteners.push(
+    await listen<{ channel_id: number }>("navigate-to-channel", (event) => {
+      const channelId = event.payload.channel_id;
+      navigate("/chat");
+      useAppStore.getState().selectChannel(channelId);
     }),
   );
 

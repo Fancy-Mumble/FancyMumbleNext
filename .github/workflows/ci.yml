@@ -16,9 +16,9 @@ env:
   CMAKE_POLICY_VERSION_MINIMUM: "3.5"
 
 jobs:
-  # ────────────────────────────────────────────────────────────────
+  # ----------------------------------------------------------------
   # 0. Preflight checks (runs first)
-  # ────────────────────────────────────────────────────────────────
+  # ----------------------------------------------------------------
 
   preflight:
     name: Preflight (Android signing)
@@ -50,9 +50,9 @@ jobs:
         if: ${{ env.ANDROID_KEYSTORE_BASE64 == '' || env.ANDROID_KEYSTORE_PASSWORD == '' || env.ANDROID_KEY_ALIAS == '' }}
         run: echo "Android signing secrets are missing. Continuing without signing preflight."
 
-  # ────────────────────────────────────────────────────────────────
+  # ----------------------------------------------------------------
   # 1. Lint & test (runs on every push / PR)
-  # ────────────────────────────────────────────────────────────────
+  # ----------------------------------------------------------------
 
   test:
     name: Test (${{ matrix.os }})
@@ -66,7 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # ── Toolchain ───────────────────────────────────────────────
+      # -- Toolchain -----------------------------------------------
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -82,7 +82,7 @@ jobs:
         with:
           node-version: 22
 
-      # ── Linux system deps (Tauri + ALSA for cpal) ──────────────
+      # -- Linux system deps (Tauri + ALSA for cpal) --------------
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
         run: |
@@ -102,7 +102,7 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install protoc -y
 
-      # ── Frontend ────────────────────────────────────────────────
+      # -- Frontend ------------------------------------------------
       - name: Install npm dependencies
         working-directory: crates/mumble-tauri/ui
         run: npm ci
@@ -115,7 +115,7 @@ jobs:
         working-directory: crates/mumble-tauri/ui
         run: npm test
 
-      # ── Rust ────────────────────────────────────────────────────
+      # -- Rust ----------------------------------------------------
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -128,7 +128,7 @@ jobs:
       - name: Rust unit tests (mumble-tauri)
         run: cargo test --package mumble-tauri --lib
 
-      # ── Integration tests (Linux only - Docker) ────────────────
+      # -- Integration tests (Linux only - Docker) ----------------
       - name: Start Mumble test server
         if: runner.os == 'Linux'
         working-directory: crates/mumble-protocol
@@ -143,9 +143,9 @@ jobs:
         working-directory: crates/mumble-protocol
         run: docker compose -f docker-compose.test.yml down
 
-  # ────────────────────────────────────────────────────────────────
+  # ----------------------------------------------------------------
   # 2. Build Tauri app (runs on every push / PR)
-  # ────────────────────────────────────────────────────────────────
+  # ----------------------------------------------------------------
 
   build:
     name: Build (${{ matrix.target.name }})
@@ -219,9 +219,9 @@ jobs:
             target/release/bundle/**/*.exe
           if-no-files-found: warn
 
-  # ────────────────────────────────────────────────────────────────
+  # ----------------------------------------------------------------
   # 2b. Build Android APK (runs on every push / PR)
-  # ────────────────────────────────────────────────────────────────
+  # ----------------------------------------------------------------
 
   build-android:
     name: Build (Android)
@@ -303,6 +303,13 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ env.ANDROID_KEY_PASSWORD_EFFECTIVE }}
         run: cargo tauri android build --apk
 
+      - name: Verify Android .so (no unresolved C++ symbols)
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: |
+          chmod +x scripts/check-android-so.sh
+          ./scripts/check-android-so.sh
+
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -311,9 +318,9 @@ jobs:
             crates/mumble-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: warn
 
-  # ────────────────────────────────────────────────────────────────
+  # ----------------------------------------------------------------
   # 3. Release (only on push to main)
-  # ────────────────────────────────────────────────────────────────
+  # ----------------------------------------------------------------
 
   release:
     name: Release

@@ -28,18 +28,16 @@ pub use types::{
 };
 
 use std::collections::{HashMap, HashSet};
-#[cfg(not(target_os = "android"))]
 use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tracing::info;
 
 use offload::OffloadStore;
 
-#[cfg(not(target_os = "android"))]
-use mumble_protocol::audio::pipeline::InboundPipeline;
+use mumble_protocol::audio::mixer::AudioMixer;
 use mumble_protocol::client::ClientHandle;
 use mumble_protocol::command;
 use mumble_protocol::persistent::PersistenceMode;
@@ -127,24 +125,20 @@ pub(super) struct SharedState {
     pub voice_state: VoiceState,
     /// Encrypted temp-file store for offloaded heavy message content.
     pub offload_store: Option<OffloadStore>,
-    /// Inbound audio pipeline (network -> speakers).  Desktop only.
-    #[cfg(not(target_os = "android"))]
-    pub inbound_pipeline: Option<InboundPipeline>,
-    /// Handle to the outbound audio capture task (mic -> network).  Desktop only.
-    #[cfg(not(target_os = "android"))]
+    /// Inbound audio mixer (per-speaker decoders + shared output).
+    pub audio_mixer: Option<AudioMixer>,
+    /// Mixing playback device that reads from per-speaker buffers.
+    pub mixing_playback: Option<Box<dyn crate::audio::MixingPlayback>>,
+    /// Handle to the outbound audio capture task (mic -> network).
     pub outbound_task_handle: Option<tokio::task::JoinHandle<()>>,
     /// Live input volume multiplier (f32 stored as u32 bits). Updated atomically
     /// so volume slider changes take effect without pipeline restart.
-    #[cfg(not(target_os = "android"))]
     pub input_volume_handle: Option<Arc<AtomicU32>>,
     /// Live output volume multiplier (f32 stored as u32 bits).
-    #[cfg(not(target_os = "android"))]
     pub output_volume_handle: Option<Arc<AtomicU32>>,
-    /// Handle to the background mic-test task (emits amplitude events). Desktop only.
-    #[cfg(not(target_os = "android"))]
+    /// Handle to the background mic-test task (emits amplitude events).
     pub mic_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
-    /// Handle to the background latency-test task (sends periodic pings). Desktop only.
-    #[cfg(not(target_os = "android"))]
+    /// Handle to the background latency-test task (sends periodic pings).
     pub latency_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
     /// Persistent encrypted chat state (identity, key manager, codec).
     /// Initialised on connect when a cert hash is available.
@@ -179,6 +173,11 @@ pub(super) struct SharedState {
     pub tauri_app_handle: Option<AppHandle>,
     /// Whether native OS notifications are enabled (user preference).
     pub notifications_enabled: bool,
+    /// Whether the app window is currently focused (visible and on top).
+    /// When `false`, notification suppression for the selected channel is
+    /// bypassed so the user still receives notifications while the app
+    /// is in the background.
+    pub app_focused: bool,
 }
 
 // --- Tauri-managed application state ------------------------------
@@ -193,7 +192,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(SharedState { notifications_enabled: true, ..Default::default() })),
+            inner: Arc::new(Mutex::new(SharedState { notifications_enabled: true, app_focused: true, ..Default::default() })),
             app_handle: Mutex::new(None),
             start_time: Instant::now(),
         }
@@ -284,12 +283,27 @@ impl AppState {
 
     /// Initialise the encrypted offload store (called once during setup).
     pub fn init_offload_store(&self) -> Result<(), String> {
-        OffloadStore::cleanup_stale();
-        let store = OffloadStore::new()?;
+        let base_dir = self.offload_base_dir()?;
+        OffloadStore::cleanup_stale(&base_dir);
+        let store = OffloadStore::new(base_dir)?;
         if let Ok(mut state) = self.inner.lock() {
             state.offload_store = Some(store);
         }
         Ok(())
+    }
+
+    /// Returns the base directory for the offload temp store.
+    ///
+    /// On Android `std::env::temp_dir()` is not writable, so we use
+    /// Tauri's cache directory instead.  On desktop we fall back to
+    /// the OS temp directory.
+    fn offload_base_dir(&self) -> Result<std::path::PathBuf, String> {
+        if let Some(app) = self.app_handle() {
+            if let Ok(cache) = app.path().cache_dir() {
+                return Ok(cache);
+            }
+        }
+        Ok(std::env::temp_dir())
     }
 
     /// Encrypt a message body and write it to a temp file, replacing

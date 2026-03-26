@@ -8,6 +8,7 @@
 
 import { useState, useCallback, useMemo } from "react";
 import type { PollPayload, PollVotePayload } from "./PollCreator";
+import PollIcon from "../assets/icons/communication/poll.svg?react";
 import styles from "./PollCard.module.css";
 
 // --- Vote store (module-level) ------------------------------------
@@ -131,9 +132,7 @@ export default function PollCard({ poll, ownSession, isOwn, onVote }: Readonly<P
   return (
     <div className={`${styles.card} ${isOwn ? styles.cardOwn : ""}`}>
       <div className={styles.header}>
-        <svg className={styles.pollIcon} width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M3 3h4v18H3V3zm7 4h4v14h-4V7zm7 4h4v10h-4V11z" />
-        </svg>
+        <PollIcon className={styles.pollIcon} width={16} height={16} />
         <span className={styles.pollLabel}>Poll</span>
         <span className={styles.creatorInfo}>by {poll.creatorName}</span>
       </div>

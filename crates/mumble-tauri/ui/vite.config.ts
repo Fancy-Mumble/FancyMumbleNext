@@ -1,11 +1,11 @@
-/// <reference types="vitest" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import svgr from "vite-plugin-svgr";
 
 const port = Number(process.env.VITE_PORT) || 1420;
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), svgr()],
 
   // Prevent Vite from clearing the terminal so Tauri logs stay visible.
   clearScreen: false,
@@ -29,11 +29,5 @@ export default defineConfig({
     target: "esnext",
     minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_DEBUG,
-  },
-
-  test: {
-    environment: "jsdom",
-    globals: true,
-    css: true,
   },
 });
