@@ -842,6 +842,7 @@ mod voice_pipeline {
         use mumble_protocol::audio::sample::AudioFormat;
 
         #[test]
+        #[ignore = "requires audio hardware - run with --ignored"]
         fn create_capture_returns_correct_format() {
             let vol = Arc::new(AtomicU32::new(1.0_f32.to_bits()));
             let Ok(capture) = PlatformAudioFactory::create_capture(None, 960, vol) else {
@@ -852,6 +853,7 @@ mod voice_pipeline {
         }
 
         #[test]
+        #[ignore = "requires audio hardware - run with --ignored"]
         fn factory_capture_is_compatible_with_pipeline() {
             use mumble_protocol::audio::filter::FilterChain;
             use mumble_protocol::audio::pipeline::OutboundPipeline;
@@ -874,6 +876,7 @@ mod voice_pipeline {
         }
 
         #[test]
+        #[ignore = "requires audio hardware - run with --ignored"]
         fn factory_mixing_playback_can_be_started() {
             let vol = Arc::new(AtomicU32::new(1.0_f32.to_bits()));
             let bufs: SpeakerBuffers = Arc::new(

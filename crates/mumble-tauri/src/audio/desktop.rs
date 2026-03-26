@@ -393,6 +393,7 @@ mod tests {
     use mumble_protocol::audio::sample::AudioFormat;
 
     #[test]
+    #[ignore = "requires audio hardware - run with --ignored"]
     fn capture_reports_mono_48khz_f32_format() {
         let vol = Arc::new(AtomicU32::new(1.0_f32.to_bits()));
         let Ok(capture) = CpalCapture::new(None, 960, vol) else {
@@ -403,6 +404,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires audio hardware - run with --ignored"]
     fn mixing_playback_can_be_created() {
         let vol = Arc::new(AtomicU32::new(1.0_f32.to_bits()));
         let bufs: mumble_protocol::audio::mixer::SpeakerBuffers = Arc::new(
@@ -415,6 +417,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires audio hardware - run with --ignored"]
     fn capture_read_before_start_returns_error() {
         let vol = Arc::new(AtomicU32::new(1.0_f32.to_bits()));
         let Ok(mut capture) = CpalCapture::new(None, 960, vol) else { return };
