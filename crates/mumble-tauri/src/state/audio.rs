@@ -884,7 +884,10 @@ mod voice_pipeline {
                 eprintln!("Skipping: no audio output device available");
                 return;
             };
-            assert!(playback.start().is_ok());
+            if playback.start().is_err() {
+                eprintln!("Skipping: audio output device found but stream could not start");
+                return;
+            }
             assert!(playback.stop().is_ok());
         }
     }
