@@ -12,6 +12,7 @@
 //! - [`event_handler`] - `EventHandler` bridge from mumble-protocol to Tauri events.
 
 mod audio;
+mod audio_tasks;
 mod connection;
 mod event_handler;
 mod handler;

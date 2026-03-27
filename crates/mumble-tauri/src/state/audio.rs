@@ -80,23 +80,22 @@ mod voice_pipeline {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use tracing::{info, warn};
+    use tracing::info;
 
     use mumble_protocol::audio::encoder::{OpusEncoder, OpusEncoderConfig};
     use mumble_protocol::audio::filter::automatic_gain::{AgcConfig, AutomaticGainControl};
     use mumble_protocol::audio::filter::noise_gate::{NoiseGate, NoiseGateConfig};
     use mumble_protocol::audio::filter::FilterChain;
     use mumble_protocol::audio::mixer::{AudioMixer, SpeakerBuffers};
-    use mumble_protocol::audio::pipeline::{OutboundPipeline, OutboundTick};
+    use mumble_protocol::audio::pipeline::OutboundPipeline;
     use mumble_protocol::audio::sample::AudioFormat;
     use mumble_protocol::client::ClientHandle;
     use mumble_protocol::command;
 
     use crate::audio::{AudioDeviceFactory, PlatformAudioFactory};
-    use mumble_protocol::audio::capture::AudioCapture;
 
-    use crate::state::types::{AudioSettings, MicAmplitudePayload, VoiceState};
-    use crate::state::{AppState, SharedState};
+    use crate::state::types::{AudioSettings, VoiceState};
+    use crate::state::AppState;
 
     impl AppState {
         /// Enable voice calling: unmute + undeaf, start audio pipelines.
@@ -172,6 +171,13 @@ mod voice_pipeline {
                 });
                 outbound_filters.push(Box::new(noise_gate));
             }
+
+            info!(
+                "enable_voice: outbound filters={}, noise_suppression={}, threshold={:.5}",
+                outbound_filters.len(),
+                audio_settings.noise_suppression,
+                audio_settings.vad_threshold,
+            );
 
             let mut outbound = OutboundPipeline::new(
                 capture,
@@ -372,6 +378,13 @@ mod voice_pipeline {
                 })));
             }
 
+            info!(
+                "start_outbound_pipeline: filters={}, noise_suppression={}, threshold={:.5}",
+                outbound_filters.len(),
+                audio_settings.noise_suppression,
+                audio_settings.vad_threshold,
+            );
+
             let mut outbound = OutboundPipeline::new(
                 capture,
                 outbound_filters,
@@ -531,7 +544,7 @@ mod voice_pipeline {
         /// `mic-amplitude` events to the frontend at ~30 Hz.
         ///
         /// When `auto_input_sensitivity` is enabled, the measured
-        /// noise floor is used to auto-adjust `vad_threshold`.
+        /// noise floor (post-AGC) is used to auto-adjust `vad_threshold`.
         pub fn start_mic_test(&self) -> Result<(), String> {
             // Stop any already-running mic test.
             self.stop_mic_test();
@@ -551,12 +564,31 @@ mod voice_pipeline {
 
             capture.start().map_err(|e| format!("Mic test capture start: {e}"))?;
 
+            // Build AGC filter matching the voice pipeline so auto-calibration
+            // measures post-gain levels (same as the noise gate will see).
+            let agc_filter = if audio_settings.auto_gain {
+                let max_gain_linear = 10.0_f32.powf(audio_settings.max_gain_db / 20.0);
+                #[cfg(target_os = "android")]
+                let agc_config = AgcConfig {
+                    max_gain: max_gain_linear.min(2.0),
+                    ..AgcConfig::default()
+                };
+                #[cfg(not(target_os = "android"))]
+                let agc_config = AgcConfig {
+                    max_gain: max_gain_linear,
+                    ..AgcConfig::default()
+                };
+                Some(AutomaticGainControl::new(agc_config))
+            } else {
+                None
+            };
+
             let app = self.app_handle().ok_or("No app handle")?;
             let auto_sensitivity = audio_settings.auto_input_sensitivity;
             let inner = self.inner.clone();
 
             let handle = tauri::async_runtime::spawn(async move {
-                mic_test_loop(capture, app, auto_sensitivity, inner).await;
+                mic_test_loop(capture, app, auto_sensitivity, inner, agc_filter).await;
             });
 
             let mut state = self.inner.lock().map_err(|e| e.to_string())?;
@@ -605,236 +637,126 @@ mod voice_pipeline {
                 }
             }
         }
-    }
 
-    /// Payload queued from the encoding loop to the network send task.
-    struct AudioPacketOut {
-        data: Vec<u8>,
-        sequence: u64,
-        is_terminator: bool,
-    }
-
-    /// Background task that reads from the microphone, encodes, and queues
-    /// Opus packets for network transmission.
-    ///
-    /// Encoding and network I/O are decoupled via a bounded channel so
-    /// that slow network sends never stall the audio processing loop.
-    async fn outbound_audio_loop(mut pipeline: OutboundPipeline, handle: ClientHandle) {
-        // Bounded channel: 50 packets ~ 1 second of audio at 20ms/frame.
-        // If the network can't keep up, packets are dropped (preferable
-        // to blocking the encoder and causing dropouts).
-        let (tx, rx) = tokio::sync::mpsc::channel::<AudioPacketOut>(50);
-
-        // Dedicated task for network sends - runs independently so
-        // network latency never blocks encoding.
-        let _outbound_send_task = tokio::spawn(outbound_send_task(rx, handle));
-
-        // Let the capture buffer fill before we start encoding.
-        // Without this, the first few ticks return NoData (dropout at t=0).
-        tokio::time::sleep(Duration::from_millis(60)).await;
-
-        // Poll at 5 ms instead of 20 ms.  Each frame is still 960 samples
-        // (20 ms @ 48 kHz), but the shorter interval reduces the chance of
-        // missing the moment when enough samples become available.
-        // On Windows the default timer resolution is ~15.6 ms, so a 20 ms
-        // interval can fire anywhere from 15.6-31.2 ms -- easily before
-        // cpal has delivered a full frame, causing a dropout.  5 ms keeps
-        // us well inside a single timer period and lets us catch frames
-        // as soon as they appear.
-        let mut interval = tokio::time::interval(Duration::from_millis(5));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let mut packet_count: u64 = 0;
-
-        loop {
-            let _ = interval.tick().await;
-
-            // Process a bounded number of frames per tick. Under normal
-            // conditions there is exactly 1 frame available (20ms of
-            // captured audio). The bound prevents scheduler starvation
-            // when catching up after a brief delay.
-            for _ in 0..5 {
-                match pipeline.tick() {
-                    Ok(OutboundTick::Audio(packet)) => {
-                        packet_count += 1;
-                        if packet_count == 1 || packet_count.is_multiple_of(500) {
-                            info!(
-                                "outbound_audio: sending packet #{} (opus {} bytes, seq {})",
-                                packet_count,
-                                packet.data.len(),
-                                packet.sequence
-                            );
-                        }
-                        if tx
-                            .try_send(AudioPacketOut {
-                                data: packet.data,
-                                sequence: packet.sequence,
-                                is_terminator: false,
-                            })
-                            .is_err()
-                        {
-                            warn!("outbound_audio: send channel full, dropping packet");
-                        }
-                    }
-                    Ok(OutboundTick::Terminator(packet)) => {
-                        info!(
-                            "outbound_audio: sending terminator (opus {} bytes)",
-                            packet.data.len()
-                        );
-                        let _ = tx.try_send(AudioPacketOut {
-                            data: packet.data,
-                            sequence: packet.sequence,
-                            is_terminator: true,
-                        });
-                    }
-                    Ok(OutboundTick::Silence) => {
-                        continue;
-                    }
-                    Ok(OutboundTick::NoData) => break,
-                    Err(e) => {
-                        warn!("outbound audio error: {e}");
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    /// Drains encoded audio packets from the channel and sends them to
-    /// the server. Runs in its own tokio task so network latency never
-    /// blocks the audio encoding loop.
-    async fn outbound_send_task(
-        mut rx: tokio::sync::mpsc::Receiver<AudioPacketOut>,
-        handle: ClientHandle,
-    ) {
-        while let Some(pkt) = rx.recv().await {
-            if let Err(e) = handle
-                .send(command::SendAudio {
-                    opus_data: pkt.data,
-                    target: 0,
-                    frame_number: pkt.sequence,
-                    positional_data: None,
-                    is_terminator: pkt.is_terminator,
-                })
-                .await
-            {
-                warn!("outbound_audio: network send failed: {e}");
-            }
-        }
-    }
-
-    /// Background loop for the mic test.
-    ///
-    /// Reads frames from the capture device, computes RMS/peak, and
-    /// emits `mic-amplitude` events to the frontend.  When
-    /// `auto_sensitivity` is enabled, measures the noise floor over a
-    /// sliding window and writes the auto-computed `vad_threshold`
-    /// back into `AudioSettings`.
-    async fn mic_test_loop(
-        mut capture: Box<dyn AudioCapture>,
-        app: tauri::AppHandle,
-        auto_sensitivity: bool,
-        inner: Arc<std::sync::Mutex<SharedState>>,
-    ) {
-        use tauri::Emitter;
-
-        // Emit at ~30 Hz (every ~33 ms).
-        let mut interval = tokio::time::interval(Duration::from_millis(33));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-        // Exponential moving average of the noise floor for auto-sensitivity.
-        let mut noise_floor_ema: f32 = 0.0;
-        let ema_alpha: f32 = 0.05; // slow adaptation
-        let mut frame_count: u64 = 0;
-
-        loop {
-            let _ = interval.tick().await;
-
-            // Drain ALL buffered frames so we always measure the most
-            // recent audio.  Without this the ring buffer fills up
-            // (cpal produces ~50 fps, we read at ~30 fps) causing
-            // ever-growing latency and eventual overflow warnings.
-            let mut latest = None;
-            while let Ok(frame) = capture.read_frame() {
-                latest = Some(frame);
-            }
-            let Some(frame) = latest else {
-                continue;
+        /// Calibrate the voice activation threshold.
+        ///
+        /// Opens the microphone, applies the same AGC filter chain as
+        /// the voice pipeline, measures the post-gain noise floor over
+        /// ~2 seconds, and sets `vad_threshold` to 3x the measured
+        /// noise floor.  Returns the new threshold.
+        pub async fn calibrate_voice_threshold(&self) -> Result<f32, String> {
+            let audio_settings = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                state.audio_settings.clone()
             };
 
-            // Parse f32 samples from the raw byte data.
-            let samples: Vec<f32> = frame
-                .data
-                .chunks_exact(4)
-                .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
-                .collect();
+            let input_vol = Arc::new(AtomicU32::new(audio_settings.input_volume.to_bits()));
 
-            if samples.is_empty() {
-                continue;
-            }
+            let mut capture = PlatformAudioFactory::create_capture(
+                audio_settings.selected_device.as_deref(),
+                960,
+                input_vol,
+            )?;
+            capture.start().map_err(|e| format!("Calibration capture start: {e}"))?;
 
-            let sum_sq: f32 = samples.iter().map(|s| s * s).sum();
-            let rms = (sum_sq / samples.len() as f32).sqrt();
-            let peak = samples.iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
+            // Build the same AGC filter as the voice pipeline.
+            let mut agc_filter = if audio_settings.auto_gain {
+                let max_gain_linear = 10.0_f32.powf(audio_settings.max_gain_db / 20.0);
+                #[cfg(target_os = "android")]
+                let agc_config = AgcConfig {
+                    max_gain: max_gain_linear.min(2.0),
+                    ..AgcConfig::default()
+                };
+                #[cfg(not(target_os = "android"))]
+                let agc_config = AgcConfig {
+                    max_gain: max_gain_linear,
+                    ..AgcConfig::default()
+                };
+                Some(AutomaticGainControl::new(agc_config))
+            } else {
+                None
+            };
 
-            // Clamp to [0, 1].
-            let rms = rms.min(1.0);
-            let peak = peak.min(1.0);
+            // Measure noise floor for ~2 seconds (~60 frames at 30 Hz).
+            let mut noise_floor_ema: f32 = 0.0;
+            let ema_alpha: f32 = 0.1;
+            let mut frame_count: u32 = 0;
 
-            let _ = app.emit("mic-amplitude", MicAmplitudePayload { rms, peak });
+            let mut interval = tokio::time::interval(Duration::from_millis(33));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-            // Auto-sensitivity: adapt noise floor and set threshold.
-            if auto_sensitivity {
+            for _ in 0..60 {
+                let _ = interval.tick().await;
+
+                let mut latest = None;
+                while let Ok(frame) = capture.read_frame() {
+                    latest = Some(frame);
+                }
+                let Some(mut frame) = latest else {
+                    continue;
+                };
+
+                // Apply AGC to get post-gain levels.
+                if let Some(ref mut agc) = agc_filter {
+                    use mumble_protocol::audio::filter::AudioFilter as _;
+                    let _ = agc.process(&mut frame);
+                }
+
+                let samples: Vec<f32> = frame
+                    .data
+                    .chunks_exact(4)
+                    .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+                    .collect();
+
+                if samples.is_empty() {
+                    continue;
+                }
+
+                let sum_sq: f32 = samples.iter().map(|s| s * s).sum();
+                let rms = (sum_sq / samples.len() as f32).sqrt().min(1.0);
+
                 frame_count += 1;
-
-                // Only update noise floor from quiet frames (likely ambient noise).
-                // A frame is considered "quiet" if its RMS < 3x the current noise floor
-                // estimate, or during the initial calibration period.
-                let is_calibrating = frame_count < 30; // ~1 second warmup
-                let is_quiet = rms < noise_floor_ema * 3.0 || noise_floor_ema < 0.0001;
-
-                if is_calibrating || is_quiet {
-                    if noise_floor_ema < 0.0001 {
-                        noise_floor_ema = rms;
-                    } else {
+                if noise_floor_ema < 0.0001 {
+                    noise_floor_ema = rms;
+                } else {
+                    // Only update from frames close to the noise floor.
+                    // Use a tight 3x multiplier so speech does not
+                    // inflate the noise floor estimate.
+                    let is_quiet = frame_count < 15
+                        || rms < noise_floor_ema * 3.0
+                        || noise_floor_ema < 0.0001;
+                    if is_quiet {
                         noise_floor_ema = ema_alpha * rms + (1.0 - ema_alpha) * noise_floor_ema;
                     }
                 }
-
-                // Set threshold at 2x the noise floor, with a minimum.
-                // This gives headroom above ambient noise but catches speech.
-                if frame_count > 15 && frame_count.is_multiple_of(10) {
-                    let threshold = (noise_floor_ema * 2.0).clamp(0.005, 0.5);
-                    if let Ok(mut state) = inner.lock() {
-                        if (state.audio_settings.vad_threshold - threshold).abs() > 0.002 {
-                            state.audio_settings.vad_threshold = threshold;
-                        }
-                    }
-                }
             }
+
+            let _ = capture.stop();
+
+            // Set threshold at 15x noise floor for clear separation.
+            let threshold = (noise_floor_ema * 15.0).clamp(0.03, 0.5);
+            info!(
+                "calibrate_voice_threshold: noise_floor={:.5}, threshold={:.5}",
+                noise_floor_ema, threshold
+            );
+
+            if let Ok(mut state) = self.inner.lock() {
+                state.audio_settings.vad_threshold = threshold;
+            }
+
+            // Emit event so the frontend can update the displayed threshold.
+            if let Some(app) = self.app_handle() {
+                use tauri::Emitter as _;
+                let _ = app.emit("vad-threshold-updated", threshold);
+            }
+
+            Ok(threshold)
         }
     }
 
-    /// Background task that sends TCP pings at ~2 Hz so the event handler can
-    /// compute RTT and emit `"ping-latency"` events for the latency graph.
-    async fn latency_ping_loop(client_handle: ClientHandle) {
-        let mut interval = tokio::time::interval(Duration::from_millis(500));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-        loop {
-            let _ = interval.tick().await;
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-            if client_handle
-                .send(command::SendPing { timestamp: ts })
-                .await
-                .is_err()
-            {
-                break;
-            }
-        }
-    }
+    // Background task functions are in the `audio_tasks` sibling module
+    // to keep this file's size manageable.
+    use super::super::audio_tasks::{latency_ping_loop, mic_test_loop, outbound_audio_loop};
 
     #[cfg(test)]
     mod tests {

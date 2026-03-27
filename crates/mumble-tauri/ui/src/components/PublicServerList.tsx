@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { PublicServer, ServerPingResult } from "../types";
 import styles from "./PublicServerList.module.css";
 
-type SortKey = "country" | "name" | "users" | "ping";
+type SortKey = "country" | "name" | "users" | "ping" | "version";
 type SortDir = "asc" | "desc";
 
 interface Props {
@@ -88,7 +88,7 @@ export default function PublicServerList({
         .catch(() =>
           setPings((prev) => ({
             ...prev,
-            [key]: { online: false, latency_ms: null, user_count: null, max_user_count: null },
+            [key]: { online: false, latency_ms: null, user_count: null, max_user_count: null, server_version: null },
           })),
         );
     }
@@ -129,7 +129,8 @@ export default function PublicServerList({
           fuzzyMatch(query, s.name) ||
           fuzzyMatch(query, s.country) ||
           fuzzyMatch(query, s.region) ||
-          fuzzyMatch(query, s.ip),
+          fuzzyMatch(query, s.ip) ||
+          fuzzyMatch(query, pings[`${s.ip}:${s.port}`]?.server_version ?? ""),
       );
     }
 
@@ -148,6 +149,10 @@ export default function PublicServerList({
         const pa = pings[`${a.ip}:${a.port}`]?.latency_ms ?? 9999;
         const pb = pings[`${b.ip}:${b.port}`]?.latency_ms ?? 9999;
         cmp = pa - pb;
+      } else if (sortKey === "version") {
+        const va = pings[`${a.ip}:${a.port}`]?.server_version ?? "";
+        const vb = pings[`${b.ip}:${b.port}`]?.server_version ?? "";
+        cmp = va.localeCompare(vb, undefined, { numeric: true });
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -254,6 +259,9 @@ export default function PublicServerList({
                 <th onClick={() => handleSort("ping")}>
                   Ping{sortIndicator("ping")}
                 </th>
+                <th onClick={() => handleSort("version")}>
+                  Version{sortIndicator("version")}
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -280,12 +288,15 @@ export default function PublicServerList({
                     <td>
                       <PingCell ping={ping} />
                     </td>
+                    <td className={styles.versionCell}>
+                      <VersionCell ping={ping} />
+                    </td>
                   </tr>
                 );
               })}
               {displayed.length === 0 && (
                 <tr>
-                  <td colSpan={4} className={styles.statusRow}>
+                  <td colSpan={5} className={styles.statusRow}>
                     No servers match your search.
                   </td>
                 </tr>
@@ -336,4 +347,14 @@ function UsersCell({ ping }: Readonly<{ ping?: ServerPingResult }>) {
       {ping.user_count}{max != null && max > 0 ? `/${max}` : ""}
     </span>
   );
+}
+
+function VersionCell({ ping }: Readonly<{ ping?: ServerPingResult }>) {
+  if (!ping) {
+    return <span className={styles.pingNa}>...</span>;
+  }
+  if (!ping.server_version) {
+    return <span className={styles.pingNa}>-</span>;
+  }
+  return <span>{ping.server_version}</span>;
 }

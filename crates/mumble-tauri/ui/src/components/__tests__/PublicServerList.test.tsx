@@ -65,17 +65,17 @@ beforeEach(() => {
   vi.clearAllMocks();
   clearPingCache();
   // Default: fetch returns sample servers, ping returns per-server user counts
-  const pingData: Record<string, { online: boolean; latency_ms: number; user_count: number; max_user_count: number }> = {
-    "1.1.1.1": { online: true, latency_ms: 42, user_count: 5, max_user_count: 50 },
-    "2.2.2.2": { online: true, latency_ms: 80, user_count: 12, max_user_count: 100 },
-    "3.3.3.3": { online: true, latency_ms: 20, user_count: 3, max_user_count: 30 },
+  const pingData: Record<string, { online: boolean; latency_ms: number; user_count: number; max_user_count: number; server_version: string | null }> = {
+    "1.1.1.1": { online: true, latency_ms: 42, user_count: 5, max_user_count: 50, server_version: "1.4.287" },
+    "2.2.2.2": { online: true, latency_ms: 80, user_count: 12, max_user_count: 100, server_version: "1.5.634" },
+    "3.3.3.3": { online: true, latency_ms: 20, user_count: 3, max_user_count: 30, server_version: "1.3.0" },
   };
   invokeMock.mockImplementation((cmd: string, args?: unknown) => {
     if (cmd === "fetch_public_servers") return Promise.resolve(SAMPLE_SERVERS);
     if (cmd === "ping_server") {
       const { host } = (args ?? {}) as { host?: string };
       const data = host ? pingData[host] : undefined;
-      return Promise.resolve(data ?? { online: true, latency_ms: 42, user_count: null, max_user_count: null });
+      return Promise.resolve(data ?? { online: true, latency_ms: 42, user_count: null, max_user_count: null, server_version: null });
     }
     return Promise.reject(new Error(`Unknown command: ${cmd}`));
   });
@@ -228,6 +228,19 @@ describe("Sorting", () => {
     expect(rows[1].textContent).toContain("Alpha");
     expect(rows[2].textContent).toContain("Beta");
   });
+
+  it("sorts by version when clicking Version header", async () => {
+    renderList();
+    await consentAndWait();
+    await waitFor(() => screen.getByText("1.5.634"));
+
+    fireEvent.click(screen.getByText("Version"));
+    const rows = screen.getAllByRole("row").slice(1);
+    // 1.3.0, 1.4.287, 1.5.634 (ascending, numeric compare)
+    expect(rows[0].textContent).toContain("Gamma");
+    expect(rows[1].textContent).toContain("Alpha");
+    expect(rows[2].textContent).toContain("Beta");
+  });
 });
 
 describe("Fuzzy search", () => {
@@ -268,6 +281,20 @@ describe("Fuzzy search", () => {
     });
 
     expect(screen.getByText("No servers match your search.")).toBeTruthy();
+  });
+
+  it("filters servers by version string", async () => {
+    renderList();
+    await consentAndWait();
+    await waitFor(() => screen.getByText("1.5.634"));
+
+    fireEvent.change(screen.getByPlaceholderText("Search servers..."), {
+      target: { value: "1.5" },
+    });
+
+    expect(screen.getByText("Beta")).toBeTruthy();
+    expect(screen.queryByText("Alpha")).toBeNull();
+    expect(screen.queryByText("Gamma")).toBeNull();
   });
 });
 

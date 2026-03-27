@@ -82,6 +82,8 @@ struct PingResult {
     user_count: Option<u32>,
     /// Maximum number of users allowed (from UDP ping, None if unavailable).
     max_user_count: Option<u32>,
+    /// Server version string (e.g. "1.5.634"), None if unavailable.
+    server_version: Option<String>,
 }
 
 // --- Badge overlay icon (Windows) ---------------------------------
@@ -461,23 +463,51 @@ async fn ping_server(host: String, port: u16) -> PingResult {
         _ => (false, None),
     };
 
-    // UDP ping for user count (best-effort, does not affect online status)
-    let (user_count, max_user_count) = udp_ping_server_info(&addr).await.unwrap_or((None, None));
+    // UDP ping for user count + version (best-effort, does not affect online status)
+    let (user_count, max_user_count, server_version) =
+        udp_ping_server_info(&addr).await.unwrap_or((None, None, None));
 
     PingResult {
         online,
         latency_ms,
         user_count,
         max_user_count,
+        server_version,
     }
+}
+
+/// Decode a Mumble `version_v2` u64 into a human-readable string.
+///
+/// Encoding: `(major << 48) | (minor << 32) | (patch << 16)`.
+fn format_version_v2(v: u64) -> Option<String> {
+    if v == 0 {
+        return None;
+    }
+    let major = (v >> 48) & 0xFFFF;
+    let minor = (v >> 32) & 0xFFFF;
+    let patch = (v >> 16) & 0xFFFF;
+    Some(format!("{major}.{minor}.{patch}"))
+}
+
+/// Decode a legacy Mumble version u32 into a human-readable string.
+///
+/// Encoding: `(major << 16) | (minor << 8) | patch`.
+fn format_version_legacy(v: u32) -> Option<String> {
+    if v == 0 {
+        return None;
+    }
+    let major = (v >> 16) & 0xFF;
+    let minor = (v >> 8) & 0xFF;
+    let patch = v & 0xFF;
+    Some(format!("{major}.{minor}.{patch}"))
 }
 
 /// Send a Mumble UDP ping to retrieve extended server information.
 ///
-/// Returns `(user_count, max_user_count)` on success.
+/// Returns `(user_count, max_user_count, server_version)` on success.
 /// Tries the protobuf format first; falls back to the legacy 12-byte
 /// format if the server doesn't respond to protobuf within the timeout.
-async fn udp_ping_server_info(addr: &str) -> Result<(Option<u32>, Option<u32>), ()> {
+async fn udp_ping_server_info(addr: &str) -> Result<(Option<u32>, Option<u32>, Option<String>), ()> {
     use prost::Message;
     use tokio::net::UdpSocket;
     use tokio::time::{timeout, Duration};
@@ -508,17 +538,19 @@ async fn udp_ping_server_info(addr: &str) -> Result<(Option<u32>, Option<u32>), 
             if let Ok(resp) =
                 mumble_protocol::proto::mumble_udp::Ping::decode(&recv_buf[1..n])
             {
-                if resp.user_count > 0 || resp.max_user_count > 0 {
-                    return Ok((Some(resp.user_count), Some(resp.max_user_count)));
+                if resp.user_count > 0 || resp.max_user_count > 0 || resp.server_version_v2 > 0 {
+                    let version = format_version_v2(resp.server_version_v2);
+                    return Ok((Some(resp.user_count), Some(resp.max_user_count), version));
                 }
             }
         }
         // Legacy 24-byte response: 6 x u32 big-endian
         // [version, ts_hi, ts_lo, users, max_users, bandwidth]
         if n >= 24 {
+            let ver = u32::from_be_bytes([recv_buf[0], recv_buf[1], recv_buf[2], recv_buf[3]]);
             let users = u32::from_be_bytes([recv_buf[12], recv_buf[13], recv_buf[14], recv_buf[15]]);
             let max_users = u32::from_be_bytes([recv_buf[16], recv_buf[17], recv_buf[18], recv_buf[19]]);
-            return Ok((Some(users), Some(max_users)));
+            return Ok((Some(users), Some(max_users), format_version_legacy(ver)));
         }
     }
 
@@ -529,13 +561,14 @@ async fn udp_ping_server_info(addr: &str) -> Result<(Option<u32>, Option<u32>), 
 
     if let Ok(Ok(n)) = timeout(Duration::from_secs(2), sock.recv(&mut recv_buf)).await {
         if n >= 24 {
+            let ver = u32::from_be_bytes([recv_buf[0], recv_buf[1], recv_buf[2], recv_buf[3]]);
             let users = u32::from_be_bytes([recv_buf[12], recv_buf[13], recv_buf[14], recv_buf[15]]);
             let max_users = u32::from_be_bytes([recv_buf[16], recv_buf[17], recv_buf[18], recv_buf[19]]);
-            return Ok((Some(users), Some(max_users)));
+            return Ok((Some(users), Some(max_users), format_version_legacy(ver)));
         }
     }
 
-    Ok((None, None))
+    Ok((None, None, None))
 }
 
 // --- Audio device commands ----------------------------------------
@@ -789,6 +822,13 @@ fn start_mic_test(state: tauri::State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 fn stop_mic_test(state: tauri::State<'_, AppState>) {
     state.stop_mic_test();
+}
+
+/// Calibrate the voice activation threshold by measuring the ambient
+/// noise floor for ~2 seconds (with AGC applied).  Returns the new threshold.
+#[tauri::command]
+async fn calibrate_voice_threshold(state: tauri::State<'_, AppState>) -> Result<f32, String> {
+    state.calibrate_voice_threshold().await
 }
 
 /// Start periodic TCP pings for live latency measurement.
@@ -1627,6 +1667,7 @@ pub fn run() {
             toggle_deafen,
             start_mic_test,
             stop_mic_test,
+            calibrate_voice_threshold,
             start_latency_test,
             stop_latency_test,
             set_user_comment,

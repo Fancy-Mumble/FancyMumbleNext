@@ -510,6 +510,149 @@ mod tests {
         Ok(())
     }
 
+    /// A test capture source that produces frames with a controllable
+    /// amplitude to exercise the noise gate at different levels.
+    #[cfg(feature = "opus-codec")]
+    struct ToneCapture {
+        format: AudioFormat,
+        frame_size: usize,
+        amplitude: f32,
+        sequence: u64,
+    }
+
+    #[cfg(feature = "opus-codec")]
+    impl ToneCapture {
+        fn new(format: AudioFormat, frame_size: usize, amplitude: f32) -> Self {
+            Self {
+                format,
+                frame_size,
+                amplitude,
+                sequence: 0,
+            }
+        }
+    }
+
+    #[cfg(feature = "opus-codec")]
+    impl AudioCapture for ToneCapture {
+        fn format(&self) -> AudioFormat {
+            self.format
+        }
+        fn read_frame(&mut self) -> Result<AudioFrame> {
+            let n = self.frame_size;
+            let mut data = Vec::with_capacity(n * 4);
+            for i in 0..n {
+                // Simple sine wave at the given amplitude.
+                let sample = self.amplitude
+                    * (2.0 * std::f32::consts::PI * 440.0 * i as f32 / 48000.0).sin();
+                data.extend_from_slice(&sample.to_ne_bytes());
+            }
+            self.sequence += 1;
+            Ok(AudioFrame {
+                data,
+                format: self.format,
+                sequence: self.sequence,
+                is_silent: false,
+            })
+        }
+        fn start(&mut self) -> Result<()> {
+            Ok(())
+        }
+        fn stop(&mut self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "opus-codec")]
+    #[test]
+    fn noise_gate_silences_silent_capture() -> Result<()> {
+        use crate::audio::capture::SilentCapture;
+        use crate::audio::encoder::{OpusEncoder, OpusEncoderConfig};
+        use crate::audio::filter::noise_gate::{NoiseGate, NoiseGateConfig};
+
+        let fmt = AudioFormat::MONO_48KHZ_F32;
+        let mut pipeline = OutboundPipelineBuilder::new()
+            .capture(Box::new(SilentCapture::new(fmt, 960)))
+            .filter(Box::new(NoiseGate::new(NoiseGateConfig {
+                open_threshold: 0.01,
+                close_threshold: 0.008,
+                hold_frames: 5,
+                ..NoiseGateConfig::default()
+            })))
+            .encoder(Box::new(OpusEncoder::new(OpusEncoderConfig::default(), fmt)?))
+            .build()?;
+
+        pipeline.start()?;
+        // Silent input + noise gate = should be silenced.
+        for _ in 0..10 {
+            let tick = pipeline.tick()?;
+            assert!(
+                matches!(tick, OutboundTick::Silence),
+                "Silent input should produce Silence ticks, got {tick:?}",
+            );
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "opus-codec")]
+    #[test]
+    fn noise_gate_at_max_threshold_blocks_all_audio() -> Result<()> {
+        use crate::audio::encoder::{OpusEncoder, OpusEncoderConfig};
+        use crate::audio::filter::noise_gate::{NoiseGate, NoiseGateConfig};
+
+        let fmt = AudioFormat::MONO_48KHZ_F32;
+        // Amplitude 0.3 -> RMS ~0.21 (for a sine wave, RMS = amp / sqrt(2))
+        let mut pipeline = OutboundPipelineBuilder::new()
+            .capture(Box::new(ToneCapture::new(fmt, 960, 0.3)))
+            .filter(Box::new(NoiseGate::new(NoiseGateConfig {
+                open_threshold: 1.0, // Maximum threshold - should block everything
+                close_threshold: 0.8,
+                hold_frames: 5,
+                ..NoiseGateConfig::default()
+            })))
+            .encoder(Box::new(OpusEncoder::new(OpusEncoderConfig::default(), fmt)?))
+            .build()?;
+
+        pipeline.start()?;
+        // Even with a 0.3 amplitude signal, threshold of 1.0 should block.
+        for _ in 0..10 {
+            let tick = pipeline.tick()?;
+            assert!(
+                matches!(tick, OutboundTick::Silence),
+                "Max threshold should produce Silence for moderate signal, got {tick:?}",
+            );
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "opus-codec")]
+    #[test]
+    fn noise_gate_at_low_threshold_passes_audio() -> Result<()> {
+        use crate::audio::encoder::{OpusEncoder, OpusEncoderConfig};
+        use crate::audio::filter::noise_gate::{NoiseGate, NoiseGateConfig};
+
+        let fmt = AudioFormat::MONO_48KHZ_F32;
+        // Amplitude 0.3 -> RMS ~0.21, well above threshold of 0.01.
+        let mut pipeline = OutboundPipelineBuilder::new()
+            .capture(Box::new(ToneCapture::new(fmt, 960, 0.3)))
+            .filter(Box::new(NoiseGate::new(NoiseGateConfig {
+                open_threshold: 0.01,
+                close_threshold: 0.008,
+                hold_frames: 5,
+                ..NoiseGateConfig::default()
+            })))
+            .encoder(Box::new(OpusEncoder::new(OpusEncoderConfig::default(), fmt)?))
+            .build()?;
+
+        pipeline.start()?;
+        // A 0.3 amplitude signal should pass through at threshold 0.01.
+        let tick = pipeline.tick()?;
+        assert!(
+            matches!(tick, OutboundTick::Audio(_)),
+            "Low threshold should produce Audio for moderate signal, got {tick:?}",
+        );
+        Ok(())
+    }
+
     #[cfg(feature = "opus-codec")]
     #[test]
     fn inbound_roundtrip() -> Result<()> {
