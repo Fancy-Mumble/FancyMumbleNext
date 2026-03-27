@@ -10,7 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../store";
 import type { ChannelEntry } from "../types";
 import { getPreferences } from "../preferencesStorage";
-import { canDeleteMessages } from "./ChannelEditorDialog";
+import { canDeleteMessages, hasPermission } from "./ChannelEditorDialog";
 import { BioEditor } from "../pages/settings/BioEditor";
 import { SafeHtml } from "./SafeHtml";
 import { UserListItem, colorFor } from "./UserListItem";
@@ -23,26 +23,10 @@ import KeyIcon from "../assets/icons/status/key.svg?react";
 import WarningFilledIcon from "../assets/icons/status/warning-filled.svg?react";
 import RefreshIcon from "../assets/icons/action/refresh.svg?react";
 import styles from "./ChannelInfoPanel.module.css";
+import { PERMISSIONS, PERM_KEY_OWNER } from "../utils/permissions";
 
 /** Mumble permission bitmask: Write (bit 0). */
 const PERM_WRITE = 0x01;
-
-/** Named ACL permission bits (must match ACL.h on the server). */
-const PERMISSION_BITS: readonly [number, string][] = [
-  [0x01, "Write"],
-  [0x02, "Traverse"],
-  [0x04, "Enter"],
-  [0x08, "Speak"],
-  [0x10, "MuteDeafen"],
-  [0x20, "Move"],
-  [0x40, "MakeChannel"],
-  [0x80, "LinkChannel"],
-  [0x100, "Whisper"],
-  [0x200, "TextMessage"],
-  [0x400, "MakeTempChannel"],
-  [0x800, "Listen"],
-  [0x1000, "DeleteMessage"],
-];
 
 interface ChannelInfoPanelProps {
   readonly onClose: () => void;
@@ -127,6 +111,19 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
 
   const canWrite =
     channel?.permissions != null && (channel.permissions & PERM_WRITE) !== 0;
+
+  const canKeyOwner = hasPermission(channel, PERM_KEY_OWNER) && isPersisted;
+
+  const [confirmTakeover, setConfirmTakeover] = useState<"full_wipe" | "key_only" | null>(null);
+
+  const handleKeyTakeover = useCallback(async () => {
+    if (!channel || !confirmTakeover) return;
+    try {
+      await invoke("key_takeover", { channelId: channel.id, mode: confirmTakeover });
+    } finally {
+      setConfirmTakeover(null);
+    }
+  }, [channel, confirmTakeover]);
 
   // Sync edit fields when channel changes or editing starts.
   useEffect(() => {
@@ -322,6 +319,55 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
         {channelUsers.length === 0 && offlineHolders.length === 0 && (
           <span className={styles.emptyMembers}>No users in this channel</span>
         )}
+
+        {/* Key ownership takeover (requires KeyOwner permission) */}
+        {canKeyOwner && (
+          <div className={styles.keyTakeoverSection}>
+            {confirmTakeover == null ? (
+              <button
+                className={styles.dangerBtn}
+                onClick={() => setConfirmTakeover("full_wipe")}
+              >
+                <KeyIcon width={14} height={14} />
+                Reset Key Ownership
+              </button>
+            ) : (
+              <div className={styles.keyTakeoverConfirm}>
+                <span className={styles.keyTakeoverLabel}>Takeover mode:</span>
+                <div className={styles.keyTakeoverOptions}>
+                  <label className={styles.keyTakeoverOption}>
+                    <input
+                      type="radio"
+                      name="takeoverMode"
+                      checked={confirmTakeover === "full_wipe"}
+                      onChange={() => setConfirmTakeover("full_wipe")}
+                    />
+                    <span>Full wipe</span>
+                    <span className={styles.keyTakeoverHint}>Delete all messages &amp; take key ownership</span>
+                  </label>
+                  <label className={styles.keyTakeoverOption}>
+                    <input
+                      type="radio"
+                      name="takeoverMode"
+                      checked={confirmTakeover === "key_only"}
+                      onChange={() => setConfirmTakeover("key_only")}
+                    />
+                    <span>Key only</span>
+                    <span className={styles.keyTakeoverHint}>Take key ownership, keep messages</span>
+                  </label>
+                </div>
+                <div className={styles.editActions}>
+                  <button className={styles.cancelBtn} onClick={() => setConfirmTakeover(null)}>
+                    Cancel
+                  </button>
+                  <button className={styles.dangerBtn} onClick={handleKeyTakeover}>
+                    Confirm
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {userCtxMenu && (
@@ -371,7 +417,7 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
           </div>
           {channel.permissions != null && (
             <div className={styles.permBits}>
-              {PERMISSION_BITS.map(([bit, name]) => {
+              {PERMISSIONS.map(({ bit, label }) => {
                 const has = (channel.permissions! & bit) !== 0;
                 return (
                   <span
@@ -379,7 +425,7 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
                     className={has ? styles.permBitOn : styles.permBitOff}
                     title={`0x${bit.toString(16).toUpperCase()}`}
                   >
-                    {name}
+                    {label}
                   </span>
                 );
               })}

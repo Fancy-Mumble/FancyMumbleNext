@@ -288,6 +288,72 @@ function GroupCreateModal({ users, ownSession, onClose, onCreate }: GroupCreateM
 
 // --- Voice panel helpers -------------------------------------------
 
+// --- Self voice controls (extracted for cognitive complexity) ------
+
+interface SelfVoiceControlsProps {
+  readonly voiceState: string;
+  readonly inCall: boolean;
+  readonly toggleMute: () => void;
+  readonly toggleDeafen: () => void;
+  readonly enableVoice: () => void;
+  readonly disableVoice: () => void;
+  readonly onCollapse?: () => void;
+}
+
+function SelfVoiceControls({ voiceState, inCall, toggleMute, toggleDeafen, enableVoice, disableVoice, onCollapse }: Readonly<SelfVoiceControlsProps>) {
+  const isActive = voiceState === "active";
+  const isInactive = voiceState === "inactive";
+  const muteTitle = isActive ? "Mute" : "Unmute";
+
+  return (<>
+    {/* Desktop: mute + deaf toggles (hidden on mobile via CSS) */}
+    <div className={`${styles.selfVoiceActions} ${styles.desktopOnly}`}>
+      <button
+        className={`${styles.voiceToggle} ${isActive ? styles.voiceActive : ""}`}
+        onClick={toggleMute}
+        title={muteTitle}
+      >
+        {isActive ? (
+          <MicIcon width={18} height={18} />
+        ) : (
+          <MicOffIcon width={18} height={18} />
+        )}
+      </button>
+      <button
+        className={`${styles.voiceToggle} ${isInactive ? "" : styles.voiceActive}`}
+        onClick={toggleDeafen}
+        title={isInactive ? "Enable Voice" : "Disable Voice"}
+      >
+        {isInactive ? (
+          <HeadphonesOffIcon width={18} height={18} />
+        ) : (
+          <HeadphonesIcon width={18} height={18} />
+        )}
+      </button>
+    </div>
+    {/* Mobile: single call / hang-up button (hidden on desktop via CSS) */}
+    <div className={`${styles.selfVoiceActions} ${styles.mobileOnly}`}>
+      {inCall ? (
+        <button
+          className={`${styles.voiceToggle} ${styles.callBtnEnd}`}
+          onClick={() => { disableVoice(); onCollapse?.(); }}
+          title="End call"
+        >
+          <PhoneOffIcon width={18} height={18} />
+        </button>
+      ) : (
+        <button
+          className={`${styles.voiceToggle} ${styles.callBtnStart}`}
+          onClick={() => { enableVoice(); onCollapse?.(); }}
+          title="Start call"
+        >
+          <PhoneIcon width={18} height={18} />
+        </button>
+      )}
+    </div>
+  </>);
+}
+
 // --- Main component -----------------------------------------------
 
 interface ChannelSidebarProps {
@@ -330,6 +396,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
   const groupUnreadCounts = useAppStore((s) => s.groupUnreadCounts);
   const createGroup = useAppStore((s) => s.createGroup);
   const ownSession = useAppStore((s) => s.ownSession);
+  const talkingSessions = useAppStore((s) => s.talkingSessions);
 
   const selectDmUser = useAppStore((s) => s.selectDmUser);
   const selectUser = useAppStore((s) => s.selectUser);
@@ -604,11 +671,6 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
     );
   }
 
-  // Computed display values to avoid nested ternaries in JSX.
-  const isVoiceActive = voiceState === "active";
-  const isVoiceInactive = voiceState === "inactive";
-  const muteTitle = isVoiceActive ? "Mute" : "Unmute";
-
   return (
     <aside className={styles.sidebar}>
       {/* Header */}
@@ -712,6 +774,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
                 className={`${styles.folderHeader} ${
                   selectedChannel === group.folder.id ? styles.active : ""
                 } ${isCurrent ? styles.currentChannel : ""}`}
+                role="toolbar"
                 onContextMenu={(e) => openCtxMenu(e, group.folder.id)}
               >
                 {group.children.length > 0 && (
@@ -851,20 +914,28 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
           />
           <span>Online - {users.length}</span>
         </button>
-        {onlineOpen && <>
+        {onlineOpen &&
           <div className={styles.userList}>
-            {users.filter((u) => u.session !== ownSession).map((user) => (
+            {users
+              .filter((u) => u.session !== ownSession)
+              .sort((a, b) => {
+                const aInChannel = currentChannel != null && a.channel_id === currentChannel ? 0 : 1;
+                const bInChannel = currentChannel != null && b.channel_id === currentChannel ? 0 : 1;
+                return aInChannel - bInChannel;
+              })
+              .map((user) => (
               <UserListItem
                 key={user.session}
                 user={user}
                 channelName={channelName(user.channel_id)}
                 active={selectedDmUser === user.session}
+                isTalking={talkingSessions.has(user.session)}
                 onClick={() => selectDmUser(user.session)}
                 onContextMenu={(e) => openUserCtxMenu(e, user)}
               />
             ))}
           </div>
-        </>}
+        }
       </div>
 
       </>)}{/* end search-mode ternary */}
@@ -882,53 +953,17 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
               onClick={() => selectUser(self.session)}
               onContextMenu={(e) => openUserCtxMenu(e, self)}
             />
-            {currentChannel != null && (<>
-              {/* Desktop: mute + deaf toggles (hidden on mobile via CSS) */}
-              <div className={`${styles.selfVoiceActions} ${styles.desktopOnly}`}>
-                <button
-                  className={`${styles.voiceToggle} ${isVoiceActive ? styles.voiceActive : ""}`}
-                  onClick={toggleMute}
-                  title={muteTitle}
-                >
-                  {isVoiceActive ? (
-                    <MicIcon width={18} height={18} />
-                  ) : (
-                    <MicOffIcon width={18} height={18} />
-                  )}
-                </button>
-                <button
-                  className={`${styles.voiceToggle} ${isVoiceInactive ? "" : styles.voiceActive}`}
-                  onClick={toggleDeafen}
-                  title={isVoiceInactive ? "Enable Voice" : "Disable Voice"}
-                >
-                  {isVoiceInactive ? (
-                    <HeadphonesOffIcon width={18} height={18} />
-                  ) : (
-                    <HeadphonesIcon width={18} height={18} />
-                  )}
-                </button>
-              </div>
-              {/* Mobile: single call / hang-up button (hidden on desktop via CSS) */}
-              <div className={`${styles.selfVoiceActions} ${styles.mobileOnly}`}>
-                {!inCall ? (
-                  <button
-                    className={`${styles.voiceToggle} ${styles.callBtnStart}`}
-                    onClick={() => { enableVoice(); onCollapse?.(); }}
-                    title="Start call"
-                  >
-                    <PhoneIcon width={18} height={18} />
-                  </button>
-                ) : (
-                  <button
-                    className={`${styles.voiceToggle} ${styles.callBtnEnd}`}
-                    onClick={() => { disableVoice(); onCollapse?.(); }}
-                    title="End call"
-                  >
-                    <PhoneOffIcon width={18} height={18} />
-                  </button>
-                )}
-              </div>
-            </>)}
+            {currentChannel != null && (
+              <SelfVoiceControls
+                voiceState={voiceState}
+                inCall={inCall}
+                toggleMute={toggleMute}
+                toggleDeafen={toggleDeafen}
+                enableVoice={enableVoice}
+                disableVoice={disableVoice}
+                onCollapse={onCollapse}
+              />
+            )}
           </div>
         );
       })()}
@@ -1096,8 +1131,13 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
 
       {/* Delete channel confirmation dialog */}
       {deleteConfirm && createPortal(
-        <div className={styles.modalOverlay} onClick={() => setDeleteConfirm(null)}>
-          <div className={styles.deleteConfirmDialog} onClick={(e) => e.stopPropagation()}>
+        <div
+          className={styles.modalOverlay}
+          role="presentation"
+          onClick={() => setDeleteConfirm(null)}
+          onKeyDown={(e) => { if (e.key === "Escape") setDeleteConfirm(null); }}
+        >
+          <div className={styles.deleteConfirmDialog} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <h3 className={styles.deleteConfirmTitle}>Delete Channel</h3>
             <p className={styles.deleteConfirmBody}>
               Are you sure you want to delete <strong>{deleteConfirm.channelName}</strong>?

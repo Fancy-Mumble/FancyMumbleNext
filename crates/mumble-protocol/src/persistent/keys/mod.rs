@@ -161,6 +161,17 @@ impl KeyManager {
             .insert(cert_hash);
     }
 
+    /// Replace the entire set of key holders for a channel with the
+    /// authoritative list from the server.  This prevents stale entries
+    /// from lingering after a key takeover.
+    pub fn replace_key_holders(&mut self, channel_id: u32, hashes: HashSet<String>) {
+        if hashes.is_empty() {
+            let _ = self.key_holders.remove(&channel_id);
+        } else {
+            let _ = self.key_holders.insert(channel_id, hashes);
+        }
+    }
+
     /// Remove all keys and state for a channel.
     pub fn remove_channel(&mut self, channel_id: u32) {
         let _ = self.epoch_keys.remove(&channel_id);

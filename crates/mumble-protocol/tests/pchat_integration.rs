@@ -2446,6 +2446,7 @@ async fn send_key_holder_report(
     let report = mumble_tcp::PchatKeyHolderReport {
         channel_id: Some(channel_id),
         cert_hash: Some(cert_hash.to_string()),
+        takeover_mode: None,
     };
     transport
         .send(&ControlMessage::PchatKeyHolderReport(report))
@@ -2566,6 +2567,7 @@ fn test_send_key_holder_report_command_output() {
     let report = mumble_tcp::PchatKeyHolderReport {
         channel_id: Some(42),
         cert_hash: Some("deadbeef".into()),
+        takeover_mode: None,
     };
     let cmd = SendPchatKeyHolderReport { report };
     let state = ServerState::default();

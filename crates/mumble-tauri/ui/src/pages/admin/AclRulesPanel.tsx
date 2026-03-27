@@ -2,28 +2,7 @@ import { useState } from "react";
 import type { AclEntry } from "../../types";
 import ChevronRightIcon from "../../assets/icons/navigation/chevron-right.svg?react";
 import styles from "./AdminPanel.module.css";
-
-/** Mumble permission bit definitions. */
-const PERMISSIONS: { bit: number; label: string }[] = [
-  { bit: 0x01, label: "Write" },
-  { bit: 0x02, label: "Traverse" },
-  { bit: 0x04, label: "Enter" },
-  { bit: 0x08, label: "Speak" },
-  { bit: 0x10, label: "Mute/Deafen" },
-  { bit: 0x20, label: "Move" },
-  { bit: 0x40, label: "Make Channel" },
-  { bit: 0x80, label: "Link Channel" },
-  { bit: 0x100, label: "Whisper" },
-  { bit: 0x200, label: "Text Message" },
-  { bit: 0x400, label: "Make Temp Channel" },
-  { bit: 0x800, label: "Listen" },
-  { bit: 0x1000, label: "Delete Message" },
-  { bit: 0x10000, label: "Kick" },
-  { bit: 0x20000, label: "Ban" },
-  { bit: 0x40000, label: "Register" },
-  { bit: 0x80000, label: "Self-Register" },
-  { bit: 0x100000, label: "Reset User Content" },
-];
+import { PERMISSIONS } from "../../utils/permissions";
 
 export function AclRulesPanel({
   acls,

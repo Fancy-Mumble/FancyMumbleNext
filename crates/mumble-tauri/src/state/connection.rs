@@ -141,6 +141,7 @@ impl AppState {
                 shared: inner.clone(),
                 app: app_handle.clone(),
                 epoch,
+                inbound_audio_count: 0,
             };
 
             let result = mumble_protocol::client::run(config, handler).await;

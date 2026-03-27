@@ -1351,6 +1351,7 @@ async fn approve_key_share(
     let report = mumble_protocol::proto::mumble_tcp::PchatKeyHolderReport {
         channel_id: Some(channel_id),
         cert_hash: Some(peer_cert_hash),
+        takeover_mode: None,
     };
     let _ = handle
         .send(mumble_protocol::command::SendPchatKeyHolderReport { report })
@@ -1420,6 +1421,29 @@ fn get_key_holders(
 ) -> Vec<state::types::KeyHolderEntry> {
     let shared = state.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     shared.key_holders.get(&channel_id).cloned().unwrap_or_default()
+}
+
+/// Request a key-ownership takeover for a channel (requires `KeyOwner` permission).
+///
+/// `mode` must be `"full_wipe"` (delete messages + key takeover) or
+/// `"key_only"` (key takeover without deleting messages).
+///
+/// On success the server responds with an updated `PchatKeyHoldersList`.
+/// On failure the server sends `PermissionDenied`.
+#[tauri::command]
+async fn key_takeover(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    mode: String,
+) -> Result<(), String> {
+    use mumble_protocol::proto::mumble_tcp::pchat_key_holder_report::KeyTakeoverMode;
+    let takeover_mode = match mode.as_str() {
+        "full_wipe" => KeyTakeoverMode::FullWipe,
+        "key_only" => KeyTakeoverMode::KeyOnly,
+        _ => return Err(format!("invalid takeover mode: {mode}")),
+    };
+    state::pchat::send_key_takeover(&state.inner, channel_id, takeover_mode);
+    Ok(())
 }
 
 // --- Image processing --------------------------------------------
@@ -1655,6 +1679,7 @@ pub fn run() {
             dismiss_key_share,
             query_key_holders,
             get_key_holders,
+            key_takeover,
             blur_image,
             process_background,
         ])

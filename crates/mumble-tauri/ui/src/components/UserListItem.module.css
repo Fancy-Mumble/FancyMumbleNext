@@ -79,6 +79,21 @@
   border-radius: 50%;
 }
 
+/* --- Talking Indicator ------------------------------------------ */
+
+.avatarTalking .avatarImg,
+.avatarTalking .avatar {
+  outline: 2px solid var(--color-online, #22c55e);
+  outline-offset: 1px;
+  box-shadow: 0 0 8px 2px rgba(34, 197, 94, 0.5);
+  animation: talkingPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes talkingPulse {
+  0%, 100% { box-shadow: 0 0 6px 1px rgba(34, 197, 94, 0.45); }
+  50% { box-shadow: 0 0 12px 4px rgba(34, 197, 94, 0.25); }
+}
+
 /* --- Name & Badges ---------------------------------------------- */
 
 .userName {

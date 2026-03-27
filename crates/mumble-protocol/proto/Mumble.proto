@@ -498,9 +498,22 @@ message PchatEpochCountersig {
 // for a channel.  Sent after distributing or receiving a key.
 // Wire type ID = 109.
 message PchatKeyHolderReport {
+	// How the key-ownership takeover should be performed.
+	// Requires KeyOwner permission when set.
+	enum KeyTakeoverMode {
+		// Full wipe: delete all stored messages, remove all known key
+		// holders, reset challenge state, record sender as sole holder.
+		FULL_WIPE = 1;
+		// Key-only takeover: remove all known key holders and reset
+		// challenge state, but keep stored messages intact.
+		KEY_ONLY  = 2;
+	}
 	optional uint32 channel_id = 1;
 	// The cert hash of the user that now holds the key.
 	optional string cert_hash = 2;
+	// When set, the sender (with KeyOwner permission) requests a
+	// key-ownership takeover.  Omit for a normal key-holder report.
+	optional KeyTakeoverMode takeover_mode = 3;
 }
 
 // Client asks the server for all known key holders of a channel.

@@ -1013,6 +1013,59 @@ pub struct PchatKeyHolderReport {
     /// The cert hash of the user that now holds the key.
     #[prost(string, optional, tag = "2")]
     pub cert_hash: ::core::option::Option<::prost::alloc::string::String>,
+    /// When set, the sender (with KeyOwner permission) requests a
+    /// key-ownership takeover.  Omit for a normal key-holder report.
+    #[prost(
+        enumeration = "pchat_key_holder_report::KeyTakeoverMode",
+        optional,
+        tag = "3"
+    )]
+    pub takeover_mode: ::core::option::Option<i32>,
+}
+/// Nested message and enum types in `PchatKeyHolderReport`.
+pub mod pchat_key_holder_report {
+    /// How the key-ownership takeover should be performed.
+    /// Requires KeyOwner permission when set.
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum KeyTakeoverMode {
+        /// Full wipe: delete all stored messages, remove all known key
+        /// holders, reset challenge state, record sender as sole holder.
+        FullWipe = 1,
+        /// Key-only takeover: remove all known key holders and reset
+        /// challenge state, but keep stored messages intact.
+        KeyOnly = 2,
+    }
+    impl KeyTakeoverMode {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::FullWipe => "FULL_WIPE",
+                Self::KeyOnly => "KEY_ONLY",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "FULL_WIPE" => Some(Self::FullWipe),
+                "KEY_ONLY" => Some(Self::KeyOnly),
+                _ => None,
+            }
+        }
+    }
 }
 /// Client asks the server for all known key holders of a channel.
 /// Wire type ID = 110.
