@@ -944,12 +944,14 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
       {(() => {
         const self = users.find((u) => u.session === ownSession);
         if (!self) return null;
+        const selfTalking = talkingSessions.has(self.session);
         return (
           <div className={styles.selfUserSection}>
             <UserListItem
               user={self}
               channelName={channelName(self.channel_id)}
               isSelf
+              isTalking={selfTalking}
               onClick={() => selectUser(self.session)}
               onContextMenu={(e) => openUserCtxMenu(e, self)}
             />

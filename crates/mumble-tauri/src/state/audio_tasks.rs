@@ -28,12 +28,42 @@ pub(super) struct AudioPacketOut {
     pub is_terminator: bool,
 }
 
+/// When dropped, emits a `user-talking` = false event so the frontend
+/// clears the self-talking indicator if the task is cancelled.
+struct TalkingGuard {
+    app: Option<tauri::AppHandle>,
+    session: Option<u32>,
+    is_talking: bool,
+}
+
+impl Drop for TalkingGuard {
+    fn drop(&mut self) {
+        if self.is_talking {
+            if let (Some(app), Some(session)) = (&self.app, self.session) {
+                use tauri::Emitter;
+                let _ = app.emit("user-talking", (session, false));
+            }
+        }
+    }
+}
+
 /// Background task that reads from the microphone, encodes, and queues
 /// Opus packets for network transmission.
 ///
 /// Encoding and network I/O are decoupled via a bounded channel so
 /// that slow network sends never stall the audio processing loop.
-pub(super) async fn outbound_audio_loop(mut pipeline: OutboundPipeline, handle: ClientHandle) {
+///
+/// When `app` and `own_session` are provided, the loop emits
+/// `user-talking` events so the frontend can show a self-talking
+/// indicator.
+pub(super) async fn outbound_audio_loop(
+    mut pipeline: OutboundPipeline,
+    handle: ClientHandle,
+    app: Option<tauri::AppHandle>,
+    own_session: Option<u32>,
+) {
+    use tauri::Emitter;
+
     // Bounded channel: 50 packets ~ 1 second of audio at 20ms/frame.
     let (tx, rx) = tokio::sync::mpsc::channel::<AudioPacketOut>(50);
 
@@ -50,6 +80,11 @@ pub(super) async fn outbound_audio_loop(mut pipeline: OutboundPipeline, handle: 
     let mut packet_count: u64 = 0;
     let mut silence_count: u64 = 0;
     let mut total_ticks: u64 = 0;
+    let mut guard = TalkingGuard {
+        app: app.clone(),
+        session: own_session,
+        is_talking: false,
+    };
 
     loop {
         let _ = interval.tick().await;
@@ -60,6 +95,12 @@ pub(super) async fn outbound_audio_loop(mut pipeline: OutboundPipeline, handle: 
                 Ok(OutboundTick::Audio(packet)) => {
                     packet_count += 1;
                     total_ticks += 1;
+                    if !guard.is_talking {
+                        guard.is_talking = true;
+                        if let (Some(app), Some(session)) = (&app, own_session) {
+                            let _ = app.emit("user-talking", (session, true));
+                        }
+                    }
                     if packet_count == 1 || packet_count.is_multiple_of(500) {
                         info!(
                             "outbound_audio: sending packet #{} (opus {} bytes, seq {})",
@@ -81,6 +122,12 @@ pub(super) async fn outbound_audio_loop(mut pipeline: OutboundPipeline, handle: 
                 }
                 Ok(OutboundTick::Terminator(packet)) => {
                     total_ticks += 1;
+                    if guard.is_talking {
+                        guard.is_talking = false;
+                        if let (Some(app), Some(session)) = (&app, own_session) {
+                            let _ = app.emit("user-talking", (session, false));
+                        }
+                    }
                     info!(
                         "outbound_audio: sending terminator (opus {} bytes)",
                         packet.data.len()

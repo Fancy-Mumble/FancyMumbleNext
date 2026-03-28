@@ -30,6 +30,9 @@ thiserror = "2"
 # Audio codec (C libopus via audiopus_sys - reliable, well-tested)
 opus = { version = "0.3", optional = true }
 
+# OCB2-AES128 encryption for Mumble UDP
+aes = "0.8"
+
 # Persistent chat - encryption and key management
 chacha20poly1305 = { version = "0.10", optional = true }
 x25519-dalek = { version = "2", features = ["static_secrets"], optional = true }

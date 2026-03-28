@@ -58,6 +58,8 @@ interface AppState {
   unreadCounts: Record<number, number>;
   serverConfig: MumbleServerConfig;
   voiceState: VoiceState;
+  /** True when audio is transported over UDP (false = TCP tunnel). */
+  udpActive: boolean;
   /** True while the user is in an active mobile call session (set by Start/End Call). */
   inCall: boolean;
   /** Session IDs of users currently transmitting audio (talking). */
@@ -215,6 +217,7 @@ const INITIAL: Pick<
   | "unreadCounts"
   | "serverConfig"
   | "voiceState"
+  | "udpActive"
   | "inCall"
   | "talkingSessions"
   | "selectedDmUser"
@@ -256,6 +259,7 @@ const INITIAL: Pick<
     allow_html: true,
   },
   voiceState: "inactive" as VoiceState,
+  udpActive: false,
   inCall: false,
   talkingSessions: new Set<number>(),
   selectedDmUser: null,
@@ -1076,6 +1080,11 @@ export async function initEventListeners(
     // Voice state changed (enable/disable voice calling).
     await listen<VoiceState>("voice-state-changed", (event) => {
       useAppStore.setState({ voiceState: event.payload });
+    }),
+
+    // Audio transport mode changed (UDP vs TCP tunnel).
+    await listen<boolean>("audio-transport-changed", (event) => {
+      useAppStore.setState({ udpActive: event.payload });
     }),
 
     // User talking state changed (audio transmission start/stop).

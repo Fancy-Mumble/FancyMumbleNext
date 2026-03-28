@@ -767,15 +767,23 @@ async fn set_audio_settings(
     state: tauri::State<'_, AppState>,
     settings: AudioSettings,
 ) -> Result<(), String> {
-    let (needs_outbound, needs_inbound) = state
+    let force_tcp = settings.force_tcp_audio;
+    let (needs_outbound, needs_inbound, force_tcp_changed) = state
         .set_audio_settings(settings)
-        .unwrap_or((false, false));
+        .unwrap_or((false, false, false));
 
     if needs_outbound {
         state.restart_outbound()?;
     }
     if needs_inbound {
         state.restart_inbound()?;
+    }
+    if force_tcp_changed {
+        if let Ok(inner) = state.inner.lock() {
+            if let Some(ref handle) = inner.client_handle {
+                handle.set_force_tcp(force_tcp);
+            }
+        }
     }
 
     Ok(())

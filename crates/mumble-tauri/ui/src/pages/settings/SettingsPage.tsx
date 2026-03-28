@@ -47,6 +47,7 @@ const DEFAULT_AUDIO: AudioSettings = {
   input_volume: 1,
   output_volume: 1,
   auto_input_sensitivity: false,
+  force_tcp_audio: false,
 };
 
 const PERSONALIZATION_DEFAULTS: PersonalizationData = {

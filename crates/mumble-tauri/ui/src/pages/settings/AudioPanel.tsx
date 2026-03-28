@@ -421,6 +421,26 @@ export function AudioPanel({
         </div>
       </section>
 
+      {/* -- Network ---------------------------------------- */}
+      <section className={styles.section}>
+        <h3 className={styles.sectionTitle}>Network</h3>
+
+        <div className={styles.toggleRow}>
+          <div className={styles.toggleInfo}>
+            <span className={styles.fieldLabel}>Force TCP Audio</span>
+            <p className={styles.fieldHint}>
+              Always send audio over the TCP tunnel instead of UDP.
+              Use this if you are behind a strict firewall or NAT
+              that blocks UDP traffic.
+            </p>
+          </div>
+          <Toggle
+            checked={settings.force_tcp_audio}
+            onChange={() => onChange({ force_tcp_audio: !settings.force_tcp_audio })}
+          />
+        </div>
+      </section>
+
       {/* -- Expert settings -------------------------------- */}
       {isExpert && (
         <section className={styles.section}>

@@ -15,6 +15,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { ServerInfo, DebugStats, AudioSettings } from "../types";
 import { getPreferences, getSavedAudioSettings } from "../preferencesStorage";
 import { formatBandwidth, formatDuration } from "../utils/format";
+import { useAppStore } from "../store";
 import { SafeHtml } from "./SafeHtml";
 import ChevronRightIcon from "../assets/icons/navigation/chevron-right.svg?react";
 import CloseIcon from "../assets/icons/action/close.svg?react";
@@ -171,6 +172,7 @@ interface ServerInfoPanelProps {
 }
 
 export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
+  const udpActive = useAppStore((s) => s.udpActive);
   const [info, setInfo] = useState<ServerInfo | null>(null);
   const [devMode, setDevMode] = useState(false);
   const [debugStats, setDebugStats] = useState<DebugStats | null>(null);
@@ -342,6 +344,13 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
                   <RefreshCwIcon width={14} height={14} />
                 </button>
               </div>
+
+              <Accordion title="Audio Transport">
+                <div className={styles.debugGrid}>
+                  <DebugRow label="Transport" value={udpActive ? "UDP (encrypted)" : "TCP tunnel"} />
+                  <DebugRow label="Force TCP" value={audioSettings?.force_tcp_audio ?? false} />
+                </div>
+              </Accordion>
 
               {audioSettings && (
                 <Accordion title="Audio Settings">

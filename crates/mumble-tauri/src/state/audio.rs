@@ -26,7 +26,7 @@ impl AppState {
     /// If any pipeline-relevant setting changed while voice is active,
     /// the outbound pipeline is automatically restarted.
     /// Volume changes are applied live via atomic handles (no restart).
-    pub fn set_audio_settings(&self, settings: super::types::AudioSettings) -> Option<(bool, bool)> {
+    pub fn set_audio_settings(&self, settings: super::types::AudioSettings) -> Option<(bool, bool, bool)> {
         let (old_settings, voice_active) = {
             let state = self.inner.lock().ok()?;
             (
@@ -37,6 +37,7 @@ impl AppState {
 
         let restart_outbound = voice_active && old_settings.needs_pipeline_restart(&settings);
         let restart_inbound = voice_active && old_settings.needs_inbound_restart(&settings);
+        let force_tcp_changed = old_settings.force_tcp_audio != settings.force_tcp_audio;
 
         // Update live volume handles (no pipeline restart needed).
         if let Ok(state) = self.inner.lock() {
@@ -53,7 +54,7 @@ impl AppState {
             state.audio_settings = settings;
         }
 
-        Some((restart_outbound, restart_inbound))
+        Some((restart_outbound, restart_inbound, force_tcp_changed))
     }
 
     /// Get current voice state.
@@ -125,84 +126,20 @@ mod voice_pipeline {
                 .start()
                 .map_err(|e| format!("Playback start: {e}"))?;
 
+            {
+                let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+                state.audio_mixer = Some(mixer);
+                state.mixing_playback = Some(mixing_playback);
+                state.input_volume_handle = Some(input_vol);
+                state.output_volume_handle = Some(output_vol);
+            }
+
             // Outbound: capture -> filters -> encoder -> network.
-            let capture = PlatformAudioFactory::create_capture(
-                audio_settings.selected_device.as_deref(),
-                audio_settings.frame_size_samples(),
-                input_vol.clone(),
-            )?;
-
-            let encoder_config = OpusEncoderConfig {
-                bitrate: audio_settings.bitrate_bps,
-                frame_size: audio_settings.frame_size_samples(),
-                ..OpusEncoderConfig::default()
-            };
-            let encoder = OpusEncoder::new(encoder_config, AudioFormat::MONO_48KHZ_F32)
-                .map_err(|e| format!("Encoder init: {e}"))?;
-
-            let mut outbound_filters = FilterChain::new();
-            // AGC runs before the noise gate so the gate evaluates
-            // the post-gain signal level.
-            //
-            // On Android the VoiceRecognition input preset applies
-            // platform-level AGC (but no noise suppression / AEC),
-            // so we cap our AGC at 6 dB (2x) to gently normalise
-            // without over-amplifying the already-gained signal.
-            if audio_settings.auto_gain {
-                let max_gain_linear = 10.0_f32.powf(audio_settings.max_gain_db / 20.0);
-                #[cfg(target_os = "android")]
-                let agc_config = AgcConfig {
-                    max_gain: max_gain_linear.min(2.0),
-                    ..AgcConfig::default()
-                };
-                #[cfg(not(target_os = "android"))]
-                let agc_config = AgcConfig {
-                    max_gain: max_gain_linear,
-                    ..AgcConfig::default()
-                };
-                outbound_filters.push(Box::new(AutomaticGainControl::new(agc_config)));
-            }
-            if audio_settings.noise_suppression {
-                let noise_gate = NoiseGate::new(NoiseGateConfig {
-                    open_threshold: audio_settings.vad_threshold,
-                    close_threshold: audio_settings.vad_threshold * audio_settings.noise_gate_close_ratio,
-                    hold_frames: audio_settings.hold_frames,
-                    ..NoiseGateConfig::default()
-                });
-                outbound_filters.push(Box::new(noise_gate));
-            }
-
-            info!(
-                "enable_voice: outbound filters={}, noise_suppression={}, threshold={:.5}",
-                outbound_filters.len(),
-                audio_settings.noise_suppression,
-                audio_settings.vad_threshold,
-            );
-
-            let mut outbound = OutboundPipeline::new(
-                capture,
-                outbound_filters,
-                Box::new(encoder),
-            );
-            outbound.start().map_err(|e| format!("Capture start: {e}"))?;
-
-            let outbound_handle = if let Some(ref client) = handle {
-                let client = client.clone();
-                Some(tokio::spawn(async move {
-                    outbound_audio_loop(outbound, client).await;
-                }))
-            } else {
-                None
-            };
+            self.start_outbound_pipeline(&audio_settings, &handle)?;
 
             {
                 let mut state = self.inner.lock().map_err(|e| e.to_string())?;
                 state.voice_state = VoiceState::Active;
-                state.audio_mixer = Some(mixer);
-                state.mixing_playback = Some(mixing_playback);
-                state.outbound_task_handle = outbound_handle;
-                state.input_volume_handle = Some(input_vol);
-                state.output_volume_handle = Some(output_vol);
             }
 
             info!("enable_voice: pipelines started, sending unmute");
@@ -333,11 +270,16 @@ mod voice_pipeline {
             client_handle: &Option<ClientHandle>,
         ) -> Result<(), String> {
             // Re-use existing input volume handle or create a new one.
-            let input_vol = {
+            let (input_vol, app, own_session) = {
                 let state = self.inner.lock().map_err(|e| e.to_string())?;
-                state.input_volume_handle.clone()
-            }
-            .unwrap_or_else(|| Arc::new(AtomicU32::new(audio_settings.input_volume.to_bits())));
+                (
+                    state.input_volume_handle.clone(),
+                    state.tauri_app_handle.clone(),
+                    state.own_session,
+                )
+            };
+            let input_vol =
+                input_vol.unwrap_or_else(|| Arc::new(AtomicU32::new(audio_settings.input_volume.to_bits())));
 
             let capture = PlatformAudioFactory::create_capture(
                 audio_settings.selected_device.as_deref(),
@@ -394,8 +336,9 @@ mod voice_pipeline {
 
             let outbound_handle = if let Some(ref client) = client_handle {
                 let client = client.clone();
+                let app = app.clone();
                 Some(tokio::spawn(async move {
-                    outbound_audio_loop(outbound, client).await;
+                    outbound_audio_loop(outbound, client, app, own_session).await;
                 }))
             } else {
                 None

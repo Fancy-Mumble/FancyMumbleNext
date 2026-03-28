@@ -231,6 +231,8 @@ export interface AudioSettings {
   output_volume: number;
   /** Automatically adjust VAD threshold based on ambient noise floor. */
   auto_input_sensitivity: boolean;
+  /** Force audio to use TCP tunnel instead of UDP (e.g. behind strict NAT). */
+  force_tcp_audio: boolean;
 }
 
 export type VoiceState = "inactive" | "active" | "muted";

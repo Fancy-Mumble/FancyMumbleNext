@@ -733,7 +733,11 @@ pub struct AudioSettings {
     #[serde(default = "AudioSettings::default_volume")]
     pub output_volume: f32,    /// Automatically adjust input sensitivity based on ambient noise floor.
     #[serde(default)]
-    pub auto_input_sensitivity: bool,}
+    pub auto_input_sensitivity: bool,
+    /// Force audio to use TCP tunnel instead of UDP (e.g. behind strict NAT).
+    #[serde(default)]
+    pub force_tcp_audio: bool,
+}
 
 impl AudioSettings {
     pub(crate) fn default_max_gain() -> f32 {
@@ -811,6 +815,7 @@ impl Default for AudioSettings {
             input_volume: 1.0,
             output_volume: 1.0,
             auto_input_sensitivity: false,
+            force_tcp_audio: false,
         }
     }
 }

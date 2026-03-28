@@ -213,4 +213,11 @@ impl EventHandler for TauriEventHandler {
             }
         }
     }
+
+    fn on_audio_transport_changed(&mut self, udp_active: bool) {
+        info!(udp_active, "audio transport changed");
+        let _ = self
+            .app
+            .emit("audio-transport-changed", udp_active);
+    }
 }
