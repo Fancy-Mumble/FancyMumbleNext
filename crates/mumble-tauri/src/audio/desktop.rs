@@ -81,7 +81,7 @@ impl CpalCapture {
             format: AudioFormat::MONO_48KHZ_F32,
             frame_size,
             sequence: 0,
-            buffer: Arc::new(Mutex::new(VecDeque::with_capacity(96_000))),
+            buffer: Arc::new(Mutex::new(VecDeque::with_capacity(9_600))),
             stream: None,
             device,
             hw_channels,
@@ -103,6 +103,21 @@ impl AudioCapture for CpalCapture {
 
         if buf.len() < self.frame_size {
             return Err(Error::NotEnoughSamples);
+        }
+
+        // If the buffer has accumulated significantly more than one
+        // frame, the encoding loop fell behind.  Skip old audio to
+        // avoid sending stale voice packets.
+        let max_queued = self.frame_size * 5; // ~100 ms at 48 kHz
+        if buf.len() > max_queued {
+            let excess = buf.len() - self.frame_size;
+            warn!(
+                "capture buffer overflow: {} samples ({:.0} ms), dropping {} stale samples",
+                buf.len(),
+                buf.len() as f32 / 48.0,
+                excess,
+            );
+            let _ = buf.drain(..excess);
         }
 
         let vol = f32::from_bits(self.volume.load(Ordering::Relaxed));
@@ -149,12 +164,13 @@ impl AudioCapture for CpalCapture {
                                 buf.push_back(sum / hw_channels as f32);
                             }
                         }
-                        // Cap at ~2 seconds to prevent unbounded growth.
-                        if buf.len() > 96_000 {
+                        // Cap at ~200 ms (9 600 samples at 48 kHz) to
+                        // avoid accumulating stale audio when the
+                        // encoding loop is throttled.
+                        if buf.len() > 9_600 {
                             warn!("cpal capture buffer overflow, discarding oldest samples");
-                            while buf.len() > 96_000 {
-                                let _ = buf.pop_front();
-                            }
+                            let excess = buf.len() - 9_600;
+                            let _ = buf.drain(..excess);
                         }
                     }
                 },

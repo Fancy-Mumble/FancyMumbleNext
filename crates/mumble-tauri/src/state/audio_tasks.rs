@@ -62,8 +62,6 @@ pub(super) async fn outbound_audio_loop(
     app: Option<tauri::AppHandle>,
     own_session: Option<u32>,
 ) {
-    use tauri::Emitter;
-
     // Bounded channel: 50 packets ~ 1 second of audio at 20ms/frame.
     let (tx, rx) = tokio::sync::mpsc::channel::<AudioPacketOut>(50);
 
@@ -77,9 +75,8 @@ pub(super) async fn outbound_audio_loop(
     // missing the moment when enough samples become available.
     let mut interval = tokio::time::interval(Duration::from_millis(5));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut packet_count: u64 = 0;
-    let mut silence_count: u64 = 0;
-    let mut total_ticks: u64 = 0;
+    let mut stats = OutboundStats::default();
+    let mut last_tick = tokio::time::Instant::now();
     let mut guard = TalkingGuard {
         app: app.clone(),
         session: own_session,
@@ -89,80 +86,131 @@ pub(super) async fn outbound_audio_loop(
     loop {
         let _ = interval.tick().await;
 
+        // Detect when the Tokio runtime was stalled (e.g. Android
+        // throttled the process).  Skip this tick so the capture
+        // `read_frame()` overflow logic can discard stale audio
+        // instead of encoding it all in a burst.
+        let now = tokio::time::Instant::now();
+        let elapsed = now.duration_since(last_tick);
+        last_tick = now;
+        if elapsed > Duration::from_millis(200) {
+            warn!(
+                "outbound_audio: tick delayed by {:.0} ms, skipping to discard stale audio",
+                elapsed.as_millis()
+            );
+            while pipeline.tick().is_ok_and(|t| !matches!(t, OutboundTick::NoData)) {}
+            continue;
+        }
+
         // Process a bounded number of frames per tick.
         for _ in 0..5 {
-            match pipeline.tick() {
-                Ok(OutboundTick::Audio(packet)) => {
-                    packet_count += 1;
-                    total_ticks += 1;
-                    if !guard.is_talking {
-                        guard.is_talking = true;
-                        if let (Some(app), Some(session)) = (&app, own_session) {
-                            let _ = app.emit("user-talking", (session, true));
-                        }
-                    }
-                    if packet_count == 1 || packet_count.is_multiple_of(500) {
-                        info!(
-                            "outbound_audio: sending packet #{} (opus {} bytes, seq {})",
-                            packet_count,
-                            packet.data.len(),
-                            packet.sequence
-                        );
-                    }
-                    if tx
-                        .try_send(AudioPacketOut {
-                            data: packet.data,
-                            sequence: packet.sequence,
-                            is_terminator: false,
-                        })
-                        .is_err()
-                    {
-                        warn!("outbound_audio: send channel full, dropping packet");
-                    }
-                }
-                Ok(OutboundTick::Terminator(packet)) => {
-                    total_ticks += 1;
-                    if guard.is_talking {
-                        guard.is_talking = false;
-                        if let (Some(app), Some(session)) = (&app, own_session) {
-                            let _ = app.emit("user-talking", (session, false));
-                        }
-                    }
-                    info!(
-                        "outbound_audio: sending terminator (opus {} bytes)",
-                        packet.data.len()
-                    );
-                    let _ = tx.try_send(AudioPacketOut {
-                        data: packet.data,
-                        sequence: packet.sequence,
-                        is_terminator: true,
-                    });
-                }
-                Ok(OutboundTick::Silence) => {
-                    silence_count += 1;
-                    total_ticks += 1;
-                    // Periodic diagnostic: every ~10 seconds at 50 fps.
-                    if total_ticks.is_multiple_of(500) {
-                        info!(
-                            "outbound_audio stats: total={}, sent={}, silenced={}, silence_rate={:.1}%",
-                            total_ticks,
-                            packet_count,
-                            silence_count,
-                            if total_ticks > 0 {
-                                silence_count as f64 / total_ticks as f64 * 100.0
-                            } else {
-                                0.0
-                            },
-                        );
-                    }
-                    continue;
-                }
-                Ok(OutboundTick::NoData) => break,
-                Err(e) => {
-                    warn!("outbound audio error: {e}");
-                    break;
+            if !process_outbound_tick(
+                &mut pipeline,
+                &tx,
+                &app,
+                own_session,
+                &mut guard,
+                &mut stats,
+            ) {
+                break;
+            }
+        }
+    }
+}
+
+/// Counters for periodic outbound audio diagnostics.
+#[derive(Default)]
+struct OutboundStats {
+    packets: u64,
+    silence: u64,
+    total: u64,
+}
+
+/// Process a single outbound pipeline tick.
+///
+/// Returns `true` when more frames may be available in the same tick
+/// batch, `false` when the caller should stop the inner loop.
+fn process_outbound_tick(
+    pipeline: &mut OutboundPipeline,
+    tx: &tokio::sync::mpsc::Sender<AudioPacketOut>,
+    app: &Option<tauri::AppHandle>,
+    own_session: Option<u32>,
+    guard: &mut TalkingGuard,
+    stats: &mut OutboundStats,
+) -> bool {
+    use tauri::Emitter;
+
+    match pipeline.tick() {
+        Ok(OutboundTick::Audio(packet)) => {
+            stats.packets += 1;
+            stats.total += 1;
+            if !guard.is_talking {
+                guard.is_talking = true;
+                if let (Some(app), Some(session)) = (app, own_session) {
+                    let _ = app.emit("user-talking", (session, true));
                 }
             }
+            if stats.packets == 1 || stats.packets.is_multiple_of(500) {
+                info!(
+                    "outbound_audio: sending packet #{} (opus {} bytes, seq {})",
+                    stats.packets,
+                    packet.data.len(),
+                    packet.sequence
+                );
+            }
+            if tx
+                .try_send(AudioPacketOut {
+                    data: packet.data,
+                    sequence: packet.sequence,
+                    is_terminator: false,
+                })
+                .is_err()
+            {
+                warn!("outbound_audio: send channel full, dropping packet");
+            }
+            true
+        }
+        Ok(OutboundTick::Terminator(packet)) => {
+            stats.total += 1;
+            if guard.is_talking {
+                guard.is_talking = false;
+                if let (Some(app), Some(session)) = (app, own_session) {
+                    let _ = app.emit("user-talking", (session, false));
+                }
+            }
+            info!(
+                "outbound_audio: sending terminator (opus {} bytes)",
+                packet.data.len()
+            );
+            let _ = tx.try_send(AudioPacketOut {
+                data: packet.data,
+                sequence: packet.sequence,
+                is_terminator: true,
+            });
+            true
+        }
+        Ok(OutboundTick::Silence) => {
+            stats.silence += 1;
+            stats.total += 1;
+            if stats.total.is_multiple_of(500) {
+                info!(
+                    "outbound_audio stats: total={}, sent={}, silenced={}, silence_rate={:.1}%",
+                    stats.total,
+                    stats.packets,
+                    stats.silence,
+                    if stats.total > 0 {
+                        stats.silence as f64 / stats.total as f64 * 100.0
+                    } else {
+                        0.0
+                    },
+                );
+            }
+            true
+        }
+        Ok(OutboundTick::NoData) => false,
+        Err(e) => {
+            warn!("outbound audio error: {e}");
+            false
         }
     }
 }

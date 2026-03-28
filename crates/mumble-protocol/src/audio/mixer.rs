@@ -28,6 +28,12 @@ const CROSSFADE_LEN: usize = 24;
 /// removed to free resources.
 const SPEAKER_TIMEOUT_SECS: u64 = 30;
 
+/// Maximum per-speaker sample buffer size.  Capped at 400 ms
+/// (19 200 samples at 48 kHz mono) to prevent buffer bloat when
+/// the playback callback falls behind (e.g. Android app
+/// backgrounded).  Old samples are dropped from the front.
+const MAX_SPEAKER_BUFFER_SAMPLES: usize = 19_200;
+
 /// Shared per-speaker sample buffers.
 ///
 /// The mixer writes decoded samples per session, and the platform
@@ -216,11 +222,12 @@ fn push_samples(
     if let Ok(mut bufs) = buffers.lock() {
         let buf = bufs
             .entry(session)
-            .or_insert_with(|| VecDeque::with_capacity(96_000));
+            .or_insert_with(|| VecDeque::with_capacity(MAX_SPEAKER_BUFFER_SAMPLES));
         buf.extend(samples.iter().copied());
-        // Cap per-speaker to ~2 seconds at 48 kHz mono.
-        if buf.len() > 96_000 {
-            let excess = buf.len() - 96_000;
+        // Drop oldest samples when the buffer exceeds the cap so
+        // stale audio never accumulates beyond ~400 ms.
+        if buf.len() > MAX_SPEAKER_BUFFER_SAMPLES {
+            let excess = buf.len() - MAX_SPEAKER_BUFFER_SAMPLES;
             let _ = buf.drain(..excess);
         }
     }
@@ -451,5 +458,40 @@ mod tests {
         assert_eq!(len_100, len_200);
         assert_eq!(len_200, len_300);
         assert!(len_100 > 0);
+    }
+
+    #[test]
+    fn speaker_buffer_caps_at_max_samples() {
+        // Regression: the speaker buffer must not grow beyond
+        // MAX_SPEAKER_BUFFER_SAMPLES. Excess old samples are
+        // dropped from the front (oldest-first).
+        let bufs = make_buffers();
+        let count = MAX_SPEAKER_BUFFER_SAMPLES + 5_000;
+        let data: Vec<u8> = (0..count)
+            .flat_map(|i| (i as f32 * 0.001).to_ne_bytes())
+            .collect();
+        let frame = crate::audio::sample::AudioFrame {
+            data,
+            format: AudioFormat::MONO_48KHZ_F32,
+            sequence: 0,
+            is_silent: false,
+        };
+        push_samples(&bufs, 1, &frame);
+
+        let locked = bufs.lock().unwrap();
+        assert_eq!(
+            locked[&1].len(),
+            MAX_SPEAKER_BUFFER_SAMPLES,
+            "buffer should be capped at MAX_SPEAKER_BUFFER_SAMPLES"
+        );
+        // The kept samples are the newest; verify the first kept
+        // sample corresponds to the expected index.
+        let first_kept_idx = count - MAX_SPEAKER_BUFFER_SAMPLES;
+        let expected = first_kept_idx as f32 * 0.001;
+        let actual = locked[&1][0];
+        assert!(
+            (actual - expected).abs() < 1e-4,
+            "oldest kept sample should be index {first_kept_idx}: expected ~{expected}, got {actual}"
+        );
     }
 }
