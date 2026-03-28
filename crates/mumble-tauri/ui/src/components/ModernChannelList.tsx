@@ -6,11 +6,18 @@
  * - Each channel shows its members directly below the name.
  * - Channels can be collapsed (shows stacked avatar bubbles instead).
  * - Default state: expanded (members visible as a name list).
+ * - Current channel is sticky at the top when scrolling.
+ * - Hovering a member shows their profile card.
+ * - Right-clicking a member opens the user context menu.
  */
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { ChannelEntry, UserEntry } from "../types";
 import { colorFor, avatarUrl } from "./UserListItem";
+import { parseComment } from "../profileFormat";
+import { ProfilePreviewCard } from "../pages/settings/ProfilePreviewCard";
+import { useUserStats } from "../hooks/useUserStats";
 import SwipeableCard from "./elements/SwipeableCard";
 import { isMobilePlatform } from "../utils/platform";
 import ChevronRightIcon from "../assets/icons/navigation/chevron-right.svg?react";
@@ -20,6 +27,12 @@ import HeadphonesOffIcon from "../assets/icons/audio/headphones-off.svg?react";
 import styles from "./ModernChannelList.module.css";
 
 const MAX_STACKED = 3;
+
+// -- Hover profile card constants --------------------------------
+const HOVER_CARD_W = 260;
+const HOVER_CARD_H = 340;
+const HOVER_CARD_MARGIN = 10;
+const HOVER_CARD_GAP = 8;
 
 interface ModernChannelListProps {
   readonly channels: ChannelEntry[];
@@ -32,6 +45,110 @@ interface ModernChannelListProps {
   readonly onSelectChannel: (id: number) => void;
   readonly onJoinChannel: (id: number) => void;
   readonly onContextMenu: (e: React.MouseEvent, channelId: number) => void;
+  readonly onUserContextMenu?: (e: React.MouseEvent, user: UserEntry) => void;
+  readonly onUserClick?: (session: number) => void;
+}
+
+// -- Member item with hover card ----------------------------------
+
+interface MemberItemProps {
+  readonly user: UserEntry;
+  readonly isTalking: boolean;
+  readonly onContextMenu?: (e: React.MouseEvent, user: UserEntry) => void;
+  readonly onClick?: (session: number) => void;
+}
+
+function MemberItem({ user, isTalking, onContextMenu, onClick }: MemberItemProps) {
+  const url = useMemo(() => avatarUrl(user), [user.texture]);
+  const parsed = useMemo(
+    () => (user.comment ? parseComment(user.comment) : null),
+    [user.comment],
+  );
+  const [showCard, setShowCard] = useState(false);
+  const [cardPos, setCardPos] = useState<{ top: number; left: number } | null>(null);
+  const itemRef = useRef<HTMLButtonElement>(null);
+  const isMobile = isMobilePlatform();
+  const stats = useUserStats(user.session, showCard);
+
+  const handleEnter = useCallback(() => {
+    if (isMobile) return;
+    if (itemRef.current) {
+      const rect = itemRef.current.getBoundingClientRect();
+      const rawTop = rect.top + rect.height / 2;
+      const top = Math.max(
+        HOVER_CARD_H / 2 + HOVER_CARD_MARGIN,
+        Math.min(rawTop, window.innerHeight - HOVER_CARD_H / 2 - HOVER_CARD_MARGIN),
+      );
+      const fitsRight = rect.right + HOVER_CARD_GAP + HOVER_CARD_W + HOVER_CARD_MARGIN <= window.innerWidth;
+      const left = fitsRight
+        ? rect.right + HOVER_CARD_GAP
+        : rect.left - HOVER_CARD_GAP - HOVER_CARD_W;
+      setCardPos({ top, left });
+    }
+    setShowCard(true);
+  }, [isMobile]);
+
+  const handleLeave = useCallback(() => {
+    setShowCard(false);
+  }, []);
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onContextMenu?.(e, user);
+    },
+    [onContextMenu, user],
+  );
+
+  return (
+    <>
+      <button
+        ref={itemRef}
+        type="button"
+        className={`${styles.memberItem} ${isTalking ? styles.memberTalking : ""}`}
+        onMouseEnter={handleEnter}
+        onMouseLeave={handleLeave}
+        onContextMenu={handleContextMenu}
+        onClick={() => onClick?.(user.session)}
+      >
+        <div
+          className={styles.memberAvatar}
+          style={{ background: url ? "transparent" : colorFor(user.name) }}
+        >
+          {url ? (
+            <img src={url} alt={user.name} className={styles.memberAvatarImg} />
+          ) : (
+            user.name.charAt(0).toUpperCase()
+          )}
+        </div>
+        <span className={styles.memberName}>{user.name}</span>
+        {user.self_mute && (
+          <MicOffSmallIcon className={styles.statusIcon} width={12} height={12} />
+        )}
+        {user.self_deaf && (
+          <HeadphonesOffIcon className={styles.statusIcon} width={12} height={12} />
+        )}
+      </button>
+      {showCard && cardPos && createPortal(
+        <div
+          className={styles.profilePopover}
+          style={{ top: cardPos.top, left: cardPos.left }}
+        >
+          <ProfilePreviewCard
+            profile={parsed?.profile ?? {}}
+            bio={parsed?.bio ?? ""}
+            avatar={url}
+            displayName={user.name}
+            onlinesecs={stats?.onlinesecs}
+            idlesecs={stats?.idlesecs}
+            isRegistered={user.user_id != null && user.user_id > 0}
+          />
+        </div>,
+        document.body,
+      )}
+    </>
+  );
 }
 
 /** Small inline avatars shown when a channel is collapsed. */
@@ -77,6 +194,8 @@ export default function ModernChannelList({
   onSelectChannel,
   onJoinChannel,
   onContextMenu,
+  onUserContextMenu,
+  onUserClick,
 }: ModernChannelListProps) {
   // Collapsed channels (expanded by default = not in the set).
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
@@ -127,110 +246,119 @@ export default function ModernChannelList({
 
   const isMobile = isMobilePlatform();
 
+  // Find the current channel entry for the sticky header.
+  const currentChannelEntry = useMemo(
+    () => (currentChannel == null ? undefined : flatChannels.find((c) => c.id === currentChannel)),
+    [flatChannels, currentChannel],
+  );
+
+  // Channels excluding the current one (rendered below the sticky header).
+  const otherChannels = useMemo(
+    () => (currentChannel == null ? flatChannels : flatChannels.filter((c) => c.id !== currentChannel)),
+    [flatChannels, currentChannel],
+  );
+
+  /** Render a single channel card (shared between sticky and list). */
+  const renderChannel = useCallback((channel: ChannelEntry) => {
+    const chUsers = usersByChannel.get(channel.id) ?? [];
+    const unread = unreadCounts[channel.id] ?? 0;
+    const isListened = listenedChannels.has(channel.id);
+    const isSelected = selectedChannel === channel.id;
+    const isCurrent = currentChannel === channel.id;
+    const isCollapsed = collapsed.has(channel.id);
+    const hasUsers = chUsers.length > 0;
+
+    return (
+      <div
+        className={`${styles.channelCard} ${isSelected ? styles.selected : ""} ${isCurrent ? styles.current : ""}`}
+      >
+        {/* Channel header row */}
+        <div className={styles.headerRow}>
+          {hasUsers && (
+            <button
+              type="button"
+              className={styles.expandBtn}
+              onClick={() => toggleCollapsed(channel.id)}
+              aria-label={isCollapsed ? "Expand" : "Collapse"}
+            >
+              <ChevronRightIcon
+                className={`${styles.chevron} ${isCollapsed ? "" : styles.chevronOpen}`}
+                width={12}
+                height={12}
+              />
+            </button>
+          )}
+
+          <button
+            type="button"
+            className={styles.channelBtn}
+            onClick={() => onSelectChannel(channel.id)}
+            onDoubleClick={() => onJoinChannel(channel.id)}
+            onContextMenu={(e) => onContextMenu(e, channel.id)}
+          >
+            <span className={styles.channelName}>
+              {channel.name || "Root"}
+              {isListened && (
+                <span className={styles.listenBadge} title="Listening">
+                  <ListenBadgeIcon width={12} height={12} />
+                </span>
+              )}
+            </span>
+            {hasUsers && (
+              <span className={styles.memberCount}>
+                {chUsers.length}
+              </span>
+            )}
+          </button>
+
+          {unread > 0 && (
+            <span className={styles.unreadBadge}>
+              {unread > 99 ? "99+" : unread}
+            </span>
+          )}
+
+          {/* Collapsed: show stacked avatar bubbles */}
+          {isCollapsed && hasUsers && (
+            <CollapsedAvatars users={chUsers} />
+          )}
+        </div>
+
+        {/* Expanded: show member names */}
+        {!isCollapsed && hasUsers && (
+          <div className={styles.memberList}>
+            {chUsers.map((u) => (
+              <MemberItem
+                key={u.session}
+                user={u}
+                isTalking={talkingSessions.has(u.session)}
+                onContextMenu={onUserContextMenu}
+                onClick={onUserClick}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }, [
+    usersByChannel, unreadCounts, listenedChannels, selectedChannel,
+    currentChannel, collapsed, talkingSessions,
+    toggleCollapsed, onSelectChannel, onJoinChannel, onContextMenu, onUserContextMenu, onUserClick,
+  ]);
+
   return (
     <div className={styles.list}>
-      {flatChannels.map((channel) => {
-        const chUsers = usersByChannel.get(channel.id) ?? [];
-        const unread = unreadCounts[channel.id] ?? 0;
-        const isListened = listenedChannels.has(channel.id);
-        const isSelected = selectedChannel === channel.id;
-        const isCurrent = currentChannel === channel.id;
-        const isCollapsed = collapsed.has(channel.id);
-        const hasUsers = chUsers.length > 0;
+      {/* Sticky current channel */}
+      {currentChannelEntry && (
+        <div className={styles.stickyChannel}>
+          {renderChannel(currentChannelEntry)}
+        </div>
+      )}
 
-        const card = (
-          <div
-            className={`${styles.channelCard} ${isSelected ? styles.selected : ""} ${isCurrent ? styles.current : ""}`}
-          >
-            {/* Channel header row */}
-            <div className={styles.headerRow}>
-              {hasUsers && (
-                <button
-                  type="button"
-                  className={styles.expandBtn}
-                  onClick={() => toggleCollapsed(channel.id)}
-                  aria-label={isCollapsed ? "Expand" : "Collapse"}
-                >
-                  <ChevronRightIcon
-                    className={`${styles.chevron} ${isCollapsed ? "" : styles.chevronOpen}`}
-                    width={12}
-                    height={12}
-                  />
-                </button>
-              )}
+      {/* Other channels */}
+      {otherChannels.map((channel) => {
+        const card = renderChannel(channel);
 
-              <button
-                type="button"
-                className={styles.channelBtn}
-                onClick={() => onSelectChannel(channel.id)}
-                onDoubleClick={() => onJoinChannel(channel.id)}
-                onContextMenu={(e) => onContextMenu(e, channel.id)}
-              >
-                <span className={styles.channelName}>
-                  {channel.name || "Root"}
-                  {isListened && (
-                    <span className={styles.listenBadge} title="Listening">
-                      <ListenBadgeIcon width={12} height={12} />
-                    </span>
-                  )}
-                </span>
-                {hasUsers && (
-                  <span className={styles.memberCount}>
-                    {chUsers.length}
-                  </span>
-                )}
-              </button>
-
-              {unread > 0 && (
-                <span className={styles.unreadBadge}>
-                  {unread > 99 ? "99+" : unread}
-                </span>
-              )}
-
-              {/* Collapsed: show stacked avatar bubbles */}
-              {isCollapsed && hasUsers && (
-                <CollapsedAvatars users={chUsers} />
-              )}
-            </div>
-
-            {/* Expanded: show member names */}
-            {!isCollapsed && hasUsers && (
-              <div className={styles.memberList}>
-                {chUsers.map((u) => {
-                  const url = avatarUrl(u);
-                  const isTalking = talkingSessions.has(u.session);
-                  return (
-                    <div
-                      key={u.session}
-                      className={`${styles.memberItem} ${isTalking ? styles.memberTalking : ""}`}
-                    >
-                      <div
-                        className={styles.memberAvatar}
-                        style={{ background: url ? "transparent" : colorFor(u.name) }}
-                      >
-                        {url ? (
-                          <img src={url} alt={u.name} className={styles.memberAvatarImg} />
-                        ) : (
-                          u.name.charAt(0).toUpperCase()
-                        )}
-                      </div>
-                      <span className={styles.memberName}>{u.name}</span>
-                      {u.self_mute && (
-                        <MicOffSmallIcon className={styles.statusIcon} width={12} height={12} />
-                      )}
-                      {u.self_deaf && (
-                        <HeadphonesOffIcon className={styles.statusIcon} width={12} height={12} />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-
-        // On mobile, wrap non-current channels in SwipeableCard for swipe-to-join.
-        if (isMobile && !isCurrent) {
+        if (isMobile) {
           return (
             <SwipeableCard
               key={channel.id}

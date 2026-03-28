@@ -176,6 +176,13 @@
   padding: 3px 6px;
   border-radius: var(--radius-sm, 4px);
   transition: background 0.1s;
+  cursor: pointer;
+  width: 100%;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
 
 .memberItem:hover {
@@ -218,4 +225,26 @@
   color: var(--color-text-muted, #888);
   flex-shrink: 0;
   opacity: 0.7;
+}
+
+/* --- Sticky current channel ------------------------------------- */
+
+.stickyChannel {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--color-bg-secondary, #1e1e2e);
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.06));
+  border-radius: var(--radius-md, 8px);
+  overflow: hidden;
+}
+
+/* --- Hover profile popover -------------------------------------- */
+
+.profilePopover {
+  position: fixed;
+  transform: translateY(-50%);
+  z-index: 10000;
+  pointer-events: none;
 }

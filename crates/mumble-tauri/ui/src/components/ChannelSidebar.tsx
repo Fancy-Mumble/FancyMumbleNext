@@ -784,8 +784,10 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
             unreadCounts={unreadCounts}
             talkingSessions={talkingSessions}
             onSelectChannel={(id) => { selectChannel(id); onChannelSelect?.(); }}
-            onJoinChannel={(id) => { joinChannel(id); onChannelSelect?.(); }}
+            onJoinChannel={(id) => { joinChannel(id); selectChannel(id); onChannelSelect?.(); }}
             onContextMenu={openCtxMenu}
+            onUserContextMenu={openUserCtxMenu}
+            onUserClick={(session) => { selectDmUser(session); onChannelSelect?.(); }}
           />
         )}
 
