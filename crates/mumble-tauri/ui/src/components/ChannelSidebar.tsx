@@ -28,6 +28,7 @@ import SettingsIcon from "../assets/icons/general/settings.svg?react";
 import ShieldIcon from "../assets/icons/status/shield.svg?react";
 import LogoutIcon from "../assets/icons/action/logout.svg?react";
 import EditIcon from "../assets/icons/action/edit.svg?react";
+import { isMobilePlatform } from "../utils/platform";
 import TrashIcon from "../assets/icons/action/trash.svg?react";
 import PhoneIcon from "../assets/icons/communication/phone.svg?react";
 import PhoneOffIcon from "../assets/icons/communication/phone-off.svg?react";
@@ -841,6 +842,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
         </>)}
       </div>
 
+      {!isMobilePlatform() && <>
       <div className={styles.divider} />
 
       {/* Group chats */}
@@ -906,6 +908,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
           })}
         </div>}
       </div>
+      </>}
 
       <div className={styles.divider} />
 

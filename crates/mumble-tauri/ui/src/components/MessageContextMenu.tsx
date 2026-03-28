@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { ChatMessage } from "../types";
+import { QUICK_REACTIONS } from "./elements/MessageActionBar";
+import EmojiPlusIcon from "../assets/icons/communication/emoji-plus.svg?react";
+import QuoteIcon from "../assets/icons/communication/quote.svg?react";
+import CopyIcon from "../assets/icons/action/copy.svg?react";
 import TrashIcon from "../assets/icons/action/trash.svg?react";
 import CheckboxIcon from "../assets/icons/status/checkbox.svg?react";
 import styles from "./MessageContextMenu.module.css";
@@ -41,6 +45,10 @@ interface MessageContextMenuProps {
   readonly onClose: () => void;
   readonly onDelete: (msg: ChatMessage) => void;
   readonly onSelectMode: (msg: ChatMessage) => void;
+  readonly onReaction?: (msg: ChatMessage, emoji: string) => void;
+  readonly onMoreReactions?: (msg: ChatMessage) => void;
+  readonly onCite?: (msg: ChatMessage) => void;
+  readonly onCopyText?: (msg: ChatMessage) => void;
 }
 
 // -- Component ----------------------------------------------------
@@ -51,6 +59,10 @@ export default function MessageContextMenu({
   onClose,
   onDelete,
   onSelectMode,
+  onReaction,
+  onMoreReactions,
+  onCite,
+  onCopyText,
 }: MessageContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<MenuPosition | null>(null);
@@ -87,6 +99,49 @@ export default function MessageContextMenu({
         className={styles.menu}
         style={pos ? { top: pos.top, left: pos.left } : { top: menu.y, left: menu.x, visibility: "hidden" }}
       >
+        {/* Quick-reaction row */}
+        {onReaction && (
+          <div className={styles.reactionRow}>
+            {QUICK_REACTIONS.map((r) => (
+              <button
+                key={r.label}
+                type="button"
+                className={styles.reactionBtn}
+                aria-label={r.label}
+                onClick={() => { onReaction(menu.message, r.emoji); onClose(); }}
+              >
+                {r.emoji}
+              </button>
+            ))}
+            {onMoreReactions && (
+              <button
+                type="button"
+                className={styles.reactionBtn}
+                aria-label="More reactions"
+                onClick={() => { onMoreReactions(menu.message); onClose(); }}
+              >
+                <EmojiPlusIcon width={16} height={16} />
+              </button>
+            )}
+          </div>
+        )}
+        {onReaction && <div className={styles.divider} />}
+        {onCite && (
+          <button type="button" className={styles.menuItem} onClick={() => { onCite(menu.message); onClose(); }}>
+            <span className={styles.menuIcon}>
+              <QuoteIcon width={14} height={14} />
+            </span>
+            Quote
+          </button>
+        )}
+        {onCopyText && (
+          <button type="button" className={styles.menuItem} onClick={() => { onCopyText(menu.message); onClose(); }}>
+            <span className={styles.menuIcon}>
+              <CopyIcon width={14} height={14} />
+            </span>
+            Copy text
+          </button>
+        )}
         {canDelete && (
           <button type="button" className={`${styles.menuItem} ${styles.menuItemDanger}`} onClick={handleDelete}>
             <span className={styles.menuIcon}>

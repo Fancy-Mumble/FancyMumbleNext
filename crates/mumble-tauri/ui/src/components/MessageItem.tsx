@@ -10,7 +10,11 @@ import { formatTimestamp, colorFor } from "../utils/format";
 import { extractOffloadInfo } from "../messageOffload";
 import PollCard, { getPoll } from "./PollCard";
 import MediaPreview from "./MediaPreview";
+import QuoteBlock from "./elements/QuoteBlock";
 import styles from "./ChatView.module.css";
+
+/** Regex to match quote reference markers in message bodies. */
+const QUOTE_RE = /<!-- FANCY_QUOTE:(.+?) -->/g;
 
 /** Approximate height of the profile hover card, used for viewport clamping. */
 const HOVER_CARD_H = 340;
@@ -108,6 +112,7 @@ export function MessageAvatar({
  */
 function isPureMedia(body: string): boolean {
   if (/<!-- FANCY_POLL:/.test(body)) return false;
+  if (QUOTE_RE.test(body)) { QUOTE_RE.lastIndex = 0; return false; }
   const hasMedia = /<img|<video/i.test(body);
   if (!hasMedia) return false;
   const textOnly = body
@@ -138,6 +143,10 @@ interface MessageItemProps {
   readonly isRestoring?: boolean;
   /** True when this is the first message in a consecutive same-sender group. */
   readonly isFirstInGroup?: boolean;
+  /** Callback to scroll to a quoted message. */
+  readonly onScrollToMessage?: (messageId: string) => void;
+  /** When provided, media clicks call this instead of opening a per-message lightbox. */
+  readonly onOpenLightbox?: (src: string) => void;
 }
 
 export default function MessageItem({
@@ -151,6 +160,8 @@ export default function MessageItem({
   systemUses24h,
   isRestoring = false,
   isFirstInGroup = true,
+  onScrollToMessage,
+  onOpenLightbox,
 }: MessageItemProps) {
   const offloadInfo = extractOffloadInfo(msg.body);
   const offloaded = offloadInfo !== null;
@@ -181,22 +192,46 @@ export default function MessageItem({
       );
     }
 
-    const pollMatch = /<!-- FANCY_POLL:(.+?) -->/.exec(msg.body);
+    // Extract quote references before other content checks.
+    const quoteIds: string[] = [];
+    for (const m of msg.body.matchAll(QUOTE_RE)) quoteIds.push(m[1]);
+    const bodyWithoutQuotes = quoteIds.length > 0
+      ? msg.body.replaceAll(QUOTE_RE, "").trim()
+      : msg.body;
+
+    const quoteBlocks = quoteIds.map((id) => (
+      <QuoteBlock key={id} messageId={id} onScrollTo={onScrollToMessage} />
+    ));
+
+    const pollMatch = /<!-- FANCY_POLL:(.+?) -->/.exec(bodyWithoutQuotes);
     if (pollMatch) {
       const pollId = pollMatch[1];
       const poll = polls.get(pollId) ?? getPoll(pollId);
       if (poll) {
         return (
-          <PollCard
-            poll={poll}
-            ownSession={ownSession}
-            isOwn={msg.is_own}
-            onVote={onVote}
-          />
+          <>
+            {quoteBlocks}
+            <PollCard
+              poll={poll}
+              ownSession={ownSession}
+              isOwn={msg.is_own}
+              onVote={onVote}
+            />
+          </>
         );
       }
     }
-    return <MediaPreview html={msg.body} messageId={`${index}`} compact={pureMedia} timestamp={pureMedia ? displayTimestamp : undefined} timeFormat={timeFormat} convertToLocalTime={convertToLocalTime} systemUses24h={systemUses24h} />;
+
+    if (quoteBlocks.length > 0 && !bodyWithoutQuotes) {
+      return <>{quoteBlocks}</>;
+    }
+
+    return (
+      <>
+        {quoteBlocks}
+        <MediaPreview html={bodyWithoutQuotes} messageId={`${index}`} compact={pureMedia} timestamp={pureMedia ? displayTimestamp : undefined} timeFormat={timeFormat} convertToLocalTime={convertToLocalTime} systemUses24h={systemUses24h} senderName={msg.sender_name} messageTimestamp={displayTimestamp} onOpenLightbox={onOpenLightbox} />
+      </>
+    );
   };
 
   return (

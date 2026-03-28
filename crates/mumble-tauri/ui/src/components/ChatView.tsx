@@ -10,11 +10,14 @@ import MessageItem, { MessageAvatar } from "./MessageItem";
 import ChatComposer from "./ChatComposer";
 import PollCreator from "./PollCreator";
 import MessageContextMenu, { type MessageContextMenuState } from "./MessageContextMenu";
+import MobileMessageActionSheet from "./MobileMessageActionSheet";
 import CheckIcon from "../assets/icons/status/check.svg?react";
 import ChevronDownIcon from "../assets/icons/navigation/chevron-down.svg?react";
 import MessageSelectionBar from "./MessageSelectionBar";
 import ConfirmDialog from "./elements/ConfirmDialog";
+import MessageActionBar from "./elements/MessageActionBar";
 import Toast, { type ToastData } from "./elements/Toast";
+import { isMobilePlatform } from "../utils/platform";
 import { canDeleteMessages } from "./ChannelEditorDialog";
 import { usePersistentChat } from "./PersistentChatOverlays";
 import { BannerStack } from "./InfoBanner";
@@ -23,13 +26,16 @@ import { registerVote, registerLocalVote, getPoll } from "./PollCard";
 import { mediaKind, fileToDataUrl, fitImage, fitVideo, mediaToHtml } from "../utils/media";
 import { textureToDataUrl } from "../profileFormat";
 import { markdownToHtml } from "./MarkdownInput";
-import { dateKey, formatDateChip } from "../utils/format";
+import { dateKey, formatDateChip, colorFor } from "../utils/format";
 import {
   isHeavyContent,
+  extractOffloadInfo,
   offloadManager,
   type MessageScope,
 } from "../messageOffload";
 import styles from "./ChatView.module.css";
+import ChatLightbox, { type ChatMediaItem } from "./ChatLightbox";
+import { extractMedia } from "./MediaPreview";
 
 // --- Scroll helpers ----------------------------------------------
 
@@ -116,9 +122,12 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   const activeGroup = isGroupMode ? groupChats.find((g) => g.id === selectedGroup) : undefined;
 
   const [draft, setDraft] = useState("");
+  const [pendingQuotes, setPendingQuotes] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [showPollCreator, setShowPollCreator] = useState(false);
   const [, forceRender] = useReducer((c: number) => c + 1, 0);
+
+
 
   // Time display preferences (loaded once from persistent storage).
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("auto");
@@ -284,6 +293,101 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     );
     return [...messages, ...channelPolls];
   }, [isGroupMode, groupMessages, isDmMode, dmMessages, messages, pollMessages, selectedChannel]);
+
+  // --- Global lightbox (cross-message image navigation) ------------
+
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  /**
+   * Lightweight cache: remembers how many media items each message has
+   * and their metadata (kind, alt, sender, timestamp) WITHOUT storing
+   * the heavy data-URL `src`.  This way offloaded messages still
+   * occupy their correct slots in the gallery without keeping the
+   * image bytes in RAM.
+   */
+  const mediaCacheRef = useRef<Map<string, Omit<ChatMediaItem, "src">[]>>(new Map());
+
+  /** Flat list of every media item across all visible messages. */
+  const allMedia = useMemo<ChatMediaItem[]>(() => {
+    const result: ChatMediaItem[] = [];
+    const cache = mediaCacheRef.current;
+    for (const msg of allMessages) {
+      const id = msg.message_id;
+      const offloaded = extractOffloadInfo(msg.body) !== null;
+
+      if (offloaded && id && cache.has(id)) {
+        // Message is offloaded - emit stub items with empty src.
+        for (const [i, cached] of cache.get(id)!.entries()) {
+          result.push({
+            ...cached,
+            src: "",
+            offloadedMessageId: id,
+            offloadedMediaIndex: i,
+          });
+        }
+        continue;
+      }
+
+      const { media } = extractMedia(msg.body);
+      const ts = msg.timestamp ?? Date.now();
+      const stubs: Omit<ChatMediaItem, "src">[] = [];
+      for (const item of media) {
+        result.push({
+          src: item.src,
+          kind: item.kind,
+          alt: item.alt,
+          senderName: msg.sender_name,
+          timestamp: ts,
+        });
+        stubs.push({
+          kind: item.kind,
+          alt: item.alt,
+          senderName: msg.sender_name,
+          timestamp: ts,
+        });
+      }
+
+      if (id && stubs.length > 0) cache.set(id, stubs);
+    }
+    return result;
+  }, [allMessages]);
+
+  /** Open the global lightbox at the item matching the given src. */
+  const handleOpenLightbox = useCallback(
+    (src: string) => {
+      const idx = allMedia.findIndex((m) => m.src === src);
+      if (idx >= 0) setLightboxIndex(idx);
+    },
+    [allMedia],
+  );
+
+  /**
+   * On-demand loader for offloaded media.  Restores the message from
+   * the offload cache, extracts media, and returns the src for the
+   * requested media index.
+   */
+  const handleLoadOffloaded = useCallback(
+    async (messageId: string, mediaIndex: number): Promise<string | null> => {
+      const scope = currentScope();
+      if (!scope) return null;
+
+      const results = await offloadManager.restoreMany([messageId], scope);
+      const body = results[messageId];
+      if (!body) return null;
+
+      const { media } = extractMedia(body);
+      return media[mediaIndex]?.src ?? null;
+    },
+    [currentScope],
+  );
+
+  const handleLightboxNavigate = useCallback((idx: number) => setLightboxIndex(idx), []);
+  const handleLightboxClose = useCallback(() => setLightboxIndex(null), []);
+
+  // Close lightbox when switching conversations.
+  useEffect(() => {
+    setLightboxIndex(null);
+  }, [selectedChannel, selectedDmUser, selectedGroup]);
 
   // --- Smart scroll behaviour --------------------------------------
   //
@@ -623,18 +727,28 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
   const handleSend = async () => {
     const text = draft.trim();
-    if (!text) return;
+    if (!text && pendingQuotes.length === 0) return;
+
+    // Build quote markers and convert draft to HTML.
+    const quoteMarkers = pendingQuotes
+      .filter((q) => q.message_id)
+      .map((q) => `<!-- FANCY_QUOTE:${q.message_id} -->`)
+      .join("");
+    const htmlBody = text ? markdownToHtml(text) : "";
+    const html = quoteMarkers + htmlBody;
+    if (!html) return;
+
     if (isGroupMode && selectedGroup !== null) {
       setDraft("");
-      const html = markdownToHtml(text);
+      setPendingQuotes([]);
       await sendGroupMessage(selectedGroup, html);
     } else if (isDmMode && selectedDmUser !== null) {
       setDraft("");
-      const html = markdownToHtml(text);
+      setPendingQuotes([]);
       await sendDm(selectedDmUser, html);
     } else if (selectedChannel !== null) {
       setDraft("");
-      const html = markdownToHtml(text);
+      setPendingQuotes([]);
       await sendMessage(selectedChannel, html);
     }
   };
@@ -882,13 +996,15 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   /** Start long-press timer on touch. */
   const handleTouchStart = useCallback(
     (msg: ChatMessage) => {
-      if (selectionMode || !canDelete || !msg.message_id) return;
+      if (selectionMode || !msg.message_id) return;
       longPressTimerRef.current = setTimeout(() => {
-        enterSelectionMode(msg);
+        // Open context menu centered on the message (reuses the combined menu
+        // which includes reactions, cite, copy, delete, select).
+        setMsgContextMenu({ x: window.innerWidth / 2, y: window.innerHeight / 2, message: msg });
         longPressTimerRef.current = null;
       }, 500);
     },
-    [selectionMode, canDelete, enterSelectionMode],
+    [selectionMode],
   );
 
   /** Cancel long-press timer. */
@@ -897,6 +1013,67 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
+  }, []);
+
+  // --- Message action bar handlers ---------------------------------
+
+  const isMobile = isMobilePlatform();
+
+  /** Called when a quick-reaction emoji is clicked. */
+  const handleReaction = useCallback((msg: ChatMessage, emoji: string) => {
+    // TODO: send reaction to backend once implemented
+    console.log("reaction", msg.message_id, emoji);
+  }, []);
+
+  /** Called when "more reactions" is clicked. */
+  const handleMoreReactions = useCallback((_msg: ChatMessage) => {
+    // TODO: open full emoji picker once implemented
+    console.log("more reactions");
+  }, []);
+
+  /** Called when the cite/quote button is clicked. */
+  const handleCite = useCallback((msg: ChatMessage) => {
+    if (!msg.message_id) return;
+    setPendingQuotes((prev) => {
+      if (prev.some((q) => q.message_id === msg.message_id)) return prev;
+      return [...prev, msg];
+    });
+  }, []);
+
+  /** Copy message text to clipboard from kebab menu. */
+  const handleCopyText = useCallback((msg: ChatMessage) => {
+    const plain = msg.body
+      .replaceAll(/<[^>]*>/g, "")
+      .replaceAll("&lt;", "<")
+      .replaceAll("&gt;", ">")
+      .replaceAll("&amp;", "&")
+      .trim();
+    navigator.clipboard.writeText(plain).catch(() => {
+      /* clipboard write may fail silently */
+    });
+  }, []);
+
+  /** Scroll to a quoted message and flash-highlight it. */
+  const handleScrollToMessage = useCallback((messageId: string) => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const el = container.querySelector<HTMLElement>(
+      `[data-msg-id="${CSS.escape(messageId)}"]`,
+    );
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add(styles.quoteHighlight);
+    setTimeout(() => el.classList.remove(styles.quoteHighlight), 1500);
+  }, []);
+
+  /** Clear pending quotes when the active conversation changes. */
+  useEffect(() => {
+    setPendingQuotes([]);
+  }, [selectedChannel, selectedDmUser, selectedGroup]);
+
+  /** Remove a pending quote by message ID. */
+  const removePendingQuote = useCallback((msgId: string) => {
+    setPendingQuotes((prev) => prev.filter((p) => p.message_id !== msgId));
   }, []);
 
   /** Auto-exit selection mode when all messages are deselected. */
@@ -1137,18 +1314,32 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
                             )}
                             <div
                               className={[
+                                styles.actionBarWrapper,
                                 selectionMode && canDelete && hasMsgId ? styles.messageRowSelectable : "",
                                 selectionMode && canDelete && hasMsgId ? styles.selectableRow : "",
                                 isSelected ? styles.selectedRow : "",
                               ].join(" ")}
                               data-msg-id={msg.message_id ?? undefined}
                               data-msg-heavy={msg.message_id && isHeavyContent(msg.body) ? "" : undefined}
-                              onContextMenu={hasMsgId && canDelete && !selectionMode ? (e) => handleMessageContextMenu(e, msg) : undefined}
+                              onContextMenu={hasMsgId && !selectionMode ? (e) => handleMessageContextMenu(e, msg) : undefined}
                               onClick={selectionMode && canDelete && hasMsgId ? () => toggleMsgSelection(msg.message_id!) : undefined}
-                              onTouchStart={hasMsgId && canDelete && !selectionMode ? () => handleTouchStart(msg) : undefined}
-                              onTouchEnd={canDelete && !selectionMode ? cancelLongPress : undefined}
-                              onTouchMove={canDelete && !selectionMode ? cancelLongPress : undefined}
+                              onDoubleClick={hasMsgId && !selectionMode && !isMobile ? () => handleCite(msg) : undefined}
+                              onTouchStart={hasMsgId && !selectionMode ? () => handleTouchStart(msg) : undefined}
+                              onTouchEnd={!selectionMode ? cancelLongPress : undefined}
+                              onTouchMove={!selectionMode ? cancelLongPress : undefined}
                             >
+                              {!selectionMode && !isMobile && (
+                                <MessageActionBar
+                                  message={msg}
+                                  isOwn={msg.is_own}
+                                  onReaction={handleReaction}
+                                  onMoreReactions={handleMoreReactions}
+                                  onCite={handleCite}
+                                  onCopyText={handleCopyText}
+                                  onDelete={canDelete ? handleSingleDelete : undefined}
+                                  canDelete={canDelete && hasMsgId}
+                                />
+                              )}
                               <MessageItem
                                 msg={msg}
                                 index={globalIdx}
@@ -1163,6 +1354,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
                                 systemUses24h={systemUses24h}
                                 isRestoring={msg.message_id ? restoringKeys.has(msg.message_id) : false}
                                 isFirstInGroup={j === 0}
+                                onScrollToMessage={handleScrollToMessage}
+                                onOpenLightbox={handleOpenLightbox}
                               />
                               {selectionMode && canDelete && hasMsgId && (
                                 <div className={`${styles.selectCheckbox} ${isSelected ? styles.selectCheckboxChecked : ""}`}>
@@ -1199,6 +1392,43 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         </button>
       )}
 
+      {/* Pending quote preview strip */}
+      {pendingQuotes.length > 0 && (
+        <div className={styles.quotePreviewStrip}>
+          {pendingQuotes.map((q) => {
+            const plain = q.body.replaceAll(/<[^>]*>/g, "").replaceAll(/<!--[\s\S]*?-->/g, "").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&").trim();
+            const preview = plain.length > 80 ? plain.slice(0, 80) + "\u2026" : plain;
+            return (
+              <div key={q.message_id} className={styles.quotePreviewItem}>
+                <div
+                  className={styles.quotePreviewBar}
+                  style={{ backgroundColor: colorFor(q.sender_name) }}
+                />
+                <div className={styles.quotePreviewContent}>
+                  <span
+                    className={styles.quotePreviewSender}
+                    style={{ color: colorFor(q.sender_name) }}
+                  >
+                    {q.sender_name}
+                  </span>
+                  <span className={styles.quotePreviewText}>
+                    {preview || "Media"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className={styles.quotePreviewRemove}
+                  onClick={() => removePendingQuote(q.message_id!)}
+                  aria-label="Remove quote"
+                >
+                  &times;
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <ChatComposer
         draft={draft}
         onChange={setDraft}
@@ -1207,6 +1437,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         onFileSelected={sendMediaFile}
         onGifSelect={handleGifSelect}
         disabled={sending || persistent.keyRevoked}
+        hasPendingQuotes={pendingQuotes.length > 0}
       />
 
       {showPollCreator && (
@@ -1219,14 +1450,31 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
       {/* Persistent chat dialogs (key verification, custodian prompt) */}
       {persistent.dialogs}
 
-      {/* Message context menu (right-click) */}
-      {msgContextMenu && (
+      {/* Message context menu (right-click on desktop, bottom sheet on mobile) */}
+      {msgContextMenu && !isMobile && (
         <MessageContextMenu
           menu={msgContextMenu}
           canDelete={canDelete}
           onClose={() => setMsgContextMenu(null)}
           onDelete={handleSingleDelete}
           onSelectMode={enterSelectionMode}
+          onReaction={handleReaction}
+          onMoreReactions={handleMoreReactions}
+          onCite={handleCite}
+          onCopyText={handleCopyText}
+        />
+      )}
+      {msgContextMenu && isMobile && (
+        <MobileMessageActionSheet
+          message={msgContextMenu.message}
+          canDelete={canDelete}
+          onClose={() => setMsgContextMenu(null)}
+          onDelete={handleSingleDelete}
+          onSelectMode={enterSelectionMode}
+          onReaction={handleReaction}
+          onMoreReactions={handleMoreReactions}
+          onCite={handleCite}
+          onCopyText={handleCopyText}
         />
       )}
 
@@ -1247,6 +1495,20 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
       )}
 
       {toast && <Toast {...toast} onDismiss={() => setToast(null)} />}
+
+      {/* Global lightbox with cross-message prev/next navigation */}
+      {lightboxIndex !== null && allMedia[lightboxIndex] && (
+        <ChatLightbox
+          items={allMedia}
+          activeIndex={lightboxIndex}
+          onClose={handleLightboxClose}
+          onNavigate={handleLightboxNavigate}
+          onLoadOffloaded={handleLoadOffloaded}
+          timeFormat={timeFormat}
+          convertToLocalTime={convertToLocalTime}
+          systemUses24h={systemUses24h}
+        />
+      )}
     </main>
   );
 }

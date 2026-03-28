@@ -22,7 +22,7 @@ import { formatTimestamp } from "../utils/format";
 
 // --- Types --------------------------------------------------------
 
-interface MediaItem {
+export interface MediaItem {
   kind: "image" | "gif" | "video";
   src: string; // data-URL or remote URL
   alt: string;
@@ -46,6 +46,12 @@ interface Props {
   convertToLocalTime?: boolean;
   /** OS-reported clock format for "auto" mode (true = 24h). */
   systemUses24h?: boolean;
+  /** Name of the message sender (shown in lightbox). */
+  senderName?: string;
+  /** Epoch-ms timestamp of the message (shown in lightbox). */
+  messageTimestamp?: number | null;
+  /** When provided, thumbnail clicks call this instead of opening the internal lightbox. */
+  onOpenLightbox?: (src: string) => void;
 }
 
 // --- Global GIF-played tracker ------------------------------------
@@ -158,7 +164,7 @@ function sanitiseAttrs(child: Element, tag: string): void {
 }
 
 /** Parse `<img>` and `<video>` tags out of HTML and classify them. */
-function extractMedia(html: string): { cleaned: string; media: MediaItem[] } {
+export function extractMedia(html: string): { cleaned: string; media: MediaItem[] } {
   const media: MediaItem[] = [];
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
@@ -369,9 +375,19 @@ function VideoThumb({
 function Lightbox({
   item,
   onClose,
+  senderName,
+  messageTimestamp,
+  timeFormat,
+  convertToLocalTime,
+  systemUses24h,
 }: Readonly<{
   item: MediaItem;
   onClose: () => void;
+  senderName?: string;
+  messageTimestamp?: number | null;
+  timeFormat?: TimeFormat;
+  convertToLocalTime?: boolean;
+  systemUses24h?: boolean;
 }>) {
   // Close on Escape.
   useEffect(() => {
@@ -411,6 +427,19 @@ function Lightbox({
         <button type="button" className={styles.lightboxClose} onClick={onClose}>
           ✕
         </button>
+        {senderName && (
+          <div className={styles.lightboxCaption}>
+            <span className={styles.lightboxSender}>{senderName}</span>
+            {messageTimestamp != null && (
+              <time
+                className={styles.lightboxTime}
+                dateTime={new Date(messageTimestamp).toISOString()}
+              >
+                {formatTimestamp(messageTimestamp, timeFormat, convertToLocalTime, systemUses24h)}
+              </time>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -418,11 +447,18 @@ function Lightbox({
 
 // --- Main component -----------------------------------------------
 
-export default function MediaPreview({ html, messageId, compact = false, timestamp, timeFormat = "auto", convertToLocalTime = true, systemUses24h }: Readonly<Props>): ReactNode {
+export default function MediaPreview({ html, messageId, compact = false, timestamp, timeFormat = "auto", convertToLocalTime = true, systemUses24h, senderName, messageTimestamp, onOpenLightbox }: Readonly<Props>): ReactNode {
   const { cleaned, media } = extractMedia(html);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
 
-  const openLightbox = (idx: number) => setLightboxIdx(idx);
+  const openLightbox = (idx: number) => {
+    const item = media[idx];
+    if (onOpenLightbox && item) {
+      onOpenLightbox(item.src);
+    } else {
+      setLightboxIdx(idx);
+    }
+  };
   const closeLightbox = () => setLightboxIdx(null);
 
   const timeLabel = timestamp == null
@@ -478,8 +514,16 @@ export default function MediaPreview({ html, messageId, compact = false, timesta
       )}
 
       {/* Lightbox - portalled to body to escape backdrop-filter containing blocks */}
-      {lightboxIdx !== null && media[lightboxIdx] && createPortal(
-        <Lightbox item={media[lightboxIdx]} onClose={closeLightbox} />,
+      {!onOpenLightbox && lightboxIdx !== null && media[lightboxIdx] && createPortal(
+        <Lightbox
+          item={media[lightboxIdx]}
+          onClose={closeLightbox}
+          senderName={senderName}
+          messageTimestamp={messageTimestamp}
+          timeFormat={timeFormat}
+          convertToLocalTime={convertToLocalTime}
+          systemUses24h={systemUses24h}
+        />,
         document.body,
       )}
     </>

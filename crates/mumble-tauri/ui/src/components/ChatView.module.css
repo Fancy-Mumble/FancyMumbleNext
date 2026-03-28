@@ -335,6 +335,19 @@
 
 /* --- Message Rows ----------------------------------------------- */
 
+.actionBarWrapper {
+  position: relative;
+}
+
+/* Show the action bar only when hovering the message bubble itself,
+   not the full-width row.  The bar uses `display: none` by default
+   (see MessageActionBar.module.css).  Also keep it visible while
+   hovering the bar itself so buttons remain clickable. */
+.actionBarWrapper:has(.bubble:hover) > [data-action-bar],
+.actionBarWrapper > [data-action-bar]:hover {
+  display: flex;
+}
+
 .messageRow {
   display: flex;
   align-items: flex-end;
@@ -723,6 +736,89 @@
   justify-content: center;
   flex-shrink: 0;
   transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+/* --- Quote preview strip (above composer) ----------------------- */
+
+.quotePreviewStrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--color-glass, rgba(30, 30, 30, 0.6));
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.quotePreviewItem {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  max-width: 300px;
+  overflow: hidden;
+}
+
+.quotePreviewBar {
+  width: 3px;
+  flex-shrink: 0;
+  border-radius: 3px 0 0 3px;
+}
+
+.quotePreviewContent {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.quotePreviewSender {
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quotePreviewText {
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--color-text-secondary, #aaa);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quotePreviewRemove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary, #888);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0;
+}
+
+.quotePreviewRemove:hover {
+  color: var(--color-text-primary, #fff);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* --- Quote scroll highlight ------------------------------------- */
+
+.quoteHighlight {
+  animation: quoteFlash 1.5s ease-out;
+}
+
+@keyframes quoteFlash {
+  0% { background-color: rgba(100, 150, 255, 0.25); }
+  100% { background-color: transparent; }
 }
 
 .attachBtn:hover:not(:disabled) {
