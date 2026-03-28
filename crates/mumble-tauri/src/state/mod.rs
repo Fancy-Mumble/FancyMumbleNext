@@ -40,7 +40,7 @@ use tracing::info;
 
 use offload::OffloadStore;
 
-use mumble_protocol::audio::mixer::AudioMixer;
+use mumble_protocol::audio::mixer::{AudioMixer, SpeakerVolumes};
 use mumble_protocol::client::ClientHandle;
 use mumble_protocol::command;
 use mumble_protocol::persistent::PersistenceMode;
@@ -139,6 +139,9 @@ pub(super) struct SharedState {
     pub input_volume_handle: Option<Arc<AtomicU32>>,
     /// Live output volume multiplier (f32 stored as u32 bits).
     pub output_volume_handle: Option<Arc<AtomicU32>>,
+    /// Per-speaker volume overrides (0.0-2.0). Shared with the playback
+    /// callback so per-user volume changes take effect immediately.
+    pub speaker_volumes: SpeakerVolumes,
     /// Handle to the background mic-test task (emits amplitude events).
     pub mic_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
     /// Handle to the background latency-test task (sends periodic pings).

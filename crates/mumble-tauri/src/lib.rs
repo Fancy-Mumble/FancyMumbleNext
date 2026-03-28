@@ -795,6 +795,12 @@ fn get_voice_state(state: tauri::State<'_, AppState>) -> VoiceState {
     state.voice_state()
 }
 
+/// Set the local playback volume for a specific remote user (0-200 %).
+#[tauri::command]
+fn set_user_volume(state: tauri::State<'_, AppState>, session: u32, volume: f32) {
+    state.set_user_volume(session, volume);
+}
+
 /// Enable voice calling for the current channel.
 /// Sends unmute/undeaf to the server.
 #[tauri::command]
@@ -1692,6 +1698,7 @@ pub fn run() {
             get_audio_settings,
             set_audio_settings,
             get_voice_state,
+            set_user_volume,
             enable_voice,
             disable_voice,
             toggle_mute,

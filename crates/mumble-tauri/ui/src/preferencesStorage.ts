@@ -154,3 +154,30 @@ export async function setSilencedChannel(
   await store.set(SILENCED_CHANNELS_KEY, map);
   return updated;
 }
+
+// -- Per-user volume overrides (keyed by cert hash) ----------------
+
+const USER_VOLUMES_KEY = "userVolumes";
+
+type VolumeMap = Record<string, number>;
+
+/** Return all persisted per-user volume overrides (hash -> 0-200). */
+export async function getUserVolumes(): Promise<VolumeMap> {
+  const store = await getStore();
+  return (await store.get<VolumeMap>(USER_VOLUMES_KEY)) ?? {};
+}
+
+/** Persist a single user's volume override (or remove if 100). */
+export async function saveUserVolume(
+  hash: string,
+  volume: number,
+): Promise<void> {
+  const store = await getStore();
+  const map = (await store.get<VolumeMap>(USER_VOLUMES_KEY)) ?? {};
+  if (volume === 100) {
+    delete map[hash];
+  } else {
+    map[hash] = volume;
+  }
+  await store.set(USER_VOLUMES_KEY, map);
+}

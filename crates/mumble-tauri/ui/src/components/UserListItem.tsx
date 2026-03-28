@@ -11,6 +11,7 @@ import MicOffIcon from "../assets/icons/audio/mic-off.svg?react";
 import HeadphonesOffIcon from "../assets/icons/audio/headphones-off.svg?react";
 import StarIcon from "../assets/icons/status/star.svg?react";
 import ShieldCheckIcon from "../assets/icons/status/shield-check.svg?react";
+import VolumeIcon from "../assets/icons/audio/volume.svg?react";
 import styles from "./UserListItem.module.css";
 
 // Re-export so existing consumers (e.g. ChannelSidebar) keep working.
@@ -83,6 +84,7 @@ export function UserListItem({
   const [cardPos, setCardPos] = useState<{ top: number; left: number } | null>(null);
   const itemRef = useRef<HTMLButtonElement>(null);
   const dmUnread = useAppStore((s) => s.dmUnreadCounts[user.session] ?? 0);
+  const volumePct = useAppStore((s) => user.hash ? (s.userVolumes[user.hash] ?? 100) : 100);
   const stats = useUserStats(user.session, showCard);
 
   const url = useMemo(() => avatarUrl(user), [user.texture]);
@@ -144,6 +146,12 @@ export function UserListItem({
         <span className={styles.onlineDot} />
       </div>
       <span className={styles.userName}>{user.name}</span>
+      {!isSelf && volumePct !== 100 && (
+        <span className={styles.volumeBadge} title={`Volume: ${volumePct}%`}>
+          <VolumeIcon width={12} height={12} />
+          {volumePct}%
+        </span>
+      )}
       {(isRegistered || (!isSelf && (isMuted || isDeafened || isPriority))) && (
         <span className={styles.statusIcons}>
           {isRegistered && (

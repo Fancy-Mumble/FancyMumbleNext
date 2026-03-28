@@ -72,6 +72,21 @@ impl AppState {
             let _ = app.emit("voice-state-changed", vs);
         }
     }
+
+    /// Set the local playback volume for a specific remote user.
+    ///
+    /// `volume` is a multiplier (0.0 = muted, 1.0 = normal, 2.0 = 200%).
+    pub fn set_user_volume(&self, session: u32, volume: f32) {
+        if let Ok(state) = self.inner.lock() {
+            if let Ok(mut sv) = state.speaker_volumes.lock() {
+                if (volume - 1.0).abs() < f32::EPSILON {
+                    let _ = sv.remove(&session);
+                } else {
+                    let _ = sv.insert(session, volume.clamp(0.0, 2.0));
+                }
+            }
+        }
+    }
 }
 
 // -- Voice pipeline (all platforms) ---------------------------------
@@ -81,6 +96,7 @@ mod voice_pipeline {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use tauri::Emitter;
     use tracing::info;
 
     use mumble_protocol::audio::encoder::{OpusEncoder, OpusEncoderConfig};
@@ -116,11 +132,16 @@ mod voice_pipeline {
             let speaker_buffers: SpeakerBuffers = Arc::new(
                 std::sync::Mutex::new(std::collections::HashMap::new()),
             );
+            let speaker_volumes = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                state.speaker_volumes.clone()
+            };
             let mixer = AudioMixer::new(speaker_buffers.clone(), AudioFormat::MONO_48KHZ_F32);
             let mut mixing_playback = PlatformAudioFactory::create_mixing_playback(
                 audio_settings.selected_output_device.as_deref(),
                 output_vol.clone(),
                 speaker_buffers,
+                speaker_volumes,
             )?;
             mixing_playback
                 .start()
@@ -194,6 +215,17 @@ mod voice_pipeline {
                 state.audio_mixer = None;
                 state.input_volume_handle = None;
                 state.output_volume_handle = None;
+
+                // Clear talking indicators: once audio is stopped no
+                // terminators will arrive, so reset all tracked sessions.
+                if !state.talking_sessions.is_empty() {
+                    if let Some(ref app) = state.tauri_app_handle {
+                        for &session in &state.talking_sessions {
+                            let _ = app.emit("user-talking", (session, false));
+                        }
+                    }
+                    state.talking_sessions.clear();
+                }
             }
         }
 
@@ -246,11 +278,16 @@ mod voice_pipeline {
             let speaker_buffers: SpeakerBuffers = Arc::new(
                 std::sync::Mutex::new(std::collections::HashMap::new()),
             );
+            let speaker_volumes = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                state.speaker_volumes.clone()
+            };
             let mixer = AudioMixer::new(speaker_buffers.clone(), AudioFormat::MONO_48KHZ_F32);
             let mut mixing_playback = PlatformAudioFactory::create_mixing_playback(
                 audio_settings.selected_output_device.as_deref(),
                 output_vol.clone(),
                 speaker_buffers,
+                speaker_volumes,
             )?;
             mixing_playback
                 .start()
@@ -367,11 +404,16 @@ mod voice_pipeline {
             let speaker_buffers: SpeakerBuffers = Arc::new(
                 std::sync::Mutex::new(std::collections::HashMap::new()),
             );
+            let speaker_volumes = {
+                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                state.speaker_volumes.clone()
+            };
             let mixer = AudioMixer::new(speaker_buffers.clone(), AudioFormat::MONO_48KHZ_F32);
             let mut mixing_playback = PlatformAudioFactory::create_mixing_playback(
                 audio_settings.selected_output_device.as_deref(),
                 output_vol.clone(),
                 speaker_buffers,
+                speaker_volumes,
             )?;
             mixing_playback
                 .start()
@@ -747,7 +789,8 @@ mod voice_pipeline {
             let bufs: SpeakerBuffers = Arc::new(
                 std::sync::Mutex::new(std::collections::HashMap::new()),
             );
-            let Ok(mut playback) = PlatformAudioFactory::create_mixing_playback(None, vol, bufs)
+            let sv: mumble_protocol::audio::mixer::SpeakerVolumes = Default::default();
+            let Ok(mut playback) = PlatformAudioFactory::create_mixing_playback(None, vol, bufs, sv)
             else {
                 eprintln!("Skipping: no audio output device available");
                 return;

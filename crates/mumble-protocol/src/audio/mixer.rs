@@ -34,6 +34,12 @@ const SPEAKER_TIMEOUT_SECS: u64 = 30;
 /// playback callback reads + mixes them in real time.
 pub type SpeakerBuffers = Arc<Mutex<HashMap<u32, VecDeque<f32>>>>;
 
+/// Shared per-speaker volume overrides (0.0 - 2.0, default 1.0).
+///
+/// Set from the UI when the user adjusts a specific speaker's volume
+/// slider.  The playback callback reads these values during mixing.
+pub type SpeakerVolumes = Arc<Mutex<HashMap<u32, f32>>>;
+
 /// Per-speaker decoder state.
 struct SpeakerDecoder {
     decoder: Box<dyn AudioDecoder>,

@@ -176,6 +176,7 @@ impl super::AudioDeviceFactory for OboeAudioFactory {
         _device_name: Option<&str>,
         volume: Arc<AtomicU32>,
         buffers: mumble_protocol::audio::mixer::SpeakerBuffers,
+        _speaker_volumes: mumble_protocol::audio::mixer::SpeakerVolumes,
     ) -> std::result::Result<Box<dyn super::MixingPlayback>, String> {
         OboeMixingPlayback::new(volume, buffers)
             .map(|c| Box::new(c) as _)

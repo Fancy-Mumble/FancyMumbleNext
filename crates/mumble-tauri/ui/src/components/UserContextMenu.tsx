@@ -23,24 +23,12 @@ import styles from "./UserContextMenu.module.css";
 /** Mumble permission bitmask: Register users (root channel only). */
 const PERM_REGISTER = 0x40000;
 
-// -- Local per-session state for volume and blocked users ----------
+// -- Local per-session state --------------------------------------
 
-/** Local volume overrides keyed by session ID (0-200, default 100). */
-const localVolumes = new Map<number, number>();
-/** Blocked user sessions for the current connection. */
-const blockedUsers = new Set<number>();
-
-export function getLocalVolume(session: number): number {
-  return localVolumes.get(session) ?? 100;
-}
-
-export function isUserBlocked(session: number): boolean {
-  return blockedUsers.has(session);
-}
-
-export function resetLocalState(): void {
-  localVolumes.clear();
-  blockedUsers.clear();
+/** Look up the persisted volume for a user by hash (0-200, default 100). */
+export function getLocalVolume(hash?: string): number {
+  if (!hash) return 100;
+  return useAppStore.getState().userVolumes[hash] ?? 100;
 }
 
 // -- Position computation (overflow-aware) -------------------------
@@ -95,6 +83,8 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
   const channels = useAppStore((s) => s.channels);
   const selectedChannel = useAppStore((s) => s.selectedChannel);
   const deletePchatMessages = useAppStore((s) => s.deletePchatMessages);
+  const setUserVolume = useAppStore((s) => s.setUserVolume);
+  const storedVolume = useAppStore((s) => user.hash ? (s.userVolumes[user.hash] ?? 100) : 100);
   const isSelf = user.session === ownSession;
 
   const channel = channels.find((c) => c.id === selectedChannel);
@@ -108,8 +98,7 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
 
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<MenuPosition | null>(null);
-  const [volume, setVolume] = useState(() => getLocalVolume(user.session));
-  const [blocked, setBlocked] = useState(() => isUserBlocked(user.session));
+  const [volume, setVolume] = useState(() => storedVolume);
   const [toast, setToast] = useState<ToastData | null>(null);
   const [deleteUserConfirm, setDeleteUserConfirm] = useState(false);
 
@@ -135,23 +124,15 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const v = Number(e.target.value);
       setVolume(v);
-      localVolumes.set(user.session, v);
+      if (user.hash) {
+        setUserVolume(user.hash, v);
+      }
+      invoke("set_user_volume", { session: user.session, volume: v / 100 }).catch((err: unknown) =>
+        console.error("set_user_volume failed:", err),
+      );
     },
-    [user.session],
+    [user.session, user.hash, setUserVolume],
   );
-
-  // -- Block toggle ------------------------------------------------
-
-  const toggleBlock = useCallback(() => {
-    if (blockedUsers.has(user.session)) {
-      blockedUsers.delete(user.session);
-      setBlocked(false);
-    } else {
-      blockedUsers.add(user.session);
-      setBlocked(true);
-    }
-    onClose();
-  }, [user.session, onClose]);
 
   // -- Admin actions -----------------------------------------------
 
@@ -229,11 +210,6 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
               />
               <span className={styles.volumeValue}>{volume}%</span>
             </div>
-            <button type="button" className={`${styles.menuItem} ${blocked ? styles.menuItemDanger : ""}`} onClick={toggleBlock}>
-              <span className={styles.menuIcon}>
-                <BlockIcon width={14} height={14} />
-              </span>
-            </button>
           </>
         )}
 
