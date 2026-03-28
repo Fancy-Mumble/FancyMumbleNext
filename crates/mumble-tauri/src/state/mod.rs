@@ -19,10 +19,12 @@ mod handler;
 pub(crate) mod hash_names;
 pub mod offload;
 pub(crate) mod pchat;
+mod recording;
 mod search;
 pub mod types;
 
 // Re-export everything that lib.rs needs.
+pub use recording::{RecordingFormat, RecordingState};
 pub use types::{
     AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus, DebugStats,
     GroupChat, PhotoEntry, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
@@ -141,6 +143,8 @@ pub(super) struct SharedState {
     pub mic_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
     /// Handle to the background latency-test task (sends periodic pings).
     pub latency_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
+    /// Handle to the background audio recording task.
+    pub recording_handle: Option<recording::RecordingHandle>,
     /// Persistent encrypted chat state (identity, key manager, codec).
     /// Initialised on connect when a cert hash is available.
     pub pchat: Option<pchat::PchatState>,

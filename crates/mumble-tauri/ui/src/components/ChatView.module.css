@@ -98,6 +98,27 @@
   transform: scale(0.96);
 }
 
+/* --- Messages wrapper + fixed key-share banner overlay ---------- */
+
+.messagesWrapper {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.fixedKeyShareBanner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  padding: 12px 24px 0;
+  pointer-events: auto;
+  /* No background on the wrapper - glass effect is on the banner itself */
+}
+
 /* --- Messages --------------------------------------------------- */
 
 .messages {

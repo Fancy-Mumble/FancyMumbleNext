@@ -7,13 +7,13 @@ interface InfoBannerProps {
   readonly actions?: ReactNode;
   readonly onDismiss?: () => void;
   readonly children: ReactNode;
-  readonly variant?: "default" | "danger";
+  readonly variant?: "default" | "danger" | "glass";
 }
 
 export function InfoBanner({ icon, actions, onDismiss, children, variant = "default" }: InfoBannerProps) {
-  const bannerClass = variant === "danger"
-    ? `${styles.banner} ${styles.danger}`
-    : styles.banner;
+  let bannerClass = styles.banner;
+  if (variant === "danger") bannerClass = `${styles.banner} ${styles.danger}`;
+  else if (variant === "glass") bannerClass = `${styles.banner} ${styles.glass}`;
 
   return (
     <div className={bannerClass}>

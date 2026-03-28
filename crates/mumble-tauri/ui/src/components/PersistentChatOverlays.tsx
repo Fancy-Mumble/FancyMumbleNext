@@ -39,6 +39,7 @@ function buildKeyShareBanner(
       {requests.map((req) => (
         <InfoBanner
           key={req.peer_cert_hash}
+          variant="glass"
           icon={keyIcon}
           actions={
             <button

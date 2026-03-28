@@ -851,6 +851,29 @@ fn stop_latency_test(state: tauri::State<'_, AppState>) {
     state.stop_latency_test();
 }
 
+/// Start recording inbound audio to a file.
+#[tauri::command]
+fn start_recording(
+    state: tauri::State<'_, AppState>,
+    directory: String,
+    filename: String,
+    format: state::RecordingFormat,
+) -> Result<String, String> {
+    state.start_recording(directory, filename, format)
+}
+
+/// Stop the current audio recording.
+#[tauri::command]
+fn stop_recording(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    state.stop_recording()
+}
+
+/// Get the current recording state.
+#[tauri::command]
+fn get_recording_state(state: tauri::State<'_, AppState>) -> state::RecordingState {
+    state.recording_state()
+}
+
 /// Set the user comment on the connected server (`FancyMumble` profile + bio).
 #[tauri::command]
 async fn set_user_comment(
@@ -1678,6 +1701,9 @@ pub fn run() {
             calibrate_voice_threshold,
             start_latency_test,
             stop_latency_test,
+            start_recording,
+            stop_recording,
+            get_recording_state,
             set_user_comment,
             set_user_texture,
             get_own_session,

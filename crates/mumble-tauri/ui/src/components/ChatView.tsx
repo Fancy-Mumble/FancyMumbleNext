@@ -1017,34 +1017,42 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
       <MobileCallControls />
 
-      {/* Messages */}
-      <div
-        ref={messagesContainerRef}
-        className={[
-          styles.messages,
-          personalization.bubbleStyle === "flat" ? styles.flatStyle : "",
-          personalization.bubbleStyle === "compact" ? styles.compactStyle : "",
-          personalization.compactMode ? styles.compactLayout : "",
-        ].join(" ")}
-        data-has-bg={personalization.chatBgOriginal ? "" : undefined}
-        style={{
-          ...(personalization.chatBgOriginal ? {
-            "--chat-bg-image": `url(${personalization.chatBgBlurred ?? personalization.chatBgOriginal})`,
-            "--chat-bg-opacity": String(personalization.chatBgOpacity),
-            "--chat-bg-size": personalization.chatBgFit === "tile" ? "auto" : "cover",
-            "--chat-bg-repeat": personalization.chatBgFit === "tile" ? "repeat" : "no-repeat",
-          } : {}),
-          "--chat-font-size": personalization.fontSize === "small" ? "12px"
-            : personalization.fontSize === "large" ? `${personalization.fontSizeCustomPx}px`
-            : "14px",
-          "--chat-font-family": fontFamilyCss(personalization.fontFamily),
-        } as React.CSSProperties}
-      >
-        <div ref={messagesInnerRef} className={styles.messagesInner}>
+      {/* Messages wrapper: position:relative so the key-share banner
+           can overlay the scroll viewport without scrolling with it */}
+      <div className={styles.messagesWrapper}>
+        {persistent.keyShareBanner && (
+          <div className={styles.fixedKeyShareBanner}>
+            {persistent.keyShareBanner}
+          </div>
+        )}
+
+        {/* Messages */}
+        <div
+          ref={messagesContainerRef}
+          className={[
+            styles.messages,
+            personalization.bubbleStyle === "flat" ? styles.flatStyle : "",
+            personalization.bubbleStyle === "compact" ? styles.compactStyle : "",
+            personalization.compactMode ? styles.compactLayout : "",
+          ].join(" ")}
+          data-has-bg={personalization.chatBgOriginal ? "" : undefined}
+          style={{
+            ...(personalization.chatBgOriginal ? {
+              "--chat-bg-image": `url(${personalization.chatBgBlurred ?? personalization.chatBgOriginal})`,
+              "--chat-bg-opacity": String(personalization.chatBgOpacity),
+              "--chat-bg-size": personalization.chatBgFit === "tile" ? "auto" : "cover",
+              "--chat-bg-repeat": personalization.chatBgFit === "tile" ? "repeat" : "no-repeat",
+            } : {}),
+            "--chat-font-size": personalization.fontSize === "small" ? "12px"
+              : personalization.fontSize === "large" ? `${personalization.fontSizeCustomPx}px`
+              : "14px",
+            "--chat-font-family": fontFamilyCss(personalization.fontFamily),
+          } as React.CSSProperties}
+        >
+          <div ref={messagesInnerRef} className={styles.messagesInner}>
           {/* All banners in a single sticky container */}
           <BannerStack>
             {persistent.banner}
-            {persistent.keyShareBanner}
             {persistent.disputeBanner}
             {persistent.revokedBanner}
           </BannerStack>
@@ -1176,6 +1184,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           )}
           {/* Bottom sentinel - scroll target for auto-scroll */}
           <div ref={bottomSentinelRef} aria-hidden="true" style={{ height: 0, overflow: "hidden" }} />
+        </div>
         </div>
       </div>
 

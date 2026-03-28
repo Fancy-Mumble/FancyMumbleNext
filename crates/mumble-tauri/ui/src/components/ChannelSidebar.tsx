@@ -31,6 +31,8 @@ import EditIcon from "../assets/icons/action/edit.svg?react";
 import TrashIcon from "../assets/icons/action/trash.svg?react";
 import PhoneIcon from "../assets/icons/communication/phone.svg?react";
 import PhoneOffIcon from "../assets/icons/communication/phone-off.svg?react";
+import RecordIcon from "../assets/icons/audio/record.svg?react";
+import RecordingModal from "./RecordingModal";
 
 /** Mumble permission bitmask: Listen to channel (bit 11). */
 const PERM_LISTEN = 0x800;
@@ -406,6 +408,13 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Developer mode: show recording button.
+  const [devMode, setDevMode] = useState(false);
+  const [showRecordingModal, setShowRecordingModal] = useState(false);
+  useEffect(() => {
+    getPreferences().then((prefs) => setDevMode(prefs.userMode === "developer"));
+  }, []);
 
   // -- Channel editor dialog state --------------------------------
   const [channelEditor, setChannelEditor] = useState<{
@@ -1000,6 +1009,16 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
               <ShieldIcon width={18} height={18} />
             </button>
           )}
+          {devMode && voiceState !== "inactive" && (
+            <button
+              className={`${styles.settingsBtn} ${showRecordingModal ? styles.activeBtn : ""}`}
+              onClick={() => setShowRecordingModal(true)}
+              title="Record audio"
+              aria-label="Record audio"
+            >
+              <RecordIcon width={18} height={18} />
+            </button>
+          )}
           <button
             className={styles.disconnectBtn}
             onClick={disconnect}
@@ -1166,6 +1185,11 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
           </div>
         </div>,
         document.body,
+      )}
+
+      {/* Recording modal (developer mode) */}
+      {showRecordingModal && (
+        <RecordingModal onClose={() => setShowRecordingModal(false)} />
       )}
     </aside>
   );
