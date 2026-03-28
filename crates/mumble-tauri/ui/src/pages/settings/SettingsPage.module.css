@@ -398,6 +398,19 @@
   transform: translateX(-1px);
 }
 
+.vuThreshold {
+  position: absolute;
+  top: -2px;
+  width: 2px;
+  height: calc(100% + 4px);
+  background: var(--color-accent, #6366f1);
+  transition: left 0.1s linear;
+  transform: translateX(-1px);
+  border-radius: 1px;
+  opacity: 0.9;
+  z-index: 1;
+}
+
 .vuLabels {
   display: flex;
   justify-content: space-between;

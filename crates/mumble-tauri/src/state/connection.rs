@@ -121,6 +121,12 @@ impl AppState {
                 (None, None)
             };
 
+            // Read force_tcp_audio from current audio settings.
+            let force_tcp = inner
+                .lock()
+                .map(|s| s.audio_settings.force_tcp_audio)
+                .unwrap_or(false);
+
             let config = ClientConfig {
                 tcp: TcpConfig {
                     server_host: host.clone(),
@@ -133,6 +139,7 @@ impl AppState {
                     server_host: host,
                     server_port: port,
                 },
+                force_tcp,
                 ..ClientConfig::default()
             };
 
@@ -141,6 +148,7 @@ impl AppState {
                 shared: inner.clone(),
                 app: app_handle.clone(),
                 epoch,
+                inbound_audio_count: 0,
             };
 
             let result = mumble_protocol::client::run(config, handler).await;

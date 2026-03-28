@@ -62,6 +62,8 @@ interface UserListItemProps {
   readonly active?: boolean;
   /** Whether this item represents the current user. */
   readonly isSelf?: boolean;
+  /** Whether this user is currently transmitting audio (talking). */
+  readonly isTalking?: boolean;
   /** Called on left click. */
   readonly onClick?: () => void;
   /** Called on right click to open context menu. */
@@ -73,6 +75,7 @@ export function UserListItem({
   channelName,
   active,
   isSelf,
+  isTalking,
   onClick,
   onContextMenu,
 }: UserListItemProps) {
@@ -120,14 +123,14 @@ export function UserListItem({
     <button
       ref={itemRef}
       type="button"
-      className={`${styles.userItem} ${active ? styles.userItemActive : ""} ${isSelf ? styles.selfUser : ""}`}
+      className={`${styles.userItem} ${active ? styles.userItemActive : ""} ${isSelf ? styles.selfUser : ""} ${isSelf && isTalking ? styles.selfTalking : ""}`}
       data-clickable={isSelf && onClick ? "true" : undefined}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
       onClick={onClick}
       onContextMenu={onContextMenu}
     >
-      <div className={styles.avatarWrap}>
+      <div className={`${styles.avatarWrap} ${isTalking ? styles.avatarTalking : ""}`}>
         {url ? (
           <img src={url} alt={user.name} className={styles.avatarImg} />
         ) : (

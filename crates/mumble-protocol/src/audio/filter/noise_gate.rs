@@ -9,6 +9,8 @@
 
 use std::f32::consts::PI;
 
+use tracing::{debug, info};
+
 use crate::audio::sample::AudioFrame;
 use crate::audio::filter::AudioFilter;
 use crate::error::Result;
@@ -59,16 +61,23 @@ pub struct NoiseGate {
     state: GateState,
     hold_counter: u32,
     enabled: bool,
+    /// Rolling frame counter for throttled diagnostic logging.
+    frame_count: u64,
 }
 
 impl NoiseGate {
     /// Create a new noise gate with the given configuration.
     pub fn new(config: NoiseGateConfig) -> Self {
+        info!(
+            "NoiseGate created: open_threshold={:.5}, close_threshold={:.5}, hold_frames={}",
+            config.open_threshold, config.close_threshold, config.hold_frames,
+        );
         Self {
             config,
             state: GateState::Closed,
             hold_counter: 0,
             enabled: true,
+            frame_count: 0,
         }
     }
 
@@ -92,12 +101,25 @@ impl AudioFilter for NoiseGate {
         let level = Self::rms(samples);
         let n = samples.len();
 
+        self.frame_count += 1;
+        // Periodic diagnostic: every ~10 seconds (500 frames at 20ms).
+        if self.frame_count.is_multiple_of(500) {
+            info!(
+                "NoiseGate stats: frame={}, state={:?}, rms={:.5}, threshold={:.5}",
+                self.frame_count, self.state, level, self.config.open_threshold,
+            );
+        }
+
         match self.state {
             GateState::Closed => {
                 if level >= self.config.open_threshold {
                     self.state = GateState::Open;
                     self.hold_counter = self.config.hold_frames;
                     frame.is_silent = false;
+                    debug!(
+                        "NoiseGate: OPENED (rms={:.5} >= threshold={:.5})",
+                        level, self.config.open_threshold,
+                    );
                     // Raised-cosine fade-in to avoid a click.
                     // Using a Hann curve: gain = 0.5 * (1 - cos(PI * i / n))
                     // produces a smooth S-shape with no sharp corners.
@@ -124,6 +146,10 @@ impl AudioFilter for NoiseGate {
                         frame.is_silent = false;
                     } else {
                         self.state = GateState::Closed;
+                        debug!(
+                            "NoiseGate: CLOSED (rms={:.5} < close_threshold={:.5})",
+                            level, self.config.close_threshold,
+                        );
                         // Raised-cosine fade-out to avoid a click.
                         let release = self.config.release_samples.min(n);
                         if release > 0 {
@@ -149,6 +175,7 @@ impl AudioFilter for NoiseGate {
     fn reset(&mut self) {
         self.state = GateState::Closed;
         self.hold_counter = 0;
+        self.frame_count = 0;
     }
 
     fn is_enabled(&self) -> bool {

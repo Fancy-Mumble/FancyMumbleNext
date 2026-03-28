@@ -110,7 +110,7 @@ export default function ConnectPage() {
         .catch(() =>
           setPings((prev) => ({
             ...prev,
-            [s.id]: { online: false, latency_ms: null, user_count: null, max_user_count: null },
+            [s.id]: { online: false, latency_ms: null, user_count: null, max_user_count: null, server_version: null },
           })),
         );
     }

@@ -42,6 +42,18 @@
   cursor: pointer;
 }
 
+.selfTalking {
+  box-shadow: inset 0 0 12px 2px rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.3);
+  border-radius: 8px;
+  animation: selfTalkingPulse 2.2s ease-in-out infinite;
+}
+
+@keyframes selfTalkingPulse {
+  0%, 100% { box-shadow: inset 0 0 10px 2px rgba(34, 197, 94, 0.2); }
+  50% { box-shadow: inset 0 0 16px 4px rgba(34, 197, 94, 0.35); }
+}
+
 /* --- Avatar ----------------------------------------------------- */
 
 .avatarWrap {
@@ -77,6 +89,21 @@
   background: var(--color-online);
   border: 2px solid var(--color-bg-primary);
   border-radius: 50%;
+}
+
+/* --- Talking Indicator ------------------------------------------ */
+
+.avatarTalking .avatarImg,
+.avatarTalking .avatar {
+  outline: 2px solid var(--color-online, #22c55e);
+  outline-offset: 1px;
+  box-shadow: 0 0 8px 2px rgba(34, 197, 94, 0.5);
+  animation: talkingPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes talkingPulse {
+  0%, 100% { box-shadow: 0 0 6px 1px rgba(34, 197, 94, 0.45); }
+  50% { box-shadow: 0 0 12px 4px rgba(34, 197, 94, 0.25); }
 }
 
 /* --- Name & Badges ---------------------------------------------- */

@@ -58,8 +58,12 @@ interface AppState {
   unreadCounts: Record<number, number>;
   serverConfig: MumbleServerConfig;
   voiceState: VoiceState;
+  /** True when audio is transported over UDP (false = TCP tunnel). */
+  udpActive: boolean;
   /** True while the user is in an active mobile call session (set by Start/End Call). */
   inCall: boolean;
+  /** Session IDs of users currently transmitting audio (talking). */
+  talkingSessions: Set<number>;
 
   // -- DM state --------------------------------------------------
   /** Session ID of the user whose DM chat is currently viewed. */
@@ -213,7 +217,9 @@ const INITIAL: Pick<
   | "unreadCounts"
   | "serverConfig"
   | "voiceState"
+  | "udpActive"
   | "inCall"
+  | "talkingSessions"
   | "selectedDmUser"
   | "dmMessages"
   | "dmUnreadCounts"
@@ -253,7 +259,9 @@ const INITIAL: Pick<
     allow_html: true,
   },
   voiceState: "inactive" as VoiceState,
+  udpActive: false,
   inCall: false,
+  talkingSessions: new Set<number>(),
   selectedDmUser: null,
   dmMessages: [],
   dmUnreadCounts: {},
@@ -954,8 +962,9 @@ export async function initEventListeners(
     }),
   );
 
-  // New text message arrived.
+  // Messages, unreads, groups, connection events.
   unlisteners.push(
+    // New text message arrived.
     await listen<{ channel_id: number }>("new-message", async (event) => {
       const { selectedChannel } = useAppStore.getState();
       if (selectedChannel === event.payload.channel_id) {
@@ -964,10 +973,8 @@ export async function initEventListeners(
           .refreshMessages(event.payload.channel_id);
       }
     }),
-  );
 
-  // New direct message arrived.
-  unlisteners.push(
+    // New direct message arrived.
     await listen<{ session: number }>("new-dm", async (event) => {
       const { selectedDmUser } = useAppStore.getState();
       if (selectedDmUser === event.payload.session) {
@@ -976,10 +983,8 @@ export async function initEventListeners(
           .refreshDmMessages(event.payload.session);
       }
     }),
-  );
 
-  // Unread counts changed.
-  unlisteners.push(
+    // Unread counts changed.
     await listen<{ unreads: Record<number, number> }>(
       "unread-changed",
       (event) => {
@@ -987,10 +992,8 @@ export async function initEventListeners(
         updateBadgeCount();
       },
     ),
-  );
 
-  // DM unread counts changed.
-  unlisteners.push(
+    // DM unread counts changed.
     await listen<{ unreads: Record<number, number> }>(
       "dm-unread-changed",
       (event) => {
@@ -998,12 +1001,10 @@ export async function initEventListeners(
         updateBadgeCount();
       },
     ),
-  );
 
-  // -- Group chat events ------------------------------------------
+    // -- Group chat events ------------------------------------------
 
-  // A new group chat was created (locally or by another member).
-  unlisteners.push(
+    // A new group chat was created (locally or by another member).
     await listen<{ group: GroupChat }>("group-created", (event) => {
       const group = event.payload.group;
       useAppStore.setState((prev) => {
@@ -1012,10 +1013,8 @@ export async function initEventListeners(
         return { groupChats: [...prev.groupChats, group] };
       });
     }),
-  );
 
-  // New group message arrived.
-  unlisteners.push(
+    // New group message arrived.
     await listen<{ group_id: string }>("new-group-message", async (event) => {
       const { selectedGroup } = useAppStore.getState();
       if (selectedGroup === event.payload.group_id) {
@@ -1024,10 +1023,8 @@ export async function initEventListeners(
           .refreshGroupMessages(event.payload.group_id);
       }
     }),
-  );
 
-  // Group unread counts changed.
-  unlisteners.push(
+    // Group unread counts changed.
     await listen<{ unreads: Record<string, number> }>(
       "group-unread-changed",
       (event) => {
@@ -1035,10 +1032,8 @@ export async function initEventListeners(
         updateBadgeCount();
       },
     ),
-  );
 
-  // Server rejected the connection.
-  unlisteners.push(
+    // Server rejected the connection.
     await listen<{ reason: string; reject_type: number | null }>("connection-rejected", (event) => {
       const rt = event.payload.reject_type;
       // WrongUserPW = 3, WrongServerPW = 4
@@ -1060,10 +1055,8 @@ export async function initEventListeners(
       }
       navigate("/");
     }),
-  );
 
-  // Listen request was denied by the server - revert the UI.
-  unlisteners.push(
+    // Listen request was denied by the server - revert the UI.
     await listen<{ channel_id: number }>("listen-denied", (event) => {
       useAppStore.setState((prev) => {
         const next = new Set(prev.listenedChannels);
@@ -1071,33 +1064,43 @@ export async function initEventListeners(
         return { listenedChannels: next };
       });
     }),
-  );
 
-  // Our own user moved to a different channel.
-  unlisteners.push(
+    // Our own user moved to a different channel.
     await listen<{ channel_id: number }>("current-channel-changed", (event) => {
       useAppStore.setState({ currentChannel: event.payload.channel_id });
     }),
-  );
 
-  // User tapped a chat notification - navigate to the target channel.
-  unlisteners.push(
+    // User tapped a chat notification - navigate to the target channel.
     await listen<{ channel_id: number }>("navigate-to-channel", (event) => {
       const channelId = event.payload.channel_id;
       navigate("/chat");
       useAppStore.getState().selectChannel(channelId);
     }),
-  );
 
-  // Voice state changed (enable/disable voice calling).
-  unlisteners.push(
+    // Voice state changed (enable/disable voice calling).
     await listen<VoiceState>("voice-state-changed", (event) => {
       useAppStore.setState({ voiceState: event.payload });
     }),
-  );
 
-  // Server config received (limits, allow_html, etc.).
-  unlisteners.push(
+    // Audio transport mode changed (UDP vs TCP tunnel).
+    await listen<boolean>("audio-transport-changed", (event) => {
+      useAppStore.setState({ udpActive: event.payload });
+    }),
+
+    // User talking state changed (audio transmission start/stop).
+    await listen<[number, boolean]>("user-talking", (event) => {
+      const [session, talking] = event.payload;
+      const prev = useAppStore.getState().talkingSessions;
+      const next = new Set(prev);
+      if (talking) {
+        next.add(session);
+      } else {
+        next.delete(session);
+      }
+      useAppStore.setState({ talkingSessions: next });
+    }),
+
+    // Server config received (limits, allow_html, etc.).
     await listen("server-config", async () => {
       try {
         const cfg = await invoke<MumbleServerConfig>("get_server_config");

@@ -1,6 +1,6 @@
 [package]
 name = "mumble-protocol"
-version = "0.2.5"
+version = "0.2.7"
 edition = "2021"
 description = "Async Mumble protocol client library with priority-based work queue"
 license = "MIT"
@@ -29,6 +29,9 @@ thiserror = "2"
 
 # Audio codec (C libopus via audiopus_sys - reliable, well-tested)
 opus = { version = "0.3", optional = true }
+
+# OCB2-AES128 encryption for Mumble UDP
+aes = "0.8"
 
 # Persistent chat - encryption and key management
 chacha20poly1305 = { version = "0.10", optional = true }

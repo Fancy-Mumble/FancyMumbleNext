@@ -12,6 +12,7 @@
 //! - [`event_handler`] - `EventHandler` bridge from mumble-protocol to Tauri events.
 
 mod audio;
+mod audio_tasks;
 mod connection;
 mod event_handler;
 mod handler;
@@ -171,6 +172,8 @@ pub(super) struct SharedState {
     /// Tauri app handle for emitting events from spawned async tasks
     /// (e.g. pchat key exchange / history loading notifications).
     pub tauri_app_handle: Option<AppHandle>,
+    /// Sessions of users currently transmitting audio (talking).
+    pub talking_sessions: HashSet<u32>,
     /// Whether native OS notifications are enabled (user preference).
     pub notifications_enabled: bool,
     /// Whether the app window is currently focused (visible and on top).

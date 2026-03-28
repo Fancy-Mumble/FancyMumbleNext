@@ -187,6 +187,13 @@
   color: var(--color-text-secondary);
 }
 
+/* Version cell */
+.versionCell {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
 /* Ping cell */
 .pingValue {
   font-variant-numeric: tabular-nums;

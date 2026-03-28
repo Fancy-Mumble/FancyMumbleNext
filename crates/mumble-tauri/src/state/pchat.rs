@@ -1658,6 +1658,7 @@ fn prepare_key_holder_report(
             let report = mumble_tcp::PchatKeyHolderReport {
                 channel_id: Some(channel_id),
                 cert_hash: Some(hash),
+                takeover_mode: None,
             };
             Some((handle, report))
         }
@@ -1703,6 +1704,46 @@ pub(crate) fn send_key_holder_report(shared: &Arc<Mutex<SharedState>>, channel_i
             }
         });
     }
+}
+
+/// Request a key-ownership takeover for a channel (requires `KeyOwner` permission).
+///
+/// Sends a `PchatKeyHolderReport` with the given `takeover_mode`. The server will:
+/// - `FullWipe`: Delete all stored messages, remove all known key holders,
+///   reset the challenge state, and record the sender as the sole new key holder.
+/// - `KeyOnly`: Remove all known key holders and reset the challenge state
+///   without deleting messages, then record the sender as the sole new key holder.
+///
+/// On success the server responds with the updated `PchatKeyHoldersList`.
+/// On failure the server sends `PermissionDenied`.
+pub(crate) fn send_key_takeover(shared: &Arc<Mutex<SharedState>>, channel_id: u32, mode: mumble_tcp::pchat_key_holder_report::KeyTakeoverMode) {
+    let (handle, hash) = {
+        let s = shared.lock().ok();
+        let h = s.as_ref().and_then(|s| s.client_handle.clone());
+        let hash = s
+            .as_ref()
+            .and_then(|s| s.pchat.as_ref().map(|p| p.own_cert_hash.clone()));
+        (h, hash)
+    };
+    let Some(handle) = handle else { return };
+    let Some(hash) = hash else { return };
+
+    let report = mumble_tcp::PchatKeyHolderReport {
+        channel_id: Some(channel_id),
+        cert_hash: Some(hash),
+        takeover_mode: Some(mode as i32),
+    };
+
+    let _task = tokio::spawn(async move {
+        if let Err(e) = handle
+            .send(command::SendPchatKeyHolderReport { report })
+            .await
+        {
+            warn!(channel_id, "failed to send key takeover: {e}");
+        } else {
+            info!(channel_id, "sent key takeover");
+        }
+    });
 }
 
 /// Ask the server for the latest key holders of a channel.

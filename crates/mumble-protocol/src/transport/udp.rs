@@ -8,6 +8,7 @@
 //! callers can plug in their own implementation.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::Arc;
 
 use prost::Message;
 use tokio::net::UdpSocket;
@@ -73,7 +74,7 @@ impl Default for UdpConfig {
 
 /// UDP transport for sending/receiving audio and ping messages.
 pub struct UdpTransport<C: CryptState> {
-    socket: UdpSocket,
+    socket: Arc<UdpSocket>,
     server_addr: SocketAddr,
     crypt: C,
     recv_buf: Vec<u8>,
@@ -113,7 +114,7 @@ impl<C: CryptState> UdpTransport<C> {
         debug!(server = %server_addr, "UDP socket connected");
 
         Ok(Self {
-            socket,
+            socket: Arc::new(socket),
             server_addr,
             crypt,
             recv_buf: vec![0u8; MAX_UDP_SIZE],
@@ -160,6 +161,12 @@ impl<C: CryptState> UdpTransport<C> {
         self.server_addr
     }
 
+    /// Get a clone of the underlying `Arc<UdpSocket>` for concurrent access
+    /// (e.g. spawning a reader task while keeping the writer).
+    pub fn socket_arc(&self) -> Arc<UdpSocket> {
+        self.socket.clone()
+    }
+
     /// Replace the crypt state (e.g. after receiving a new `CryptSetup`).
     pub fn set_crypt_state(&mut self, crypt: C) {
         self.crypt = crypt;
@@ -168,24 +175,29 @@ impl<C: CryptState> UdpTransport<C> {
 
 // -- Encode / Decode ------------------------------------------------
 
-/// Mumble UDP wire format uses a single-byte header to distinguish
-/// message types: 0x20 = Ping, 0x80+ = Audio (protobuf).
-/// For the new protobuf-based UDP protocol (Mumble 1.5+),
-/// the first varint encodes the message type.
-fn encode_udp_message(msg: &UdpMessage) -> Vec<u8> {
+/// Protobuf UDP wire format (Mumble >= 1.5).
+///
+/// Byte 0 is the raw `UDPMessageType` enum value:
+///   - `0x00` = Audio
+///   - `0x01` = Ping
+///
+/// Unlike the legacy format (and the TCP `UdpTunnel` encoding), the
+/// target is carried **inside** the protobuf `Audio.target` field, not
+/// packed into the header byte.
+///
+/// Encode a [`UdpMessage`] into the raw UDP wire format (before encryption).
+pub fn encode_udp_message(msg: &UdpMessage) -> Vec<u8> {
     match msg {
         UdpMessage::Audio(audio) => {
-            let mut buf = Vec::with_capacity(128);
-            // Type marker for audio (protobuf audio)
-            buf.push(0x80);
+            let mut buf = Vec::with_capacity(1 + audio.encoded_len());
+            buf.push(0x00); // UDPMessageType::Audio
             let encoded = audio.encode_to_vec();
             buf.extend_from_slice(&encoded);
             buf
         }
         UdpMessage::Ping(ping) => {
-            let mut buf = Vec::with_capacity(16);
-            // Type marker for ping
-            buf.push(0x20);
+            let mut buf = Vec::with_capacity(1 + ping.encoded_len());
+            buf.push(0x01); // UDPMessageType::Ping
             let encoded = ping.encode_to_vec();
             buf.extend_from_slice(&encoded);
             buf
@@ -193,24 +205,28 @@ fn encode_udp_message(msg: &UdpMessage) -> Vec<u8> {
     }
 }
 
-fn decode_udp_message(data: &[u8]) -> Result<UdpMessage> {
+/// Decode a raw UDP payload (after decryption) into a [`UdpMessage`].
+///
+/// Byte 0 is the `UDPMessageType` enum value:
+///   - `0x00` = Audio (protobuf)
+///   - `0x01` = Ping  (protobuf)
+pub fn decode_udp_message(data: &[u8]) -> Result<UdpMessage> {
     if data.is_empty() {
         return Err(Error::InvalidState("empty UDP packet".into()));
     }
 
-    let type_byte = data[0];
-    let payload = &data[1..];
-
-    if type_byte == 0x20 {
-        let ping = mumble_udp::Ping::decode(payload)?;
-        Ok(UdpMessage::Ping(ping))
-    } else if type_byte >= 0x80 {
-        let audio = mumble_udp::Audio::decode(payload)?;
-        Ok(UdpMessage::Audio(audio))
-    } else {
-        Err(Error::InvalidState(format!(
-            "unknown UDP message type: 0x{type_byte:02x}"
-        )))
+    match data[0] {
+        0x00 => {
+            let audio = mumble_udp::Audio::decode(&data[1..])?;
+            Ok(UdpMessage::Audio(audio))
+        }
+        0x01 => {
+            let ping = mumble_udp::Ping::decode(&data[1..])?;
+            Ok(UdpMessage::Ping(ping))
+        }
+        other => Err(Error::InvalidState(format!(
+            "unsupported UDP message type: 0x{other:02x}"
+        ))),
     }
 }
 
@@ -264,17 +280,40 @@ mod tests {
     }
 
     #[test]
-    fn udp_ping_marker_is_0x20() {
+    fn udp_ping_marker_is_0x01() {
         let msg = UdpMessage::Ping(mumble_udp::Ping::default());
         let encoded = encode_udp_message(&msg);
-        assert_eq!(encoded[0], 0x20);
+        assert_eq!(encoded[0], 0x01);
     }
 
     #[test]
-    fn udp_audio_marker_is_0x80() {
+    fn udp_audio_marker_is_0x00() {
         let msg = UdpMessage::Audio(mumble_udp::Audio::default());
         let encoded = encode_udp_message(&msg);
-        assert_eq!(encoded[0], 0x80);
+        assert_eq!(encoded[0], 0x00);
+    }
+
+    #[test]
+    fn udp_audio_preserves_target_in_payload() -> Result<()> {
+        let audio = mumble_udp::Audio {
+            header: Some(mumble_udp::audio::Header::Target(3)),
+            frame_number: 1,
+            opus_data: vec![0xAB],
+            ..Default::default()
+        };
+        let encoded = encode_udp_message(&UdpMessage::Audio(audio));
+        let decoded = decode_udp_message(&encoded)?;
+        match decoded {
+            UdpMessage::Audio(a) => {
+                assert_eq!(
+                    a.header,
+                    Some(mumble_udp::audio::Header::Target(3)),
+                    "target should survive round-trip inside protobuf payload"
+                );
+            }
+            other => panic!("expected Audio, got {other:?}"),
+        }
+        Ok(())
     }
 
     #[test]
@@ -285,7 +324,8 @@ mod tests {
 
     #[test]
     fn decode_unknown_type_returns_error() {
-        let result = decode_udp_message(&[0x10]);
+        // 0x02 is not a valid protobuf UDP message type
+        let result = decode_udp_message(&[0x02]);
         assert!(result.is_err());
     }
 

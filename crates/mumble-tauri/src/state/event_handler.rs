@@ -94,6 +94,8 @@ pub(super) struct TauriEventHandler {
     /// `on_disconnected` only acts when this matches the current epoch,
     /// preventing stale callbacks from orphaned tasks.
     pub epoch: u64,
+    /// Running count of inbound audio packets (for periodic diagnostics).
+    pub(super) inbound_audio_count: u64,
 }
 
 impl EventHandler for TauriEventHandler {
@@ -112,22 +114,45 @@ impl EventHandler for TauriEventHandler {
     }
 
     fn on_udp_message(&mut self, msg: &UdpMessage) {
-            if let UdpMessage::Audio(audio) = msg {
+        if let UdpMessage::Audio(audio) = msg {
             if audio.opus_data.is_empty() {
                 return;
             }
-            {
-                let packet = EncodedPacket {
-                    data: audio.opus_data.clone(),
-                    sequence: audio.frame_number,
-                    frame_samples: 960,
-                };
-                if let Ok(mut state) = self.shared.lock() {
-                    if let Some(ref mut mixer) = state.audio_mixer {
-                        if let Err(e) = mixer.feed(audio.sender_session, &packet) {
-                            warn!("inbound audio decode error: {e}");
-                        }
+            let session = audio.sender_session;
+            let is_terminator = audio.is_terminator;
+
+            self.inbound_audio_count += 1;
+            if self.inbound_audio_count == 1 || self.inbound_audio_count.is_multiple_of(500) {
+                info!(
+                    "inbound audio #{} from session {} (opus {} bytes, seq {}, term={})",
+                    self.inbound_audio_count,
+                    session,
+                    audio.opus_data.len(),
+                    audio.frame_number,
+                    is_terminator,
+                );
+            }
+
+            let packet = EncodedPacket {
+                data: audio.opus_data.clone(),
+                sequence: audio.frame_number,
+                frame_samples: 960,
+            };
+            if let Ok(mut state) = self.shared.lock() {
+                if let Some(ref mut mixer) = state.audio_mixer {
+                    if let Err(e) = mixer.feed(session, &packet) {
+                        warn!("inbound audio decode error: {e}");
                     }
+                } else {
+                    warn!("inbound audio dropped: mixer is None (session={session})");
+                }
+                // Track talking state and emit change events.
+                if is_terminator {
+                    if state.talking_sessions.remove(&session) {
+                        let _ = self.app.emit("user-talking", (session, false));
+                    }
+                } else if state.talking_sessions.insert(session) {
+                    let _ = self.app.emit("user-talking", (session, true));
                 }
             }
         }
@@ -160,6 +185,7 @@ impl EventHandler for TauriEventHandler {
             }
             state.audio_mixer = None;
             state.voice_state = VoiceState::Inactive;
+            state.talking_sessions.clear();
             state.server_fancy_version = None;
             state.server_version_info = ServerVersionInfo::default();
             state.max_users = None;
@@ -186,5 +212,12 @@ impl EventHandler for TauriEventHandler {
                 crate::connection_service::stop_service(&handle);
             }
         }
+    }
+
+    fn on_audio_transport_changed(&mut self, udp_active: bool) {
+        info!(udp_active, "audio transport changed");
+        let _ = self
+            .app
+            .emit("audio-transport-changed", udp_active);
     }
 }

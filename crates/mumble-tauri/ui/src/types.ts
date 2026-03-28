@@ -127,6 +127,8 @@ export interface ServerPingResult {
   user_count: number | null;
   /** Max user count from UDP ping, null if unavailable. */
   max_user_count: number | null;
+  /** Server version string (e.g. "1.5.634"), null if unavailable. */
+  server_version: string | null;
 }
 
 // --- Public Server List -------------------------------------------
@@ -229,6 +231,8 @@ export interface AudioSettings {
   output_volume: number;
   /** Automatically adjust VAD threshold based on ambient noise floor. */
   auto_input_sensitivity: boolean;
+  /** Force audio to use TCP tunnel instead of UDP (e.g. behind strict NAT). */
+  force_tcp_audio: boolean;
 }
 
 export type VoiceState = "inactive" | "active" | "muted";

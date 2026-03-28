@@ -15,9 +15,10 @@ const FRAME_SIZE_OPTIONS = [
 /** Peak-hold decay: percentage-points per second. */
 const PEAK_DECAY_PER_SEC = 80;
 
-function VuMeter({ rms, peak }: Readonly<{ rms: number; peak: number }>) {
+function VuMeter({ rms, peak, threshold }: Readonly<{ rms: number; peak: number; threshold: number }>) {
   const fillRef = useRef<HTMLDivElement>(null);
   const peakRef = useRef<HTMLDivElement>(null);
+  const threshRef = useRef<HTMLDivElement>(null);
   const heldPeak = useRef(0);
   const lastTime = useRef(performance.now());
   const rafId = useRef(0);
@@ -41,16 +42,21 @@ function VuMeter({ rms, peak }: Readonly<{ rms: number; peak: number }>) {
       const rmsPercent = Math.min(rms * 500, 100);
       if (fillRef.current) fillRef.current.style.width = `${rmsPercent}%`;
       if (peakRef.current) peakRef.current.style.left = `${heldPeak.current}%`;
+      if (threshRef.current) {
+        const threshPercent = Math.min(threshold * 500, 100);
+        threshRef.current.style.left = `${threshPercent}%`;
+      }
     });
 
     return () => cancelAnimationFrame(rafId.current);
-  }, [rms, peak]);
+  }, [rms, peak, threshold]);
 
   return (
     <div className={styles.vuMeter}>
       <div className={styles.vuTrack}>
         <div className={styles.vuFill} ref={fillRef} />
         <div className={styles.vuPeak} ref={peakRef} />
+        <div className={styles.vuThreshold} ref={threshRef} title={`Threshold: ${(threshold * 100).toFixed(1)}%`} />
       </div>
       <div className={styles.vuLabels}>
         <span>-60</span>
@@ -130,6 +136,16 @@ export function AudioPanel({
     };
   }, []);
 
+  // Listen for backend-driven threshold updates (auto-calibration).
+  useEffect(() => {
+    const unlisten = listen<number>("vad-threshold-updated", (event) => {
+      onChange({ vad_threshold: event.payload });
+    });
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, [onChange]);
+
   // Read amplitude from ref (the ampTick dependency triggers re-reads).
   void ampTick; // used only to trigger re-render
   const amplitude = amplitudeRef.current;
@@ -206,87 +222,121 @@ export function AudioPanel({
         </div>
       </section>
 
-      {/* -- Voice Activation ---------------------------------------- */}
+      {/* -- Activation Mode ---------------------------------------- */}
       <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>Voice Activation</h3>
-
-        <div className={styles.toggleRow}>
-          <div className={styles.toggleInfo}>
-            <span className={styles.fieldLabel}>Auto Sensitivity</span>
-            <p className={styles.fieldHint}>
-              Automatically adjusts the activation threshold based on your
-              ambient noise level.
-            </p>
-          </div>
-          <Toggle
-            checked={settings.auto_input_sensitivity}
-            onChange={() =>
-              onChange({
-                auto_input_sensitivity: !settings.auto_input_sensitivity,
-              })
-            }
-          />
-        </div>
-
-        {!settings.auto_input_sensitivity && (
-          <SliderField
-            label="Threshold"
-            hint="Audio below this level is treated as silence; above it is treated as speech."
-            min={0}
-            max={1}
-            step={0.005}
-            value={settings.vad_threshold}
-            onChange={(v) => onChange({ vad_threshold: v })}
-            format={(v) => `${(v * 100).toFixed(1)}%`}
-          />
-        )}
-
-        <div className={styles.toggleRow}>
-          <div className={styles.toggleInfo}>
-            <span className={styles.fieldLabel}>Noise Gate</span>
-            <p className={styles.fieldHint}>
-              Silences audio below the voice activation threshold to remove
-              background noise between speech.
-            </p>
-          </div>
-          <Toggle
-            checked={settings.noise_suppression}
-            onChange={() =>
-              onChange({ noise_suppression: !settings.noise_suppression })
-            }
-          />
-        </div>
-
-        {/* Mic Test */}
-        <div className={styles.micTestRow}>
-          <button
-            type="button"
-            className={`${styles.micTestBtn} ${micTesting ? styles.micTestActive : ""}`}
-            onClick={toggleMicTest}
-          >
-            {micTesting ? "Stop Test" : "Mic Test"}
-          </button>
-          {micTesting && <VuMeter rms={amplitude.rms} peak={amplitude.peak} />}
+        <h3 className={styles.sectionTitle}>Activation Mode</h3>
+        <p className={styles.fieldHint}>
+          Choose how your microphone is activated.
+        </p>
+        <div className={styles.radioGroup}>
+          <label className={styles.radioLabel}>
+            <input
+              type="radio"
+              name="activation_mode"
+              checked={!settings.push_to_talk && settings.noise_suppression}
+              onChange={() =>
+                onChange({ push_to_talk: false, noise_suppression: true })
+              }
+            />
+            Voice Activation
+          </label>
+          <label className={styles.radioLabel}>
+            <input
+              type="radio"
+              name="activation_mode"
+              checked={!settings.push_to_talk && !settings.noise_suppression}
+              onChange={() =>
+                onChange({
+                  push_to_talk: false,
+                  noise_suppression: false,
+                  auto_input_sensitivity: false,
+                })
+              }
+            />
+            Continuous
+          </label>
+          <label className={styles.radioLabel}>
+            <input
+              type="radio"
+              name="activation_mode"
+              checked={settings.push_to_talk}
+              onChange={() =>
+                onChange({
+                  push_to_talk: true,
+                  noise_suppression: false,
+                  auto_input_sensitivity: false,
+                })
+              }
+            />
+            Push to Talk
+          </label>
         </div>
       </section>
 
-      {/* -- Push-to-Talk -------------------------------------------- */}
-      <section className={styles.section}>
-        <div className={styles.toggleRow}>
-          <div className={styles.toggleInfo}>
-            <span className={styles.fieldLabel}>Push-to-Talk</span>
-            <p className={styles.fieldHint}>
-              Hold a key to transmit instead of voice activation.
-            </p>
+      {/* -- Voice Activation Settings ------------------------------- */}
+      {!settings.push_to_talk && settings.noise_suppression && (
+        <section className={styles.section}>
+          <h3 className={styles.sectionTitle}>Voice Activation</h3>
+
+          <div className={styles.toggleRow}>
+            <div className={styles.toggleInfo}>
+              <span className={styles.fieldLabel}>Auto Sensitivity</span>
+              <p className={styles.fieldHint}>
+                Automatically adjusts the activation threshold based on your
+                ambient noise level.
+              </p>
+            </div>
+            <Toggle
+              checked={settings.auto_input_sensitivity}
+              onChange={() =>
+                onChange({
+                  auto_input_sensitivity: !settings.auto_input_sensitivity,
+                })
+              }
+            />
           </div>
-          <Toggle
-            checked={settings.push_to_talk}
-            onChange={() =>
-              onChange({ push_to_talk: !settings.push_to_talk })
-            }
-          />
-        </div>
-        {settings.push_to_talk && (
+
+          {!settings.auto_input_sensitivity && (
+            <SliderField
+              label="Threshold"
+              hint="Audio below this level is treated as silence; above it is treated as speech."
+              min={0}
+              max={1}
+              step={0.005}
+              value={settings.vad_threshold}
+              onChange={(v) => onChange({ vad_threshold: v })}
+              format={(v) => `${(v * 100).toFixed(1)}%`}
+            />
+          )}
+
+          {settings.auto_input_sensitivity && (
+            <div className={styles.field}>
+              <div className={styles.fieldRow}>
+                <span className={styles.fieldLabel}>Current Threshold</span>
+                <span className={styles.sliderValue}>
+                  {(settings.vad_threshold * 100).toFixed(1)}%
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Calibrate: starts mic test with live VU meter */}
+          <div className={styles.micTestRow}>
+            <button
+              type="button"
+              className={`${styles.micTestBtn} ${micTesting ? styles.micTestActive : ""}`}
+              onClick={toggleMicTest}
+            >
+              {micTesting ? "Stop" : "Calibrate"}
+            </button>
+            {micTesting && <VuMeter rms={amplitude.rms} peak={amplitude.peak} threshold={settings.vad_threshold} />}
+          </div>
+        </section>
+      )}
+
+      {/* -- Push-to-Talk Key ---------------------------------------- */}
+      {settings.push_to_talk && (
+        <section className={styles.section}>
           <div className={styles.pttKeyRow}>
             <ShortcutRecorder
               label="PTT Key"
@@ -296,8 +346,8 @@ export function AudioPanel({
               }
             />
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
       {/* -- Audio Processing ------------------------------- */}
       <section className={styles.section}>
@@ -368,6 +418,26 @@ export function AudioPanel({
               </label>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* -- Network ---------------------------------------- */}
+      <section className={styles.section}>
+        <h3 className={styles.sectionTitle}>Network</h3>
+
+        <div className={styles.toggleRow}>
+          <div className={styles.toggleInfo}>
+            <span className={styles.fieldLabel}>Force TCP Audio</span>
+            <p className={styles.fieldHint}>
+              Always send audio over the TCP tunnel instead of UDP.
+              Use this if you are behind a strict firewall or NAT
+              that blocks UDP traffic.
+            </p>
+          </div>
+          <Toggle
+            checked={settings.force_tcp_audio}
+            onChange={() => onChange({ force_tcp_audio: !settings.force_tcp_audio })}
+          />
         </div>
       </section>
 

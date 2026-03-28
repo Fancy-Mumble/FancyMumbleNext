@@ -143,9 +143,10 @@ impl HandleMessage for mumble_tcp::PchatKeyHoldersList {
                 .collect();
 
             if let Some(ref mut pchat) = state.pchat {
-                for hash in &holder_hashes {
-                    pchat.key_manager.record_key_holder(channel_id, (*hash).to_owned());
-                }
+                pchat.key_manager.replace_key_holders(
+                    channel_id,
+                    holder_hashes.iter().map(|h| (*h).to_owned()).collect(),
+                );
             }
 
             // Remove any pending consent prompts for peers the server now

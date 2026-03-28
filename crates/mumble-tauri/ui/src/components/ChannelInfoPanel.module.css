@@ -425,3 +425,73 @@
   color: var(--color-text-secondary);
   opacity: 0.5;
 }
+
+/* -- Key ownership takeover ------------------------------------- */
+
+.keyTakeoverSection {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-glass-border);
+}
+
+.dangerBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 6px;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(220, 38, 38, 0.10));
+  color: #ef4444;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.dangerBtn:hover {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(220, 38, 38, 0.18));
+  border-color: rgba(239, 68, 68, 0.55);
+}
+
+.keyTakeoverConfirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.keyTakeoverLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.keyTakeoverOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.keyTakeoverOption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.keyTakeoverOption input[type="radio"] {
+  accent-color: #ef4444;
+}
+
+.keyTakeoverHint {
+  width: 100%;
+  padding-left: 20px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}

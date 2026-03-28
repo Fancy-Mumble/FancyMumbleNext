@@ -525,6 +525,7 @@ mod tests {
         let msg = ControlMessage::PchatKeyHolderReport(mumble_tcp::PchatKeyHolderReport {
             channel_id: Some(42),
             cert_hash: Some("abcdef0123456789".into()),
+            takeover_mode: None,
         });
         let encoded = encode(&msg)?;
         let mut buf = BytesMut::from(&encoded[..]);
@@ -618,6 +619,7 @@ mod tests {
         let msg = ControlMessage::PchatKeyHolderReport(mumble_tcp::PchatKeyHolderReport {
             channel_id: Some(1),
             cert_hash: Some("abc".into()),
+            takeover_mode: None,
         });
         let encoded = encode(&msg)?;
         // First 2 bytes are the type ID (big-endian u16).

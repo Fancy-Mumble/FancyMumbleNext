@@ -60,6 +60,7 @@ function makeSettings(overrides: Partial<AudioSettings> = {}): AudioSettings {
     input_volume: 1,
     output_volume: 1,
     auto_input_sensitivity: false,
+    force_tcp_audio: false,
     ...overrides,
   };
 }
@@ -87,24 +88,111 @@ beforeEach(() => {
   listenMock.mockResolvedValue(vi.fn());
 });
 
+// -- Activation Mode -----------------------------------------------
+
+describe("Activation Mode selector", () => {
+  it("renders three activation mode radio buttons", () => {
+    renderPanel();
+    expect(screen.getByLabelText("Voice Activation")).toBeTruthy();
+    expect(screen.getByLabelText("Continuous")).toBeTruthy();
+    expect(screen.getByLabelText("Push to Talk")).toBeTruthy();
+  });
+
+  it("selects Voice Activation when noise_suppression=true and push_to_talk=false", () => {
+    renderPanel({ noise_suppression: true, push_to_talk: false });
+    expect(
+      (screen.getByLabelText("Voice Activation") as HTMLInputElement).checked,
+    ).toBe(true);
+  });
+
+  it("selects Continuous when noise_suppression=false and push_to_talk=false", () => {
+    renderPanel({ noise_suppression: false, push_to_talk: false });
+    expect(
+      (screen.getByLabelText("Continuous") as HTMLInputElement).checked,
+    ).toBe(true);
+  });
+
+  it("selects Push to Talk when push_to_talk=true", () => {
+    renderPanel({ push_to_talk: true });
+    expect(
+      (screen.getByLabelText("Push to Talk") as HTMLInputElement).checked,
+    ).toBe(true);
+  });
+
+  it("switches to Continuous mode", () => {
+    const { onChange } = renderPanel({ noise_suppression: true });
+    fireEvent.click(screen.getByLabelText("Continuous"));
+    expect(onChange).toHaveBeenCalledWith({
+      push_to_talk: false,
+      noise_suppression: false,
+      auto_input_sensitivity: false,
+    });
+  });
+
+  it("switches to Push to Talk mode", () => {
+    const { onChange } = renderPanel({ noise_suppression: true });
+    fireEvent.click(screen.getByLabelText("Push to Talk"));
+    expect(onChange).toHaveBeenCalledWith({
+      push_to_talk: true,
+      noise_suppression: false,
+      auto_input_sensitivity: false,
+    });
+  });
+
+  it("switches back to Voice Activation mode", () => {
+    const { onChange } = renderPanel({ noise_suppression: false });
+    fireEvent.click(screen.getByLabelText("Voice Activation"));
+    expect(onChange).toHaveBeenCalledWith({
+      push_to_talk: false,
+      noise_suppression: true,
+    });
+  });
+
+  it("shows Voice Activation settings only in VA mode", () => {
+    renderPanel({ noise_suppression: true, push_to_talk: false });
+    expect(screen.getByText("Voice Activation", { selector: "h3" })).toBeTruthy();
+    expect(screen.getByText("Auto Sensitivity")).toBeTruthy();
+  });
+
+  it("hides Voice Activation settings in Continuous mode", () => {
+    renderPanel({ noise_suppression: false, push_to_talk: false });
+    expect(screen.queryByText("Auto Sensitivity")).toBeNull();
+    expect(screen.queryByText("Calibrate")).toBeNull();
+  });
+
+  it("hides Voice Activation settings in PTT mode", () => {
+    renderPanel({ push_to_talk: true });
+    expect(screen.queryByText("Auto Sensitivity")).toBeNull();
+    expect(screen.queryByText("Calibrate")).toBeNull();
+  });
+
+  it("shows PTT key binding only in PTT mode", () => {
+    renderPanel({ push_to_talk: true });
+    expect(screen.getByText("PTT Key")).toBeTruthy();
+  });
+
+  it("hides PTT key binding in Voice Activation mode", () => {
+    renderPanel({ noise_suppression: true, push_to_talk: false });
+    expect(screen.queryByText("PTT Key")).toBeNull();
+  });
+});
+
 // -- Auto Input Sensitivity ----------------------------------------
 
 describe("Auto Input Sensitivity toggle", () => {
   it("shows manual threshold slider when auto sensitivity is off", () => {
-    renderPanel({ auto_input_sensitivity: false });
+    renderPanel({ auto_input_sensitivity: false, noise_suppression: true });
     expect(screen.getByText("Threshold")).toBeTruthy();
   });
 
   it("hides manual threshold slider when auto sensitivity is on", () => {
-    renderPanel({ auto_input_sensitivity: true });
+    renderPanel({ auto_input_sensitivity: true, noise_suppression: true });
     expect(screen.queryByText("Threshold")).toBeNull();
   });
 
   it("calls onChange with toggled auto_input_sensitivity", () => {
-    const { onChange } = renderPanel({ auto_input_sensitivity: false });
-    // The toggle is a button[role=switch] following the "Auto Sensitivity" label.
+    const { onChange } = renderPanel({ auto_input_sensitivity: false, noise_suppression: true });
     const toggles = screen.getAllByRole("switch");
-    // The first toggle in the voice activation section is Auto Sensitivity.
     const autoSensToggle = toggles.find(
       (btn) => btn.getAttribute("aria-checked") === "false"
         && btn.closest("section")?.textContent?.includes("Auto Sensitivity"),
@@ -115,7 +203,7 @@ describe("Auto Input Sensitivity toggle", () => {
   });
 
   it("calls onChange to disable auto_input_sensitivity", () => {
-    const { onChange } = renderPanel({ auto_input_sensitivity: true });
+    const { onChange } = renderPanel({ auto_input_sensitivity: true, noise_suppression: true });
     const toggles = screen.getAllByRole("switch");
     const autoSensToggle = toggles.find(
       (btn) => btn.getAttribute("aria-checked") === "true"
@@ -127,15 +215,15 @@ describe("Auto Input Sensitivity toggle", () => {
   });
 });
 
-// -- Mic Test ------------------------------------------------------
+// -- Calibrate (mic test) ------------------------------------------
 
-describe("Mic Test", () => {
-  it("renders the Mic Test button", () => {
+describe("Calibrate", () => {
+  it("renders the Calibrate button", () => {
     renderPanel();
-    expect(screen.getByText("Mic Test")).toBeTruthy();
+    expect(screen.getByText("Calibrate")).toBeTruthy();
   });
 
-  it("does not show VU meter when mic test is not active", () => {
+  it("does not show VU meter when not active", () => {
     const { container } = renderPanel();
     expect(container.querySelector("[class*='vuMeter']")).toBeNull();
   });
@@ -143,23 +231,23 @@ describe("Mic Test", () => {
   it("invokes start_mic_test when button is clicked", async () => {
     renderPanel();
     await act(async () => {
-      fireEvent.click(screen.getByText("Mic Test"));
+      fireEvent.click(screen.getByText("Calibrate"));
     });
     expect(invokeMock).toHaveBeenCalledWith("start_mic_test", undefined);
   });
 
-  it("shows Stop Test button after starting", async () => {
+  it("shows Stop button after starting", async () => {
     renderPanel();
     await act(async () => {
-      fireEvent.click(screen.getByText("Mic Test"));
+      fireEvent.click(screen.getByText("Calibrate"));
     });
-    expect(screen.getByText("Stop Test")).toBeTruthy();
+    expect(screen.getByText("Stop")).toBeTruthy();
   });
 
-  it("shows VU meter after starting mic test", async () => {
+  it("shows VU meter after starting", async () => {
     renderPanel();
     await act(async () => {
-      fireEvent.click(screen.getByText("Mic Test"));
+      fireEvent.click(screen.getByText("Calibrate"));
     });
     // VU meter should contain dB labels
     expect(screen.getByText("-60")).toBeTruthy();
@@ -169,53 +257,53 @@ describe("Mic Test", () => {
   it("subscribes to mic-amplitude events when active", async () => {
     renderPanel();
     await act(async () => {
-      fireEvent.click(screen.getByText("Mic Test"));
+      fireEvent.click(screen.getByText("Calibrate"));
     });
     expect(listenMock).toHaveBeenCalledWith("mic-amplitude", expect.any(Function));
   });
 
-  it("invokes stop_mic_test when Stop Test is clicked", async () => {
+  it("invokes stop_mic_test when Stop is clicked", async () => {
     renderPanel();
     // Start
     await act(async () => {
-      fireEvent.click(screen.getByText("Mic Test"));
+      fireEvent.click(screen.getByText("Calibrate"));
     });
     invokeMock.mockClear();
     // Stop
     await act(async () => {
-      fireEvent.click(screen.getByText("Stop Test"));
+      fireEvent.click(screen.getByText("Stop"));
     });
     expect(invokeMock).toHaveBeenCalledWith("stop_mic_test", undefined);
   });
 
-  it("hides VU meter after stopping mic test", async () => {
+  it("hides VU meter after stopping", async () => {
     const { container } = renderPanel();
     // Start
     await act(async () => {
-      fireEvent.click(screen.getByText("Mic Test"));
+      fireEvent.click(screen.getByText("Calibrate"));
     });
     // Stop
     await act(async () => {
-      fireEvent.click(screen.getByText("Stop Test"));
+      fireEvent.click(screen.getByText("Stop"));
     });
     expect(container.querySelector("[class*='vuMeter']")).toBeNull();
-    expect(screen.getByText("Mic Test")).toBeTruthy();
+    expect(screen.getByText("Calibrate")).toBeTruthy();
   });
 
-  it("does not start mic test if invoke throws", async () => {
+  it("does not start if invoke throws", async () => {
     invokeMock.mockRejectedValueOnce(new Error("no mic"));
     renderPanel();
     await act(async () => {
-      fireEvent.click(screen.getByText("Mic Test"));
+      fireEvent.click(screen.getByText("Calibrate"));
     });
-    // Should still show "Mic Test" (not "Stop Test")
-    expect(screen.getByText("Mic Test")).toBeTruthy();
+    // Should still show "Calibrate" (not "Stop")
+    expect(screen.getByText("Calibrate")).toBeTruthy();
   });
 
   it("calls stop_mic_test on unmount while active", async () => {
     const { unmount } = renderPanel();
     await act(async () => {
-      fireEvent.click(screen.getByText("Mic Test"));
+      fireEvent.click(screen.getByText("Calibrate"));
     });
     invokeMock.mockClear();
     unmount();

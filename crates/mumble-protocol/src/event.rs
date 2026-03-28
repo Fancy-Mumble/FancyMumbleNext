@@ -22,6 +22,9 @@ pub trait EventHandler: Send + 'static {
 
     /// Called when the connection is lost or shut down.
     fn on_disconnected(&mut self) {}
+
+    /// Called when the audio transport mode changes (e.g. UDP activated or fell back to TCP).
+    fn on_audio_transport_changed(&mut self, udp_active: bool) {}
 }
 
 /// A no-op handler for use in tests or headless mode.

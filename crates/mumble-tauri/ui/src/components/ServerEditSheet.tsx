@@ -5,7 +5,8 @@
  * Reuses the glass input style from ConnectPage.
  */
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { SavedServer } from "../types";
 import { getServerPassword, setServerPassword } from "../serverStorage";
 import { isMobilePlatform } from "../utils/platform";
@@ -26,14 +27,35 @@ function EditForm({ server, onSave, onClose }: Readonly<Props>) {
   const [password, setPassword] = useState("");
   const [hasStoredPassword, setHasStoredPassword] = useState(false);
   const [clearPassword, setClearPassword] = useState(false);
+  const [certLabel, setCertLabel] = useState(server.cert_label ?? "");
+  const [availableCerts, setAvailableCerts] = useState<string[]>([]);
+  const [creatingCert, setCreatingCert] = useState(false);
+  const [newCertName, setNewCertName] = useState("");
+
+  const refreshCerts = useCallback(() => {
+    invoke<string[]>("list_certificates")
+      .then(setAvailableCerts)
+      .catch(() => setAvailableCerts([]));
+  }, []);
 
   useEffect(() => {
+    refreshCerts();
     getServerPassword(server.id).then((pw) => {
       if (pw) {
         setHasStoredPassword(true);
       }
     });
-  }, [server.id]);
+  }, [server.id, refreshCerts]);
+
+  const handleCreateCert = async () => {
+    const name = newCertName.trim();
+    if (!name) return;
+    await invoke("generate_certificate", { label: name });
+    await refreshCerts();
+    setCertLabel(name);
+    setNewCertName("");
+    setCreatingCert(false);
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -51,6 +73,7 @@ function EditForm({ server, onSave, onClose }: Readonly<Props>) {
       host: host.trim(),
       port: Number.parseInt(port) || 64738,
       username: username.trim(),
+      cert_label: certLabel || null,
     });
   };
 
@@ -101,6 +124,66 @@ function EditForm({ server, onSave, onClose }: Readonly<Props>) {
           placeholder="Username"
           required
         />
+      </label>
+
+      <label className={styles.fieldLabel}>
+        Identity
+        <select
+          className={styles.input}
+          value={creatingCert ? "__new__" : certLabel}
+          onChange={(e) => {
+            if (e.target.value === "__new__") {
+              setCreatingCert(true);
+            } else {
+              setCreatingCert(false);
+              setCertLabel(e.target.value);
+            }
+          }}
+        >
+          <option value="">None (anonymous)</option>
+          {availableCerts.map((c) => (
+            <option key={c} value={c}>
+              {c === "default" ? `${c} (auto-generated)` : c}
+            </option>
+          ))}
+          <option value="__new__">+ Create new identity...</option>
+        </select>
+        {creatingCert && (
+          <div className={styles.newCertRow}>
+            <input
+              className={styles.input}
+              type="text"
+              placeholder="Identity name"
+              value={newCertName}
+              onChange={(e) => setNewCertName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleCreateCert();
+                }
+              }}
+              autoFocus
+            />
+            <button
+              type="button"
+              className={styles.cancelBtn}
+              onClick={handleCreateCert}
+              disabled={!newCertName.trim()}
+            >
+              Create
+            </button>
+            <button
+              type="button"
+              className={styles.cancelBtn}
+              onClick={() => {
+                setCreatingCert(false);
+                setNewCertName("");
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
       </label>
 
       <label className={styles.fieldLabel}>

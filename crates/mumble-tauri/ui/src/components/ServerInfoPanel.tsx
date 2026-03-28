@@ -15,6 +15,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { ServerInfo, DebugStats, AudioSettings } from "../types";
 import { getPreferences, getSavedAudioSettings } from "../preferencesStorage";
 import { formatBandwidth, formatDuration } from "../utils/format";
+import { useAppStore } from "../store";
 import { SafeHtml } from "./SafeHtml";
 import ChevronRightIcon from "../assets/icons/navigation/chevron-right.svg?react";
 import CloseIcon from "../assets/icons/action/close.svg?react";
@@ -171,6 +172,7 @@ interface ServerInfoPanelProps {
 }
 
 export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
+  const udpActive = useAppStore((s) => s.udpActive);
   const [info, setInfo] = useState<ServerInfo | null>(null);
   const [devMode, setDevMode] = useState(false);
   const [debugStats, setDebugStats] = useState<DebugStats | null>(null);
@@ -343,6 +345,13 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
                 </button>
               </div>
 
+              <Accordion title="Audio Transport">
+                <div className={styles.debugGrid}>
+                  <DebugRow label="Transport" value={udpActive ? "UDP (encrypted)" : "TCP tunnel"} />
+                  <DebugRow label="Force TCP" value={audioSettings?.force_tcp_audio ?? false} />
+                </div>
+              </Accordion>
+
               {audioSettings && (
                 <Accordion title="Audio Settings">
                   <div className={styles.debugGrid}>
@@ -352,7 +361,7 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
                     <DebugRow label="VAD Threshold" value={`${(audioSettings.vad_threshold * 100).toFixed(1)}%`} />
                     <DebugRow label="Auto Gain" value={audioSettings.auto_gain} />
                     <DebugRow label="Max Gain" value={`${audioSettings.max_gain_db} dB`} />
-                    <DebugRow label="Noise Suppression" value={audioSettings.noise_suppression} />
+                    <DebugRow label="Activation" value={audioSettings.push_to_talk ? "Push to Talk" : audioSettings.noise_suppression ? "Voice Activation" : "Continuous"} />
                     <DebugRow label="Gate Close Ratio" value={`${(audioSettings.noise_gate_close_ratio * 100).toFixed(0)}%`} />
                     <DebugRow label="Hold Frames" value={audioSettings.hold_frames} />
                     <DebugRow label="Push to Talk" value={audioSettings.push_to_talk} />

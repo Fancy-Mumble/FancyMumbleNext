@@ -4,9 +4,11 @@
 //! ping timer, all feeding into the priority work queue. The main loop
 //! drains the queue and dispatches each item.
 
+use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::net::UdpSocket;
+use tokio::sync::{mpsc, watch};
 use tracing::{debug, error, info, warn};
 
 use crate::command::{BoxedCommand, CommandAction};
@@ -14,10 +16,11 @@ use crate::error::{Error, Result};
 use crate::event::EventHandler;
 use crate::message::{ControlMessage, ServerMessage, UdpMessage};
 use crate::transport::audio_codec::AudioPacketCodec;
+use crate::transport::ocb2::Ocb2CryptState;
 use crate::proto::mumble_tcp;
 use crate::state::ServerState;
 use crate::transport::tcp::{TcpConfig, TcpTransport};
-use crate::transport::udp::{PlaintextCryptState, UdpConfig, UdpTransport};
+use crate::transport::udp::{CryptState, UdpConfig, UdpTransport};
 use crate::work_queue::{self, WorkItem, WorkQueueSender};
 
 /// The Mumble protocol version advertised to the server.
@@ -74,6 +77,8 @@ pub struct ClientConfig {
     pub ping_interval: Duration,
     /// Mumble protocol version advertised to the server.
     pub version: MumbleVersion,
+    /// When true, always send audio via TCP tunnel even if UDP is available.
+    pub force_tcp: bool,
 }
 
 impl Default for ClientConfig {
@@ -83,6 +88,7 @@ impl Default for ClientConfig {
             udp: UdpConfig::default(),
             ping_interval: Duration::from_secs(15),
             version: MumbleVersion::default(),
+            force_tcp: false,
         }
     }
 }
@@ -91,6 +97,7 @@ impl Default for ClientConfig {
 #[derive(Debug, Clone)]
 pub struct ClientHandle {
     cmd_tx: mpsc::Sender<BoxedCommand>,
+    force_tcp_tx: watch::Sender<bool>,
 }
 
 impl ClientHandle {
@@ -103,6 +110,18 @@ impl ClientHandle {
             .send(Box::new(cmd))
             .await
             .map_err(|_| Error::QueueClosed)
+    }
+
+    /// Toggle force-TCP mode at runtime.
+    ///
+    /// When set to `true`, any active UDP transport is torn down and audio
+    /// falls back to the TCP tunnel.  When set back to `false`, the event
+    /// loop re-establishes UDP using the stored crypto material from the
+    /// last `CryptSetup`.
+    pub fn set_force_tcp(&self, force: bool) {
+        // watch::Sender::send only fails if all receivers are dropped,
+        // which means the event loop has already exited.
+        let _ = self.force_tcp_tx.send(force);
     }
 }
 
@@ -178,8 +197,10 @@ pub async fn run<H: EventHandler>(
 
     // 3. Build client handle (for external command submission)
     let (ext_cmd_tx, ext_cmd_rx) = mpsc::channel::<BoxedCommand>(32);
+    let (force_tcp_tx, force_tcp_rx) = watch::channel(config.force_tcp);
     let client_handle = ClientHandle {
         cmd_tx: ext_cmd_tx,
+        force_tcp_tx,
     };
 
     // 4. Spawn the main event loop
@@ -192,6 +213,7 @@ pub async fn run<H: EventHandler>(
             tcp_reader,
             tcp_writer,
             udp_config,
+            force_tcp_rx,
             wq_sender,
             wq_receiver,
             ext_cmd_rx,
@@ -212,95 +234,35 @@ pub async fn run<H: EventHandler>(
 #[allow(clippy::too_many_lines, reason = "event loop drives the full protocol state machine; extracting sub-steps would obscure the sequential flow")]
 async fn event_loop<H: EventHandler>(
     mut handler: H,
-    mut tcp_reader: crate::transport::tcp::TcpReader,
-    mut tcp_writer: crate::transport::tcp::TcpWriter,
+    tcp_reader: crate::transport::tcp::TcpReader,
+    tcp_writer: crate::transport::tcp::TcpWriter,
     udp_config: UdpConfig,
+    mut force_tcp_rx: watch::Receiver<bool>,
     wq_sender: WorkQueueSender,
     mut wq_receiver: work_queue::WorkQueueReceiver,
-    mut ext_cmd_rx: mpsc::Receiver<BoxedCommand>,
+    ext_cmd_rx: mpsc::Receiver<BoxedCommand>,
     ping_interval: Duration,
 ) -> Result<()> {
     let mut state = ServerState::new();
 
     // Create a single outbound channel that serialises all TCP writes.
     // Ping task, user commands, and the main loop all send through here.
-    let (outbound_tx, mut outbound_rx) = mpsc::channel::<ControlMessage>(64);
-    let tcp_writer_task = tokio::spawn(async move {
-        while let Some(msg) = outbound_rx.recv().await {
-            if let Err(e) = tcp_writer.send(&msg).await {
-                error!("failed to send TCP message: {e}");
-                break;
-            }
-        }
-    });
+    let (outbound_tx, outbound_rx) = mpsc::channel::<ControlMessage>(64);
+    let tcp_writer_task = tokio::spawn(tcp_writer_loop(tcp_writer, outbound_rx));
+    let mut tcp_reader_task = tokio::spawn(tcp_reader_loop(tcp_reader, wq_sender.clone()));
+    let ping_task = tokio::spawn(ping_loop(
+        outbound_tx.clone(),
+        state.ping_stats.clone(),
+        ping_interval,
+    ));
+    let cmd_forwarder_task = tokio::spawn(cmd_forwarder_loop(ext_cmd_rx, wq_sender.clone()));
 
-    // Spawn TCP reader task
-    let tcp_wq = wq_sender.clone();
-    let mut tcp_reader_task = tokio::spawn(async move {
-        loop {
-            match tcp_reader.recv().await {
-                Ok(msg) => {
-                    if tcp_wq.send_tcp(msg).await.is_err() {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    warn!("TCP read error: {e}");
-                    break;
-                }
-            }
-        }
-    });
-
-    // Spawn periodic ping task.
-    // Pings must be written directly to the TCP stream - they are outbound
-    // keep-alive messages, not inbound server messages to process.
-    // Include accumulated ping statistics so the server and other clients
-    // can see our connection quality.
-    let ping_tx = outbound_tx.clone();
-    let ping_stats = state.ping_stats.clone();
-    let ping_task = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(ping_interval);
-        loop {
-            let _ = interval.tick().await;
-            let stats_snapshot = ping_stats.lock().ok().map(|s| s.clone()).unwrap_or_default();
-            let ping = mumble_tcp::Ping {
-                timestamp: Some(
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64,
-                ),
-                tcp_packets: Some(stats_snapshot.tcp_packets),
-                tcp_ping_avg: Some(stats_snapshot.tcp_ping_avg),
-                tcp_ping_var: Some(stats_snapshot.tcp_ping_var),
-                udp_packets: Some(stats_snapshot.udp_packets),
-                udp_ping_avg: Some(stats_snapshot.udp_ping_avg),
-                udp_ping_var: Some(stats_snapshot.udp_ping_var),
-                ..Default::default()
-            };
-            if ping_tx
-                .send(ControlMessage::Ping(ping))
-                .await
-                .is_err()
-            {
-                break;
-            }
-        }
-    });
-
-    // Forward external commands into the work queue
-    let cmd_wq = wq_sender.clone();
-    let cmd_forwarder_task = tokio::spawn(async move {
-        while let Some(cmd) = ext_cmd_rx.recv().await {
-            if cmd_wq.send_command(cmd).await.is_err() {
-                break;
-            }
-        }
-    });
-
-    // Optional: UDP transport (connected after CryptSetup)
-    let mut _udp: Option<UdpTransport<PlaintextCryptState>> = None;
+    // UDP sender handle: socket + encrypt crypt state.
+    // Created when CryptSetup arrives (unless force_tcp is set).
+    let mut udp_sender: Option<UdpSender> = None;
+    let mut udp_reader_task: Option<tokio::task::JoinHandle<()>> = None;
+    let mut stored_crypto: Option<StoredCrypto> = None;
+    let mut force_tcp = *force_tcp_rx.borrow();
 
     // Main dispatch loop
     info!("entering main event loop");
@@ -308,123 +270,294 @@ async fn event_loop<H: EventHandler>(
     loop {
         let item = tokio::select! {
             biased;
-            item = wq_receiver.recv() => item,
+            item = wq_receiver.recv() => Some(item),
+            Ok(()) = force_tcp_rx.changed() => {
+                let new_force = *force_tcp_rx.borrow_and_update();
+                if new_force != force_tcp {
+                    force_tcp = new_force;
+                    handle_force_tcp_change(
+                        force_tcp,
+                        &stored_crypto,
+                        &udp_config,
+                        &wq_sender,
+                        &mut udp_sender,
+                        &mut udp_reader_task,
+                        &mut handler,
+                    ).await;
+                }
+                None
+            }
             result = &mut tcp_reader_task, if tcp_reader_alive => {
                 tcp_reader_alive = false;
                 warn!("TCP reader ended unexpectedly: {result:?}");
-                WorkItem::Shutdown
+                Some(WorkItem::Shutdown)
             }
         };
 
-        match item {
-            WorkItem::ServerMessage(server_msg) => {
-                match &server_msg {
-                    ServerMessage::Control(ctrl) => {
-                        // UdpTunnel carries audio (or pings) tunnelled over TCP.
-                        // Try protobuf first (Mumble 1.5+), then legacy binary.
-                        if let ControlMessage::UdpTunnel(ref data) = ctrl {
-                            match crate::transport::audio_codec::decode_tunnel_audio(data) {
-                                Ok(audio) => {
-                                    handler.on_udp_message(&UdpMessage::Audio(audio));
-                                }
-                                Err(e) => {
-                                    warn!("UdpTunnel audio decode failed ({} bytes): {e}", data.len());
-                                }
-                            }
-                        } else {
-                            handle_control_message(ctrl, &mut state, &mut handler);
+        let Some(item) = item else { continue; };
 
-                            // If we got CryptSetup, try to start UDP
-                            if matches!(ctrl, ControlMessage::CryptSetup(_)) {
-                                match start_udp(&udp_config, &wq_sender).await {
-                                    Ok(transport) => {
-                                        _udp = Some(transport);
-                                        debug!("UDP transport started");
-                                    }
-                                    Err(e) => warn!("failed to start UDP: {e}"),
-                                }
-                            }
-
-                            // A Reject means the server will close the
-                            // connection - exit the loop immediately instead
-                            // of lingering until the TCP stream dies.
-                            if matches!(ctrl, ControlMessage::Reject(_)) {
-                                info!("server rejected connection, exiting event loop");
-                                handler.on_disconnected();
-                                break;
-                            }
-                        }
-                    }
-                    ServerMessage::Udp(udp_msg) => {
-                        handler.on_udp_message(udp_msg);
-                    }
+        let action = {
+            let mut ctx = EventLoopCtx {
+                handler: &mut handler,
+                state: &mut state,
+                outbound_tx: &outbound_tx,
+                udp_sender: &mut udp_sender,
+                udp_reader_task: &mut udp_reader_task,
+                stored_crypto: &mut stored_crypto,
+                udp_config: &udp_config,
+                wq_sender: &wq_sender,
+                force_tcp,
+            };
+            match item {
+                WorkItem::ServerMessage(msg) => ctx.handle_server_message(msg).await,
+                WorkItem::UserCommand(cmd) => ctx.handle_user_command(cmd).await,
+                WorkItem::Shutdown => {
+                    info!("shutdown signal");
+                    ctx.handler.on_disconnected();
+                    LoopAction::Break
                 }
             }
-
-            WorkItem::UserCommand(cmd) => {
-                let output = cmd.execute(&state);
-
-                // Send TCP messages
-                for msg in output.tcp_messages {
-                    if outbound_tx.send(msg).await.is_err() {
-                        error!("outbound channel closed");
-                        break;
-                    }
-                }
-
-                // Send UDP messages
-                // (For now UDP audio falls back to TCP tunnel if no UDP)
-                for udp_msg in &output.udp_messages {
-                    if let UdpMessage::Audio(audio) = udp_msg {
-                        // Encode as protobuf v2 format - the server negotiated
-                        // this because we advertised version_v2 (1.5.0).
-                        let tunnel_data =
-                            crate::transport::audio_codec::ProtobufAudioCodec::encode(audio);
-                        debug!(
-                            frame = audio.frame_number,
-                            opus_len = audio.opus_data.len(),
-                            "outbound tunnel audio ({} bytes)",
-                            tunnel_data.len()
-                        );
-                        let tunnel = ControlMessage::UdpTunnel(tunnel_data);
-                        if outbound_tx.send(tunnel).await.is_err() {
-                            error!("outbound channel closed");
-                            break;
-                        }
-                    }
-                }
-
-                if output.disconnect {
-                    info!("disconnect requested");
-                    handler.on_disconnected();
-                    break;
-                }
-            }
-
-            WorkItem::Shutdown => {
-                info!("shutdown signal");
-                handler.on_disconnected();
-                break;
-            }
+        };
+        if action == LoopAction::Break {
+            break;
         }
     }
 
     // -- Clean up all spawned sub-tasks -----------------------------
-    // These tasks hold channel senders/TCP stream halves.  If we just
-    // drop them (detach), the ping task keeps `ping_tx` alive which
-    // keeps the TCP writer alive, so the connection never closes.
     ping_task.abort();
     cmd_forwarder_task.abort();
     if tcp_reader_alive {
         tcp_reader_task.abort();
     }
     tcp_writer_task.abort();
+    if let Some(task) = udp_reader_task {
+        task.abort();
+    }
     debug!("all sub-tasks aborted");
 
     Ok(())
 }
 
 // -- Helpers --------------------------------------------------------
+
+/// Drains the outbound channel and writes each message to the TCP stream.
+async fn tcp_writer_loop(
+    mut tcp_writer: crate::transport::tcp::TcpWriter,
+    mut outbound_rx: mpsc::Receiver<ControlMessage>,
+) {
+    while let Some(msg) = outbound_rx.recv().await {
+        if let Err(e) = tcp_writer.send(&msg).await {
+            error!("failed to send TCP message: {e}");
+            break;
+        }
+    }
+}
+
+/// Reads control messages from the TCP stream and feeds them into the
+/// work queue.
+async fn tcp_reader_loop(
+    mut tcp_reader: crate::transport::tcp::TcpReader,
+    wq_sender: WorkQueueSender,
+) {
+    loop {
+        match tcp_reader.recv().await {
+            Ok(msg) => {
+                if wq_sender.send_tcp(msg).await.is_err() {
+                    break;
+                }
+            }
+            Err(e) => {
+                warn!("TCP read error: {e}");
+                break;
+            }
+        }
+    }
+}
+
+/// Sends periodic TCP pings with accumulated latency statistics.
+async fn ping_loop(
+    outbound_tx: mpsc::Sender<ControlMessage>,
+    ping_stats: crate::state::SharedPingStats,
+    interval_duration: Duration,
+) {
+    let mut interval = tokio::time::interval(interval_duration);
+    loop {
+        let _ = interval.tick().await;
+        let stats_snapshot = ping_stats
+            .lock()
+            .ok()
+            .map(|s| s.clone())
+            .unwrap_or_default();
+        let ping = mumble_tcp::Ping {
+            timestamp: Some(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+            ),
+            tcp_packets: Some(stats_snapshot.tcp_packets),
+            tcp_ping_avg: Some(stats_snapshot.tcp_ping_avg),
+            tcp_ping_var: Some(stats_snapshot.tcp_ping_var),
+            udp_packets: Some(stats_snapshot.udp_packets),
+            udp_ping_avg: Some(stats_snapshot.udp_ping_avg),
+            udp_ping_var: Some(stats_snapshot.udp_ping_var),
+            ..Default::default()
+        };
+        if outbound_tx
+            .send(ControlMessage::Ping(ping))
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
+}
+
+/// Forwards externally submitted commands into the priority work queue.
+async fn cmd_forwarder_loop(
+    mut ext_cmd_rx: mpsc::Receiver<BoxedCommand>,
+    wq_sender: WorkQueueSender,
+) {
+    while let Some(cmd) = ext_cmd_rx.recv().await {
+        if wq_sender.send_command(cmd).await.is_err() {
+            break;
+        }
+    }
+}
+
+/// Signal from a dispatch handler: keep looping or exit.
+#[derive(PartialEq, Eq)]
+enum LoopAction {
+    Continue,
+    Break,
+}
+
+/// Mutable context threaded through event-loop dispatch helpers,
+/// avoiding long parameter lists on each function call.
+struct EventLoopCtx<'a, H> {
+    handler: &'a mut H,
+    state: &'a mut ServerState,
+    outbound_tx: &'a mpsc::Sender<ControlMessage>,
+    udp_sender: &'a mut Option<UdpSender>,
+    udp_reader_task: &'a mut Option<tokio::task::JoinHandle<()>>,
+    stored_crypto: &'a mut Option<StoredCrypto>,
+    udp_config: &'a UdpConfig,
+    wq_sender: &'a WorkQueueSender,
+    force_tcp: bool,
+}
+
+impl<H: EventHandler> EventLoopCtx<'_, H> {
+    async fn handle_server_message(&mut self, server_msg: ServerMessage) -> LoopAction {
+        match &server_msg {
+            ServerMessage::Control(ctrl) => {
+                if let ControlMessage::UdpTunnel(ref data) = ctrl {
+                    match crate::transport::audio_codec::decode_tunnel_audio(data) {
+                        Ok(audio) => self.handler.on_udp_message(&UdpMessage::Audio(audio)),
+                        Err(e) => {
+                            warn!(
+                                "UdpTunnel audio decode failed ({} bytes): {e}",
+                                data.len()
+                            );
+                        }
+                    }
+                } else {
+                    if let ControlMessage::CryptSetup(cs) = ctrl {
+                        handle_crypt_setup(
+                            cs,
+                            self.udp_config,
+                            self.force_tcp,
+                            self.wq_sender,
+                            self.stored_crypto,
+                            self.udp_sender,
+                            self.udp_reader_task,
+                            self.handler,
+                        )
+                        .await;
+                    }
+
+                    handle_control_message(ctrl, self.state, self.handler);
+
+                    // Piggyback a UDP ping on every TCP Ping response to
+                    // keep the NAT mapping alive.
+                    if matches!(ctrl, ControlMessage::Ping(_)) {
+                        self.send_udp_ping().await;
+                    }
+
+                    if matches!(ctrl, ControlMessage::Reject(_)) {
+                        info!("server rejected connection, exiting event loop");
+                        self.handler.on_disconnected();
+                        return LoopAction::Break;
+                    }
+                }
+            }
+            ServerMessage::Udp(udp_msg) => {
+                self.handler.on_udp_message(udp_msg);
+            }
+        }
+        LoopAction::Continue
+    }
+
+    async fn handle_user_command(&mut self, cmd: BoxedCommand) -> LoopAction {
+        let output = cmd.execute(self.state);
+
+        for msg in output.tcp_messages {
+            if self.outbound_tx.send(msg).await.is_err() {
+                error!("outbound channel closed");
+                break;
+            }
+        }
+
+        self.send_udp_output(&output.udp_messages).await;
+
+        if output.disconnect {
+            info!("disconnect requested");
+            self.handler.on_disconnected();
+            return LoopAction::Break;
+        }
+        LoopAction::Continue
+    }
+
+    /// Send a UDP ping to keep the NAT mapping alive.
+    async fn send_udp_ping(&mut self) {
+        if let Some(sender) = &mut self.udp_sender {
+            let payload = crate::transport::udp::encode_udp_message(&udp_ping_message());
+            if let Err(e) = sender.send_raw(&payload).await {
+                warn!("UDP ping send failed: {e}");
+            }
+        }
+    }
+
+    /// Send outbound UDP audio, preferring real UDP with TCP tunnel fallback.
+    async fn send_udp_output(&mut self, messages: &[UdpMessage]) {
+        for udp_msg in messages {
+            let UdpMessage::Audio(audio) = udp_msg else {
+                continue;
+            };
+
+            let use_tunnel = if let Some(sender) = &mut self.udp_sender {
+                let payload = crate::transport::udp::encode_udp_message(udp_msg);
+                if let Err(e) = sender.send_raw(&payload).await {
+                    warn!("UDP send failed, falling back to TCP tunnel: {e}");
+                    true
+                } else {
+                    false
+                }
+            } else {
+                true
+            };
+
+            if use_tunnel {
+                let tunnel_data =
+                    crate::transport::audio_codec::ProtobufAudioCodec::encode(audio);
+                let tunnel = ControlMessage::UdpTunnel(tunnel_data);
+                if self.outbound_tx.send(tunnel).await.is_err() {
+                    error!("outbound channel closed");
+                    break;
+                }
+            }
+        }
+    }
+}
 
 fn handle_control_message<H: EventHandler>(
     msg: &ControlMessage,
@@ -478,19 +611,257 @@ fn handle_control_message<H: EventHandler>(
     handler.on_control_message(msg);
 }
 
-async fn start_udp(
-    config: &UdpConfig,
-    _wq_sender: &WorkQueueSender,
-) -> Result<UdpTransport<PlaintextCryptState>> {
-    let transport =
-        UdpTransport::connect(config, PlaintextCryptState).await?;
+// -- UDP sender handle -----------------------------------------------
+
+/// Lightweight handle for sending encrypted UDP packets.
+struct UdpSender {
+    socket: Arc<UdpSocket>,
+    crypt: Ocb2CryptState,
+}
+
+impl UdpSender {
+    /// Encrypt and send a pre-encoded UDP payload.
+    async fn send_raw(&mut self, payload: &[u8]) -> Result<()> {
+        let encrypted = self.crypt.encrypt(payload)?;
+        let _n = self.socket
+            .send(&encrypted)
+            .await
+            .map_err(Error::Io)?;
+        Ok(())
+    }
+}
+
+/// Stored key material from the last `CryptSetup` so UDP can be
+/// (re-)enabled at runtime when `force_tcp` is toggled off.
+struct StoredCrypto {
+    key: Vec<u8>,
+    client_nonce: Vec<u8>,
+    server_nonce: Vec<u8>,
+}
+
+/// Handle a `CryptSetup` message: extract keys and start the UDP transport.
+#[allow(clippy::too_many_arguments, reason = "mirrors handle_control_message pattern; grouping would add indirection")]
+async fn handle_crypt_setup<H: EventHandler>(
+    cs: &mumble_tcp::CryptSetup,
+    udp_config: &UdpConfig,
+    force_tcp: bool,
+    wq_sender: &WorkQueueSender,
+    stored_crypto: &mut Option<StoredCrypto>,
+    udp_sender: &mut Option<UdpSender>,
+    udp_reader_task: &mut Option<tokio::task::JoinHandle<()>>,
+    handler: &mut H,
+) {
+    // Full key setup: key + client_nonce + server_nonce all present
+    let (Some(key), Some(client_nonce), Some(server_nonce)) =
+        (&cs.key, &cs.client_nonce, &cs.server_nonce)
+    else {
+        // Partial CryptSetup (nonce resync) - update decrypt nonce if we have a sender
+        if let Some(sn) = &cs.server_nonce {
+            debug!("CryptSetup nonce resync received");
+            // Server nonce resync only affects the reader's decrypt state.
+            // The reader task owns its own CryptState, so a full resync
+            // isn't trivially possible without a channel/Arc<Mutex>. For now
+            // log it; a future improvement could add a nonce update channel.
+            let _ = sn;
+        }
+        return;
+    };
+
+    // Always store the crypto material so UDP can be enabled later.
+    *stored_crypto = Some(StoredCrypto {
+        key: key.clone(),
+        client_nonce: client_nonce.clone(),
+        server_nonce: server_nonce.clone(),
+    });
+
+    if force_tcp {
+        info!("UDP disabled (force_tcp=true), using TCP tunnel for audio");
+        handler.on_audio_transport_changed(false);
+        return;
+    }
+
+    start_udp(
+        key,
+        client_nonce,
+        server_nonce,
+        udp_config,
+        wq_sender,
+        udp_sender,
+        udp_reader_task,
+        handler,
+    )
+    .await;
+}
+
+/// Handle a runtime `force_tcp` toggle from the UI.
+async fn handle_force_tcp_change<H: EventHandler>(
+    force_tcp: bool,
+    stored_crypto: &Option<StoredCrypto>,
+    udp_config: &UdpConfig,
+    wq_sender: &WorkQueueSender,
+    udp_sender: &mut Option<UdpSender>,
+    udp_reader_task: &mut Option<tokio::task::JoinHandle<()>>,
+    handler: &mut H,
+) {
+    if force_tcp {
+        // Tear down active UDP transport.
+        if let Some(task) = udp_reader_task.take() {
+            task.abort();
+        }
+        *udp_sender = None;
+        info!("force_tcp enabled at runtime, switched to TCP tunnel");
+        handler.on_audio_transport_changed(false);
+    } else {
+        // Re-enable UDP if we have stored crypto material.
+        if let Some(crypto) = stored_crypto {
+            start_udp(
+                &crypto.key,
+                &crypto.client_nonce,
+                &crypto.server_nonce,
+                udp_config,
+                wq_sender,
+                udp_sender,
+                udp_reader_task,
+                handler,
+            )
+            .await;
+        } else {
+            info!("force_tcp disabled but no CryptSetup received yet; UDP will start when server sends keys");
+        }
+    }
+}
+
+/// Initialize the encrypted UDP transport and spawn the reader task.
+#[allow(clippy::too_many_arguments, reason = "groups all transport handles needed to set up UDP")]
+async fn start_udp<H: EventHandler>(
+    key: &[u8],
+    client_nonce: &[u8],
+    server_nonce: &[u8],
+    udp_config: &UdpConfig,
+    wq_sender: &WorkQueueSender,
+    udp_sender: &mut Option<UdpSender>,
+    udp_reader_task: &mut Option<tokio::task::JoinHandle<()>>,
+    handler: &mut H,
+) {
+
+    // Initialize encrypt CryptState (for outbound audio)
+    let mut encrypt_crypt = Ocb2CryptState::new();
+    if let Err(e) = encrypt_crypt.set_key(key, client_nonce, server_nonce) {
+        warn!("failed to initialize UDP encrypt crypto: {e}");
+        return;
+    }
+
+    // Initialize decrypt CryptState (for inbound audio)
+    let mut decrypt_crypt = Ocb2CryptState::new();
+    if let Err(e) = decrypt_crypt.set_key(key, client_nonce, server_nonce) {
+        warn!("failed to initialize UDP decrypt crypto: {e}");
+        return;
+    }
+
+    // Connect UDP socket
+    let transport = match UdpTransport::connect(udp_config, crate::transport::udp::PlaintextCryptState).await {
+        Ok(t) => t,
+        Err(e) => {
+            warn!("failed to connect UDP socket: {e}");
+            return;
+        }
+    };
+
+    let socket = transport.socket_arc();
+
+    // Abort any previous reader task
+    if let Some(task) = udp_reader_task.take() {
+        task.abort();
+    }
 
     // Spawn UDP reader task
-    // We need a second transport for reading - for now, return the one we have
-    // and note that a production implementation would split or use Arc.
-    // This is a placeholder; real OCB2 encryption + split is needed.
-    debug!("UDP transport connected (plaintext mode)");
-    Ok(transport)
+    let reader_socket = socket.clone();
+    let reader_wq = wq_sender.clone();
+    *udp_reader_task = Some(tokio::spawn(async move {
+        udp_reader_loop(reader_socket, decrypt_crypt, reader_wq).await;
+    }));
+
+    // Store sender handle
+    *udp_sender = Some(UdpSender {
+        socket,
+        crypt: encrypt_crypt,
+    });
+
+    // Send an initial encrypted UDP ping so the server discovers our
+    // public UDP endpoint (NAT traversal).  Without this the server
+    // has no address to forward audio to.
+    if let Some(sender) = udp_sender.as_mut() {
+        let payload = crate::transport::udp::encode_udp_message(&udp_ping_message());
+        if let Err(e) = sender.send_raw(&payload).await {
+            warn!("failed to send initial UDP ping: {e}");
+        } else {
+            debug!("sent initial UDP ping for NAT traversal");
+        }
+    }
+
+    info!("UDP transport started with OCB2-AES128 encryption");
+    handler.on_audio_transport_changed(true);
+}
+
+/// Build a timestamped UDP ping message.
+fn udp_ping_message() -> UdpMessage {
+    use crate::proto::mumble_udp;
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    UdpMessage::Ping(mumble_udp::Ping {
+        timestamp,
+        ..Default::default()
+    })
+}
+
+/// Background task: reads encrypted UDP datagrams, decrypts, decodes, and
+/// feeds them into the work queue.
+async fn udp_reader_loop(
+    socket: Arc<UdpSocket>,
+    mut crypt: Ocb2CryptState,
+    wq_sender: WorkQueueSender,
+) {
+    let mut buf = vec![0u8; 1024];
+    loop {
+        let n = match socket.recv(&mut buf).await {
+            Ok(n) if n > 0 => n,
+            Ok(_) => {
+                debug!("UDP socket closed");
+                break;
+            }
+            Err(e) => {
+                // On Windows, ICMP port-unreachable can cause recv to
+                // return ConnectionReset - this is normal if the server
+                // hasn't opened UDP yet. Just retry.
+                if e.kind() == std::io::ErrorKind::ConnectionReset {
+                    continue;
+                }
+                warn!("UDP read error: {e}");
+                break;
+            }
+        };
+
+        let decrypted = match crypt.decrypt(&buf[..n]) {
+            Ok(data) => data,
+            Err(e) => {
+                warn!("UDP decrypt failed, skipping: {e}");
+                continue;
+            }
+        };
+
+        match crate::transport::udp::decode_udp_message(&decrypted) {
+            Ok(msg) => {
+                if wq_sender.send_udp(msg).await.is_err() {
+                    break;
+                }
+            }
+            Err(e) => {
+                warn!("UDP decode failed, skipping: {e}");
+            }
+        }
+    }
 }
 
 #[cfg(test)]

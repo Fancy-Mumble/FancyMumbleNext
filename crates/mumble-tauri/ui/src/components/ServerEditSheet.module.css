@@ -75,6 +75,16 @@
   background: rgba(243, 139, 168, 0.1);
 }
 
+.newCertRow {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.newCertRow .input {
+  flex: 1;
+}
+
 .actions {
   display: flex;
   gap: 8px;
