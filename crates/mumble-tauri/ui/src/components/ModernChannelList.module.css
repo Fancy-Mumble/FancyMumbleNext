@@ -1,0 +1,221 @@
+/* Modern flat channel viewer - all channels at the same level,
+   populated channels first, inline member names. */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 4px;
+}
+
+/* --- Channel card ----------------------------------------------- */
+
+.channelCard {
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.channelCard.selected {
+  background: var(--color-glass-active);
+  border-color: rgba(42, 171, 238, 0.15);
+}
+
+.channelCard.current {
+  background: linear-gradient(
+    135deg,
+    rgba(42, 171, 238, 0.15),
+    rgba(122, 58, 237, 0.10)
+  );
+  border-color: rgba(42, 171, 238, 0.25);
+}
+
+/* --- Header row ------------------------------------------------- */
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+}
+
+.expandBtn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.expandBtn:hover {
+  color: var(--color-text-primary);
+}
+
+.chevron {
+  transition: transform 0.2s ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.channelBtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  padding: 2px 0;
+}
+
+.channelName {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.listenBadge {
+  margin-left: 4px;
+  color: var(--color-accent, #2aabee);
+  vertical-align: middle;
+}
+
+.memberCount {
+  font-size: 11px;
+  color: var(--color-text-muted, #888);
+  background: var(--color-glass, rgba(255, 255, 255, 0.06));
+  padding: 1px 6px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.unreadBadge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--color-accent, #2aabee);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* --- Collapsed avatar bubbles ----------------------------------- */
+
+.collapsedAvatars {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.collapsedAvatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 600;
+  color: white;
+  border: 2px solid var(--color-bg-secondary);
+  margin-left: -6px;
+  flex-shrink: 0;
+}
+
+.collapsedAvatar:last-child {
+  margin-left: 0;
+}
+
+.collapsedAvatarImg {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.overflowCount {
+  font-size: 10px;
+  color: var(--color-text-muted, #888);
+  margin-left: 2px;
+}
+
+/* --- Member list (expanded) ------------------------------------- */
+
+.memberList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 8px 6px 30px;
+}
+
+.memberItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm, 4px);
+  transition: background 0.1s;
+}
+
+.memberItem:hover {
+  background: var(--color-glass-hover);
+}
+
+.memberTalking {
+  background: rgba(46, 204, 113, 0.12);
+}
+
+.memberAvatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 600;
+  color: white;
+  flex-shrink: 0;
+}
+
+.memberAvatarImg {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.memberName {
+  font-size: 13px;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.statusIcon {
+  color: var(--color-text-muted, #888);
+  flex-shrink: 0;
+  opacity: 0.7;
+}

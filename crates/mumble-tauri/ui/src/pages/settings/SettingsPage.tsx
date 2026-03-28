@@ -62,6 +62,7 @@ const PERSONALIZATION_DEFAULTS: PersonalizationData = {
   fontSizeCustomPx: 14,
   fontFamily: "system",
   compactMode: false,
+  channelViewerStyle: "modern",
 };
 
 const TABS: TabDef<Tab>[] = [

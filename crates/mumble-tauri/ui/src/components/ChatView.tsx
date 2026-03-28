@@ -148,6 +148,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     fontSizeCustomPx: 14,
     fontFamily: "system",
     compactMode: false,
+    channelViewerStyle: "modern",
   });
 
   useEffect(() => {

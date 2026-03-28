@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { PersonalizationData, BubbleStyle, FontSize, BgFit } from "../../personalizationStorage";
+import type { PersonalizationData, BubbleStyle, FontSize, BgFit, ChannelViewerStyle } from "../../personalizationStorage";
 import { ImageEditor } from "./ImageEditor";
 import { SliderField, Toggle } from "./SharedControls";
 import styles from "./SettingsPage.module.css";
@@ -24,6 +24,11 @@ const BUBBLE_STYLES: { id: BubbleStyle; label: string; icon: string }[] = [
 const BG_FIT_OPTIONS: { id: BgFit; label: string; icon: string }[] = [
   { id: "cover", label: "Cover", icon: "🖼️" },
   { id: "tile", label: "Tile", icon: "🧩" },
+];
+
+const CHANNEL_VIEWER_STYLES: { id: ChannelViewerStyle; label: string; icon: string }[] = [
+  { id: "classic", label: "Classic", icon: "🏛️" },
+  { id: "modern", label: "Modern", icon: "✨" },
 ];
 
 const FONT_SIZES: { id: FontSize; label: string }[] = [
@@ -421,6 +426,27 @@ export function PersonalizationPanel({ data, onChange, isExpert }: Personalizati
             checked={data.compactMode}
             onChange={() => onChange({ compactMode: !data.compactMode })}
           />
+        </div>
+      </section>
+
+      {/* -- Channel Viewer ---------------------------------------- */}
+      <section className={styles.section}>
+        <h3 className={styles.sectionTitle}>Channel Viewer</h3>
+        <p className={styles.fieldHint}>
+          Choose how the channel list is displayed in the sidebar.
+        </p>
+        <div className={styles.optionGrid}>
+          {CHANNEL_VIEWER_STYLES.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className={`${styles.optionCard} ${data.channelViewerStyle === s.id ? styles.optionCardSelected : ""}`}
+              onClick={() => onChange({ channelViewerStyle: s.id })}
+            >
+              <span className={styles.optionPreview}>{s.icon}</span>
+              <span className={styles.optionLabel}>{s.label}</span>
+            </button>
+          ))}
         </div>
       </section>
 
