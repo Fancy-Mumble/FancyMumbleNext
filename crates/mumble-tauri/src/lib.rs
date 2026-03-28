@@ -795,6 +795,12 @@ fn get_voice_state(state: tauri::State<'_, AppState>) -> VoiceState {
     state.voice_state()
 }
 
+/// Set the local playback volume for a specific remote user (0-200 %).
+#[tauri::command]
+fn set_user_volume(state: tauri::State<'_, AppState>, session: u32, volume: f32) {
+    state.set_user_volume(session, volume);
+}
+
 /// Enable voice calling for the current channel.
 /// Sends unmute/undeaf to the server.
 #[tauri::command]
@@ -849,6 +855,29 @@ fn start_latency_test(state: tauri::State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 fn stop_latency_test(state: tauri::State<'_, AppState>) {
     state.stop_latency_test();
+}
+
+/// Start recording inbound audio to a file.
+#[tauri::command]
+fn start_recording(
+    state: tauri::State<'_, AppState>,
+    directory: String,
+    filename: String,
+    format: state::RecordingFormat,
+) -> Result<String, String> {
+    state.start_recording(directory, filename, format)
+}
+
+/// Stop the current audio recording.
+#[tauri::command]
+fn stop_recording(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    state.stop_recording()
+}
+
+/// Get the current recording state.
+#[tauri::command]
+fn get_recording_state(state: tauri::State<'_, AppState>) -> state::RecordingState {
+    state.recording_state()
 }
 
 /// Set the user comment on the connected server (`FancyMumble` profile + bio).
@@ -1669,6 +1698,7 @@ pub fn run() {
             get_audio_settings,
             set_audio_settings,
             get_voice_state,
+            set_user_volume,
             enable_voice,
             disable_voice,
             toggle_mute,
@@ -1678,6 +1708,9 @@ pub fn run() {
             calibrate_voice_threshold,
             start_latency_test,
             stop_latency_test,
+            start_recording,
+            stop_recording,
+            get_recording_state,
             set_user_comment,
             set_user_texture,
             get_own_session,

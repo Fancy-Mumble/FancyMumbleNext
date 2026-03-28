@@ -184,3 +184,22 @@
 .lightboxClose:hover {
   background: rgba(255, 255, 255, 0.3);
 }
+
+.lightboxCaption {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  justify-content: center;
+  padding-top: 8px;
+}
+
+.lightboxSender {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.lightboxTime {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}

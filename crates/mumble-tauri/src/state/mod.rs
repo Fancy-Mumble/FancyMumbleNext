@@ -19,10 +19,12 @@ mod handler;
 pub(crate) mod hash_names;
 pub mod offload;
 pub(crate) mod pchat;
+mod recording;
 mod search;
 pub mod types;
 
 // Re-export everything that lib.rs needs.
+pub use recording::{RecordingFormat, RecordingState};
 pub use types::{
     AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus, DebugStats,
     GroupChat, PhotoEntry, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
@@ -38,7 +40,7 @@ use tracing::info;
 
 use offload::OffloadStore;
 
-use mumble_protocol::audio::mixer::AudioMixer;
+use mumble_protocol::audio::mixer::{AudioMixer, SpeakerVolumes};
 use mumble_protocol::client::ClientHandle;
 use mumble_protocol::command;
 use mumble_protocol::persistent::PersistenceMode;
@@ -137,10 +139,15 @@ pub(super) struct SharedState {
     pub input_volume_handle: Option<Arc<AtomicU32>>,
     /// Live output volume multiplier (f32 stored as u32 bits).
     pub output_volume_handle: Option<Arc<AtomicU32>>,
+    /// Per-speaker volume overrides (0.0-2.0). Shared with the playback
+    /// callback so per-user volume changes take effect immediately.
+    pub speaker_volumes: SpeakerVolumes,
     /// Handle to the background mic-test task (emits amplitude events).
     pub mic_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
     /// Handle to the background latency-test task (sends periodic pings).
     pub latency_test_handle: Option<tauri::async_runtime::JoinHandle<()>>,
+    /// Handle to the background audio recording task.
+    pub recording_handle: Option<recording::RecordingHandle>,
     /// Persistent encrypted chat state (identity, key manager, codec).
     /// Initialised on connect when a cert hash is available.
     pub pchat: Option<pchat::PchatState>,

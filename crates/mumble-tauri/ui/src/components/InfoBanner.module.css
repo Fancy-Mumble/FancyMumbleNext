@@ -114,6 +114,16 @@
   opacity: 0.7;
 }
 
+/* --- Variant: glass (frosted glass overlay) -------------------- */
+
+.glass {
+  background: rgba(12, 18, 30, 0.72);
+  border-color: rgba(42, 171, 238, 0.28);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
 /* --- Variant: danger -------------------------------------------- */
 
 .danger {

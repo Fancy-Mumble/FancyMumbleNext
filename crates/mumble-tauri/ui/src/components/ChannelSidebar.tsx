@@ -28,9 +28,15 @@ import SettingsIcon from "../assets/icons/general/settings.svg?react";
 import ShieldIcon from "../assets/icons/status/shield.svg?react";
 import LogoutIcon from "../assets/icons/action/logout.svg?react";
 import EditIcon from "../assets/icons/action/edit.svg?react";
+import { isMobilePlatform } from "../utils/platform";
+import { loadPersonalization } from "../personalizationStorage";
+import type { ChannelViewerStyle } from "../personalizationStorage";
+import ModernChannelList from "./ModernChannelList";
 import TrashIcon from "../assets/icons/action/trash.svg?react";
 import PhoneIcon from "../assets/icons/communication/phone.svg?react";
 import PhoneOffIcon from "../assets/icons/communication/phone-off.svg?react";
+import RecordIcon from "../assets/icons/audio/record.svg?react";
+import RecordingModal from "./RecordingModal";
 
 /** Mumble permission bitmask: Listen to channel (bit 11). */
 const PERM_LISTEN = 0x800;
@@ -402,10 +408,23 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
   const selectUser = useAppStore((s) => s.selectUser);
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
 
+  const [channelViewerStyle, setChannelViewerStyle] = useState<ChannelViewerStyle>("modern");
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Developer mode: show recording button.
+  const [devMode, setDevMode] = useState(false);
+  const [showRecordingModal, setShowRecordingModal] = useState(false);
+  useEffect(() => {
+    getPreferences().then((prefs) => setDevMode(prefs.userMode === "developer"));
+  }, []);
+
+  // Load channel viewer style preference.
+  useEffect(() => {
+    loadPersonalization().then((p) => setChannelViewerStyle(p.channelViewerStyle ?? "modern"));
+  }, []);
 
   // -- Channel editor dialog state --------------------------------
   const [channelEditor, setChannelEditor] = useState<{
@@ -729,8 +748,8 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
         />
       ) : (<>
 
-      {/* Sticky current channel */}
-      {currentChannelEntry && (
+      {/* Sticky current channel (hidden in modern view) */}
+      {channelViewerStyle !== "modern" && currentChannelEntry && (
         <div className={styles.stickyCurrentChannel}>
           {renderChannelItem(currentChannelEntry, false, true)}
         </div>
@@ -755,7 +774,24 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
       {/* Channel list */}
       <div className={`${styles.channelList} ${channelsOpen ? "" : styles.sectionCollapsed}`}>
 
-        {channelsOpen && (<>
+        {channelsOpen && channelViewerStyle === "modern" && (
+          <ModernChannelList
+            channels={channels}
+            users={users}
+            selectedChannel={selectedChannel}
+            currentChannel={currentChannel}
+            listenedChannels={listenedChannels}
+            unreadCounts={unreadCounts}
+            talkingSessions={talkingSessions}
+            onSelectChannel={(id) => { selectChannel(id); onChannelSelect?.(); }}
+            onJoinChannel={(id) => { joinChannel(id); selectChannel(id); onChannelSelect?.(); }}
+            onContextMenu={openCtxMenu}
+            onUserContextMenu={openUserCtxMenu}
+            onUserClick={(session) => { selectDmUser(session); onChannelSelect?.(); }}
+          />
+        )}
+
+        {channelsOpen && channelViewerStyle !== "modern" && (<>
         {/* Root channel */}
         {root && root.id !== currentChannel && renderChannelItem(root)}
 
@@ -832,6 +868,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
         </>)}
       </div>
 
+      {!isMobilePlatform() && <>
       <div className={styles.divider} />
 
       {/* Group chats */}
@@ -897,6 +934,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
           })}
         </div>}
       </div>
+      </>}
 
       <div className={styles.divider} />
 
@@ -998,6 +1036,16 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
               aria-label="Admin panel"
             >
               <ShieldIcon width={18} height={18} />
+            </button>
+          )}
+          {devMode && voiceState !== "inactive" && (
+            <button
+              className={`${styles.settingsBtn} ${showRecordingModal ? styles.activeBtn : ""}`}
+              onClick={() => setShowRecordingModal(true)}
+              title="Record audio"
+              aria-label="Record audio"
+            >
+              <RecordIcon width={18} height={18} />
             </button>
           )}
           <button
@@ -1166,6 +1214,11 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
           </div>
         </div>,
         document.body,
+      )}
+
+      {/* Recording modal (developer mode) */}
+      {showRecordingModal && (
+        <RecordingModal onClose={() => setShowRecordingModal(false)} />
       )}
     </aside>
   );

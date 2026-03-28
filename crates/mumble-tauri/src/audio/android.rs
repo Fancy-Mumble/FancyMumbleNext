@@ -37,12 +37,13 @@ impl AudioInputCallback for CaptureCallback {
     ) -> DataCallbackResult {
         if let Ok(mut buf) = self.buffer.lock() {
             buf.extend(frames.iter().copied());
-            // Cap at ~2 seconds to prevent unbounded growth.
-            if buf.len() > 96_000 {
+            // Cap at ~200 ms (9 600 samples at 48 kHz) to avoid
+            // accumulating stale audio when the encoding loop is
+            // throttled (e.g. app backgrounded on Android).
+            if buf.len() > 9_600 {
                 warn!("oboe capture buffer overflow, discarding oldest samples");
-                while buf.len() > 96_000 {
-                    let _ = buf.pop_front();
-                }
+                let excess = buf.len() - 9_600;
+                let _ = buf.drain(..excess);
             }
         }
         DataCallbackResult::Continue
@@ -84,7 +85,7 @@ impl OboeCapture {
             format: AudioFormat::MONO_48KHZ_F32,
             frame_size,
             sequence: 0,
-            buffer: Arc::new(Mutex::new(VecDeque::with_capacity(96_000))),
+            buffer: Arc::new(Mutex::new(VecDeque::with_capacity(9_600))),
             stream: None,
             volume,
         })
@@ -104,6 +105,22 @@ impl AudioCapture for OboeCapture {
 
         if buf.len() < self.frame_size {
             return Err(Error::NotEnoughSamples);
+        }
+
+        // If the buffer has accumulated significantly more than one
+        // frame, the encoding loop fell behind (e.g. app
+        // backgrounded).  Skip old audio to avoid sending stale
+        // voice packets that cause the chipmunk effect.
+        let max_queued = self.frame_size * 5; // ~100 ms at 48 kHz
+        if buf.len() > max_queued {
+            let excess = buf.len() - self.frame_size;
+            warn!(
+                "capture buffer overflow: {} samples ({:.0} ms), dropping {} stale samples",
+                buf.len(),
+                buf.len() as f32 / 48.0,
+                excess,
+            );
+            let _ = buf.drain(..excess);
         }
 
         let vol = f32::from_bits(self.volume.load(Ordering::Relaxed));
@@ -176,6 +193,7 @@ impl super::AudioDeviceFactory for OboeAudioFactory {
         _device_name: Option<&str>,
         volume: Arc<AtomicU32>,
         buffers: mumble_protocol::audio::mixer::SpeakerBuffers,
+        _speaker_volumes: mumble_protocol::audio::mixer::SpeakerVolumes,
     ) -> std::result::Result<Box<dyn super::MixingPlayback>, String> {
         OboeMixingPlayback::new(volume, buffers)
             .map(|c| Box::new(c) as _)

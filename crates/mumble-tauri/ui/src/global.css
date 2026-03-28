@@ -136,6 +136,12 @@ a {
     --sidebar-width: 100%;
   }
 
+  /* Prevent Android WebView from initiating native drag-and-drop
+     (DropDataProvider is not registered, causing a crash). */
+  * {
+    -webkit-user-drag: none;
+  }
+
   /* On small screens, hide the custom scrollbar in favour of native
      mobile momentum scrolling. */
   ::-webkit-scrollbar {

@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 
 /**
  * Foreground service that keeps the app process alive while connected
@@ -22,6 +23,8 @@ import android.os.IBinder
  * which server the user is connected to.
  */
 class ConnectionService : Service() {
+
+    private var wakeLock: PowerManager.WakeLock? = null
 
     companion object {
         private const val CHANNEL_ID = "connection"
@@ -65,6 +68,27 @@ class ConnectionService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        acquireWakeLock()
+    }
+
+    override fun onDestroy() {
+        releaseWakeLock()
+        super.onDestroy()
+    }
+
+    private fun acquireWakeLock() {
+        val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+        wakeLock = pm.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "FancyMumble::ConnectionService"
+        ).apply { acquire() }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let {
+            if (it.isHeld) it.release()
+        }
+        wakeLock = null
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -82,6 +106,7 @@ class ConnectionService : Service() {
                 NOTIFICATION_ID,
                 notification,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
+                    or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             )
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(

@@ -15,6 +15,7 @@ interface ChatComposerProps {
   readonly onFileSelected: (file: File) => Promise<void>;
   readonly onGifSelect: (url: string, alt: string) => Promise<void>;
   readonly disabled?: boolean;
+  readonly hasPendingQuotes?: boolean;
 }
 
 export default function ChatComposer({
@@ -25,6 +26,7 @@ export default function ChatComposer({
   onFileSelected,
   onGifSelect,
   disabled = false,
+  hasPendingQuotes = false,
 }: ChatComposerProps) {
   const [showGifPicker, setShowGifPicker] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -94,7 +96,7 @@ export default function ChatComposer({
         <button
           className={styles.sendBtn}
           onClick={onSend}
-          disabled={!draft.trim() || disabled}
+          disabled={(!draft.trim() && !hasPendingQuotes) || disabled}
         >
           <SendIcon width={20} height={20} />
         </button>

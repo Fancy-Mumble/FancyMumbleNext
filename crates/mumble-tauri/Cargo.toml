@@ -33,6 +33,8 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 quick-xml = { version = "0.39.2", features = ["serialize"] }
 tauri-plugin-notification = "2.3.3"
 tauri-plugin-dialog = "2"
+hound = "3.5"
+chrono = "0.4"
 
 # Desktop-only dependencies (cpal, global shortcuts, and Opus are not available on Android).
 [target.'cfg(not(target_os = "android"))'.dependencies]

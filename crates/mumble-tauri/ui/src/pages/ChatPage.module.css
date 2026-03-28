@@ -36,6 +36,12 @@
     z-index: 200;
     transform: translateX(-100%);
     transition: transform 0.25s ease;
+    /* Apply the frosted-glass blur here instead of on the inner
+       .sidebar, because `transform` creates a new stacking context
+       that prevents backdrop-filter on descendants from blurring the
+       page content behind the drawer. */
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
   }
 
   .sidebarContainer.sidebarOpen {

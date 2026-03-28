@@ -15,7 +15,7 @@ use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use mumble_protocol::audio::capture::AudioCapture;
-use mumble_protocol::audio::mixer::SpeakerBuffers;
+use mumble_protocol::audio::mixer::{SpeakerBuffers, SpeakerVolumes};
 use mumble_protocol::error::Result;
 
 #[cfg(not(target_os = "android"))]
@@ -46,6 +46,7 @@ pub trait AudioDeviceFactory {
         device_name: Option<&str>,
         volume: Arc<AtomicU32>,
         buffers: SpeakerBuffers,
+        speaker_volumes: SpeakerVolumes,
     ) -> std::result::Result<Box<dyn MixingPlayback>, String>;
 }
 

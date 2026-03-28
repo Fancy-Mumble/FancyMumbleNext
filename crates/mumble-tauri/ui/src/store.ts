@@ -36,7 +36,26 @@ import type {
 import type { PollPayload, PollVotePayload } from "./components/PollCreator";
 import { registerPoll, registerVote } from "./components/PollCard";
 import { offloadManager } from "./messageOffload";
-import { getSilencedChannels, setSilencedChannel } from "./preferencesStorage";
+import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume } from "./preferencesStorage";
+
+/** Sessions that have already had their stored volume applied this connection. */
+const volumeAppliedSessions = new Set<number>();
+
+/**
+ * Apply persisted per-user volumes to any users that just appeared.
+ * Skips sessions already applied this connection.
+ */
+function applyStoredVolumesToNewUsers(): void {
+  const { users, userVolumes } = useAppStore.getState();
+  for (const user of users) {
+    if (!user.hash || volumeAppliedSessions.has(user.session)) continue;
+    const vol = userVolumes[user.hash];
+    if (vol !== undefined && vol !== 100) {
+      invoke("set_user_volume", { session: user.session, volume: vol / 100 }).catch(() => {});
+    }
+    volumeAppliedSessions.add(user.session);
+  }
+}
 
 // --- Store shape --------------------------------------------------
 
@@ -110,6 +129,9 @@ interface AppState {
   /** Channel IDs silenced for the current server (notifications suppressed). */
   silencedChannels: Set<number>;
 
+  /** Per-user volume overrides keyed by cert hash (0-200, default 100). */
+  userVolumes: Record<string, number>;
+
   /** Set when the server rejects with WrongUserPW/WrongServerPW - prompts the UI for a password. */
   passwordRequired: boolean;
   /** True after the user has submitted a password at least once (so we can show rejection errors on retries). */
@@ -163,6 +185,9 @@ interface AppState {
   retryWithPassword: (password: string) => Promise<void>;
   /** Dismiss the password prompt without retrying. */
   dismissPasswordPrompt: () => void;
+
+  /** Set a per-user volume override by cert hash (0-200). Persists to disk. */
+  setUserVolume: (hash: string, volume: number) => void;
 
   // Silenced channels
   /** Toggle silence for a channel (local-only, persisted per server). */
@@ -238,6 +263,7 @@ const INITIAL: Pick<
   | "keyHolders"
   | "pchatKeyRevoked"
   | "silencedChannels"
+  | "userVolumes"
   | "passwordRequired"
   | "passwordAttempted"
   | "pendingConnect"
@@ -280,6 +306,7 @@ const INITIAL: Pick<
   keyHolders: {},
   pchatKeyRevoked: new Set(),
   silencedChannels: new Set(),
+  userVolumes: {},
   passwordRequired: false,
   passwordAttempted: false,
   pendingConnect: null,
@@ -487,7 +514,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   disableVoice: async () => {
     try {
       await invoke("disable_voice");
-      set({ voiceState: "inactive", inCall: false });
+      set({ voiceState: "inactive", inCall: false, talkingSessions: new Set() });
     } catch (e) {
       console.error("disable_voice error:", e);
     }
@@ -646,6 +673,21 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   isChannelSilenced: (channelId) => {
     return get().silencedChannels.has(channelId);
+  },
+
+  // -- Per-user volume overrides ----------------------------------
+
+  setUserVolume: (hash, volume) => {
+    const next = { ...get().userVolumes };
+    if (volume === 100) {
+      delete next[hash];
+    } else {
+      next[hash] = volume;
+    }
+    set({ userVolumes: next });
+    saveUserVolume(hash, volume).catch((err) =>
+      console.error("saveUserVolume failed:", err),
+    );
   },
 
   // -- Persistent chat actions ------------------------------------
@@ -906,8 +948,22 @@ export async function initEventListeners(
         silenced = new Set(ids);
       }
 
+      // Load persisted per-user volumes and reset the applied-session tracker.
+      volumeAppliedSessions.clear();
+      let storedVolumes: Record<string, number> = {};
+      try {
+        storedVolumes = await getUserVolumes();
+      } catch {
+        // Store may not be ready yet.
+      }
+
       // Navigate immediately - don't block on data fetching.
-      useAppStore.setState({ status: "connected", passwordRequired: false, silencedChannels: silenced });
+      useAppStore.setState({
+        status: "connected",
+        passwordRequired: false,
+        silencedChannels: silenced,
+        userVolumes: storedVolumes,
+      });
       navigate("/chat");
 
       // Load channels/users/messages lazily in the background.
@@ -931,6 +987,9 @@ export async function initEventListeners(
             const defaultCh = currentCh ?? channels[0].id;
             useAppStore.getState().selectChannel(defaultCh);
           }
+
+          // Apply persisted per-user volumes to backend for all current users.
+          applyStoredVolumesToNewUsers();
         });
     }),
   );
@@ -940,6 +999,7 @@ export async function initEventListeners(
     await listen<string | null>("server-disconnected", (event) => {
       // Clean up offloaded temp files.
       offloadManager.dispose().catch(() => {});
+      volumeAppliedSessions.clear();
       // Preserve error / password-prompt state that was set by connection-rejected.
       const { error: currentError, passwordRequired: pwRequired, pendingConnect: pending } = useAppStore.getState();
       // If a password prompt is already pending, keep the rejection error
@@ -957,7 +1017,10 @@ export async function initEventListeners(
     await listen("state-changed", () => {
       clearTimeout(stateChangeTimer);
       stateChangeTimer = setTimeout(() => {
-        useAppStore.getState().refreshState();
+        useAppStore
+          .getState()
+          .refreshState()
+          .then(() => applyStoredVolumesToNewUsers());
       }, 100);
     }),
   );
@@ -1079,7 +1142,11 @@ export async function initEventListeners(
 
     // Voice state changed (enable/disable voice calling).
     await listen<VoiceState>("voice-state-changed", (event) => {
-      useAppStore.setState({ voiceState: event.payload });
+      const updates: Partial<ReturnType<typeof useAppStore.getState>> = { voiceState: event.payload };
+      if (event.payload === "inactive") {
+        updates.talkingSessions = new Set();
+      }
+      useAppStore.setState(updates);
     }),
 
     // Audio transport mode changed (UDP vs TCP tunnel).

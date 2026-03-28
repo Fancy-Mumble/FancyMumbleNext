@@ -633,8 +633,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c673075a2e0e5f4a1dde27ce9dee1ea4558c7ffe648f576438a20ca1d2acc4b0"
 dependencies = [
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-link 0.2.1",
 ]
 
@@ -2695,7 +2697,7 @@ checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
 
 [[package]]
 name = "mumble-protocol"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "aes",
  "bytes",
@@ -2732,8 +2734,10 @@ version = "0.2.1"
 dependencies = [
  "base64 0.22.1",
  "cc",
+ "chrono",
  "cpal",
  "fancy-utils",
+ "hound",
  "mumble-protocol",
  "oboe",
  "prost",

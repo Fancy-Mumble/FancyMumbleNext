@@ -1,0 +1,118 @@
+/* ----------------------------------------------------------------
+   MessageActionBar - floating toolbar shown on chat-message hover
+   ---------------------------------------------------------------- */
+
+.actionBar {
+  position: absolute;
+  top: -16px;
+  right: 8px;
+  z-index: 10;
+
+  display: none;
+  align-items: center;
+  gap: 0;
+
+  background: var(--color-glass-bg, rgba(30, 33, 40, 0.92));
+  border: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
+  padding: 2px 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.32);
+  pointer-events: auto;
+}
+
+/* Keep bar visible while the bar itself is hovered (complements the
+   wrapper:hover rule in ChatView.module.css). */
+.actionBar:hover {
+  display: flex;
+}
+
+/* --- Own (right-aligned) messages: flip to left side --- */
+.actionBarOwn {
+  right: auto;
+  left: 8px;
+}
+
+/* --- Buttons (emoji reactions + actions) --- */
+.actionBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.65));
+  transition: background 0.12s, transform 0.12s;
+}
+
+.actionBtn:hover {
+  background: var(--color-glass-hover, rgba(255, 255, 255, 0.1));
+  transform: scale(1.15);
+}
+
+.actionBtn:active {
+  transform: scale(0.95);
+}
+
+/* --- Vertical separator --- */
+.separator {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--color-glass-border, rgba(255, 255, 255, 0.12));
+  flex-shrink: 0;
+}
+
+/* --- Kebab dropdown --- */
+.kebabMenu {
+  position: relative;
+}
+
+.kebabDropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 160px;
+  background: var(--color-glass-bg, rgba(30, 33, 40, 0.96));
+  border: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 20;
+}
+
+.kebabBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+}
+
+.kebabItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary, #ddd);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.kebabItem:hover {
+  background: var(--color-glass-hover, rgba(255, 255, 255, 0.08));
+}
+
+.kebabItemIcon {
+  display: flex;
+  align-items: center;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.5));
+}
