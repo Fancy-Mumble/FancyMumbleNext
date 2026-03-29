@@ -195,6 +195,8 @@ impl LocalMessageCache {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
+
     use super::*;
     use tempfile::TempDir;
 
