@@ -376,6 +376,7 @@ enum PchatProtocol {
 	PCHAT_PROTOCOL_FANCY_V1_POST_JOIN = 1;
 	PCHAT_PROTOCOL_FANCY_V1_FULL_ARCHIVE = 2;
 	PCHAT_PROTOCOL_SERVER_MANAGED = 3;
+	PCHAT_PROTOCOL_SIGNAL_V1 = 4;
 }
 
 // Ack status for PchatAck.
@@ -475,6 +476,8 @@ message PchatAck {
 	repeated string message_ids = 1;
 	optional PchatAckStatus status = 2;
 	optional string reason = 3;
+	// Channel ID for scoped acks (e.g. offline queue acknowledgement).
+	optional uint32 channel_id = 4;
 }
 
 // Key custodian countersignature on an epoch transition.
@@ -591,4 +594,21 @@ message PchatDeleteMessages {
 	optional TimeRange time_range = 3;
 	// User delete: remove all messages from this sender cert hash.
 	optional string sender_hash = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Offline message queue (Fancy Mumble extension, IDs 116-117)
+// ---------------------------------------------------------------------------
+
+// Server delivers queued offline messages to a client that has reconnected
+// and passed the key-possession challenge for a SignalV1 channel.
+// Encrypted envelopes are delivered in timestamp order.
+// The client acknowledges receipt via PchatAck (which already supports
+// multiple message IDs). The server permanently deletes acknowledged
+// entries from the queue.
+// Wire type ID = 116.
+message PchatOfflineQueueDrain {
+	optional uint32 channel_id = 1;
+	// Queued messages, each as a PchatMessageDeliver.
+	repeated PchatMessageDeliver messages = 2;
 }

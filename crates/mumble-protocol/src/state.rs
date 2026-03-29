@@ -27,6 +27,9 @@ pub enum PchatProtocol {
     FancyV1FullArchive,
     /// Server stores messages (no client-side key management).
     ServerManaged,
+    /// Signal Protocol E2EE (Double Ratchet / Sender Keys via libsignal).
+    /// Post-join visibility with per-sender forward secrecy.
+    SignalV1,
 }
 
 impl PchatProtocol {
@@ -37,6 +40,7 @@ impl PchatProtocol {
             1 => Self::FancyV1PostJoin,
             2 => Self::FancyV1FullArchive,
             3 => Self::ServerManaged,
+            4 => Self::SignalV1,
             _ => Self::None,
         }
     }
@@ -49,13 +53,14 @@ impl PchatProtocol {
             Self::FancyV1PostJoin => 1,
             Self::FancyV1FullArchive => 2,
             Self::ServerManaged => 3,
+            Self::SignalV1 => 4,
         }
     }
 
     /// Whether this protocol uses post-join epoch key semantics.
     #[must_use]
     pub fn is_post_join(&self) -> bool {
-        matches!(self, Self::FancyV1PostJoin)
+        matches!(self, Self::FancyV1PostJoin | Self::SignalV1)
     }
 
     /// Whether this protocol uses full-archive shared key semantics.
@@ -67,7 +72,10 @@ impl PchatProtocol {
     /// Whether this protocol uses client-side E2E encryption.
     #[must_use]
     pub fn is_encrypted(&self) -> bool {
-        matches!(self, Self::FancyV1PostJoin | Self::FancyV1FullArchive)
+        matches!(
+            self,
+            Self::FancyV1PostJoin | Self::FancyV1FullArchive | Self::SignalV1
+        )
     }
 
     /// The E2EE algorithm version byte, or `None` if the protocol
@@ -76,6 +84,7 @@ impl PchatProtocol {
     pub fn protocol_version(&self) -> Option<u8> {
         match self {
             Self::FancyV1PostJoin | Self::FancyV1FullArchive => Some(1),
+            Self::SignalV1 => Some(2),
             _ => None,
         }
     }
@@ -88,6 +97,7 @@ impl fmt::Display for PchatProtocol {
             Self::FancyV1PostJoin => write!(f, "FancyV1PostJoin"),
             Self::FancyV1FullArchive => write!(f, "FancyV1FullArchive"),
             Self::ServerManaged => write!(f, "ServerManaged"),
+            Self::SignalV1 => write!(f, "SignalV1"),
         }
     }
 }
@@ -604,5 +614,46 @@ mod tests {
         let user = &state.users[&1];
         assert_eq!(user.comment, "I'm a bot");
         assert_eq!(user.hash, "abc123");
+    }
+
+    #[test]
+    fn signal_v1_protocol_roundtrip() {
+        let proto_val = PchatProtocol::SignalV1.to_proto();
+        assert_eq!(proto_val, 4);
+        assert_eq!(PchatProtocol::from_proto(proto_val), PchatProtocol::SignalV1);
+    }
+
+    #[test]
+    fn signal_v1_is_post_join_and_encrypted() {
+        let p = PchatProtocol::SignalV1;
+        assert!(p.is_post_join(), "SignalV1 should be post-join");
+        assert!(p.is_encrypted(), "SignalV1 should be encrypted");
+    }
+
+    #[test]
+    fn signal_v1_generation_version() {
+        assert_eq!(PchatProtocol::SignalV1.protocol_version(), Some(2));
+    }
+
+    #[test]
+    fn signal_v1_display() {
+        assert_eq!(format!("{}", PchatProtocol::SignalV1), "SignalV1");
+    }
+
+    #[test]
+    fn channel_state_with_signal_v1_protocol() {
+        let mut state = ServerState::new();
+        state.apply_channel_state(&mumble_tcp::ChannelState {
+            channel_id: Some(10),
+            name: Some("Encrypted".into()),
+            pchat_protocol: Some(PchatProtocol::SignalV1.to_proto()),
+            pchat_max_history: Some(500),
+            pchat_retention_days: Some(30),
+            ..Default::default()
+        });
+        let ch = &state.channels[&10];
+        assert_eq!(ch.pchat_protocol, Some(PchatProtocol::SignalV1));
+        assert_eq!(ch.pchat_max_history, Some(500));
+        assert_eq!(ch.pchat_retention_days, Some(30));
     }
 }

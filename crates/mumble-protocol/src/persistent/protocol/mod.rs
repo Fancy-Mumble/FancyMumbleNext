@@ -10,6 +10,7 @@
 //! | Version | Module | Description |
 //! |---------|--------|-------------|
 //! | 1 | [`fancy_v1`] | XChaCha20-Poly1305 + HKDF-SHA256, X25519/Ed25519 identity |
+//! | 2 | [`signal_v1`] | Signal Sender Keys via dynamic library (AGPL-isolated) |
 //!
 //! # Adding a new protocol
 //!
@@ -22,6 +23,7 @@ use crate::persistent::wire;
 use crate::persistent::PchatProtocol;
 
 pub mod fancy_v1;
+pub mod signal_v1;
 
 // ---- Parameter structs ----------------------------------------------
 
@@ -242,5 +244,5 @@ pub struct EncryptionContext {
 /// List all supported protocol version numbers.
 #[must_use]
 pub fn supported_versions() -> &'static [u8] {
-    &[1]
+    &[1, 2]
 }

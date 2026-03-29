@@ -1,0 +1,39 @@
+# =========================================================================
+# signal-bridge: Dynamic Library Bridge for Signal Protocol E2EE
+# =========================================================================
+#
+# IMPORTANT: This crate is **NOT** part of the FancyMumble workspace.
+# It is built separately as a cdylib (shared library) because it links
+# against libsignal-protocol which is AGPL-3.0 licensed.
+#
+# Building as a dynamic library loaded at runtime via libloading keeps
+# the AGPL boundary clear: only this .dll/.so/.dylib is AGPL; the rest
+# of the MIT-licensed codebase remains unaffected.
+#
+# Build:
+#   cd crates/signal-bridge
+#   cargo build --release
+#
+# Output: target/release/signal_bridge.{dll,so,dylib}
+# =========================================================================
+
+[package]
+name = "signal-bridge"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+description = "Dynamic library bridge wrapping libsignal-protocol Sender Keys for Fancy Mumble E2EE"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+libsignal-protocol = { git = "https://github.com/signalapp/libsignal", tag = "v0.90.0" }
+uuid = { version = "1", features = ["v5"] }
+rand = "0.9"
+tokio = { version = "1", features = ["rt"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+async-trait = "0.1"

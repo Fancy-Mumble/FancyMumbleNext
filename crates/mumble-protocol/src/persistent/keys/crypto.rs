@@ -69,6 +69,21 @@ impl KeyManager {
                     epoch_fingerprint: fp,
                 })
             }
+            PchatProtocol::SignalV1 => {
+                let bridge = self
+                    .signal_bridge
+                    .as_ref()
+                    .ok_or_else(|| Error::InvalidState("signal bridge not loaded".into()))?;
+
+                let ciphertext = bridge.group_encrypt(channel_id, plaintext)?;
+
+                Ok(EncryptedPayload {
+                    ciphertext,
+                    epoch: None,
+                    chain_index: None,
+                    epoch_fingerprint: [0u8; 8],
+                })
+            }
             _ => Err(Error::InvalidState(format!(
                 "cannot encrypt for protocol {protocol:?}"
             ))),
@@ -123,6 +138,24 @@ impl KeyManager {
                 "cannot decrypt for protocol {protocol:?}"
             ))),
         }
+    }
+
+    /// Decrypt a `SignalV1` message from a specific sender.
+    ///
+    /// `SignalV1` uses per-sender keys (Sender Key groups) so the
+    /// sender's cert hash is required for decryption.
+    pub fn decrypt_signal(
+        &self,
+        sender_hash: &str,
+        channel_id: u32,
+        ciphertext: &[u8],
+    ) -> Result<Vec<u8>> {
+        let bridge = self
+            .signal_bridge
+            .as_ref()
+            .ok_or_else(|| Error::InvalidState("signal bridge not loaded".into()))?;
+
+        bridge.group_decrypt(sender_hash, channel_id, ciphertext)
     }
 }
 

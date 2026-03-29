@@ -15,9 +15,10 @@ pub mod types;
 pub use crate::persistent::protocol::fancy_v1::identity;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use crate::persistent::encryption::{CryptoSuite, XChaCha20Suite};
+use crate::persistent::protocol::signal_v1::SignalBridge;
 use crate::persistent::{KeyTrustLevel, PchatProtocol};
 
 // Re-export public items for external consumers.
@@ -68,6 +69,9 @@ pub struct KeyManager {
 
     /// Set of cert hashes that have known keys for each channel.
     pub(super) key_holders: HashMap<u32, HashSet<String>>,
+
+    /// Optional Signal bridge for `SignalV1` encryption/decryption.
+    signal_bridge: Option<Arc<SignalBridge>>,
 }
 
 impl std::fmt::Debug for KeyManager {
@@ -117,6 +121,7 @@ impl KeyManager {
             pinned_custodians: HashMap::new(),
             pending_epoch_candidates: HashMap::new(),
             key_holders: HashMap::new(),
+            signal_bridge: None,
         }
     }
 }
@@ -134,6 +139,11 @@ impl KeyManager {
         match protocol {
             PchatProtocol::FancyV1PostJoin => self.epoch_keys.contains_key(&channel_id),
             PchatProtocol::FancyV1FullArchive => self.archive_keys.contains_key(&channel_id),
+            PchatProtocol::SignalV1 => {
+                // SignalV1 keys live in the bridge; we have a key once
+                // we have created our own distribution for this channel.
+                self.signal_bridge.is_some()
+            }
             _ => false,
         }
     }
@@ -183,6 +193,19 @@ impl KeyManager {
         let _ = self.channel_originators.remove(&channel_id);
         let _ = self.pinned_custodians.remove(&channel_id);
         let _ = self.key_holders.remove(&channel_id);
+        if let Some(ref bridge) = self.signal_bridge {
+            let _ = bridge.remove_channel(channel_id);
+        }
+    }
+
+    /// Set the Signal bridge for `SignalV1` operations.
+    pub fn set_signal_bridge(&mut self, bridge: Arc<SignalBridge>) {
+        self.signal_bridge = Some(bridge);
+    }
+
+    /// Get a reference to the Signal bridge (if loaded).
+    pub fn signal_bridge(&self) -> Option<&SignalBridge> {
+        self.signal_bridge.as_deref()
     }
 
     /// Compute `HMAC-SHA256(channel_key, challenge)` to prove possession of

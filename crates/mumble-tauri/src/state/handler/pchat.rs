@@ -212,3 +212,13 @@ impl HandleMessage for mumble_tcp::PchatDeleteMessages {
         ctx.emit("new-message", NewMessagePayload { channel_id });
     }
 }
+
+impl HandleMessage for mumble_tcp::PchatOfflineQueueDrain {
+    fn handle(&self, ctx: &HandlerContext) {
+        debug!("received PchatOfflineQueueDrain");
+        let channel_id = self.channel_id.unwrap_or(0);
+        pchat::handle_proto_offline_queue_drain(&ctx.shared, self);
+        ctx.emit("new-message", NewMessagePayload { channel_id });
+        ctx.emit_empty("state-changed");
+    }
+}

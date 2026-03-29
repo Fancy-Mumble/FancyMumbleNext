@@ -932,6 +932,9 @@ export async function initEventListeners(
     await invoke("set_notifications_enabled", {
       enabled: prefs.enableNotifications ?? true,
     });
+    await invoke("set_disable_dual_path", {
+      disabled: prefs.disableDualPath ?? false,
+    });
   } catch {
     // Preference store may not be ready yet - backend defaults to enabled.
   }

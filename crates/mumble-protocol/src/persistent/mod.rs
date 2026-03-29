@@ -36,6 +36,8 @@ pub const DATA_ID_KEY_REQUEST: &str = "fancy-pchat-key-request";
 pub const DATA_ID_EPOCH_COUNTERSIG: &str = "fancy-pchat-epoch-countersig";
 /// `dataID` for server storage acknowledgement.
 pub const DATA_ID_ACK: &str = "fancy-pchat-ack";
+/// `dataID` for Signal sender key distribution message.
+pub const DATA_ID_SIGNAL_SENDER_KEY: &str = "fancy-pchat-signal-sender-key";
 
 // ---- Core domain types ----------------------------------------------
 
@@ -54,6 +56,7 @@ impl PchatProtocol {
             Self::FancyV1PostJoin => "FANCY_V1_POST_JOIN",
             Self::FancyV1FullArchive => "FANCY_V1_FULL_ARCHIVE",
             Self::ServerManaged => "SERVER_MANAGED",
+            Self::SignalV1 => "SIGNAL_V1",
         }
     }
 
@@ -69,6 +72,7 @@ impl PchatProtocol {
             "FANCY_V1_POST_JOIN" | "POST_JOIN" => Self::FancyV1PostJoin,
             "FANCY_V1_FULL_ARCHIVE" | "FULL_ARCHIVE" => Self::FancyV1FullArchive,
             "SERVER_MANAGED" => Self::ServerManaged,
+            "SIGNAL_V1" => Self::SignalV1,
             _ => Self::None,
         }
     }
@@ -145,6 +149,7 @@ mod tests {
             PchatProtocol::FancyV1PostJoin,
             PchatProtocol::FancyV1FullArchive,
             PchatProtocol::ServerManaged,
+            PchatProtocol::SignalV1,
         ] {
             assert_eq!(PchatProtocol::from_proto(protocol.to_proto()), protocol);
         }
@@ -157,6 +162,7 @@ mod tests {
             PchatProtocol::FancyV1PostJoin,
             PchatProtocol::FancyV1FullArchive,
             PchatProtocol::ServerManaged,
+            PchatProtocol::SignalV1,
         ] {
             assert_eq!(PchatProtocol::from_wire_str(protocol.as_wire_str()), protocol);
         }
@@ -168,6 +174,7 @@ mod tests {
         assert!(PchatProtocol::FancyV1PostJoin.is_encrypted());
         assert!(PchatProtocol::FancyV1FullArchive.is_encrypted());
         assert!(!PchatProtocol::ServerManaged.is_encrypted());
+        assert!(PchatProtocol::SignalV1.is_encrypted());
     }
 
     #[test]
@@ -186,5 +193,6 @@ mod tests {
         assert_eq!(PchatProtocol::FancyV1PostJoin.protocol_version(), Some(1));
         assert_eq!(PchatProtocol::FancyV1FullArchive.protocol_version(), Some(1));
         assert_eq!(PchatProtocol::ServerManaged.protocol_version(), None);
+        assert_eq!(PchatProtocol::SignalV1.protocol_version(), Some(2));
     }
 }

@@ -13,11 +13,13 @@ export function AdvancedPanel({
   userMode,
   klipyApiKey,
   enableNotifications,
+  disableDualPath,
   timeFormat,
   convertToLocalTime,
   onToggleMode,
   onKlipyApiKeyChange,
   onToggleNotifications,
+  onToggleDualPath,
   onTimeFormatChange,
   onConvertToLocalTimeChange,
   onToggleDeveloperMode,
@@ -26,11 +28,13 @@ export function AdvancedPanel({
   userMode: UserMode;
   klipyApiKey: string;
   enableNotifications: boolean;
+  disableDualPath: boolean;
   timeFormat: TimeFormat;
   convertToLocalTime: boolean;
   onToggleMode: () => void;
   onKlipyApiKeyChange: (key: string) => void;
   onToggleNotifications: () => void;
+  onToggleDualPath: () => void;
   onTimeFormatChange: (fmt: TimeFormat) => void;
   onConvertToLocalTimeChange: () => void;
   onToggleDeveloperMode: () => void;
@@ -114,6 +118,23 @@ export function AdvancedPanel({
             checked={enableNotifications}
             onChange={onToggleNotifications}
           />
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.toggleRow}>
+          <div className={styles.toggleInfo}>
+            <h3 className={styles.sectionTitle}>
+              Disable dual-path sending
+            </h3>
+            <p className={styles.fieldHint}>
+              When enabled, encrypted channels replace the plain-text message
+              with a placeholder so the server never sees the real content.
+              Legacy clients without E2EE support will only see
+              &quot;[Encrypted message]&quot;.
+            </p>
+          </div>
+          <Toggle checked={disableDualPath} onChange={onToggleDualPath} />
         </div>
       </section>
 

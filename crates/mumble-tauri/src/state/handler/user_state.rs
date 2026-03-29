@@ -119,6 +119,20 @@ impl HandleMessage for mumble_tcp::UserState {
             if let Some(ch) = remote_channel_move {
                 pchat::check_key_share_for_channel(&ctx.shared, ch);
                 pchat::query_key_holders(&ctx.shared, ch);
+
+                // For SignalV1 channels, re-send our sender key distribution
+                // to the channel so the new peer can decrypt our messages.
+                let is_signal_v1 = ctx
+                    .shared
+                    .lock()
+                    .ok()
+                    .and_then(|s| {
+                        s.channels.get(&ch).and_then(|c| c.pchat_protocol)
+                    })
+                    == Some(PchatProtocol::SignalV1);
+                if is_signal_v1 {
+                    pchat::send_signal_distribution(&ctx.shared, ch);
+                }
             }
         }
 
@@ -226,6 +240,18 @@ impl HandleMessage for mumble_tcp::UserState {
                                 }
                                 pchat::send_key_holder_report_async(&shared, ch).await;
                             }
+
+                            // For SignalV1, load the bridge and create our sender
+                            // key distribution immediately.
+                            if mode == Some(PchatProtocol::SignalV1) {
+                                if let Ok(mut s) = shared.lock() {
+                                    if let Some(ref mut p) = s.pchat {
+                                        pchat::ensure_signal_bridge(p);
+                                    }
+                                }
+                                pchat::send_signal_distribution(&shared, ch);
+                                pchat::send_key_holder_report_async(&shared, ch).await;
+                            }
                         }
 
                         // Check if we already have a key for this channel.
@@ -302,6 +328,13 @@ impl HandleMessage for mumble_tcp::UserState {
                                             );
                                             pchat.key_manager.set_channel_originator(ch, cert.clone());
                                             info!(channel_id = ch, cert_hash = %cert, "self-generated epoch key (originator)");
+                                            None
+                                        }
+                                        Some(PchatProtocol::SignalV1) => {
+                                            // Bridge should already be loaded; this
+                                            // is a fallback path.
+                                            pchat::ensure_signal_bridge(pchat);
+                                            info!(channel_id = ch, "signal bridge ensured on join (fallback)");
                                             None
                                         }
                                         _ => None,

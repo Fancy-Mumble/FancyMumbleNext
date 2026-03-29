@@ -18,6 +18,7 @@ mod event_handler;
 mod handler;
 pub(crate) mod hash_names;
 pub mod offload;
+pub(crate) mod local_cache;
 pub(crate) mod pchat;
 #[allow(dead_code, reason = "recording module is work-in-progress")]
 mod recording;
@@ -48,11 +49,12 @@ use mumble_protocol::persistent::PchatProtocol;
 use types::*;
 
 /// Parse a frontend pchat mode string into the protobuf i32 value.
-fn parse_pchat_protocol_str(s: &str) -> PchatProtocol {
+pub(crate) fn parse_pchat_protocol_str(s: &str) -> PchatProtocol {
     match s {
-        "post_join" => PchatProtocol::FancyV1PostJoin,
-        "full_archive" => PchatProtocol::FancyV1FullArchive,
+        "fancy_v1_post_join" => PchatProtocol::FancyV1PostJoin,
+        "fancy_v1_full_archive" => PchatProtocol::FancyV1FullArchive,
         "server_managed" => PchatProtocol::ServerManaged,
+        "signal_v1" => PchatProtocol::SignalV1,
         _ => PchatProtocol::None,
     }
 }
@@ -182,6 +184,9 @@ pub(super) struct SharedState {
     pub talking_sessions: HashSet<u32>,
     /// Whether native OS notifications are enabled (user preference).
     pub notifications_enabled: bool,
+    /// When true, encrypted channels replace the plain `TextMessage` body
+    /// with a placeholder so the server cannot read the content.
+    pub disable_dual_path: bool,
     /// Whether the app window is currently focused (visible and on top).
     /// When `false`, notification suppression for the selected channel is
     /// bypassed so the user still receives notifications while the app
@@ -545,13 +550,27 @@ impl AppState {
         };
         let timestamp = if is_fancy { Some(now_ms) } else { None };
 
-        // Always send the plain TextMessage (backward compat / real-time path).
+        // Send a plain TextMessage for backward compat / real-time display.
+        // When dual-path is disabled the body is replaced with a placeholder
+        // so the server never sees the plaintext content.
+        let disable_dual = pchat_protocol
+            .is_some_and(|p| p.is_encrypted())
+            && self
+                .inner
+                .lock()
+                .map(|s| s.disable_dual_path)
+                .unwrap_or(false);
+        let text_body = if disable_dual {
+            "[Encrypted message]".to_string()
+        } else {
+            body.clone()
+        };
         handle
             .send(command::SendTextMessage {
                 channel_ids: vec![channel_id],
                 user_sessions: vec![],
                 tree_ids: vec![],
-                message: body.clone(),
+                message: text_body,
                 message_id: message_id.clone(),
                 timestamp,
             })
@@ -626,6 +645,24 @@ impl AppState {
                 is_legacy: false,
             };
             msg.ensure_id();
+
+            // Cache own messages locally for SignalV1 channels.
+            if pchat_protocol.is_some_and(|p| p == PchatProtocol::SignalV1) {
+                if let Some(ref mut pchat_state) = state.pchat {
+                    if let Some(ref mut cache) = pchat_state.local_cache {
+                        cache.insert(local_cache::CachedMessage {
+                            message_id: msg.message_id.clone().unwrap_or_default(),
+                            channel_id,
+                            timestamp: msg.timestamp.unwrap_or(0),
+                            sender_hash: pchat_state.own_cert_hash.clone(),
+                            sender_name: msg.sender_name.clone(),
+                            body: msg.body.clone(),
+                            is_own: true,
+                        });
+                    }
+                }
+            }
+
             state.messages.entry(channel_id).or_default().push(msg);
         }
 

@@ -16,6 +16,7 @@ fn serialize_pchat_protocol<S: Serializer>(protocol: &Option<PchatProtocol>, s: 
             PchatProtocol::FancyV1PostJoin => "fancy_v1_post_join",
             PchatProtocol::FancyV1FullArchive => "fancy_v1_full_archive",
             PchatProtocol::ServerManaged => "server_managed",
+            PchatProtocol::SignalV1 => "signal_v1",
         }),
         _ => s.serialize_none(),
     }
@@ -832,4 +833,58 @@ pub enum VoiceState {
     Active,
     /// User is muted (mic off) but can still hear others.
     Muted,
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, reason = "test code: panicking on failure is the intended behaviour")]
+mod tests {
+    use super::*;
+
+    /// Regression test: the frontend sends `"fancy_v1_full_archive"` etc.
+    /// and the parser must accept those exact strings.
+    #[test]
+    fn parse_pchat_protocol_str_roundtrip() {
+        use super::super::parse_pchat_protocol_str;
+
+        // Every variant the UI sends must survive a serialize -> parse roundtrip.
+        let cases = [
+            (PchatProtocol::None, "none"),
+            (PchatProtocol::FancyV1PostJoin, "fancy_v1_post_join"),
+            (PchatProtocol::FancyV1FullArchive, "fancy_v1_full_archive"),
+            (PchatProtocol::ServerManaged, "server_managed"),
+            (PchatProtocol::SignalV1, "signal_v1"),
+        ];
+        for (expected, input) in cases {
+            assert_eq!(
+                parse_pchat_protocol_str(input),
+                expected,
+                "parse_pchat_protocol_str({input:?}) should return {expected:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn serialize_channel_entry_with_signal_v1() {
+        let entry = ChannelEntry {
+            id: 5,
+            parent_id: Some(0),
+            name: "Secret".into(),
+            description: String::new(),
+            description_hash: None,
+            user_count: 2,
+            permissions: None,
+            temporary: false,
+            position: 0,
+            max_users: 0,
+            pchat_protocol: Some(PchatProtocol::SignalV1),
+            pchat_max_history: Some(1000),
+            pchat_retention_days: Some(7),
+            pchat_key_custodians: Vec::new(),
+        };
+        let json = serde_json::to_string(&entry).expect("serialize");
+        assert!(
+            json.contains(r#""pchat_protocol":"signal_v1""#),
+            "expected signal_v1 in JSON: {json}",
+        );
+    }
 }

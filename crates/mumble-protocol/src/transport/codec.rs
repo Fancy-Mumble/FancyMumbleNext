@@ -103,6 +103,7 @@ fn serialize_control_message(msg: &ControlMessage) -> Result<(u16, Vec<u8>)> {
         PchatKeyChallengeResponse(m) => (TcpMessageType::PchatKeyChallengeResponse as u16, m.encode_to_vec()),
         PchatKeyChallengeResult(m) => (TcpMessageType::PchatKeyChallengeResult as u16, m.encode_to_vec()),
         PchatDeleteMessages(m) => (TcpMessageType::PchatDeleteMessages as u16, m.encode_to_vec()),
+        PchatOfflineQueueDrain(m) => (TcpMessageType::PchatOfflineQueueDrain as u16, m.encode_to_vec()),
         UdpTunnel(data) => (TcpMessageType::UdpTunnel as u16, data.clone()),
     };
 
@@ -157,6 +158,7 @@ fn deserialize_control_message(type_id: u16, payload: &[u8]) -> Result<ControlMe
         PchatKeyChallengeResponse => ControlMessage::PchatKeyChallengeResponse(mumble_tcp::PchatKeyChallengeResponse::decode(payload)?),
         PchatKeyChallengeResult => ControlMessage::PchatKeyChallengeResult(mumble_tcp::PchatKeyChallengeResult::decode(payload)?),
         PchatDeleteMessages => ControlMessage::PchatDeleteMessages(mumble_tcp::PchatDeleteMessages::decode(payload)?),
+        PchatOfflineQueueDrain => ControlMessage::PchatOfflineQueueDrain(mumble_tcp::PchatOfflineQueueDrain::decode(payload)?),
     };
     Ok(msg)
 }
@@ -748,6 +750,70 @@ mod tests {
         let encoded = encode(&msg)?;
         let type_id = u16::from_be_bytes([encoded[0], encoded[1]]);
         assert_eq!(type_id, 114, "PchatKeyChallengeResult must be wire type 114");
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_pchat_ack_with_channel_id() -> Result<()> {
+        let ack = mumble_tcp::PchatAck {
+            message_ids: vec!["msg-1".into(), "msg-2".into()],
+            status: Some(mumble_tcp::PchatAckStatus::PchatAckStored as i32),
+            reason: None,
+            channel_id: Some(42),
+        };
+        let msg = ControlMessage::PchatAck(ack);
+        let encoded = encode(&msg)?;
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::PchatAck(a) => {
+                assert_eq!(a.message_ids, vec!["msg-1", "msg-2"]);
+                assert_eq!(a.status, Some(mumble_tcp::PchatAckStatus::PchatAckStored as i32));
+                assert_eq!(a.channel_id, Some(42));
+            }
+            other => panic!("expected PchatAck, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_pchat_offline_queue_drain() -> Result<()> {
+        let drain = mumble_tcp::PchatOfflineQueueDrain {
+            channel_id: Some(7),
+            messages: vec![
+                mumble_tcp::PchatMessageDeliver {
+                    message_id: Some("offline-1".into()),
+                    channel_id: Some(7),
+                    sender_hash: Some("abc123".into()),
+                    timestamp: Some(1_700_000_000),
+                    envelope: Some(b"encrypted-payload".to_vec()),
+                    protocol: Some(mumble_tcp::PchatProtocol::SignalV1 as i32),
+                    replaces_id: None,
+                },
+            ],
+        };
+        let msg = ControlMessage::PchatOfflineQueueDrain(drain);
+        let encoded = encode(&msg)?;
+
+        // Wire type ID must be 116.
+        let type_id = u16::from_be_bytes([encoded[0], encoded[1]]);
+        assert_eq!(type_id, 116, "PchatOfflineQueueDrain must be wire type 116");
+
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::PchatOfflineQueueDrain(d) => {
+                assert_eq!(d.channel_id, Some(7));
+                assert_eq!(d.messages.len(), 1);
+                assert_eq!(d.messages[0].message_id.as_deref(), Some("offline-1"));
+                assert_eq!(d.messages[0].sender_hash.as_deref(), Some("abc123"));
+                assert_eq!(d.messages[0].timestamp, Some(1_700_000_000));
+                assert_eq!(d.messages[0].envelope.as_deref(), Some(b"encrypted-payload".as_ref()));
+            }
+            other => panic!("expected PchatOfflineQueueDrain, got {other:?}"),
+        }
         Ok(())
     }
 }

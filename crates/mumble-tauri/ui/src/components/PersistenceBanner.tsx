@@ -16,6 +16,8 @@ function modeDescription(mode: PersistenceMode): string {
       return "Messages are visible from the moment you first joined this channel.";
     case "FANCY_V1_FULL_ARCHIVE":
       return "All stored messages are visible to channel members.";
+    case "SIGNAL_V1":
+      return "Messages are end-to-end encrypted using the Signal Protocol.";
     default:
       return "";
   }

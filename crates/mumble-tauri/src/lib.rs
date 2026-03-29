@@ -1006,6 +1006,19 @@ fn set_notifications_enabled(
     Ok(())
 }
 
+/// Enable or disable dual-path sending for encrypted channels.
+///
+/// When disabled, the plain `TextMessage` body is replaced with a
+/// placeholder so the server never sees the cleartext content.
+#[tauri::command]
+fn set_disable_dual_path(
+    state: tauri::State<'_, AppState>,
+    disabled: bool,
+) -> Result<(), String> {
+    state.inner.lock().map_err(|e| e.to_string())?.disable_dual_path = disabled;
+    Ok(())
+}
+
 /// Reset all app data to factory defaults (preferences, saved servers, certs).
 #[tauri::command]
 async fn reset_app_data(app: tauri::AppHandle) -> Result<(), String> {
@@ -1697,6 +1710,7 @@ pub fn run() {
             mark_group_read,
             reset_app_data,
             set_notifications_enabled,
+            set_disable_dual_path,
             update_badge_count,
             get_system_clock_format,
             offload_message,

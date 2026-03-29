@@ -149,7 +149,7 @@ jobs:
 
   build:
     name: Build (${{ matrix.target.name }})
-    needs: test
+    needs: [test, build-signal-bridge]
     runs-on: ${{ matrix.target.os }}
     strategy:
       fail-fast: false
@@ -204,8 +204,16 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2"
 
+      - name: Download signal-bridge library
+        uses: actions/download-artifact@v4
+        with:
+          name: signal-bridge-${{ matrix.target.name }}
+          path: crates/mumble-tauri/signal-bridge
+
       - name: Build Tauri app
         working-directory: crates/mumble-tauri
+        env:
+          TAURI_CONFIG: '{"bundle":{"resources":["signal-bridge/*.dll","signal-bridge/*.so","signal-bridge/*.dylib"]}}'
         run: cargo tauri build
 
       - name: Upload build artifacts
@@ -276,6 +284,30 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2"
 
+      - name: Build signal-bridge for Android (arm64 + x86_64)
+        working-directory: crates/signal-bridge
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang
+          CC_aarch64_linux_android: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang
+          CXX_aarch64_linux_android: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang++
+          AR_aarch64_linux_android: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+          CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android34-clang
+          CC_x86_64_linux_android: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android34-clang
+          CXX_x86_64_linux_android: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android34-clang++
+          AR_x86_64_linux_android: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+        run: |
+          cargo build --release --target aarch64-linux-android
+          cargo build --release --target x86_64-linux-android
+
+      - name: Place signal-bridge .so in jniLibs
+        run: |
+          cp crates/signal-bridge/target/aarch64-linux-android/release/libsignal_bridge.so \
+             crates/mumble-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/
+          cp crates/signal-bridge/target/x86_64-linux-android/release/libsignal_bridge.so \
+             crates/mumble-tauri/gen/android/app/src/main/jniLibs/x86_64/
+
       - name: Prepare Android signing keystore
         id: android_signing
         if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' }}
@@ -319,12 +351,54 @@ jobs:
           if-no-files-found: warn
 
   # ----------------------------------------------------------------
+  # 2c. Build signal-bridge dynamic library (AGPL-isolated)
+  # ----------------------------------------------------------------
+
+  build-signal-bridge:
+    name: Signal Bridge (${{ matrix.target.name }})
+    needs: test
+    runs-on: ${{ matrix.target.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: Linux
+            os: ubuntu-latest
+            lib: libsignal_bridge.so
+          - name: Windows
+            os: windows-latest
+            lib: signal_bridge.dll
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.target.os }}-signal-bridge
+          workspaces: crates/signal-bridge
+
+      - name: Build signal-bridge (release)
+        working-directory: crates/signal-bridge
+        run: cargo build --release
+
+      - name: Upload signal-bridge artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signal-bridge-${{ matrix.target.name }}
+          path: crates/signal-bridge/target/release/${{ matrix.target.lib }}
+          if-no-files-found: error
+
+  # ----------------------------------------------------------------
   # 3. Release (only on push to main)
   # ----------------------------------------------------------------
 
   release:
     name: Release
-    needs: [build, build-android]
+    needs: [build, build-android, build-signal-bridge]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -362,3 +436,5 @@ jobs:
             artifacts/**/*.msi
             artifacts/**/*.exe
             artifacts/**/*.apk
+            artifacts/**/*.so
+            artifacts/**/*.dll

@@ -1,7 +1,7 @@
 ﻿/** Lightweight value types mirroring the Rust backend structs. */
 
 /** Persistent-chat protocol for a channel. */
-export type PchatProtocol = "none" | "fancy_v1_post_join" | "fancy_v1_full_archive" | "server_managed";
+export type PchatProtocol = "none" | "fancy_v1_post_join" | "fancy_v1_full_archive" | "server_managed" | "signal_v1";
 
 export interface ChannelEntry {
   id: number;
@@ -168,6 +168,9 @@ export interface UserPreferences {
   convertToLocalTime: boolean;
   /** Whether native OS notifications are enabled. */
   enableNotifications?: boolean;
+  /** When true, encrypted channels send a placeholder instead of the real
+   *  message body in the plain TextMessage (disabling dual-path sending). */
+  disableDualPath?: boolean;
   /** Collapsed/expanded state of sidebar sections. */
   sidebarSections?: SidebarSections;
 }
@@ -357,7 +360,7 @@ export interface FancyProfile {
 // --- Persistent Chat ----------------------------------------------
 
 /** Persistence protocol for a channel (maps to Rust PchatProtocol). */
-export type PersistenceMode = "NONE" | "FANCY_V1_POST_JOIN" | "FANCY_V1_FULL_ARCHIVE" | "SERVER_MANAGED";
+export type PersistenceMode = "NONE" | "FANCY_V1_POST_JOIN" | "FANCY_V1_FULL_ARCHIVE" | "SERVER_MANAGED" | "SIGNAL_V1";
 
 /** Trust level for a channel's encryption key. */
 export type KeyTrustLevel = "ManuallyVerified" | "Verified" | "Unverified" | "Disputed";

@@ -938,6 +938,9 @@ pub struct PchatAck {
     pub status: ::core::option::Option<i32>,
     #[prost(string, optional, tag = "3")]
     pub reason: ::core::option::Option<::prost::alloc::string::String>,
+    /// Channel ID for scoped acks (e.g. offline queue acknowledgement).
+    #[prost(uint32, optional, tag = "4")]
+    pub channel_id: ::core::option::Option<u32>,
 }
 /// Key custodian countersignature on an epoch transition.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -1117,6 +1120,21 @@ pub mod pchat_delete_messages {
         pub to: ::core::option::Option<u64>,
     }
 }
+/// Server delivers queued offline messages to a client that has reconnected
+/// and passed the key-possession challenge for a SignalV1 channel.
+/// Encrypted envelopes are delivered in timestamp order.
+/// The client acknowledges receipt via PchatAck (which already supports
+/// multiple message IDs). The server permanently deletes acknowledged
+/// entries from the queue.
+/// Wire type ID = 116.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PchatOfflineQueueDrain {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    /// Queued messages, each as a PchatMessageDeliver.
+    #[prost(message, repeated, tag = "2")]
+    pub messages: ::prost::alloc::vec::Vec<PchatMessageDeliver>,
+}
 /// Unified pchat protocol indicator.
 /// Each value identifies both the E2EE protocol implementation
 /// and the persistence behaviour for a channel.
@@ -1127,6 +1145,7 @@ pub enum PchatProtocol {
     FancyV1PostJoin = 1,
     FancyV1FullArchive = 2,
     ServerManaged = 3,
+    SignalV1 = 4,
 }
 impl PchatProtocol {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1139,6 +1158,7 @@ impl PchatProtocol {
             Self::FancyV1PostJoin => "PCHAT_PROTOCOL_FANCY_V1_POST_JOIN",
             Self::FancyV1FullArchive => "PCHAT_PROTOCOL_FANCY_V1_FULL_ARCHIVE",
             Self::ServerManaged => "PCHAT_PROTOCOL_SERVER_MANAGED",
+            Self::SignalV1 => "PCHAT_PROTOCOL_SIGNAL_V1",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1148,6 +1168,7 @@ impl PchatProtocol {
             "PCHAT_PROTOCOL_FANCY_V1_POST_JOIN" => Some(Self::FancyV1PostJoin),
             "PCHAT_PROTOCOL_FANCY_V1_FULL_ARCHIVE" => Some(Self::FancyV1FullArchive),
             "PCHAT_PROTOCOL_SERVER_MANAGED" => Some(Self::ServerManaged),
+            "PCHAT_PROTOCOL_SIGNAL_V1" => Some(Self::SignalV1),
             _ => None,
         }
     }

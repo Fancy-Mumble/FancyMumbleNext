@@ -198,6 +198,11 @@ impl EventHandler for TauriEventHandler {
             state.max_bandwidth = None;
             state.opus = false;
             state.root_permissions = None;
+            // Save signal state before dropping pchat.
+            if let Some(ref pchat) = state.pchat {
+                super::pchat::save_signal_state(pchat);
+                super::pchat::save_local_cache(pchat);
+            }
             state.pchat = None;
             state.pchat_seed = None;
             state.pchat_identity_dir = None;
