@@ -303,6 +303,8 @@ jobs:
 
       - name: Place signal-bridge .so in jniLibs
         run: |
+          mkdir -p crates/mumble-tauri/gen/android/app/src/main/jniLibs/arm64-v8a
+          mkdir -p crates/mumble-tauri/gen/android/app/src/main/jniLibs/x86_64
           cp crates/signal-bridge/target/aarch64-linux-android/release/libsignal_bridge.so \
              crates/mumble-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/
           cp crates/signal-bridge/target/x86_64-linux-android/release/libsignal_bridge.so \
