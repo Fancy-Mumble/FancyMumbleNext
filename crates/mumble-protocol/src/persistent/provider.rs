@@ -4,12 +4,12 @@
 //! (server-backed) message storage behind a single trait.
 //! [`VolatileMessageProvider`] provides standard Mumble behaviour.
 //! [`CompositeMessageProvider`] routes to volatile or persistent
-//! based on each channel's [`PersistenceMode`].
+//! based on each channel's [`PchatProtocol`].
 
 use std::collections::HashMap;
 
 use crate::error::Result;
-use crate::persistent::{MessageRange, PersistenceMode, StoredMessage};
+use crate::persistent::{MessageRange, PchatProtocol, StoredMessage};
 
 // ---- MessageProvider trait ------------------------------------------
 
@@ -44,7 +44,7 @@ pub trait MessageProvider: Send + Sync {
     fn has_more(&self, channel_id: u32) -> bool;
 
     /// The persistence mode for this channel (`NONE` for legacy).
-    fn mode(&self, channel_id: u32) -> PersistenceMode;
+    fn mode(&self, channel_id: u32) -> PchatProtocol;
 }
 
 // ---- VolatileMessageProvider ----------------------------------------
@@ -52,7 +52,7 @@ pub trait MessageProvider: Send + Sync {
 /// Volatile provider -- standard Mumble behaviour.
 ///
 /// Messages exist only in memory for the current session. Used for
-/// channels with [`PersistenceMode::None`] or as the legacy fallback.
+/// channels with [`PchatProtocol::None`] or as the legacy fallback.
 #[derive(Debug, Default)]
 pub struct VolatileMessageProvider {
     messages: HashMap<u32, Vec<StoredMessage>>,
@@ -110,8 +110,8 @@ impl MessageProvider for VolatileMessageProvider {
         false // volatile storage never has "more" to fetch
     }
 
-    fn mode(&self, _channel_id: u32) -> PersistenceMode {
-        PersistenceMode::None
+    fn mode(&self, _channel_id: u32) -> PchatProtocol {
+        PchatProtocol::None
     }
 }
 
@@ -146,7 +146,7 @@ pub trait PersistentProviderBackend: Send + Sync {
     fn server_has_more(&self, channel_id: u32) -> bool;
 
     /// The persistence mode from the channel's server config.
-    fn channel_mode(&self, channel_id: u32) -> PersistenceMode;
+    fn channel_mode(&self, channel_id: u32) -> PchatProtocol;
 }
 
 /// In-memory implementation of [`PersistentProviderBackend`].
@@ -157,7 +157,7 @@ pub trait PersistentProviderBackend: Send + Sync {
 #[derive(Debug, Default)]
 pub struct InMemoryPersistentBackend {
     cache: HashMap<u32, Vec<StoredMessage>>,
-    modes: HashMap<u32, PersistenceMode>,
+    modes: HashMap<u32, PchatProtocol>,
     has_more: HashMap<u32, bool>,
 }
 
@@ -168,7 +168,7 @@ impl InMemoryPersistentBackend {
     }
 
     /// Register a channel's persistence mode.
-    pub fn set_mode(&mut self, channel_id: u32, mode: PersistenceMode) {
+    pub fn set_mode(&mut self, channel_id: u32, mode: PchatProtocol) {
         let _ = self.modes.insert(channel_id, mode);
     }
 
@@ -216,11 +216,11 @@ impl PersistentProviderBackend for InMemoryPersistentBackend {
         self.has_more.get(&channel_id).copied().unwrap_or(false)
     }
 
-    fn channel_mode(&self, channel_id: u32) -> PersistenceMode {
+    fn channel_mode(&self, channel_id: u32) -> PchatProtocol {
         self.modes
             .get(&channel_id)
             .copied()
-            .unwrap_or(PersistenceMode::None)
+            .unwrap_or(PchatProtocol::None)
     }
 }
 
@@ -278,7 +278,7 @@ impl MessageProvider for PersistentMessageProvider {
         self.backend.server_has_more(channel_id)
     }
 
-    fn mode(&self, channel_id: u32) -> PersistenceMode {
+    fn mode(&self, channel_id: u32) -> PchatProtocol {
         self.backend.channel_mode(channel_id)
     }
 }
@@ -342,7 +342,7 @@ impl std::fmt::Debug for CompositeMessageProvider {
 impl MessageProvider for CompositeMessageProvider {
     fn get_messages(&self, channel_id: u32, range: &MessageRange) -> Result<Vec<StoredMessage>> {
         match self.effective_mode(channel_id) {
-            PersistenceMode::PostJoin | PersistenceMode::FullArchive => {
+            PchatProtocol::FancyV1PostJoin | PchatProtocol::FancyV1FullArchive => {
                 self.persistent.get_messages(channel_id, range)
             }
             _ => self.volatile.get_messages(channel_id, range),
@@ -351,7 +351,7 @@ impl MessageProvider for CompositeMessageProvider {
 
     fn store_message(&mut self, channel_id: u32, message: StoredMessage) -> Result<()> {
         match self.effective_mode(channel_id) {
-            PersistenceMode::PostJoin | PersistenceMode::FullArchive => {
+            PchatProtocol::FancyV1PostJoin | PchatProtocol::FancyV1FullArchive => {
                 self.persistent.store_message(channel_id, message)
             }
             _ => self.volatile.store_message(channel_id, message),
@@ -379,20 +379,20 @@ impl MessageProvider for CompositeMessageProvider {
 
     fn has_more(&self, channel_id: u32) -> bool {
         match self.effective_mode(channel_id) {
-            PersistenceMode::PostJoin | PersistenceMode::FullArchive => {
+            PchatProtocol::FancyV1PostJoin | PchatProtocol::FancyV1FullArchive => {
                 self.persistent.has_more(channel_id)
             }
             _ => self.volatile.has_more(channel_id),
         }
     }
 
-    fn mode(&self, channel_id: u32) -> PersistenceMode {
+    fn mode(&self, channel_id: u32) -> PchatProtocol {
         self.effective_mode(channel_id)
     }
 }
 
 impl CompositeMessageProvider {
-    fn effective_mode(&self, channel_id: u32) -> PersistenceMode {
+    fn effective_mode(&self, channel_id: u32) -> PchatProtocol {
         self.persistent.mode(channel_id)
     }
 }
@@ -511,7 +511,7 @@ mod tests {
     #[test]
     fn volatile_mode_is_none() {
         let vp = VolatileMessageProvider::new();
-        assert_eq!(vp.mode(1), PersistenceMode::None);
+        assert_eq!(vp.mode(1), PchatProtocol::None);
     }
 
     #[test]
@@ -597,10 +597,10 @@ mod tests {
     #[test]
     fn in_memory_backend_modes() {
         let mut backend = InMemoryPersistentBackend::new();
-        assert_eq!(backend.channel_mode(1), PersistenceMode::None);
+        assert_eq!(backend.channel_mode(1), PchatProtocol::None);
 
-        backend.set_mode(1, PersistenceMode::PostJoin);
-        assert_eq!(backend.channel_mode(1), PersistenceMode::PostJoin);
+        backend.set_mode(1, PchatProtocol::FancyV1PostJoin);
+        assert_eq!(backend.channel_mode(1), PchatProtocol::FancyV1PostJoin);
     }
 
     #[test]
@@ -617,7 +617,7 @@ mod tests {
     #[test]
     fn composite_routes_to_volatile_for_none() {
         let mut backend = InMemoryPersistentBackend::new();
-        backend.set_mode(1, PersistenceMode::None);
+        backend.set_mode(1, PchatProtocol::None);
 
         let mut composite = CompositeMessageProvider::new(
             VolatileMessageProvider::new(),
@@ -642,7 +642,7 @@ mod tests {
     #[test]
     fn composite_routes_to_persistent_for_post_join() {
         let mut backend = InMemoryPersistentBackend::new();
-        backend.set_mode(1, PersistenceMode::PostJoin);
+        backend.set_mode(1, PchatProtocol::FancyV1PostJoin);
 
         let mut composite = CompositeMessageProvider::new(
             VolatileMessageProvider::new(),
@@ -667,7 +667,7 @@ mod tests {
     #[test]
     fn composite_replace_searches_both_providers() {
         let mut backend = InMemoryPersistentBackend::new();
-        backend.set_mode(1, PersistenceMode::PostJoin);
+        backend.set_mode(1, PchatProtocol::FancyV1PostJoin);
 
         let mut composite = CompositeMessageProvider::new(
             VolatileMessageProvider::new(),
@@ -698,16 +698,16 @@ mod tests {
     #[test]
     fn composite_mode_reflects_persistent_config() {
         let mut backend = InMemoryPersistentBackend::new();
-        backend.set_mode(1, PersistenceMode::FullArchive);
-        backend.set_mode(2, PersistenceMode::None);
+        backend.set_mode(1, PchatProtocol::FancyV1FullArchive);
+        backend.set_mode(2, PchatProtocol::None);
 
         let composite = CompositeMessageProvider::new(
             VolatileMessageProvider::new(),
             PersistentMessageProvider::new(Box::new(backend)),
         );
 
-        assert_eq!(composite.mode(1), PersistenceMode::FullArchive);
-        assert_eq!(composite.mode(2), PersistenceMode::None);
-        assert_eq!(composite.mode(99), PersistenceMode::None);
+        assert_eq!(composite.mode(1), PchatProtocol::FancyV1FullArchive);
+        assert_eq!(composite.mode(2), PchatProtocol::None);
+        assert_eq!(composite.mode(99), PchatProtocol::None);
     }
 }

@@ -93,6 +93,7 @@ export default function SettingsPage() {
   const [defaultUsername, setDefaultUsername] = useState("");
   const [klipyApiKey, setKlipyApiKeyState] = useState("");
   const [enableNotifications, setEnableNotifications] = useState(true);
+  const [disableDualPath, setDisableDualPath] = useState(false);
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("auto");
   const [convertToLocalTime, setConvertToLocalTime] = useState(true);
 
@@ -149,6 +150,7 @@ export default function SettingsPage() {
         setKlipyApiKeyState(prefs.klipyApiKey ?? "");
         setKlipyApiKey(prefs.klipyApiKey);
         setEnableNotifications(prefs.enableNotifications ?? true);
+        setDisableDualPath(prefs.disableDualPath ?? false);
         setTimeFormat(prefs.timeFormat);
         setConvertToLocalTime(prefs.convertToLocalTime);
       } catch {
@@ -345,6 +347,17 @@ export default function SettingsPage() {
     });
   }, []);
 
+  const handleToggleDualPath = useCallback(async () => {
+    setDisableDualPath((prev) => {
+      const next = !prev;
+      updatePreferences({ disableDualPath: next });
+      invoke("set_disable_dual_path", { disabled: next }).catch((e) =>
+        console.error("set_disable_dual_path error:", e),
+      );
+      return next;
+    });
+  }, []);
+
   const handleToggleDeveloperMode = useCallback(async () => {
     const next: UserMode = userMode === "developer" ? "expert" : "developer";
     setUserMode(next);
@@ -453,11 +466,13 @@ export default function SettingsPage() {
               userMode={userMode}
               klipyApiKey={klipyApiKey}
               enableNotifications={enableNotifications}
+              disableDualPath={disableDualPath}
               timeFormat={timeFormat}
               convertToLocalTime={convertToLocalTime}
               onToggleMode={handleToggleMode}
               onKlipyApiKeyChange={handleKlipyApiKeyChange}
               onToggleNotifications={handleToggleNotifications}
+              onToggleDualPath={handleToggleDualPath}
               onTimeFormatChange={handleTimeFormatChange}
               onConvertToLocalTimeChange={handleConvertToLocalTimeChange}
               onToggleDeveloperMode={handleToggleDeveloperMode}

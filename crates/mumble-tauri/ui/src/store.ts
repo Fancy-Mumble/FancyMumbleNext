@@ -29,7 +29,7 @@ import type {
   CustodianPinState,
   PendingDispute,
   ChannelPersistConfig,
-  PchatMode,
+  PchatProtocol,
   PendingKeyShareRequest,
   KeyHolderEntry,
 } from "./types";
@@ -153,7 +153,7 @@ interface AppState {
     position?: number;
     temporary?: boolean;
     maxUsers?: number;
-    pchatMode?: PchatMode;
+    pchatProtocol?: PchatProtocol;
     pchatMaxHistory?: number;
     pchatRetentionDays?: number;
   }) => Promise<void>;
@@ -163,7 +163,7 @@ interface AppState {
     position?: number;
     temporary?: boolean;
     maxUsers?: number;
-    pchatMode?: PchatMode;
+    pchatProtocol?: PchatProtocol;
     pchatMaxHistory?: number;
     pchatRetentionDays?: number;
   }) => Promise<void>;
@@ -395,7 +395,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         position: opts.position ?? null,
         temporary: opts.temporary ?? null,
         maxUsers: opts.maxUsers ?? null,
-        pchatMode: opts.pchatMode ?? null,
+        pchatProtocol: opts.pchatProtocol ?? null,
         pchatMaxHistory: opts.pchatMaxHistory ?? null,
         pchatRetentionDays: opts.pchatRetentionDays ?? null,
       });
@@ -414,7 +414,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         position: opts.position ?? null,
         temporary: opts.temporary ?? null,
         maxUsers: opts.maxUsers ?? null,
-        pchatMode: opts.pchatMode ?? null,
+        pchatProtocol: opts.pchatProtocol ?? null,
         pchatMaxHistory: opts.pchatMaxHistory ?? null,
         pchatRetentionDays: opts.pchatRetentionDays ?? null,
       });
@@ -452,13 +452,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         invoke<UserEntry[]>("get_users"),
       ]);
 
-      // Derive channelPersistence from channel pchat_mode so the
+      // Derive channelPersistence from channel pchat_protocol so the
       // PersistenceBanner (and its loading indicator) can render.
       const prev = get().channelPersistence;
       const nextPersistence: Record<number, ChannelPersistenceState> = { ...prev };
       for (const ch of channels) {
-        if (ch.pchat_mode && ch.pchat_mode !== "none") {
-          const mode = ch.pchat_mode.toUpperCase() as PersistenceMode;
+        if (ch.pchat_protocol && ch.pchat_protocol !== "none") {
+          const mode = ch.pchat_protocol.toUpperCase() as PersistenceMode;
           nextPersistence[ch.id] = {
             mode,
             maxHistory: ch.pchat_max_history ?? prev[ch.id]?.maxHistory ?? 0,
@@ -931,6 +931,9 @@ export async function initEventListeners(
     const prefs = await getPreferences();
     await invoke("set_notifications_enabled", {
       enabled: prefs.enableNotifications ?? true,
+    });
+    await invoke("set_disable_dual_path", {
+      disabled: prefs.disableDualPath ?? false,
     });
   } catch {
     // Preference store may not be ready yet - backend defaults to enabled.

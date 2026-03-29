@@ -1,6 +1,6 @@
 {
   "productName": "Fancy Mumble",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "identifier": "com.fancymumble.app",
   "build": {
     "frontendDist": "./ui/dist",

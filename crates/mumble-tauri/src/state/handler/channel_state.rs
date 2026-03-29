@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
 use mumble_protocol::command;
-use mumble_protocol::persistent::PersistenceMode;
+use mumble_protocol::persistent::PchatProtocol;
 use mumble_protocol::persistent::wire::{MsgPackCodec, WireCodec};
 use mumble_protocol::persistent::{DATA_ID_FETCH, KeyTrustLevel};
 use mumble_protocol::proto::mumble_tcp;
-use mumble_protocol::state::PchatMode;
 use tracing::{debug, info};
 
 use super::{HandleMessage, HandlerContext};
@@ -30,7 +29,7 @@ impl HandleMessage for mumble_tcp::ChannelState {
                     temporary: false,
                     position: 0,
                     max_users: 0,
-                    pchat_mode: None,
+                    pchat_protocol: None,
                     pchat_max_history: None,
                     pchat_retention_days: None,
                     pchat_key_custodians: Vec::new(),
@@ -57,10 +56,10 @@ impl HandleMessage for mumble_tcp::ChannelState {
                     ch.max_users = max;
                 }
                 let mut mode_changed = false;
-                if let Some(mode) = self.pchat_mode {
-                    let new_mode = PchatMode::from_proto(mode);
-                    let old_mode = ch.pchat_mode;
-                    ch.pchat_mode = Some(new_mode);
+                if let Some(mode) = self.pchat_protocol {
+                    let new_mode = PchatProtocol::from_proto(mode);
+                    let old_mode = ch.pchat_protocol;
+                    ch.pchat_protocol = Some(new_mode);
                     if old_mode != Some(new_mode) {
                         mode_changed = true;
                     }
@@ -143,7 +142,7 @@ impl HandleMessage for mumble_tcp::ChannelState {
                 let mode = {
                     let s = shared.lock().ok();
                     s.and_then(|s| {
-                        s.channels.get(&id).and_then(|c| c.pchat_mode).map(PersistenceMode::from)
+                        s.channels.get(&id).and_then(|c| c.pchat_protocol)
                     })
                 };
                 let Some(mode) = mode else { return };
@@ -162,17 +161,17 @@ impl HandleMessage for mumble_tcp::ChannelState {
                 if needs_key {
                     debug!(channel_id = id, ?mode, "pchat: generating key for channel after mode change");
                     if let Ok(mut s) = shared.lock() {
-                        let m = s.channels.get(&id).and_then(|c| c.pchat_mode).map(PersistenceMode::from);
+                        let m = s.channels.get(&id).and_then(|c| c.pchat_protocol);
                         if let Some(ref mut pchat) = s.pchat {
                             let cert = pchat.own_cert_hash.clone();
                             match m {
-                                Some(PersistenceMode::FullArchive) => {
+                                Some(PchatProtocol::FancyV1FullArchive) => {
                                     let key = mumble_protocol::persistent::encryption::derive_archive_key(&pchat.seed, id);
                                     pchat.key_manager.store_archive_key(id, key, KeyTrustLevel::Verified);
                                     pchat.key_manager.set_channel_originator(id, cert.clone());
                                     info!(channel_id = id, "derived archive key after mode change");
                                 }
-                                Some(PersistenceMode::PostJoin) => {
+                                Some(PchatProtocol::FancyV1PostJoin) => {
                                     let key: [u8; 32] = rand::random();
                                     pchat.key_manager.store_epoch_key(id, 0, key, KeyTrustLevel::Verified);
                                     pchat.key_manager.set_channel_originator(id, cert.clone());

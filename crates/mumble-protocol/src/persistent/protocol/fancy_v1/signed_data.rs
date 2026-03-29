@@ -22,7 +22,7 @@ pub trait SignedDataBuilder: Send + Sync {
         &self,
         algorithm_version: u8,
         channel_id: u32,
-        mode: &crate::persistent::PersistenceMode,
+        mode: &crate::persistent::PchatProtocol,
         epoch: u32,
         encrypted_key: &[u8],
         recipient_hash: &str,
@@ -72,7 +72,7 @@ impl SignedDataBuilder for StandardSignedDataBuilder {
         &self,
         algorithm_version: u8,
         channel_id: u32,
-        mode: &crate::persistent::PersistenceMode,
+        mode: &crate::persistent::PchatProtocol,
         epoch: u32,
         encrypted_key: &[u8],
         recipient_hash: &str,
@@ -80,8 +80,8 @@ impl SignedDataBuilder for StandardSignedDataBuilder {
         timestamp: u64,
     ) -> Vec<u8> {
         let mode_byte: u8 = match mode {
-            crate::persistent::PersistenceMode::PostJoin => 1,
-            crate::persistent::PersistenceMode::FullArchive => 2,
+            crate::persistent::PchatProtocol::FancyV1PostJoin => 1,
+            crate::persistent::PchatProtocol::FancyV1FullArchive => 2,
             _ => 0,
         };
 
@@ -149,7 +149,7 @@ pub fn build_countersig_data(
 pub fn build_key_exchange_signed_data(
     algorithm_version: u8,
     channel_id: u32,
-    mode: &crate::persistent::PersistenceMode,
+    mode: &crate::persistent::PchatProtocol,
     epoch: u32,
     encrypted_key: &[u8],
     recipient_hash: &str,
@@ -197,7 +197,7 @@ mod tests {
         let data = build_key_exchange_signed_data(
             1,
             42,
-            &crate::persistent::PersistenceMode::PostJoin,
+            &crate::persistent::PchatProtocol::FancyV1PostJoin,
             5,
             &[0xAA; 48],
             "recipient",

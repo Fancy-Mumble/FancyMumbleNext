@@ -1,52 +1,29 @@
-//! XChaCha20-Poly1305 encryption with HKDF-SHA256 key derivation.
+//! Re-exports from the v1 protocol implementation.
 //!
-//! Implements the encryption envelope described in design doc section 4:
-//! `[Version(1B)] [Nonce(24B)] [AEAD Ciphertext + Tag(16B)]`
-//!
-//! Provides traits so alternative ciphers can be plugged in.
-//!
-//! Each sub-module groups a single trait with its production implementation.
+//! The actual implementation lives in
+//! [`protocol::fancy_v1`](super::protocol::fancy_v1). This module
+//! re-exports everything for backward compatibility so existing code
+//! can keep using `crate::persistent::encryption::*`.
 
-pub mod aad;
-pub mod archive_key;
-pub mod chain_ratchet;
-pub mod encryptor;
-pub mod fingerprint;
-pub mod key_deriver;
-pub mod signed_data;
+pub use super::protocol::fancy_v1::aad;
+pub use super::protocol::fancy_v1::archive_key;
+pub use super::protocol::fancy_v1::chain_ratchet;
+pub use super::protocol::fancy_v1::encryptor;
+pub use super::protocol::fancy_v1::fingerprint;
+pub use super::protocol::fancy_v1::key_deriver;
+pub use super::protocol::fancy_v1::signed_data;
+pub use super::protocol::fancy_v1::suite;
 
-// ---- Constants ------------------------------------------------------
-
-/// Current encryption version byte.
-pub const ENCRYPTION_VERSION: u8 = 0x01;
-
-/// HKDF info string for deriving chain keys.
-pub const HKDF_INFO_CHAIN: &[u8] = b"fancy-pchat-chain-v1";
-/// HKDF info string for deriving per-message keys.
-pub const HKDF_INFO_MSG: &[u8] = b"fancy-pchat-msg-v1";
-/// HKDF salt for identity key derivation.
-pub const HKDF_SALT_IDENTITY: &[u8] = b"fancy-pchat-v1";
-/// HKDF info for X25519 key derivation from seed.
-pub const HKDF_INFO_X25519: &[u8] = b"x25519";
-/// HKDF info for Ed25519 key derivation from seed.
-pub const HKDF_INFO_ED25519: &[u8] = b"ed25519";
-/// HKDF salt for deterministic archive key derivation from seed + `channel_id`.
-pub const HKDF_SALT_ARCHIVE_KEY: &[u8] = b"fancy-pchat-archive-key-v1";
-
-/// XChaCha20-Poly1305 key length.
-pub const KEY_LEN: usize = 32;
-
-// ---- Re-exports -----------------------------------------------------
-
-pub use aad::{build_aad, uuid_to_bytes, AadBuilder, StandardAadBuilder};
-pub use archive_key::{derive_archive_key, ArchiveKeyDeriver, HkdfArchiveKeyDeriver};
-pub use chain_ratchet::{
-    derive_chain_key, derive_key_at_index, derive_message_key, ChainRatchet, HkdfChainRatchet,
+pub use super::protocol::fancy_v1::{
+    ENCRYPTION_VERSION, HKDF_INFO_CHAIN, HKDF_INFO_ED25519, HKDF_INFO_MSG, HKDF_INFO_X25519,
+    HKDF_SALT_ARCHIVE_KEY, HKDF_SALT_IDENTITY, KEY_LEN,
 };
-pub use encryptor::{Encryptor, XChaChaEncryptor};
-pub use fingerprint::{epoch_fingerprint, Fingerprinter, Sha256Fingerprinter};
-pub use key_deriver::{HkdfSha256Deriver, KeyDeriver};
-pub use signed_data::{
-    build_countersig_data, build_key_announce_signed_data, build_key_exchange_signed_data,
-    SignedDataBuilder, StandardSignedDataBuilder,
+
+pub use super::protocol::fancy_v1::{
+    build_aad, build_countersig_data, build_key_announce_signed_data,
+    build_key_exchange_signed_data, derive_archive_key, derive_chain_key, derive_key_at_index,
+    derive_message_key, epoch_fingerprint, uuid_to_bytes, AadBuilder, ArchiveKeyDeriver,
+    ChainRatchet, CryptoSuite, Encryptor, Fingerprinter, HkdfArchiveKeyDeriver, HkdfChainRatchet,
+    HkdfSha256Deriver, KeyDeriver, Sha256Fingerprinter, SignedDataBuilder,
+    StandardAadBuilder, StandardSignedDataBuilder, XChaCha20Suite, XChaChaEncryptor,
 };

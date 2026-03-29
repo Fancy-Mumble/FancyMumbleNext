@@ -1,6 +1,6 @@
 use fancy_utils::html::strip_html_tags;
 use mumble_protocol::proto::mumble_tcp;
-use mumble_protocol::state::PchatMode;
+use mumble_protocol::persistent::PchatProtocol;
 
 use super::{HandleMessage, HandlerContext};
 use crate::state::types::*;
@@ -347,8 +347,8 @@ fn handle_channel_message(
         let has_pchat = state
             .channels
             .get(&ch_id)
-            .and_then(|c| c.pchat_mode)
-            .is_some_and(|m| !matches!(m, PchatMode::None));
+            .and_then(|c| c.pchat_protocol)
+            .is_some_and(|m| !matches!(m, PchatProtocol::None));
 
         let sender_has_e2ee = tm
             .actor

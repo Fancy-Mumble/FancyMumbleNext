@@ -5,6 +5,9 @@ members = [
     "crates/mumble-protocol",
     "crates/mumble-tauri",
 ]
+# signal-bridge is excluded because it depends on AGPL-licensed
+# libsignal-protocol and is built separately as a dynamic library.
+exclude = ["crates/signal-bridge"]
 
 # -- Workspace-wide lints --------------------------------------------
 # These apply to every crate in the workspace automatically.

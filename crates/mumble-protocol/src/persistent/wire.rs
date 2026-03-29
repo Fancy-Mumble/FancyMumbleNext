@@ -19,10 +19,11 @@ pub struct PchatMsg {
     pub timestamp: u64,
     /// Sender's TLS certificate hash.
     pub sender_hash: String,
-    /// `"POST_JOIN"` or `"FULL_ARCHIVE"`.
-    pub mode: String,
-    /// Encrypted [`MessageEnvelope`] bytes (version byte + nonce + AEAD ciphertext).
+    /// `"FANCY_V1_POST_JOIN"` or `"FANCY_V1_FULL_ARCHIVE"`.
+    #[serde(alias = "mode")]
+    pub protocol: String,
     #[serde(with = "serde_bytes")]
+    /// Encrypted message envelope.
     pub envelope: Vec<u8>,
     /// Epoch number (`POST_JOIN` only).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -108,8 +109,9 @@ pub struct PchatFetchResp {
 pub struct PchatKeyExchange {
     /// Target channel.
     pub channel_id: u32,
-    /// `"POST_JOIN"` or `"FULL_ARCHIVE"`.
-    pub mode: String,
+    /// `"FANCY_V1_POST_JOIN"` or `"FANCY_V1_FULL_ARCHIVE"`.
+    #[serde(alias = "mode")]
+    pub protocol: String,
     /// Key epoch number.
     pub epoch: u32,
     /// Epoch/channel key encrypted to the recipient's X25519 public key.
@@ -159,8 +161,9 @@ pub struct PchatKeyExchange {
 pub struct PchatKeyRequest {
     /// Target channel.
     pub channel_id: u32,
-    /// `"POST_JOIN"` or `"FULL_ARCHIVE"`.
-    pub mode: String,
+    /// `"FANCY_V1_POST_JOIN"` or `"FANCY_V1_FULL_ARCHIVE"`.
+    #[serde(alias = "mode")]
+    pub protocol: String,
     /// Cert hash of the user who needs a key.
     pub requester_hash: String,
     /// X25519 public key of the requester (32 bytes).
@@ -309,7 +312,7 @@ mod tests {
             channel_id: 1,
             timestamp: 1234567890,
             sender_hash: "abc".into(),
-            mode: "POST_JOIN".into(),
+            protocol: "FANCY_V1_POST_JOIN".into(),
             envelope: vec![1, 2, 3],
             epoch: Some(1),
             chain_index: Some(0),
@@ -375,7 +378,7 @@ mod tests {
         let codec = MsgPackCodec;
         let kex = PchatKeyExchange {
             channel_id: 10,
-            mode: "FULL_ARCHIVE".into(),
+            protocol: "FANCY_V1_FULL_ARCHIVE".into(),
             epoch: 0,
             encrypted_key: vec![0u8; 48],
             sender_hash: "sender".into(),

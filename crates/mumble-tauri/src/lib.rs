@@ -1,4 +1,4 @@
-﻿//! Tauri application entry point with Mumble backend commands.
+//! Tauri application entry point with Mumble backend commands.
 //!
 // All public command functions receive `tauri::State` by value, which is
 // required by the `#[tauri::command]` macro - suppress the lint crate-wide.
@@ -383,7 +383,7 @@ async fn update_channel(
     position: Option<i32>,
     temporary: Option<bool>,
     max_users: Option<u32>,
-    pchat_mode: Option<String>,
+    pchat_protocol: Option<String>,
     pchat_max_history: Option<u32>,
     pchat_retention_days: Option<u32>,
 ) -> Result<(), String> {
@@ -395,7 +395,7 @@ async fn update_channel(
             position,
             temporary,
             max_users,
-            pchat_mode,
+            pchat_protocol,
             pchat_max_history,
             pchat_retention_days,
         )
@@ -422,7 +422,7 @@ async fn create_channel(
     position: Option<i32>,
     temporary: Option<bool>,
     max_users: Option<u32>,
-    pchat_mode: Option<String>,
+    pchat_protocol: Option<String>,
     pchat_max_history: Option<u32>,
     pchat_retention_days: Option<u32>,
 ) -> Result<(), String> {
@@ -434,7 +434,7 @@ async fn create_channel(
             position,
             temporary,
             max_users,
-            pchat_mode,
+            pchat_protocol,
             pchat_max_history,
             pchat_retention_days,
         )
@@ -795,12 +795,6 @@ fn get_voice_state(state: tauri::State<'_, AppState>) -> VoiceState {
     state.voice_state()
 }
 
-/// Set the local playback volume for a specific remote user (0-200 %).
-#[tauri::command]
-fn set_user_volume(state: tauri::State<'_, AppState>, session: u32, volume: f32) {
-    state.set_user_volume(session, volume);
-}
-
 /// Enable voice calling for the current channel.
 /// Sends unmute/undeaf to the server.
 #[tauri::command]
@@ -855,29 +849,6 @@ fn start_latency_test(state: tauri::State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 fn stop_latency_test(state: tauri::State<'_, AppState>) {
     state.stop_latency_test();
-}
-
-/// Start recording inbound audio to a file.
-#[tauri::command]
-fn start_recording(
-    state: tauri::State<'_, AppState>,
-    directory: String,
-    filename: String,
-    format: state::RecordingFormat,
-) -> Result<String, String> {
-    state.start_recording(directory, filename, format)
-}
-
-/// Stop the current audio recording.
-#[tauri::command]
-fn stop_recording(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    state.stop_recording()
-}
-
-/// Get the current recording state.
-#[tauri::command]
-fn get_recording_state(state: tauri::State<'_, AppState>) -> state::RecordingState {
-    state.recording_state()
 }
 
 /// Set the user comment on the connected server (`FancyMumble` profile + bio).
@@ -1032,6 +1003,19 @@ fn set_notifications_enabled(
     enabled: bool,
 ) -> Result<(), String> {
     state.inner.lock().map_err(|e| e.to_string())?.notifications_enabled = enabled;
+    Ok(())
+}
+
+/// Enable or disable dual-path sending for encrypted channels.
+///
+/// When disabled, the plain `TextMessage` body is replaced with a
+/// placeholder so the server never sees the cleartext content.
+#[tauri::command]
+fn set_disable_dual_path(
+    state: tauri::State<'_, AppState>,
+    disabled: bool,
+) -> Result<(), String> {
+    state.inner.lock().map_err(|e| e.to_string())?.disable_dual_path = disabled;
     Ok(())
 }
 
@@ -1335,7 +1319,7 @@ async fn approve_key_share(
     channel_id: u32,
     peer_cert_hash: String,
 ) -> Result<(), String> {
-    use mumble_protocol::persistent::PersistenceMode;
+    use mumble_protocol::persistent::PchatProtocol;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     // Extract everything we need while holding the lock, then release it.
@@ -1386,7 +1370,7 @@ async fn approve_key_share(
             .key_manager
             .distribute_key(
                 channel_id,
-                PersistenceMode::FullArchive,
+                PchatProtocol::FancyV1FullArchive,
                 0,
                 &peer_cert_hash,
                 &peer_x25519,
@@ -1698,7 +1682,6 @@ pub fn run() {
             get_audio_settings,
             set_audio_settings,
             get_voice_state,
-            set_user_volume,
             enable_voice,
             disable_voice,
             toggle_mute,
@@ -1708,9 +1691,6 @@ pub fn run() {
             calibrate_voice_threshold,
             start_latency_test,
             stop_latency_test,
-            start_recording,
-            stop_recording,
-            get_recording_state,
             set_user_comment,
             set_user_texture,
             get_own_session,
@@ -1730,6 +1710,7 @@ pub fn run() {
             mark_group_read,
             reset_app_data,
             set_notifications_enabled,
+            set_disable_dual_path,
             update_badge_count,
             get_system_clock_format,
             offload_message,

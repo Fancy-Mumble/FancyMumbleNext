@@ -7,16 +7,19 @@
 mod consensus;
 mod crypto;
 mod exchange;
-pub mod identity;
 mod peer;
 mod trust;
 pub mod types;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::LazyLock;
+/// Re-export identity module from the v1 protocol implementation.
+pub use crate::persistent::protocol::fancy_v1::identity;
 
-use crate::persistent::encryption::{Encryptor, HkdfSha256Deriver, KeyDeriver, XChaChaEncryptor};
-use crate::persistent::{KeyTrustLevel, PersistenceMode};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::{Arc, LazyLock};
+
+use crate::persistent::encryption::{CryptoSuite, XChaCha20Suite};
+use crate::persistent::protocol::signal_v1::SignalBridge;
+use crate::persistent::{KeyTrustLevel, PchatProtocol};
 
 // Re-export public items for external consumers.
 pub use identity::{CryptoIdentity, SeedIdentity};
@@ -36,10 +39,8 @@ use types::{ChannelKey as CK, ConsensusCollector, CustodianPinState as CPS, DEFA
 pub struct KeyManager {
     /// Local cryptographic identity (signing + DH).
     pub(super) identity: Box<dyn CryptoIdentity>,
-    /// AEAD encryptor (XChaCha20-Poly1305).
-    pub(super) encryptor: Box<dyn Encryptor>,
-    /// Key derivation function (HKDF-SHA256).
-    pub(super) deriver: Box<dyn KeyDeriver>,
+    /// Cipher suite bundling all symmetric crypto primitives.
+    pub(super) suite: Box<dyn CryptoSuite>,
 
     /// Known peer public keys, keyed by `cert_hash`.
     pub(super) peer_keys: HashMap<String, PeerKeyRecord>,
@@ -68,11 +69,15 @@ pub struct KeyManager {
 
     /// Set of cert hashes that have known keys for each channel.
     pub(super) key_holders: HashMap<u32, HashSet<String>>,
+
+    /// Optional Signal bridge for `SignalV1` encryption/decryption.
+    signal_bridge: Option<Arc<SignalBridge>>,
 }
 
 impl std::fmt::Debug for KeyManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("KeyManager")
+            .field("suite", &self.suite.name())
             .field("peer_keys", &self.peer_keys.keys().collect::<Vec<_>>())
             .field(
                 "epoch_keys_channels",
@@ -89,25 +94,23 @@ impl std::fmt::Debug for KeyManager {
 // ---- Constructors ---------------------------------------------------
 
 impl KeyManager {
-    /// Create a new key manager with default crypto implementations.
+    /// Create a new key manager with the default cipher suite
+    /// ([`XChaCha20Suite`]).
     pub fn new(identity: Box<dyn CryptoIdentity>) -> Self {
-        Self::with_crypto(
-            identity,
-            Box::new(XChaChaEncryptor),
-            Box::new(HkdfSha256Deriver),
-        )
+        Self::with_suite(identity, Box::new(XChaCha20Suite))
     }
 
-    /// Create a key manager with custom crypto implementations (for testing).
-    pub fn with_crypto(
+    /// Create a key manager with a custom cipher suite.
+    ///
+    /// Use this to swap the entire E2EE scheme (e.g. for testing
+    /// or to plug in an alternative like Signal).
+    pub fn with_suite(
         identity: Box<dyn CryptoIdentity>,
-        encryptor: Box<dyn Encryptor>,
-        deriver: Box<dyn KeyDeriver>,
+        suite: Box<dyn CryptoSuite>,
     ) -> Self {
         Self {
             identity,
-            encryptor,
-            deriver,
+            suite,
             peer_keys: HashMap::new(),
             epoch_keys: HashMap::new(),
             archive_keys: HashMap::new(),
@@ -118,6 +121,7 @@ impl KeyManager {
             pinned_custodians: HashMap::new(),
             pending_epoch_candidates: HashMap::new(),
             key_holders: HashMap::new(),
+            signal_bridge: None,
         }
     }
 }
@@ -125,11 +129,21 @@ impl KeyManager {
 // ---- Basic accessors / mutators -------------------------------------
 
 impl KeyManager {
+    /// The active cipher suite.
+    pub fn suite(&self) -> &dyn CryptoSuite {
+        &*self.suite
+    }
+
     /// Whether we hold a key for the channel in the given mode.
-    pub fn has_key(&self, channel_id: u32, mode: PersistenceMode) -> bool {
-        match mode {
-            PersistenceMode::PostJoin => self.epoch_keys.contains_key(&channel_id),
-            PersistenceMode::FullArchive => self.archive_keys.contains_key(&channel_id),
+    pub fn has_key(&self, channel_id: u32, protocol: PchatProtocol) -> bool {
+        match protocol {
+            PchatProtocol::FancyV1PostJoin => self.epoch_keys.contains_key(&channel_id),
+            PchatProtocol::FancyV1FullArchive => self.archive_keys.contains_key(&channel_id),
+            PchatProtocol::SignalV1 => {
+                // SignalV1 keys live in the bridge; we have a key once
+                // we have created our own distribution for this channel.
+                self.signal_bridge.is_some()
+            }
             _ => false,
         }
     }
@@ -179,6 +193,19 @@ impl KeyManager {
         let _ = self.channel_originators.remove(&channel_id);
         let _ = self.pinned_custodians.remove(&channel_id);
         let _ = self.key_holders.remove(&channel_id);
+        if let Some(ref bridge) = self.signal_bridge {
+            let _ = bridge.remove_channel(channel_id);
+        }
+    }
+
+    /// Set the Signal bridge for `SignalV1` operations.
+    pub fn set_signal_bridge(&mut self, bridge: Arc<SignalBridge>) {
+        self.signal_bridge = Some(bridge);
+    }
+
+    /// Get a reference to the Signal bridge (if loaded).
+    pub fn signal_bridge(&self) -> Option<&SignalBridge> {
+        self.signal_bridge.as_deref()
     }
 
     /// Compute `HMAC-SHA256(channel_key, challenge)` to prove possession of
@@ -408,11 +435,32 @@ mod tests {
         km.store_archive_key(1, [0; 32], crate::persistent::KeyTrustLevel::Unverified);
         km.set_channel_originator(1, "abc".into());
         km.record_key_holder(1, "abc".into());
-        assert!(km.has_key(1, crate::persistent::PersistenceMode::PostJoin));
+        assert!(km.has_key(1, crate::persistent::PchatProtocol::FancyV1PostJoin));
 
         km.remove_channel(1);
-        assert!(!km.has_key(1, crate::persistent::PersistenceMode::PostJoin));
+        assert!(!km.has_key(1, crate::persistent::PchatProtocol::FancyV1PostJoin));
         assert!(km.get_channel_originator(1).is_none());
         assert!(km.key_holders(1).is_empty());
+    }
+
+    #[test]
+    fn with_suite_uses_custom_suite() {
+        use crate::persistent::encryption::{CryptoSuite, XChaCha20Suite};
+
+        let identity = SeedIdentity::from_seed(&[0xCC; 32]).unwrap();
+        let suite = Box::new(XChaCha20Suite);
+        let km = KeyManager::with_suite(Box::new(identity), suite);
+
+        assert_eq!(km.suite().version(), XChaCha20Suite.version());
+        assert_eq!(km.suite().name(), XChaCha20Suite.name());
+    }
+
+    #[test]
+    fn default_new_uses_xchacha20_suite() {
+        use crate::persistent::encryption::{CryptoSuite, XChaCha20Suite};
+
+        let km = make_key_manager();
+        assert_eq!(km.suite().version(), XChaCha20Suite.version());
+        assert_eq!(km.suite().name(), "XChaCha20-Poly1305 + HKDF-SHA256");
     }
 }

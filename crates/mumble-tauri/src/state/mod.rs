@@ -1,4 +1,4 @@
-﻿//! Shared application state for the Tauri backend.
+//! Shared application state for the Tauri backend.
 //!
 //! Mirrors the architecture of the Dioxus `MumbleBackend` but uses
 //! Tauri's event system instead of mpsc channels to push updates to
@@ -18,13 +18,14 @@ mod event_handler;
 mod handler;
 pub(crate) mod hash_names;
 pub mod offload;
+pub(crate) mod local_cache;
 pub(crate) mod pchat;
+#[allow(dead_code, reason = "recording module is work-in-progress")]
 mod recording;
 mod search;
 pub mod types;
 
 // Re-export everything that lib.rs needs.
-pub use recording::{RecordingFormat, RecordingState};
 pub use types::{
     AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus, DebugStats,
     GroupChat, PhotoEntry, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
@@ -43,18 +44,18 @@ use offload::OffloadStore;
 use mumble_protocol::audio::mixer::{AudioMixer, SpeakerVolumes};
 use mumble_protocol::client::ClientHandle;
 use mumble_protocol::command;
-use mumble_protocol::persistent::PersistenceMode;
-use mumble_protocol::state::PchatMode;
+use mumble_protocol::persistent::PchatProtocol;
 
 use types::*;
 
 /// Parse a frontend pchat mode string into the protobuf i32 value.
-fn parse_pchat_mode_str(s: &str) -> PchatMode {
+pub(crate) fn parse_pchat_protocol_str(s: &str) -> PchatProtocol {
     match s {
-        "post_join" => PchatMode::PostJoin,
-        "full_archive" => PchatMode::FullArchive,
-        "server_managed" => PchatMode::ServerManaged,
-        _ => PchatMode::None,
+        "fancy_v1_post_join" => PchatProtocol::FancyV1PostJoin,
+        "fancy_v1_full_archive" => PchatProtocol::FancyV1FullArchive,
+        "server_managed" => PchatProtocol::ServerManaged,
+        "signal_v1" => PchatProtocol::SignalV1,
+        _ => PchatProtocol::None,
     }
 }
 
@@ -183,6 +184,9 @@ pub(super) struct SharedState {
     pub talking_sessions: HashSet<u32>,
     /// Whether native OS notifications are enabled (user preference).
     pub notifications_enabled: bool,
+    /// When true, encrypted channels replace the plain `TextMessage` body
+    /// with a placeholder so the server cannot read the content.
+    pub disable_dual_path: bool,
     /// Whether the app window is currently focused (visible and on top).
     /// When `false`, notification suppression for the selected channel is
     /// bypassed so the user still receives notifications while the app
@@ -516,18 +520,18 @@ impl AppState {
 
     #[allow(clippy::too_many_lines, reason = "message send path covers legacy text, fancy extensions, pchat encryption, and local storage")]
     pub async fn send_message(&self, channel_id: u32, body: String) -> Result<(), String> {
-        let (handle, own_session, own_name, is_fancy, pchat_mode) = {
+        let (handle, own_session, own_name, is_fancy, pchat_protocol) = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;
-            let mode = state
+            let pchat_proto = state
                 .channels
                 .get(&channel_id)
-                .and_then(|ch| ch.pchat_mode);
+                .and_then(|ch| ch.pchat_protocol);
             (
                 state.client_handle.clone(),
                 state.own_session,
                 state.own_name.clone(),
                 state.server_fancy_version.is_some(),
-                mode,
+                pchat_proto,
             )
         };
 
@@ -546,13 +550,27 @@ impl AppState {
         };
         let timestamp = if is_fancy { Some(now_ms) } else { None };
 
-        // Always send the plain TextMessage (backward compat / real-time path).
+        // Send a plain TextMessage for backward compat / real-time display.
+        // When dual-path is disabled the body is replaced with a placeholder
+        // so the server never sees the plaintext content.
+        let disable_dual = pchat_protocol
+            .is_some_and(|p| p.is_encrypted())
+            && self
+                .inner
+                .lock()
+                .map(|s| s.disable_dual_path)
+                .unwrap_or(false);
+        let text_body = if disable_dual {
+            "[Encrypted message]".to_string()
+        } else {
+            body.clone()
+        };
         handle
             .send(command::SendTextMessage {
                 channel_ids: vec![channel_id],
                 user_sessions: vec![],
                 tree_ids: vec![],
-                message: body.clone(),
+                message: text_body,
                 message_id: message_id.clone(),
                 timestamp,
             })
@@ -561,17 +579,15 @@ impl AppState {
 
         // If the channel has persistent chat enabled, also send the encrypted
         // PchatMessage proto for server storage (dual-path per spec section 7.1).
-        let persistence_mode = pchat_mode.map(PersistenceMode::from);
         tracing::debug!(
             channel_id,
-            ?pchat_mode,
-            ?persistence_mode,
+            ?pchat_protocol,
             ?message_id,
             now_ms,
             "send_message: checking pchat path"
         );
-        if let Some(mode) = persistence_mode {
-            if mode.is_encrypted() {
+        if let Some(protocol) = pchat_protocol {
+            if protocol.is_encrypted() {
                 if let Some(ref msg_id) = message_id {
                     let session = own_session.unwrap_or(0);
                     // Build encrypted payload inside the lock, then send outside.
@@ -584,7 +600,7 @@ impl AppState {
                             match pchat::build_encrypted_pchat_message(
                                 pchat_state,
                                 channel_id,
-                                mode,
+                                protocol,
                                 msg_id,
                                 &body,
                                 &own_name,
@@ -629,6 +645,24 @@ impl AppState {
                 is_legacy: false,
             };
             msg.ensure_id();
+
+            // Cache own messages locally for SignalV1 channels.
+            if pchat_protocol.is_some_and(|p| p == PchatProtocol::SignalV1) {
+                if let Some(ref mut pchat_state) = state.pchat {
+                    if let Some(ref mut cache) = pchat_state.local_cache {
+                        cache.insert(local_cache::CachedMessage {
+                            message_id: msg.message_id.clone().unwrap_or_default(),
+                            channel_id,
+                            timestamp: msg.timestamp.unwrap_or(0),
+                            sender_hash: pchat_state.own_cert_hash.clone(),
+                            sender_name: msg.sender_name.clone(),
+                            body: msg.body.clone(),
+                            is_own: true,
+                        });
+                    }
+                }
+            }
+
             state.messages.entry(channel_id).or_default().push(msg);
         }
 
@@ -1306,7 +1340,7 @@ impl AppState {
         position: Option<i32>,
         temporary: Option<bool>,
         max_users: Option<u32>,
-        pchat_mode: Option<String>,
+        pchat_protocol: Option<String>,
         pchat_max_history: Option<u32>,
         pchat_retention_days: Option<u32>,
     ) -> Result<(), String> {
@@ -1324,7 +1358,7 @@ impl AppState {
                     position,
                     temporary,
                     max_users,
-                    pchat_mode: pchat_mode.map(|s| parse_pchat_mode_str(&s)),
+                    pchat_protocol: pchat_protocol.map(|s| parse_pchat_protocol_str(&s)),
                     pchat_max_history,
                     pchat_retention_days,
                 })
@@ -1366,7 +1400,7 @@ impl AppState {
         position: Option<i32>,
         temporary: Option<bool>,
         max_users: Option<u32>,
-        pchat_mode: Option<String>,
+        pchat_protocol: Option<String>,
         pchat_max_history: Option<u32>,
         pchat_retention_days: Option<u32>,
     ) -> Result<(), String> {
@@ -1384,7 +1418,7 @@ impl AppState {
                     position,
                     temporary,
                     max_users,
-                    pchat_mode: pchat_mode.map(|s| parse_pchat_mode_str(&s)),
+                    pchat_protocol: pchat_protocol.map(|s| parse_pchat_protocol_str(&s)),
                     pchat_max_history,
                     pchat_retention_days,
                 })

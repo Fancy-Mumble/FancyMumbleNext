@@ -62,6 +62,11 @@ impl AppState {
             state.server_config = ServerConfig::default();
             state.voice_state = VoiceState::Inactive;
             state.root_permissions = None;
+            // Save signal state before dropping pchat (connect-time reset).
+            if let Some(ref pchat) = state.pchat {
+                super::pchat::save_signal_state(pchat);
+                super::pchat::save_local_cache(pchat);
+            }
             state.pchat = None;
             state.pchat_seed = None;
             state.pchat_identity_dir = None;
@@ -282,6 +287,14 @@ impl AppState {
         }
 
         if let Ok(mut state) = self.inner.lock() {
+            // Persist signal bridge sender key state before dropping pchat.
+            // Note: on_disconnected may have already cleared pchat, so this
+            // is a safety net for cases where disconnect() runs first.
+            if let Some(ref pchat) = state.pchat {
+                super::pchat::save_signal_state(pchat);
+                super::pchat::save_local_cache(pchat);
+            }
+
             state.status = ConnectionStatus::Disconnected;
             state.client_handle = None;
             state.connect_task_handle = None;

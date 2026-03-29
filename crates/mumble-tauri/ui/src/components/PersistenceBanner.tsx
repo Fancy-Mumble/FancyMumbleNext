@@ -12,10 +12,12 @@ interface PersistenceBannerProps {
 
 function modeDescription(mode: PersistenceMode): string {
   switch (mode) {
-    case "POST_JOIN":
+    case "FANCY_V1_POST_JOIN":
       return "Messages are visible from the moment you first joined this channel.";
-    case "FULL_ARCHIVE":
+    case "FANCY_V1_FULL_ARCHIVE":
       return "All stored messages are visible to channel members.";
+    case "SIGNAL_V1":
+      return "Messages are end-to-end encrypted using the Signal Protocol.";
     default:
       return "";
   }

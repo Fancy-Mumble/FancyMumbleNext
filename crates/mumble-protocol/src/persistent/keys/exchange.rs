@@ -11,7 +11,7 @@ use crate::persistent::encryption::{
     self, build_key_exchange_signed_data, epoch_fingerprint,
 };
 use crate::persistent::wire::{PchatKeyExchange, PchatKeyRequest};
-use crate::persistent::PersistenceMode;
+use crate::persistent::PchatProtocol;
 
 use super::types::{
     ALGORITHM_VERSION, KEY_EXCHANGE_FRESHNESS_MS, ChannelKey, ConsensusCollector, EpochCandidate,
@@ -35,11 +35,11 @@ impl KeyManager {
             ));
         }
 
-        let mode = PersistenceMode::from_wire_str(&exchange.mode);
+        let protocol = PchatProtocol::from_wire_str(&exchange.protocol);
         let signed_data = build_key_exchange_signed_data(
             exchange.algorithm_version,
             exchange.channel_id,
-            &mode,
+            &protocol,
             exchange.epoch,
             &exchange.encrypted_key,
             &exchange.recipient_hash,
@@ -96,11 +96,11 @@ impl KeyManager {
 
         let shared_secret = self.identity.dh_agree(&peer.dh_public);
         let decrypt_key = self
-            .deriver
+            .suite.key_deriver()
             .derive(&shared_secret, encryption::HKDF_SALT_IDENTITY, b"key-wrap")?;
 
         let decrypted_key_bytes = self
-            .encryptor
+            .suite.encryptor()
             .decrypt(&decrypt_key, &exchange.encrypted_key, &[])?;
 
         if decrypted_key_bytes.len() != 32 {
@@ -121,10 +121,10 @@ impl KeyManager {
             ));
         }
 
-        let mode = PersistenceMode::from_wire_str(&exchange.mode);
+        let protocol = PchatProtocol::from_wire_str(&exchange.protocol);
 
-        match mode {
-            PersistenceMode::PostJoin => {
+        match protocol {
+            PchatProtocol::FancyV1PostJoin => {
                 // 5. Store as epoch candidate for fork resolution
                 let mut parent_fp = [0u8; 8];
                 if let Some(ref pfp) = exchange.parent_fingerprint {
@@ -146,7 +146,7 @@ impl KeyManager {
                     .or_default()
                     .push(candidate);
             }
-            PersistenceMode::FullArchive => {
+            PchatProtocol::FancyV1FullArchive => {
                 // 6. Add to consensus collector
                 if let Some(ref request_id) = exchange.request_id {
                     let collector =
@@ -171,7 +171,7 @@ impl KeyManager {
             }
             _ => {
                 return Err(Error::InvalidState(format!(
-                    "unexpected mode in key-exchange: {mode:?}"
+                    "unexpected protocol in key-exchange: {protocol:?}"
                 )));
             }
         }
@@ -206,15 +206,15 @@ impl KeyManager {
     pub fn distribute_key(
         &self,
         channel_id: u32,
-        mode: PersistenceMode,
+        protocol: PchatProtocol,
         epoch: u32,
         recipient_hash: &str,
         recipient_public: &X25519PublicKey,
         request_id: Option<&str>,
         timestamp: u64,
     ) -> Result<PchatKeyExchange> {
-        let key_bytes = match mode {
-            PersistenceMode::PostJoin => {
+        let key_bytes = match protocol {
+            PchatProtocol::FancyV1PostJoin => {
                 let epochs = self
                     .epoch_keys
                     .get(&channel_id)
@@ -224,7 +224,7 @@ impl KeyManager {
                     .ok_or_else(|| Error::InvalidState(format!("no key for epoch {epoch}")))?;
                 epoch_key.key
             }
-            PersistenceMode::FullArchive => {
+            PchatProtocol::FancyV1FullArchive => {
                 let (channel_key, _) = self
                     .archive_keys
                     .get(&channel_id)
@@ -233,7 +233,7 @@ impl KeyManager {
             }
             _ => {
                 return Err(Error::InvalidState(format!(
-                    "cannot distribute key for mode {mode:?}"
+                    "cannot distribute key for protocol {protocol:?}"
                 )));
             }
         };
@@ -241,13 +241,13 @@ impl KeyManager {
         // Encrypt the key to the recipient's X25519 public key via DH
         let shared_secret = self.identity.dh_agree(recipient_public);
         let wrap_key = self
-            .deriver
+            .suite.key_deriver()
             .derive(&shared_secret, encryption::HKDF_SALT_IDENTITY, b"key-wrap")?;
-        let encrypted_key = self.encryptor.encrypt(&wrap_key, &key_bytes, &[])?;
+        let encrypted_key = self.suite.encryptor().encrypt(&wrap_key, &key_bytes, &[])?;
 
         // Compute fingerprints
         let efp = epoch_fingerprint(&key_bytes);
-        let parent_fp = if mode == PersistenceMode::PostJoin {
+        let parent_fp = if protocol == PchatProtocol::FancyV1PostJoin {
             let prev_epoch = epoch.checked_sub(1);
             prev_epoch.and_then(|pe| {
                 self.epoch_keys
@@ -263,7 +263,7 @@ impl KeyManager {
         let signed_data = build_key_exchange_signed_data(
             ALGORITHM_VERSION,
             channel_id,
-            &mode,
+            &protocol,
             epoch,
             &encrypted_key,
             recipient_hash,
@@ -274,7 +274,7 @@ impl KeyManager {
 
         Ok(PchatKeyExchange {
             channel_id,
-            mode: mode.as_wire_str().to_string(),
+            protocol: protocol.as_wire_str().to_string(),
             epoch,
             encrypted_key,
             sender_hash: String::new(), // caller fills in cert_hash
@@ -309,13 +309,13 @@ impl KeyManager {
             ));
         }
 
-        let mode = PersistenceMode::from_wire_str(&request.mode);
+        let protocol = PchatProtocol::from_wire_str(&request.protocol);
         let channel_id = request.channel_id;
 
         // Check if we hold the key for this channel
-        let has_key = match mode {
-            PersistenceMode::PostJoin => self.epoch_keys.contains_key(&channel_id),
-            PersistenceMode::FullArchive => self.archive_keys.contains_key(&channel_id),
+        let has_key = match protocol {
+            PchatProtocol::FancyV1PostJoin => self.epoch_keys.contains_key(&channel_id),
+            PchatProtocol::FancyV1FullArchive => self.archive_keys.contains_key(&channel_id),
             _ => false,
         };
 
@@ -323,8 +323,8 @@ impl KeyManager {
             return Ok(None);
         }
 
-        let epoch = match mode {
-            PersistenceMode::PostJoin => self
+        let epoch = match protocol {
+            PchatProtocol::FancyV1PostJoin => self
                 .epoch_keys
                 .get(&channel_id)
                 .and_then(|epochs| epochs.keys().next_back().copied())
@@ -343,7 +343,7 @@ impl KeyManager {
 
         let mut exchange = self.distribute_key(
             channel_id,
-            mode,
+            protocol,
             epoch,
             &request.requester_hash,
             &recipient_public,

@@ -5,17 +5,18 @@ use std::collections::HashMap;
 
 use serde::{Serialize, Deserialize, Serializer};
 
-use mumble_protocol::state::PchatMode;
+use mumble_protocol::state::PchatProtocol;
 
 // --- Serialization helpers ----------------------------------------
 
-fn serialize_pchat_mode<S: Serializer>(mode: &Option<PchatMode>, s: S) -> Result<S::Ok, S::Error> {
-    match mode {
-        Some(m) => s.serialize_str(match m {
-            PchatMode::None => "none",
-            PchatMode::PostJoin => "post_join",
-            PchatMode::FullArchive => "full_archive",
-            PchatMode::ServerManaged => "server_managed",
+fn serialize_pchat_protocol<S: Serializer>(protocol: &Option<PchatProtocol>, s: S) -> Result<S::Ok, S::Error> {
+    match protocol {
+        Some(p) => s.serialize_str(match p {
+            PchatProtocol::None => "none",
+            PchatProtocol::FancyV1PostJoin => "fancy_v1_post_join",
+            PchatProtocol::FancyV1FullArchive => "fancy_v1_full_archive",
+            PchatProtocol::ServerManaged => "server_managed",
+            PchatProtocol::SignalV1 => "signal_v1",
         }),
         _ => s.serialize_none(),
     }
@@ -43,9 +44,9 @@ pub struct ChannelEntry {
     pub position: i32,
     /// Maximum users allowed (0 = unlimited).
     pub max_users: u32,
-    /// Persistent-chat mode.  `None` if not announced by the server.
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "serialize_pchat_mode")]
-    pub pchat_mode: Option<PchatMode>,
+    /// Persistent-chat protocol.  `None` if not announced by the server.
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "serialize_pchat_protocol")]
+    pub pchat_protocol: Option<PchatProtocol>,
     /// Maximum stored messages (0 = unlimited).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pchat_max_history: Option<u32>,
@@ -832,4 +833,58 @@ pub enum VoiceState {
     Active,
     /// User is muted (mic off) but can still hear others.
     Muted,
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, reason = "test code: panicking on failure is the intended behaviour")]
+mod tests {
+    use super::*;
+
+    /// Regression test: the frontend sends `"fancy_v1_full_archive"` etc.
+    /// and the parser must accept those exact strings.
+    #[test]
+    fn parse_pchat_protocol_str_roundtrip() {
+        use super::super::parse_pchat_protocol_str;
+
+        // Every variant the UI sends must survive a serialize -> parse roundtrip.
+        let cases = [
+            (PchatProtocol::None, "none"),
+            (PchatProtocol::FancyV1PostJoin, "fancy_v1_post_join"),
+            (PchatProtocol::FancyV1FullArchive, "fancy_v1_full_archive"),
+            (PchatProtocol::ServerManaged, "server_managed"),
+            (PchatProtocol::SignalV1, "signal_v1"),
+        ];
+        for (expected, input) in cases {
+            assert_eq!(
+                parse_pchat_protocol_str(input),
+                expected,
+                "parse_pchat_protocol_str({input:?}) should return {expected:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn serialize_channel_entry_with_signal_v1() {
+        let entry = ChannelEntry {
+            id: 5,
+            parent_id: Some(0),
+            name: "Secret".into(),
+            description: String::new(),
+            description_hash: None,
+            user_count: 2,
+            permissions: None,
+            temporary: false,
+            position: 0,
+            max_users: 0,
+            pchat_protocol: Some(PchatProtocol::SignalV1),
+            pchat_max_history: Some(1000),
+            pchat_retention_days: Some(7),
+            pchat_key_custodians: Vec::new(),
+        };
+        let json = serde_json::to_string(&entry).expect("serialize");
+        assert!(
+            json.contains(r#""pchat_protocol":"signal_v1""#),
+            "expected signal_v1 in JSON: {json}",
+        );
+    }
 }

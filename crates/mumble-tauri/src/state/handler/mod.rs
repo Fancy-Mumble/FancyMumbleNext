@@ -145,6 +145,7 @@ pub(crate) fn dispatch(msg: &ControlMessage, ctx: &HandlerContext) {
         ControlMessage::PchatKeyChallenge(m) => m.handle(ctx),
         ControlMessage::PchatKeyChallengeResult(m) => m.handle(ctx),
         ControlMessage::PchatDeleteMessages(m) => m.handle(ctx),
+        ControlMessage::PchatOfflineQueueDrain(m) => m.handle(ctx),
         ControlMessage::BanList(m) => m.handle(ctx),
         ControlMessage::UserList(m) => m.handle(ctx),
         ControlMessage::Acl(m) => m.handle(ctx),

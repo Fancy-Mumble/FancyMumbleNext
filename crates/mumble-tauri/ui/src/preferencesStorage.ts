@@ -18,6 +18,7 @@ const DEFAULTS: UserPreferences = {
   timeFormat: "auto",
   convertToLocalTime: true,
   enableNotifications: true,
+  disableDualPath: false,
 };
 
 async function getStore() {

@@ -53,6 +53,16 @@ pub mod state;
 pub mod transport;
 pub mod work_queue;
 
+// Suppress `unused_crate_dependencies` for feature-gated crates that are only
+// used inside persistent/ sub-modules, not directly in lib.rs.
+#[cfg(feature = "persistent-chat")]
+mod _persistent_chat_deps {
+    use chacha20poly1305 as _;
+    use hkdf as _;
+    use rand as _;
+    use uuid as _;
+}
+
 // Suppress `unused_crate_dependencies` for crates that are only used in
 // the integration / audio-quality test binaries under tests/, not in lib.rs.
 #[cfg(test)]

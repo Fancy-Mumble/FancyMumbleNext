@@ -6,7 +6,7 @@ use std::time::Instant;
 use x25519_dalek::PublicKey as X25519PublicKey;
 
 use crate::persistent::encryption::epoch_fingerprint;
-use crate::persistent::PersistenceMode;
+use crate::persistent::PchatProtocol;
 
 // ---- Constants ------------------------------------------------------
 
@@ -169,12 +169,12 @@ pub struct EncryptedPayload {
 /// Compute the full channel key fingerprint for verification.
 ///
 /// `full_fingerprint = SHA-256(channel_key || channel_id(4B BE) || mode(1B))`
-pub fn channel_key_fingerprint(key: &[u8], channel_id: u32, mode: PersistenceMode) -> [u8; 32] {
+pub fn channel_key_fingerprint(key: &[u8], channel_id: u32, protocol: PchatProtocol) -> [u8; 32] {
     use sha2::Digest;
     let mut hasher = sha2::Sha256::new();
     hasher.update(key);
     hasher.update(channel_id.to_be_bytes());
-    hasher.update([mode.to_proto() as u8]);
+    hasher.update([protocol.to_proto() as u8]);
     hasher.finalize().into()
 }
 
@@ -199,24 +199,24 @@ mod tests {
     #[test]
     fn channel_key_fingerprint_deterministic() {
         let key = [0xBB; 32];
-        let fp1 = channel_key_fingerprint(&key, 1, PersistenceMode::FullArchive);
-        let fp2 = channel_key_fingerprint(&key, 1, PersistenceMode::FullArchive);
+        let fp1 = channel_key_fingerprint(&key, 1, PchatProtocol::FancyV1FullArchive);
+        let fp2 = channel_key_fingerprint(&key, 1, PchatProtocol::FancyV1FullArchive);
         assert_eq!(fp1, fp2);
     }
 
     #[test]
     fn channel_key_fingerprint_differs_by_channel() {
         let key = [0xBB; 32];
-        let fp1 = channel_key_fingerprint(&key, 1, PersistenceMode::FullArchive);
-        let fp2 = channel_key_fingerprint(&key, 2, PersistenceMode::FullArchive);
+        let fp1 = channel_key_fingerprint(&key, 1, PchatProtocol::FancyV1FullArchive);
+        let fp2 = channel_key_fingerprint(&key, 2, PchatProtocol::FancyV1FullArchive);
         assert_ne!(fp1, fp2);
     }
 
     #[test]
     fn channel_key_fingerprint_differs_by_mode() {
         let key = [0xBB; 32];
-        let fp1 = channel_key_fingerprint(&key, 1, PersistenceMode::PostJoin);
-        let fp2 = channel_key_fingerprint(&key, 1, PersistenceMode::FullArchive);
+        let fp1 = channel_key_fingerprint(&key, 1, PchatProtocol::FancyV1PostJoin);
+        let fp2 = channel_key_fingerprint(&key, 1, PchatProtocol::FancyV1FullArchive);
         assert_ne!(fp1, fp2);
     }
 }

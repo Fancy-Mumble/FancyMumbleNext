@@ -8,54 +8,96 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 
-/// Persistent-chat mode for a channel.
+/// Unified pchat protocol indicator for a channel.
 ///
-/// Maps 1:1 to the `ChannelState.PchatMode` protobuf enum.
-/// Lives in core (no feature gate) so all consumers can use it.
+/// Each value identifies both the E2EE protocol implementation and
+/// the persistence behaviour. Maps 1:1 to the `PchatProtocol`
+/// protobuf enum. Lives in core (no feature gate) so all consumers
+/// can use it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum PchatMode {
+#[cfg_attr(feature = "persistent-chat", derive(serde::Serialize, serde::Deserialize))]
+pub enum PchatProtocol {
     /// No persistence.  Standard volatile Mumble chat.
     #[default]
     None,
-    /// Messages accessible from the moment a user first joined.
-    PostJoin,
-    /// All stored messages accessible to any channel member.
-    FullArchive,
+    /// `FancyV1` E2EE (XChaCha20-Poly1305, X25519/Ed25519) with
+    /// post-join visibility (epoch keys + chain ratchet).
+    FancyV1PostJoin,
+    /// `FancyV1` E2EE with full-archive access (shared archive key).
+    FancyV1FullArchive,
     /// Server stores messages (no client-side key management).
     ServerManaged,
+    /// Signal Protocol E2EE (Double Ratchet / Sender Keys via libsignal).
+    /// Post-join visibility with per-sender forward secrecy.
+    SignalV1,
 }
 
-impl PchatMode {
-    /// Parse from the protobuf `pchat_mode` i32 value.
+impl PchatProtocol {
+    /// Parse from the protobuf `PchatProtocol` i32 value.
     #[must_use]
     pub fn from_proto(value: i32) -> Self {
         match value {
-            1 => Self::PostJoin,
-            2 => Self::FullArchive,
+            1 => Self::FancyV1PostJoin,
+            2 => Self::FancyV1FullArchive,
             3 => Self::ServerManaged,
+            4 => Self::SignalV1,
             _ => Self::None,
         }
     }
 
-    /// Convert to the protobuf `pchat_mode` i32 value.
+    /// Convert to the protobuf `PchatProtocol` i32 value.
     #[must_use]
     pub fn to_proto(self) -> i32 {
         match self {
             Self::None => 0,
-            Self::PostJoin => 1,
-            Self::FullArchive => 2,
+            Self::FancyV1PostJoin => 1,
+            Self::FancyV1FullArchive => 2,
             Self::ServerManaged => 3,
+            Self::SignalV1 => 4,
+        }
+    }
+
+    /// Whether this protocol uses post-join epoch key semantics.
+    #[must_use]
+    pub fn is_post_join(&self) -> bool {
+        matches!(self, Self::FancyV1PostJoin | Self::SignalV1)
+    }
+
+    /// Whether this protocol uses full-archive shared key semantics.
+    #[must_use]
+    pub fn is_full_archive(&self) -> bool {
+        matches!(self, Self::FancyV1FullArchive)
+    }
+
+    /// Whether this protocol uses client-side E2E encryption.
+    #[must_use]
+    pub fn is_encrypted(&self) -> bool {
+        matches!(
+            self,
+            Self::FancyV1PostJoin | Self::FancyV1FullArchive | Self::SignalV1
+        )
+    }
+
+    /// The E2EE algorithm version byte, or `None` if the protocol
+    /// does not use client-side encryption.
+    #[must_use]
+    pub fn protocol_version(&self) -> Option<u8> {
+        match self {
+            Self::FancyV1PostJoin | Self::FancyV1FullArchive => Some(1),
+            Self::SignalV1 => Some(2),
+            _ => None,
         }
     }
 }
 
-impl fmt::Display for PchatMode {
+impl fmt::Display for PchatProtocol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::None => write!(f, "None"),
-            Self::PostJoin => write!(f, "PostJoin"),
-            Self::FullArchive => write!(f, "FullArchive"),
+            Self::FancyV1PostJoin => write!(f, "FancyV1PostJoin"),
+            Self::FancyV1FullArchive => write!(f, "FancyV1FullArchive"),
             Self::ServerManaged => write!(f, "ServerManaged"),
+            Self::SignalV1 => write!(f, "SignalV1"),
         }
     }
 }
@@ -166,8 +208,8 @@ pub struct Channel {
     /// Whether the server reports the current user can enter
     /// this channel (`ChannelState.can_enter`).
     pub can_enter: bool,
-    /// Persistent-chat mode.  `None` if not announced by the server.
-    pub pchat_mode: Option<PchatMode>,
+    /// Persistent-chat protocol.  `None` if not announced by the server.
+    pub pchat_protocol: Option<PchatProtocol>,
     /// Maximum stored messages (0 = unlimited).  `None` if not set.
     pub pchat_max_history: Option<u32>,
     /// Auto-delete after N days (0 = forever).  `None` if not set.
@@ -264,7 +306,7 @@ impl ServerState {
             permissions: None,
             is_enter_restricted: false,
             can_enter: true,
-            pchat_mode: None,
+            pchat_protocol: None,
             pchat_max_history: None,
             pchat_retention_days: None,
         });
@@ -278,7 +320,7 @@ impl ServerState {
         let _ = state.max_users.inspect(|&v| channel.max_users = v);
         let _ = state.is_enter_restricted.inspect(|&v| channel.is_enter_restricted = v);
         let _ = state.can_enter.inspect(|&v| channel.can_enter = v);
-        let _ = state.pchat_mode.inspect(|&v| channel.pchat_mode = Some(PchatMode::from_proto(v)));
+        let _ = state.pchat_protocol.inspect(|&v| channel.pchat_protocol = Some(PchatProtocol::from_proto(v)));
         let _ = state.pchat_max_history.inspect(|&v| channel.pchat_max_history = Some(v));
         let _ = state.pchat_retention_days.inspect(|&v| channel.pchat_retention_days = Some(v));
     }
@@ -572,5 +614,46 @@ mod tests {
         let user = &state.users[&1];
         assert_eq!(user.comment, "I'm a bot");
         assert_eq!(user.hash, "abc123");
+    }
+
+    #[test]
+    fn signal_v1_protocol_roundtrip() {
+        let proto_val = PchatProtocol::SignalV1.to_proto();
+        assert_eq!(proto_val, 4);
+        assert_eq!(PchatProtocol::from_proto(proto_val), PchatProtocol::SignalV1);
+    }
+
+    #[test]
+    fn signal_v1_is_post_join_and_encrypted() {
+        let p = PchatProtocol::SignalV1;
+        assert!(p.is_post_join(), "SignalV1 should be post-join");
+        assert!(p.is_encrypted(), "SignalV1 should be encrypted");
+    }
+
+    #[test]
+    fn signal_v1_generation_version() {
+        assert_eq!(PchatProtocol::SignalV1.protocol_version(), Some(2));
+    }
+
+    #[test]
+    fn signal_v1_display() {
+        assert_eq!(format!("{}", PchatProtocol::SignalV1), "SignalV1");
+    }
+
+    #[test]
+    fn channel_state_with_signal_v1_protocol() {
+        let mut state = ServerState::new();
+        state.apply_channel_state(&mumble_tcp::ChannelState {
+            channel_id: Some(10),
+            name: Some("Encrypted".into()),
+            pchat_protocol: Some(PchatProtocol::SignalV1.to_proto()),
+            pchat_max_history: Some(500),
+            pchat_retention_days: Some(30),
+            ..Default::default()
+        });
+        let ch = &state.channels[&10];
+        assert_eq!(ch.pchat_protocol, Some(PchatProtocol::SignalV1));
+        assert_eq!(ch.pchat_max_history, Some(500));
+        assert_eq!(ch.pchat_retention_days, Some(30));
     }
 }

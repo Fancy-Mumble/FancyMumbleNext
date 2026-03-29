@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use mumble_protocol::command;
-use mumble_protocol::persistent::PersistenceMode;
+use mumble_protocol::persistent::PchatProtocol;
 use mumble_protocol::proto::mumble_tcp;
 use tracing::{debug, info, warn};
 
@@ -244,9 +244,35 @@ impl HandleMessage for mumble_tcp::ServerSync {
 
                         info!(cert_hash = %cert_hash, "pchat initialised");
 
-                        // Store pchat state
+                        // Store pchat state and load local message cache.
                         if let Ok(mut state) = ctx.shared.lock() {
                             state.pchat = Some(pchat_state);
+
+                            // Load the encrypted local cache and populate
+                            // state.messages with previously cached SignalV1
+                            // messages so they are available immediately.
+                            if let Some(ref mut pchat) = state.pchat {
+                                if let Some(ref mut cache) = pchat.local_cache {
+                                    if let Err(e) = cache.load() {
+                                        warn!("failed to load local message cache: {e}");
+                                    } else {
+                                        let cached = cache.all_chat_messages();
+                                        for (ch_id, msgs) in cached {
+                                            if !msgs.is_empty() {
+                                                info!(
+                                                    channel_id = ch_id,
+                                                    count = msgs.len(),
+                                                    "restored cached messages"
+                                                );
+                                                state.messages
+                                                    .entry(ch_id)
+                                                    .or_default()
+                                                    .extend(msgs);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         // Send key-announce asynchronously
@@ -294,8 +320,8 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                 if let Some(ref s) = s {
                                     let ch = s.current_channel;
                                     let mode = ch.and_then(|c| {
-                                        s.channels.get(&c).and_then(|ce| ce.pchat_mode)
-                                    }).map(PersistenceMode::from);
+                                        s.channels.get(&c).and_then(|ce| ce.pchat_protocol)
+                                    });
                                     (ch, mode)
                                 } else {
                                     (None, None)
@@ -316,7 +342,7 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                     // For FullArchive, derive the key immediately (it's
                                     // deterministic from the seed) so we can skip the
                                     // 2-second peer-exchange wait.
-                                    if mode == PersistenceMode::FullArchive {
+                                    if mode == PchatProtocol::FancyV1FullArchive {
                                         use mumble_protocol::persistent::KeyTrustLevel;
                                         if let Ok(mut s) = shared.lock() {
                                             if let Some(ref mut p) = s.pchat {
@@ -329,6 +355,18 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                                 }
                                             }
                                         }
+                                        pchat::send_key_holder_report_async(&shared, ch).await;
+                                    }
+
+                                    // For SignalV1, load the bridge and create our sender
+                                    // key distribution immediately (no peer exchange needed).
+                                    if mode == PchatProtocol::SignalV1 {
+                                        if let Ok(mut s) = shared.lock() {
+                                            if let Some(ref mut p) = s.pchat {
+                                                pchat::ensure_signal_bridge(p);
+                                            }
+                                        }
+                                        pchat::send_signal_distribution(&shared, ch);
                                         pchat::send_key_holder_report_async(&shared, ch).await;
                                     }
 
@@ -362,21 +400,27 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                     if needs_key {
                                         use mumble_protocol::persistent::KeyTrustLevel;
                                         if let Ok(mut s) = shared.lock() {
-                                            let mode = s.channels.get(&ch).and_then(|c| c.pchat_mode).map(PersistenceMode::from);
+                                            let mode = s.channels.get(&ch).and_then(|c| c.pchat_protocol);
                                             if let Some(ref mut p) = s.pchat {
                                                 let cert = p.own_cert_hash.clone();
                                                 match mode {
-                                                    Some(PersistenceMode::FullArchive) => {
+                                                    Some(PchatProtocol::FancyV1FullArchive) => {
                                                         let key = mumble_protocol::persistent::encryption::derive_archive_key(&p.seed, ch);
                                                         p.key_manager.store_archive_key(ch, key, KeyTrustLevel::Verified);
                                                         p.key_manager.set_channel_originator(ch, cert.clone());
                                                         info!(channel_id = ch, cert_hash = %cert, "derived archive key on initial join");
                                                     }
-                                                    Some(PersistenceMode::PostJoin) => {
+                                                    Some(PchatProtocol::FancyV1PostJoin) => {
                                                         let key: [u8; 32] = rand::random();
                                                         p.key_manager.store_epoch_key(ch, 0, key, KeyTrustLevel::Verified);
                                                         p.key_manager.set_channel_originator(ch, cert.clone());
                                                         info!(channel_id = ch, cert_hash = %cert, "self-generated epoch key on initial join");
+                                                    }
+                                                    Some(PchatProtocol::SignalV1) => {
+                                                        // Bridge should already be loaded from the
+                                                        // immediate init above; this is a fallback.
+                                                        pchat::ensure_signal_bridge(p);
+                                                        info!(channel_id = ch, "signal bridge ensured on initial join (fallback)");
                                                     }
                                                     _ => {}
                                                 }

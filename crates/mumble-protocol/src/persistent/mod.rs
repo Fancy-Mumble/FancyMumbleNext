@@ -4,12 +4,13 @@
 //! end-to-end encrypted chat history. All communication flows through
 //! `PluginDataTransmission` with `dataID` values prefixed `fancy-pchat-`.
 //!
-//! Core types: [`PersistenceMode`], [`StoredMessage`], [`MessageRange`].
+//! Core types: [`PchatProtocol`], [`StoredMessage`], [`MessageRange`].
 //! Provider trait: [`MessageProvider`] (in [`provider`]).
 
 pub mod config;
 pub mod encryption;
 pub mod keys;
+pub mod protocol;
 pub mod provider;
 pub mod wire;
 
@@ -35,94 +36,44 @@ pub const DATA_ID_KEY_REQUEST: &str = "fancy-pchat-key-request";
 pub const DATA_ID_EPOCH_COUNTERSIG: &str = "fancy-pchat-epoch-countersig";
 /// `dataID` for server storage acknowledgement.
 pub const DATA_ID_ACK: &str = "fancy-pchat-ack";
+/// `dataID` for Signal sender key distribution message.
+pub const DATA_ID_SIGNAL_SENDER_KEY: &str = "fancy-pchat-signal-sender-key";
 
 // ---- Core domain types ----------------------------------------------
 
-/// Persistence mode for a channel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum PersistenceMode {
-    /// No persistence. Standard volatile Mumble chat.
-    None,
-    /// Messages accessible from the moment a user first joined.
-    PostJoin,
-    /// All stored messages accessible to any channel member.
-    FullArchive,
-    /// Future: server stores plaintext (or server-encrypted) messages.
-    /// No client-side key management. See design doc section 3.1.
-    ServerManaged,
-}
+// Re-export the unified protocol enum from state.rs so persistent/
+// sub-modules can use `crate::persistent::PchatProtocol`.
+pub use crate::state::PchatProtocol;
 
-impl PersistenceMode {
-    /// Parse from the protobuf `pchat_mode` enum value (prost encodes
-    /// proto2 enums as `i32`).
-    #[must_use]
-    pub fn from_proto(value: i32) -> Self {
-        match value {
-            1 => Self::PostJoin,
-            2 => Self::FullArchive,
-            3 => Self::ServerManaged,
-            _ => Self::None,
-        }
-    }
-
-    /// Convert to the protobuf `pchat_mode` enum value.
-    #[must_use]
-    pub fn to_proto(self) -> i32 {
-        match self {
-            Self::None => 0,
-            Self::PostJoin => 1,
-            Self::FullArchive => 2,
-            Self::ServerManaged => 3,
-        }
-    }
-
-    /// Mode string used in wire format payloads.
+// Extension methods for wire serialization (kept here because they
+// are a persistent-chat concern, not a core state concern).
+impl PchatProtocol {
+    /// Protocol string used in wire format payloads (`MessagePack`).
     #[must_use]
     pub fn as_wire_str(&self) -> &'static str {
         match self {
             Self::None => "NONE",
-            Self::PostJoin => "POST_JOIN",
-            Self::FullArchive => "FULL_ARCHIVE",
+            Self::FancyV1PostJoin => "FANCY_V1_POST_JOIN",
+            Self::FancyV1FullArchive => "FANCY_V1_FULL_ARCHIVE",
             Self::ServerManaged => "SERVER_MANAGED",
+            Self::SignalV1 => "SIGNAL_V1",
         }
     }
 
     /// Parse from wire format string.
+    ///
+    /// Accepts both current names (`"FANCY_V1_POST_JOIN"`,
+    /// `"FANCY_V1_FULL_ARCHIVE"`) and legacy names (`"POST_JOIN"`,
+    /// `"FULL_ARCHIVE"`) for backward compatibility with stored messages
+    /// and older clients/servers.
     #[must_use]
     pub fn from_wire_str(s: &str) -> Self {
         match s {
-            "POST_JOIN" => Self::PostJoin,
-            "FULL_ARCHIVE" => Self::FullArchive,
+            "FANCY_V1_POST_JOIN" | "POST_JOIN" => Self::FancyV1PostJoin,
+            "FANCY_V1_FULL_ARCHIVE" | "FULL_ARCHIVE" => Self::FancyV1FullArchive,
             "SERVER_MANAGED" => Self::ServerManaged,
+            "SIGNAL_V1" => Self::SignalV1,
             _ => Self::None,
-        }
-    }
-
-    /// Whether this mode uses client-side E2E encryption.
-    #[must_use]
-    pub fn is_encrypted(&self) -> bool {
-        matches!(self, Self::PostJoin | Self::FullArchive)
-    }
-}
-
-impl From<crate::state::PchatMode> for PersistenceMode {
-    fn from(mode: crate::state::PchatMode) -> Self {
-        match mode {
-            crate::state::PchatMode::None => Self::None,
-            crate::state::PchatMode::PostJoin => Self::PostJoin,
-            crate::state::PchatMode::FullArchive => Self::FullArchive,
-            crate::state::PchatMode::ServerManaged => Self::ServerManaged,
-        }
-    }
-}
-
-impl From<PersistenceMode> for crate::state::PchatMode {
-    fn from(mode: PersistenceMode) -> Self {
-        match mode {
-            PersistenceMode::None => Self::None,
-            PersistenceMode::PostJoin => Self::PostJoin,
-            PersistenceMode::FullArchive => Self::FullArchive,
-            PersistenceMode::ServerManaged => Self::ServerManaged,
         }
     }
 }
@@ -192,44 +143,56 @@ mod tests {
     use super::*;
 
     #[test]
-    fn persistence_mode_proto_roundtrip() {
-        for mode in [
-            PersistenceMode::None,
-            PersistenceMode::PostJoin,
-            PersistenceMode::FullArchive,
-            PersistenceMode::ServerManaged,
+    fn pchat_protocol_proto_roundtrip() {
+        for protocol in [
+            PchatProtocol::None,
+            PchatProtocol::FancyV1PostJoin,
+            PchatProtocol::FancyV1FullArchive,
+            PchatProtocol::ServerManaged,
+            PchatProtocol::SignalV1,
         ] {
-            assert_eq!(PersistenceMode::from_proto(mode.to_proto()), mode);
+            assert_eq!(PchatProtocol::from_proto(protocol.to_proto()), protocol);
         }
     }
 
     #[test]
-    fn persistence_mode_wire_str_roundtrip() {
-        for mode in [
-            PersistenceMode::None,
-            PersistenceMode::PostJoin,
-            PersistenceMode::FullArchive,
-            PersistenceMode::ServerManaged,
+    fn pchat_protocol_wire_str_roundtrip() {
+        for protocol in [
+            PchatProtocol::None,
+            PchatProtocol::FancyV1PostJoin,
+            PchatProtocol::FancyV1FullArchive,
+            PchatProtocol::ServerManaged,
+            PchatProtocol::SignalV1,
         ] {
-            assert_eq!(PersistenceMode::from_wire_str(mode.as_wire_str()), mode);
+            assert_eq!(PchatProtocol::from_wire_str(protocol.as_wire_str()), protocol);
         }
     }
 
     #[test]
-    fn persistence_mode_is_encrypted() {
-        assert!(!PersistenceMode::None.is_encrypted());
-        assert!(PersistenceMode::PostJoin.is_encrypted());
-        assert!(PersistenceMode::FullArchive.is_encrypted());
-        assert!(!PersistenceMode::ServerManaged.is_encrypted());
+    fn pchat_protocol_is_encrypted() {
+        assert!(!PchatProtocol::None.is_encrypted());
+        assert!(PchatProtocol::FancyV1PostJoin.is_encrypted());
+        assert!(PchatProtocol::FancyV1FullArchive.is_encrypted());
+        assert!(!PchatProtocol::ServerManaged.is_encrypted());
+        assert!(PchatProtocol::SignalV1.is_encrypted());
     }
 
     #[test]
     fn unknown_proto_value_defaults_to_none() {
-        assert_eq!(PersistenceMode::from_proto(99), PersistenceMode::None);
+        assert_eq!(PchatProtocol::from_proto(99), PchatProtocol::None);
     }
 
     #[test]
     fn unknown_wire_str_defaults_to_none() {
-        assert_eq!(PersistenceMode::from_wire_str("INVALID"), PersistenceMode::None);
+        assert_eq!(PchatProtocol::from_wire_str("INVALID"), PchatProtocol::None);
+    }
+
+    #[test]
+    fn protocol_version_is_correct() {
+        assert_eq!(PchatProtocol::None.protocol_version(), None);
+        assert_eq!(PchatProtocol::FancyV1PostJoin.protocol_version(), Some(1));
+        assert_eq!(PchatProtocol::FancyV1FullArchive.protocol_version(), Some(1));
+        assert_eq!(PchatProtocol::ServerManaged.protocol_version(), None);
+        assert_eq!(PchatProtocol::SignalV1.protocol_version(), Some(2));
     }
 }

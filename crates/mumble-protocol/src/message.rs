@@ -97,6 +97,8 @@ pub enum TcpMessageType {
     PchatKeyChallengeResult = 114,
     /// Fancy Mumble: delete persisted messages (by ID, time range, or sender).
     PchatDeleteMessages = 115,
+    /// Fancy Mumble: server drains offline message queue to a reconnected client.
+    PchatOfflineQueueDrain = 116,
 }
 
 impl TryFrom<u16> for TcpMessageType {
@@ -147,6 +149,7 @@ impl TryFrom<u16> for TcpMessageType {
             113 => Ok(Self::PchatKeyChallengeResponse),
             114 => Ok(Self::PchatKeyChallengeResult),
             115 => Ok(Self::PchatDeleteMessages),
+            116 => Ok(Self::PchatOfflineQueueDrain),
             other => Err(crate::error::Error::UnknownMessageType(other)),
         }
     }
@@ -239,6 +242,8 @@ pub enum ControlMessage {
     PchatKeyChallengeResult(mumble_tcp::PchatKeyChallengeResult),
     /// Fancy Mumble: delete persisted messages (by ID, time range, or sender).
     PchatDeleteMessages(mumble_tcp::PchatDeleteMessages),
+    /// Fancy Mumble: server drains offline message queue to a reconnected client.
+    PchatOfflineQueueDrain(mumble_tcp::PchatOfflineQueueDrain),
     /// UDP audio tunneled through TCP (fallback path).
     UdpTunnel(Vec<u8>),
 }
@@ -313,6 +318,7 @@ mod tests {
             (113, TcpMessageType::PchatKeyChallengeResponse),
             (114, TcpMessageType::PchatKeyChallengeResult),
             (115, TcpMessageType::PchatDeleteMessages),
+            (116, TcpMessageType::PchatOfflineQueueDrain),
         ];
 
         for (id, expected_type) in &expected {
@@ -343,13 +349,18 @@ mod tests {
             let msg_type = TcpMessageType::try_from(id).unwrap();
             assert_eq!(msg_type as u16, id);
         }
+        // Offline queue ID (116)
+        {
+            let msg_type = TcpMessageType::try_from(116u16).unwrap();
+            assert_eq!(msg_type as u16, 116);
+        }
     }
 
     #[test]
     fn tcp_message_type_invalid_returns_error() {
         assert!(TcpMessageType::try_from(27u16).is_err());
         assert!(TcpMessageType::try_from(99u16).is_err());
-        assert!(TcpMessageType::try_from(116u16).is_err());
+        assert!(TcpMessageType::try_from(117u16).is_err());
         assert!(TcpMessageType::try_from(199u16).is_err());
         assert!(TcpMessageType::try_from(203u16).is_err());
         assert!(TcpMessageType::try_from(u16::MAX).is_err());

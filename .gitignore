@@ -29,6 +29,12 @@ crates/mumble-tauri/ui/pnpm-debug.log*
 **/*.ilk
 **/*.exe
 
+# ---- Signal bridge (AGPL dynamic library) ----
+# Built binaries go here for Tauri bundling; only .gitkeep is tracked.
+crates/mumble-tauri/signal-bridge/*.dll
+crates/mumble-tauri/signal-bridge/*.so
+crates/mumble-tauri/signal-bridge/*.dylib
+
 # ---- Dioxus ----
 crates/mumble-gui/.dioxus/
 crates/mumble-gui/dist/

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import type { ChannelEntry, PchatMode } from "../types";
+import type { ChannelEntry, PchatProtocol } from "../types";
 import { useAppStore } from "../store";
 import { BioEditor } from "../pages/settings/BioEditor";
 import styles from "./ChannelEditorDialog.module.css";
@@ -89,8 +89,8 @@ export default function ChannelEditorDialog({
   const [maxUsers, setMaxUsers] = useState(channel?.max_users ?? 0);
 
   // Persistence settings
-  const [pchatMode, setPchatMode] = useState<PchatMode>(
-    channel?.pchat_mode ?? "none",
+  const [pchatProtocol, setPchatProtocol] = useState<PchatProtocol>(
+    channel?.pchat_protocol ?? "none",
   );
   const [pchatMaxHistory, setPchatMaxHistory] = useState(
     channel?.pchat_max_history ?? 0,
@@ -126,13 +126,13 @@ export default function ChannelEditorDialog({
     setError(null);
     try {
       const pchatOpts =
-        pchatMode !== "none"
+        pchatProtocol !== "none"
           ? {
-              pchatMode,
+              pchatProtocol,
               pchatMaxHistory: pchatMaxHistory || undefined,
               pchatRetentionDays: pchatRetentionDays || undefined,
             }
-          : { pchatMode };
+          : { pchatProtocol };
 
       if (isCreate) {
         await createChannel(parentId, name.trim(), {
@@ -165,7 +165,7 @@ export default function ChannelEditorDialog({
     position,
     temporary,
     maxUsers,
-    pchatMode,
+    pchatProtocol,
     pchatMaxHistory,
     pchatRetentionDays,
     isCreate,
@@ -260,21 +260,22 @@ export default function ChannelEditorDialog({
           <h4 className={styles.sectionTitle}>Persistence</h4>
 
           <div className={styles.field}>
-            <label className={styles.label} htmlFor="ch-ed-pchat">Mode</label>
+            <label className={styles.label} htmlFor="ch-ed-pchat">Protocol</label>
             <select
               id="ch-ed-pchat"
               className={styles.select}
-              value={pchatMode}
-              onChange={(e) => setPchatMode(e.target.value as PchatMode)}
+              value={pchatProtocol}
+              onChange={(e) => setPchatProtocol(e.target.value as PchatProtocol)}
             >
               <option value="none">None (standard volatile chat)</option>
-              <option value="post_join">Post-Join (history from first join)</option>
-              <option value="full_archive">Full Archive (all messages)</option>
+              <option value="fancy_v1_post_join">Post-Join (history from first join)</option>
+              <option value="fancy_v1_full_archive">Full Archive (all messages)</option>
+              <option value="signal_v1">Signal V1 (E2EE via Signal Protocol)</option>
               <option value="server_managed">Server Managed</option>
             </select>
           </div>
 
-          {pchatMode !== "none" && (
+          {pchatProtocol !== "none" && (
             <div className={styles.row}>
               <div className={styles.field}>
                 <label className={styles.label} htmlFor="ch-ed-maxhist">

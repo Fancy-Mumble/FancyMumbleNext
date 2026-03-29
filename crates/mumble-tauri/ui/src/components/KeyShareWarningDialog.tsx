@@ -12,11 +12,11 @@ interface KeyShareWarningDialogProps {
 }
 
 function describeAccess(mode: PersistenceMode, totalStored: number): string {
-  if (mode === "FULL_ARCHIVE") {
+  if (mode === "FANCY_V1_FULL_ARCHIVE") {
     const count = totalStored > 0 ? ` (${totalStored} stored messages)` : "";
     return `This channel uses full archive mode. Sharing the key grants access to the entire message history${count}.`;
   }
-  if (mode === "POST_JOIN") {
+  if (mode === "FANCY_V1_POST_JOIN") {
     return "This channel uses post-join mode. Sharing the key grants access to messages sent from the moment the user first joined.";
   }
   return "Sharing the encryption key grants access to encrypted messages in this channel.";

@@ -4,7 +4,7 @@
 //! wire structs, encryption) to the Tauri application state. Handles
 //! sending and receiving pchat messages using native protobuf message types.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -14,6 +14,7 @@ use fancy_utils::hex::{bytes_to_hex, hex_decode};
 use mumble_protocol::client::ClientHandle;
 use mumble_protocol::command;
 use mumble_protocol::persistent::keys::{KeyManager, SeedIdentity};
+use mumble_protocol::persistent::protocol::signal_v1::SignalBridge;
 use mumble_protocol::persistent::provider::{
     CompositeMessageProvider, InMemoryPersistentBackend, PersistentMessageProvider,
     VolatileMessageProvider,
@@ -25,13 +26,14 @@ use mumble_protocol::persistent::wire::{
     PchatKeyRequest as WireKeyRequest,
     WireCodec,
 };
-use mumble_protocol::persistent::PersistenceMode;
+use mumble_protocol::persistent::PchatProtocol;
 use mumble_protocol::proto::mumble_tcp;
 
+use super::local_cache::{CachedMessage, LocalMessageCache};
 use super::types::ChatMessage;
 use super::SharedState;
 
-/// Persistent chat manager — lives inside `SharedState`.
+/// Persistent chat manager -- lives inside `SharedState`.
 #[allow(dead_code, reason = "pchat feature is under development; fields will be used when pchat commands are wired up")]
 pub(crate) struct PchatState {
     /// Our E2EE key manager (identity + peer keys + epoch/archive keys).
@@ -48,6 +50,11 @@ pub(crate) struct PchatState {
     pub fetched_channels: std::collections::HashSet<u32>,
     /// Path to the per-identity storage directory (for persisting archive keys).
     pub identity_dir: Option<PathBuf>,
+    /// Signal Protocol bridge (loaded from external DLL, AGPL-isolated).
+    pub signal_bridge: Option<Arc<SignalBridge>>,
+    /// Encrypted local message cache for `SignalV1` channels.
+    /// Stores decrypted plaintext on disk with AES-256-GCM encryption.
+    pub local_cache: Option<LocalMessageCache>,
 }
 
 impl PchatState {
@@ -66,6 +73,17 @@ impl PchatState {
         let persistent = PersistentMessageProvider::new(Box::new(backend));
         let provider = CompositeMessageProvider::new(volatile, persistent);
 
+        let local_cache = match identity_dir.as_ref() {
+            Some(dir) => match LocalMessageCache::new(dir, &seed) {
+                Ok(cache) => Some(cache),
+                Err(e) => {
+                    warn!("failed to create local message cache: {e}");
+                    None
+                }
+            },
+            None => None,
+        };
+
         Ok(Self {
             key_manager,
             own_cert_hash,
@@ -74,6 +92,8 @@ impl PchatState {
             provider,
             fetched_channels: std::collections::HashSet::new(),
             identity_dir,
+            signal_bridge: None,
+            local_cache,
         })
     }
 }
@@ -88,6 +108,8 @@ const SEED_FILE: &str = "pchat_seed.bin";
 const TLS_CERT_FILE: &str = "tls.cert.pem";
 /// File name for the TLS private key inside each identity folder.
 const TLS_KEY_FILE: &str = "tls.key.pem";
+/// File name for the signal bridge sender key state.
+const SIGNAL_STATE_FILE: &str = "signal_state.json";
 
 /// Legacy paths used before per-identity storage was introduced.
 const LEGACY_PCHAT_DIR: &str = "pchat";
@@ -96,7 +118,7 @@ const LEGACY_CERTS_DIR: &str = "certs";
 
 /// Return the directory for a given identity label:
 /// `<app_data>/identities/<label>/`
-pub(crate) fn identity_dir(app_data_dir: &std::path::Path, label: &str) -> PathBuf {
+pub(crate) fn identity_dir(app_data_dir: &Path, label: &str) -> PathBuf {
     app_data_dir.join(IDENTITIES_DIR).join(label)
 }
 
@@ -115,7 +137,7 @@ pub(crate) fn identity_dir(app_data_dir: &std::path::Path, label: &str) -> PathB
 /// {app_data}/identities/{label}/tls.key.pem
 /// {app_data}/identities/{label}/pchat_seed.bin
 /// ```
-pub(crate) fn migrate_legacy_storage(app_data_dir: &std::path::Path) {
+pub(crate) fn migrate_legacy_storage(app_data_dir: &Path) {
     let legacy_certs = app_data_dir.join(LEGACY_CERTS_DIR);
     if !legacy_certs.exists() {
         return; // nothing to migrate
@@ -176,7 +198,7 @@ pub(crate) fn migrate_legacy_storage(app_data_dir: &std::path::Path) {
 /// Stored in `<app_data>/identities/<label>/pchat_seed.bin`.
 /// If the file doesn't exist, a new seed is generated from the OS CSPRNG.
 pub(crate) fn load_or_generate_seed(
-    app_data_dir: &std::path::Path,
+    app_data_dir: &Path,
     label: &str,
 ) -> Result<[u8; 32], String> {
     let dir = identity_dir(app_data_dir, label);
@@ -205,7 +227,7 @@ pub(crate) fn load_or_generate_seed(
 /// Generate a self-signed TLS client certificate for an identity label.
 /// Does nothing if the cert already exists.
 pub(crate) fn generate_identity_cert(
-    app_data_dir: &std::path::Path,
+    app_data_dir: &Path,
     label: &str,
 ) -> Result<(), String> {
     let dir = identity_dir(app_data_dir, label);
@@ -232,7 +254,7 @@ pub(crate) fn generate_identity_cert(
 /// Load TLS client certificate PEM bytes for an identity label.
 /// Returns `(cert_pem, key_pem)` or `(None, None)` if not found.
 pub(crate) fn load_identity_cert(
-    app_data_dir: &std::path::Path,
+    app_data_dir: &Path,
     label: &str,
 ) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
     let dir = identity_dir(app_data_dir, label);
@@ -242,7 +264,7 @@ pub(crate) fn load_identity_cert(
 }
 
 /// List all identity labels (subdirectories of `identities/`).
-pub(crate) fn list_identity_labels(app_data_dir: &std::path::Path) -> Vec<String> {
+pub(crate) fn list_identity_labels(app_data_dir: &Path) -> Vec<String> {
     let dir = app_data_dir.join(IDENTITIES_DIR);
     if !dir.exists() {
         return vec![];
@@ -263,7 +285,7 @@ pub(crate) fn list_identity_labels(app_data_dir: &std::path::Path) -> Vec<String
 }
 
 /// Delete an identity (TLS cert + pchat seed).
-pub(crate) fn delete_identity(app_data_dir: &std::path::Path, label: &str) -> Result<(), String> {
+pub(crate) fn delete_identity(app_data_dir: &Path, label: &str) -> Result<(), String> {
     let dir = identity_dir(app_data_dir, label);
     if dir.exists() {
         std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -276,9 +298,9 @@ pub(crate) fn delete_identity(app_data_dir: &std::path::Path, label: &str) -> Re
 /// The bundle is a JSON object with `_label`, PEM text fields, and the
 /// pchat seed as a hex string.
 pub(crate) fn export_identity(
-    app_data_dir: &std::path::Path,
+    app_data_dir: &Path,
     label: &str,
-    dest: &std::path::Path,
+    dest: &Path,
 ) -> Result<(), String> {
     use serde_json::{json, Map, Value};
 
@@ -320,8 +342,8 @@ pub(crate) fn export_identity(
 ///
 /// Returns the label embedded in the bundle.
 pub(crate) fn import_identity(
-    app_data_dir: &std::path::Path,
-    src: &std::path::Path,
+    app_data_dir: &Path,
+    src: &Path,
 ) -> Result<String, String> {
     use serde_json::Value;
 
@@ -362,19 +384,23 @@ pub(crate) fn import_identity(
 
 // ---- Proto <-> Wire conversion helpers ------------------------------
 
-fn persistence_mode_to_proto(mode: PersistenceMode) -> i32 {
-    match mode {
-        PersistenceMode::PostJoin => mumble_tcp::PchatPersistenceMode::PchatModePostJoin as i32,
-        PersistenceMode::FullArchive => mumble_tcp::PchatPersistenceMode::PchatModeFullArchive as i32,
-        _ => mumble_tcp::PchatPersistenceMode::PchatModePostJoin as i32,
+fn protocol_to_proto(protocol: PchatProtocol) -> i32 {
+    match protocol {
+        PchatProtocol::FancyV1PostJoin => mumble_tcp::PchatProtocol::FancyV1PostJoin as i32,
+        PchatProtocol::FancyV1FullArchive => mumble_tcp::PchatProtocol::FancyV1FullArchive as i32,
+        PchatProtocol::SignalV1 => mumble_tcp::PchatProtocol::SignalV1 as i32,
+        PchatProtocol::ServerManaged => mumble_tcp::PchatProtocol::ServerManaged as i32,
+        PchatProtocol::None => mumble_tcp::PchatProtocol::None as i32,
     }
 }
 
-fn proto_to_persistence_mode(mode: Option<i32>) -> PersistenceMode {
-    match mode.and_then(|v| mumble_tcp::PchatPersistenceMode::try_from(v).ok()) {
-        Some(mumble_tcp::PchatPersistenceMode::PchatModePostJoin) => PersistenceMode::PostJoin,
-        Some(mumble_tcp::PchatPersistenceMode::PchatModeFullArchive) => PersistenceMode::FullArchive,
-        None => PersistenceMode::PostJoin,
+fn proto_to_protocol(proto: Option<i32>) -> PchatProtocol {
+    match proto.and_then(|v| mumble_tcp::PchatProtocol::try_from(v).ok()) {
+        Some(mumble_tcp::PchatProtocol::FancyV1PostJoin) => PchatProtocol::FancyV1PostJoin,
+        Some(mumble_tcp::PchatProtocol::FancyV1FullArchive) => PchatProtocol::FancyV1FullArchive,
+        Some(mumble_tcp::PchatProtocol::SignalV1) => PchatProtocol::SignalV1,
+        Some(mumble_tcp::PchatProtocol::ServerManaged) => PchatProtocol::ServerManaged,
+        _ => PchatProtocol::FancyV1PostJoin,
     }
 }
 
@@ -405,7 +431,7 @@ fn proto_to_wire_key_announce(p: &mumble_tcp::PchatKeyAnnounce) -> WireKeyAnnoun
 fn proto_to_wire_key_request(p: &mumble_tcp::PchatKeyRequest) -> WireKeyRequest {
     WireKeyRequest {
         channel_id: p.channel_id.unwrap_or(0),
-        mode: proto_mode_to_wire_str(p.mode),
+        protocol: proto_protocol_to_wire_str(p.protocol),
         requester_hash: p.requester_hash.clone().unwrap_or_default(),
         requester_public: p.requester_public.clone().unwrap_or_default(),
         request_id: p.request_id.clone().unwrap_or_default(),
@@ -418,7 +444,7 @@ fn proto_to_wire_key_request(p: &mumble_tcp::PchatKeyRequest) -> WireKeyRequest 
 pub(crate) fn wire_key_exchange_to_proto_pub(w: &WireKeyExchange) -> mumble_tcp::PchatKeyExchange {
     mumble_tcp::PchatKeyExchange {
         channel_id: Some(w.channel_id),
-        mode: Some(wire_mode_str_to_proto(&w.mode)),
+        protocol: Some(wire_protocol_str_to_proto(&w.protocol)),
         epoch: Some(w.epoch),
         encrypted_key: Some(w.encrypted_key.clone()),
         sender_hash: Some(w.sender_hash.clone()),
@@ -437,7 +463,7 @@ pub(crate) fn wire_key_exchange_to_proto_pub(w: &WireKeyExchange) -> mumble_tcp:
 fn proto_to_wire_key_exchange(p: &mumble_tcp::PchatKeyExchange) -> WireKeyExchange {
     WireKeyExchange {
         channel_id: p.channel_id.unwrap_or(0),
-        mode: proto_mode_to_wire_str(p.mode),
+        protocol: proto_protocol_to_wire_str(p.protocol),
         epoch: p.epoch.unwrap_or(0),
         encrypted_key: p.encrypted_key.clone().unwrap_or_default(),
         sender_hash: p.sender_hash.clone().unwrap_or_default(),
@@ -453,17 +479,13 @@ fn proto_to_wire_key_exchange(p: &mumble_tcp::PchatKeyExchange) -> WireKeyExchan
     }
 }
 
-fn proto_mode_to_wire_str(mode: Option<i32>) -> String {
-    match proto_to_persistence_mode(mode) {
-        PersistenceMode::PostJoin => "POST_JOIN".to_string(),
-        PersistenceMode::FullArchive => "FULL_ARCHIVE".to_string(),
-        _ => "POST_JOIN".to_string(),
-    }
+fn proto_protocol_to_wire_str(proto: Option<i32>) -> String {
+    proto_to_protocol(proto).as_wire_str().to_string()
 }
 
-fn wire_mode_str_to_proto(s: &str) -> i32 {
-    let mode = PersistenceMode::from_wire_str(s);
-    persistence_mode_to_proto(mode)
+fn wire_protocol_str_to_proto(s: &str) -> i32 {
+    let protocol = PchatProtocol::from_wire_str(s);
+    protocol_to_proto(protocol)
 }
 
 // ---- Outbound: send key announce ------------------------------------
@@ -497,7 +519,7 @@ pub(crate) async fn send_key_announce(
 pub(crate) fn build_encrypted_pchat_message(
     pchat: &mut PchatState,
     channel_id: u32,
-    mode: PersistenceMode,
+    protocol: PchatProtocol,
     message_id: &str,
     body: &str,
     sender_name: &str,
@@ -506,10 +528,10 @@ pub(crate) fn build_encrypted_pchat_message(
 ) -> Result<mumble_tcp::PchatMessage, String> {
     debug!(
         channel_id,
-        ?mode,
+        ?protocol,
         message_id,
         timestamp,
-        has_key = pchat.key_manager.has_key(channel_id, mode),
+        has_key = pchat.key_manager.has_key(channel_id, protocol),
         "pchat: build_encrypted_pchat_message"
     );
     let envelope = MessageEnvelope {
@@ -526,7 +548,7 @@ pub(crate) fn build_encrypted_pchat_message(
 
     let payload = pchat
         .key_manager
-        .encrypt(mode, channel_id, message_id, timestamp, &envelope_bytes)
+        .encrypt(protocol, channel_id, message_id, timestamp, &envelope_bytes)
         .map_err(|e| format!("encrypt message: {e}"))?;
 
     Ok(mumble_tcp::PchatMessage {
@@ -534,7 +556,7 @@ pub(crate) fn build_encrypted_pchat_message(
         channel_id: Some(channel_id),
         timestamp: Some(timestamp),
         sender_hash: Some(pchat.own_cert_hash.clone()),
-        mode: Some(persistence_mode_to_proto(mode)),
+        protocol: Some(protocol_to_proto(protocol)),
         envelope: Some(payload.ciphertext),
         epoch: payload.epoch,
         chain_index: payload.chain_index,
@@ -557,7 +579,7 @@ pub(crate) async fn send_encrypted_message(
     handle: &ClientHandle,
     pchat: &mut PchatState,
     channel_id: u32,
-    mode: PersistenceMode,
+    protocol: PchatProtocol,
     message_id: &str,
     body: &str,
     sender_name: &str,
@@ -579,7 +601,7 @@ pub(crate) async fn send_encrypted_message(
 
     let payload = pchat
         .key_manager
-        .encrypt(mode, channel_id, message_id, now, &envelope_bytes)
+        .encrypt(protocol, channel_id, message_id, now, &envelope_bytes)
         .map_err(|e| format!("encrypt message: {e}"))?;
 
     let proto_msg = mumble_tcp::PchatMessage {
@@ -587,7 +609,7 @@ pub(crate) async fn send_encrypted_message(
         channel_id: Some(channel_id),
         timestamp: Some(now),
         sender_hash: Some(pchat.own_cert_hash.clone()),
-        mode: Some(persistence_mode_to_proto(mode)),
+        protocol: Some(protocol_to_proto(protocol)),
         envelope: Some(payload.ciphertext),
         epoch: payload.epoch,
         chain_index: payload.chain_index,
@@ -753,10 +775,9 @@ fn find_shareable_channels(
             let is_full_archive = state
                 .channels
                 .get(&ch_id)
-                .and_then(|ch| ch.pchat_mode)
-                .map(PersistenceMode::from)
-                == Some(PersistenceMode::FullArchive);
-            let has_key = pchat.key_manager.has_key(ch_id, PersistenceMode::FullArchive);
+                .and_then(|ch| ch.pchat_protocol)
+                == Some(PchatProtocol::FancyV1FullArchive);
+            let has_key = pchat.key_manager.has_key(ch_id, PchatProtocol::FancyV1FullArchive);
             let already_holder = pchat.key_manager.key_holders(ch_id).contains(peer_cert_hash);
             is_full_archive && has_key && !already_holder
         })
@@ -778,16 +799,15 @@ pub(crate) fn check_key_share_for_channel(shared: &Arc<Mutex<SharedState>>, chan
     let is_full_archive = state
         .channels
         .get(&channel_id)
-        .and_then(|c| c.pchat_mode)
-        .map(PersistenceMode::from)
-        == Some(PersistenceMode::FullArchive);
+        .and_then(|c| c.pchat_protocol)
+        == Some(PchatProtocol::FancyV1FullArchive);
     if !is_full_archive {
         return;
     }
 
     let Some(ref pchat) = state.pchat else { return };
 
-    if !pchat.key_manager.has_key(channel_id, PersistenceMode::FullArchive) {
+    if !pchat.key_manager.has_key(channel_id, PchatProtocol::FancyV1FullArchive) {
         return;
     }
 
@@ -876,7 +896,7 @@ pub(crate) fn handle_proto_key_request(
     // consent banner.
     if !pchat.key_manager.has_key(
         wire_request.channel_id,
-        PersistenceMode::FullArchive,
+        PchatProtocol::FancyV1FullArchive,
     ) {
         info!(channel_id = wire_request.channel_id, "no key to share for this channel");
         return;
@@ -959,7 +979,7 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
     );
 
     let channel_id = wire_exchange.channel_id;
-    let mode = PersistenceMode::from_wire_str(&wire_exchange.mode);
+    let protocol = PchatProtocol::from_wire_str(&wire_exchange.protocol);
     let request_id = wire_exchange.request_id.clone();
 
     let Ok(mut state) = shared.lock() else { return };
@@ -986,7 +1006,7 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
                 // pending_consensus (when request_id is present). We must
                 // evaluate consensus immediately to promote it into
                 // archive_keys so that has_key() returns true.
-                if mode == PersistenceMode::FullArchive {
+                if protocol == PchatProtocol::FancyV1FullArchive {
                     if let Some(ref rid) = request_id {
                         match pchat.key_manager.evaluate_consensus(rid, channel_id, &[]) {
                             Ok((trust, Some(_key))) => {
@@ -1007,10 +1027,10 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
                     } else {
                         // No request_id means direct acceptance (already stored
                         // in archive_keys by receive_key_exchange).
-                        key_accepted = pchat.key_manager.has_key(channel_id, mode);
+                        key_accepted = pchat.key_manager.has_key(channel_id, protocol);
                     }
                 } else {
-                    key_accepted = pchat.key_manager.has_key(channel_id, mode);
+                    key_accepted = pchat.key_manager.has_key(channel_id, protocol);
                 }
             }
             Err(e) => {
@@ -1063,7 +1083,7 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
 
         // Extract key data and identity_dir for disk persistence
         // before we drop the lock.
-        let persist_info = if mode == PersistenceMode::FullArchive {
+        let persist_info = if protocol == PchatProtocol::FancyV1FullArchive {
             state.pchat.as_ref().and_then(|p| {
                 let (key, _trust) = p.key_manager.get_archive_key(channel_id)?;
                 let originator = p.key_manager.get_channel_originator(channel_id)
@@ -1084,7 +1104,7 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
             );
         }
 
-        retry_decrypt_pending_messages(&mut state, channel_id, mode);
+        retry_decrypt_pending_messages(&mut state, channel_id, protocol);
 
         // Drop the mutex before calling send_key_holder_report (which
         // re-acquires it briefly to read cert_hash + client_handle).
@@ -1109,7 +1129,7 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
 fn retry_decrypt_pending_messages(
     state: &mut SharedState,
     channel_id: u32,
-    _mode: PersistenceMode,
+    _protocol: PchatProtocol,
 ) {
     let has_placeholders = state
         .messages
@@ -1157,12 +1177,19 @@ fn retry_decrypt_pending_messages(
     }
 }
 
+/// Cache a decrypted `SignalV1` message in the local encrypted store.
+fn cache_signal_message(pchat: &mut PchatState, msg: CachedMessage) {
+    if let Some(ref mut cache) = pchat.local_cache {
+        cache.insert(msg);
+    }
+}
+
 pub(crate) fn handle_proto_msg_deliver(shared: &Arc<Mutex<SharedState>>, msg: &mumble_tcp::PchatMessageDeliver) {
     let message_id = msg.message_id.clone().unwrap_or_default();
     let channel_id = msg.channel_id.unwrap_or(0);
     let timestamp = msg.timestamp.unwrap_or(0);
     let sender_hash = msg.sender_hash.clone().unwrap_or_default();
-    let mode = proto_to_persistence_mode(msg.mode);
+    let protocol = proto_to_protocol(msg.protocol);
     let envelope_bytes = msg.envelope.clone().unwrap_or_default();
     let replaces_id = msg.replaces_id.clone();
 
@@ -1185,32 +1212,29 @@ pub(crate) fn handle_proto_msg_deliver(shared: &Arc<Mutex<SharedState>>, msg: &m
 
     let Some(pchat) = state.pchat.as_mut() else { return };
 
-    // Build empty epoch_fingerprint if not provided
-    let _epoch_fp: [u8; 8] = msg.replaces_id.as_ref().map(|_| [0u8; 8]).unwrap_or([0u8; 8]);
-    // Actually we don't have epoch_fingerprint in PchatMessageDeliver — it's only in PchatMessage.
-    // For decryption, we need epoch info. Since PchatMessageDeliver doesn't carry epoch/chain_index/epoch_fingerprint,
-    // this is a broadcast notification — the server already stored it. We still need to decrypt though.
-    // Looking at the proto definition, PchatMessageDeliver only has: message_id, channel_id, timestamp, sender_hash, mode, envelope, replaces_id.
-    // We need to handle this with a "latest epoch" approach for decryption.
-
-    // For PchatMessageDeliver (real-time), we try decrypting with the current epoch key.
-    // The decrypt method needs an EncryptedPayload, but we don't have epoch/chain_index here.
-    // Since this is a real-time delivery, we can try decrypt with epoch=None (latest).
-    let payload = mumble_protocol::persistent::keys::EncryptedPayload {
-        ciphertext: envelope_bytes,
-        epoch: None,
-        chain_index: None,
-        epoch_fingerprint: [0u8; 8],
+    // For PchatMessageDeliver (real-time), we try decrypting with the
+    // current epoch key (FancyV1) or the sender's chain key (SignalV1).
+    let decrypt_result = if protocol == PchatProtocol::SignalV1 {
+        pchat
+            .key_manager
+            .decrypt_signal(&sender_hash, channel_id, &envelope_bytes)
+    } else {
+        let payload = mumble_protocol::persistent::keys::EncryptedPayload {
+            ciphertext: envelope_bytes,
+            epoch: None,
+            chain_index: None,
+            epoch_fingerprint: [0u8; 8],
+        };
+        pchat
+            .key_manager
+            .decrypt(protocol, channel_id, &message_id, timestamp, &payload)
     };
 
-    let (body, sender_name) = match pchat
-        .key_manager
-        .decrypt(mode, channel_id, &message_id, timestamp, &payload)
-    {
+    let (body, sender_name, decrypted) = match decrypt_result {
         Ok(plaintext) => {
             debug!(message_id = %message_id, plaintext_len = plaintext.len(), "pchat msg-deliver: decrypted OK");
             match pchat.codec.decode::<MessageEnvelope>(&plaintext) {
-                Ok(env) => (env.body, env.sender_name),
+                Ok(env) => (env.body, env.sender_name, true),
                 Err(e) => {
                     warn!(message_id = %message_id, "failed to decode envelope: {e}");
                     return;
@@ -1218,13 +1242,23 @@ pub(crate) fn handle_proto_msg_deliver(shared: &Arc<Mutex<SharedState>>, msg: &m
             }
         }
         Err(e) => {
-            warn!(message_id = %message_id, channel_id, has_key = pchat.key_manager.has_key(channel_id, mode), "failed to decrypt message: {e}");
+            warn!(message_id = %message_id, channel_id, has_key = pchat.key_manager.has_key(channel_id, protocol), "failed to decrypt message: {e}");
             (
                 "[Encrypted message - awaiting key]".to_string(),
                 sender_hash.clone(),
+                false,
             )
         }
     };
+
+    // Cache successfully decrypted SignalV1 messages locally.
+    if protocol == PchatProtocol::SignalV1 && decrypted {
+        cache_signal_message(pchat, CachedMessage {
+            message_id: message_id.clone(), channel_id, timestamp,
+            sender_hash: sender_hash.clone(), sender_name: sender_name.clone(),
+            body: body.clone(), is_own: false,
+        });
+    }
 
     let sender_session = state
         .users
@@ -1303,8 +1337,8 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
         let msg_channel_id = proto_msg.channel_id.unwrap_or(0);
         let msg_timestamp = proto_msg.timestamp.unwrap_or(0);
         let msg_sender_hash = proto_msg.sender_hash.clone().unwrap_or_default();
-        let mode = proto_to_persistence_mode(proto_msg.mode);
-        let has_key = pchat.key_manager.has_key(msg_channel_id, mode);
+        let protocol = proto_to_protocol(proto_msg.protocol);
+        let has_key = pchat.key_manager.has_key(msg_channel_id, protocol);
 
         debug!(
             message_id = %msg_id,
@@ -1316,21 +1350,28 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
             "pchat fetch-resp: processing message"
         );
 
-        let payload = mumble_protocol::persistent::keys::EncryptedPayload {
-            ciphertext: proto_msg.envelope.clone().unwrap_or_default(),
-            epoch: proto_msg.epoch,
-            chain_index: proto_msg.chain_index,
-            epoch_fingerprint: proto_msg
-                .epoch_fingerprint
-                .clone()
-                .unwrap_or_default()
-                .try_into()
-                .unwrap_or([0u8; 8]),
+        let decrypt_result = if protocol == PchatProtocol::SignalV1 {
+            pchat
+                .key_manager
+                .decrypt_signal(&msg_sender_hash, msg_channel_id, &proto_msg.envelope.clone().unwrap_or_default())
+        } else {
+            let payload = mumble_protocol::persistent::keys::EncryptedPayload {
+                ciphertext: proto_msg.envelope.clone().unwrap_or_default(),
+                epoch: proto_msg.epoch,
+                chain_index: proto_msg.chain_index,
+                epoch_fingerprint: proto_msg
+                    .epoch_fingerprint
+                    .clone()
+                    .unwrap_or_default()
+                    .try_into()
+                    .unwrap_or([0u8; 8]),
+            };
+            pchat
+                .key_manager
+                .decrypt(protocol, msg_channel_id, &msg_id, msg_timestamp, &payload)
         };
 
-        let (body, sender_name, _decrypted) = match pchat
-            .key_manager
-            .decrypt(mode, msg_channel_id, &msg_id, msg_timestamp, &payload)
+        let (body, sender_name, decrypted) = match decrypt_result
         {
             Ok(plaintext) => {
                 debug!(message_id = %msg_id, plaintext_len = plaintext.len(), "pchat fetch-resp: decrypted OK");
@@ -1358,6 +1399,15 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
         let is_own = !msg_sender_hash.is_empty()
             && !own_cert_hash.is_empty()
             && msg_sender_hash == own_cert_hash;
+
+        // Cache successfully decrypted SignalV1 messages locally.
+        if protocol == PchatProtocol::SignalV1 && decrypted {
+            cache_signal_message(pchat, CachedMessage {
+                message_id: msg_id.clone(), channel_id: msg_channel_id,
+                timestamp: msg_timestamp, sender_hash: msg_sender_hash.clone(),
+                sender_name: sender_name.clone(), body: body.clone(), is_own,
+            });
+        }
 
         info!(
             message_id = %msg_id,
@@ -1504,6 +1554,213 @@ pub(crate) fn handle_proto_delete_messages(
     info!(channel_id, removed, "pchat delete: evicted messages from local store");
 }
 
+// ---- Offline queue drain handler ------------------------------------
+
+/// Handle a `PchatOfflineQueueDrain` from the server.
+///
+/// The server sends a batch of messages that were queued while we were
+/// offline.  Each entry is a full `PchatMessageDeliver`.  We decrypt,
+/// deduplicate, insert into the local message store, and then send a
+/// `PchatAck` back so the server can remove those entries from the queue.
+pub(crate) fn handle_proto_offline_queue_drain(
+    shared: &Arc<Mutex<SharedState>>,
+    msg: &mumble_tcp::PchatOfflineQueueDrain,
+) {
+    let channel_id = msg.channel_id.unwrap_or(0);
+
+    info!(
+        channel_id,
+        count = msg.messages.len(),
+        "received offline queue drain"
+    );
+
+    if msg.messages.is_empty() {
+        return;
+    }
+
+    let Ok(mut state) = shared.lock() else { return };
+    let Some(pchat) = state.pchat.as_mut() else { return };
+
+    // Phase 1: decrypt all messages while holding the pchat borrow.
+    let decrypted_msgs = decrypt_offline_batch(pchat, channel_id, &msg.messages);
+
+    // Phase 2: insert messages into state (pchat borrow is no longer needed).
+    let acked_ids = insert_offline_messages(&mut state, channel_id, &decrypted_msgs);
+
+    // Sort the channel's messages by timestamp so offline messages
+    // appear in chronological order.
+    if let Some(msgs) = state.messages.get_mut(&channel_id) {
+        msgs.sort_by_key(|m| m.timestamp.unwrap_or(0));
+    }
+
+    // Send PchatAck to confirm receipt so server can delete from queue.
+    if !acked_ids.is_empty() {
+        send_offline_queue_ack(&state, channel_id, acked_ids);
+    }
+}
+
+/// Intermediate result after decrypting a single offline-queued message.
+struct DecryptedOfflineMsg {
+    message_id: String,
+    timestamp: u64,
+    sender_hash: String,
+    body: String,
+    sender_name: String,
+}
+
+/// Decrypt and cache a batch of `PchatMessageDeliver` entries from an
+/// offline queue drain.  Returns the successfully processed messages.
+fn decrypt_offline_batch(
+    pchat: &mut PchatState,
+    channel_id: u32,
+    messages: &[mumble_tcp::PchatMessageDeliver],
+) -> Vec<DecryptedOfflineMsg> {
+    let mut results = Vec::with_capacity(messages.len());
+
+    for deliver in messages {
+        let message_id = deliver.message_id.clone().unwrap_or_default();
+        let timestamp = deliver.timestamp.unwrap_or(0);
+        let sender_hash = deliver.sender_hash.clone().unwrap_or_default();
+        let protocol = proto_to_protocol(deliver.protocol);
+        let envelope_bytes = deliver.envelope.clone().unwrap_or_default();
+
+        let decrypt_result = if protocol == PchatProtocol::SignalV1 {
+            pchat
+                .key_manager
+                .decrypt_signal(&sender_hash, channel_id, &envelope_bytes)
+        } else {
+            let payload = mumble_protocol::persistent::keys::EncryptedPayload {
+                ciphertext: envelope_bytes,
+                epoch: None,
+                chain_index: None,
+                epoch_fingerprint: [0u8; 8],
+            };
+            pchat
+                .key_manager
+                .decrypt(protocol, channel_id, &message_id, timestamp, &payload)
+        };
+
+        let (body, sender_name, decrypted) = match decrypt_result {
+            Ok(plaintext) => {
+                debug!(message_id = %message_id, "offline drain: decrypted OK");
+                match pchat.codec.decode::<MessageEnvelope>(&plaintext) {
+                    Ok(env) => (env.body, env.sender_name, true),
+                    Err(e) => {
+                        warn!(message_id = %message_id, "offline drain: failed to decode envelope: {e}");
+                        continue;
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(message_id = %message_id, channel_id, "offline drain: failed to decrypt: {e}");
+                (
+                    "[Encrypted message - awaiting key]".to_string(),
+                    sender_hash.clone(),
+                    false,
+                )
+            }
+        };
+
+        if protocol == PchatProtocol::SignalV1 && decrypted {
+            cache_signal_message(pchat, CachedMessage {
+                message_id: message_id.clone(),
+                channel_id,
+                timestamp,
+                sender_hash: sender_hash.clone(),
+                sender_name: sender_name.clone(),
+                body: body.clone(),
+                is_own: false,
+            });
+        }
+
+        results.push(DecryptedOfflineMsg {
+            message_id,
+            timestamp,
+            sender_hash,
+            body,
+            sender_name,
+        });
+    }
+
+    results
+}
+
+/// Insert decrypted offline messages into the state, deduplicating against
+/// existing messages.  Returns the IDs of all processed messages (for ack).
+fn insert_offline_messages(
+    state: &mut SharedState,
+    channel_id: u32,
+    decrypted: &[DecryptedOfflineMsg],
+) -> Vec<String> {
+    let mut acked_ids: Vec<String> = Vec::with_capacity(decrypted.len());
+
+    for dm in decrypted {
+        if let Some(msgs) = state.messages.get(&channel_id) {
+            if msgs
+                .iter()
+                .any(|m| m.message_id.as_deref() == Some(&dm.message_id))
+            {
+                acked_ids.push(dm.message_id.clone());
+                continue;
+            }
+        }
+
+        let sender_session = state
+            .users
+            .values()
+            .find(|u| u.hash.as_deref() == Some(&dm.sender_hash))
+            .map(|u| u.session);
+
+        let chat_msg = ChatMessage {
+            sender_session,
+            sender_name: dm.sender_name.clone(),
+            body: dm.body.clone(),
+            channel_id,
+            is_own: false,
+            dm_session: None,
+            group_id: None,
+            message_id: Some(dm.message_id.clone()),
+            timestamp: Some(dm.timestamp),
+            is_legacy: false,
+        };
+
+        state
+            .messages
+            .entry(channel_id)
+            .or_default()
+            .push(chat_msg);
+
+        acked_ids.push(dm.message_id.clone());
+    }
+
+    acked_ids
+}
+
+/// Send a `PchatAck` for offline-queued messages so the server can remove
+/// them from the queue.
+fn send_offline_queue_ack(state: &SharedState, channel_id: u32, acked_ids: Vec<String>) {
+    let Some(handle) = state.client_handle.clone() else {
+        return;
+    };
+    let ack = mumble_tcp::PchatAck {
+        message_ids: acked_ids.clone(),
+        status: Some(mumble_tcp::PchatAckStatus::PchatAckStored as i32),
+        reason: None,
+        channel_id: Some(channel_id),
+    };
+    let _ack_task = tokio::spawn(async move {
+        if let Err(e) = handle.send(command::SendPchatAck { ack }).await {
+            warn!(channel_id, "failed to send offline queue ack: {e}");
+        } else {
+            info!(
+                channel_id,
+                count = acked_ids.len(),
+                "sent offline queue ack"
+            );
+        }
+    });
+}
+
 // ---- Key-possession challenge handlers ------------------------------
 
 /// Handle a `PchatKeyChallenge` from the server.
@@ -1645,6 +1902,22 @@ fn prepare_key_holder_report(
         let mut s = shared.lock().ok();
         let h = s.as_ref().and_then(|s| s.client_handle.clone());
         let hash = s.as_ref().and_then(|s| s.pchat.as_ref().map(|p| p.own_cert_hash.clone()));
+
+        // Verify we actually hold a usable key before reporting.
+        // For SignalV1 this checks that the signal bridge is loaded;
+        // for other modes it checks archive/epoch key presence.
+        let mode = s
+            .as_ref()
+            .and_then(|s| s.channels.get(&channel_id).and_then(|c| c.pchat_protocol));
+        if let (Some(ref s), Some(mode)) = (&s, mode) {
+            if let Some(ref pchat) = s.pchat {
+                if !pchat.key_manager.has_key(channel_id, mode) {
+                    warn!(channel_id, ?mode, "not reporting as key holder: no usable key");
+                    return None;
+                }
+            }
+        }
+
         // Record ourselves as holder locally so consent checks skip us.
         if let (Some(ref mut s), Some(ref hash)) = (&mut s, &hash) {
             if let Some(ref mut pchat) = s.pchat {
@@ -1774,6 +2047,305 @@ pub(crate) fn now_millis() -> u64 {
         .as_millis() as u64
 }
 
+// ---- Signal bridge loading ------------------------------------------
+
+/// Attempt to load the Signal Protocol bridge DLL.
+///
+/// Searches for the platform-specific library name in several locations:
+/// 1. Next to the executable (Windows installers, `AppImage`, dev mode)
+/// 2. `../lib/fancy-mumble/` relative to the exe (Linux deb packages where
+///    the binary is in `/usr/bin/` and resources in `/usr/lib/fancy-mumble/`)
+/// 3. Extra search directory (e.g. Android `nativeLibraryDir`)
+/// 4. On Android, bare filename as fallback (`dlopen` resolves it from the
+///    app's native library directory automatically)
+///
+/// Returns `None` (with a warning) if the library is not found anywhere.
+pub(crate) fn load_signal_bridge(
+    own_cert_hash: &str,
+    extra_search_dir: Option<&Path>,
+) -> Option<Arc<SignalBridge>> {
+    let lib_name = if cfg!(windows) {
+        "signal_bridge.dll"
+    } else if cfg!(target_os = "macos") {
+        "libsignal_bridge.dylib"
+    } else {
+        "libsignal_bridge.so"
+    };
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    // Desktop: look next to the executable and in resource subdirectories
+    #[cfg(not(target_os = "android"))]
+    {
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(Path::to_path_buf));
+
+        if let Some(ref dir) = exe_dir {
+            // 1. Next to the executable (dev mode, Windows NSIS/MSI)
+            candidates.push(dir.join(lib_name));
+            // 2. Tauri bundled resource subdirectory
+            candidates.push(dir.join("signal-bridge").join(lib_name));
+            // 3. Tauri resource dir for Linux deb: ../lib/fancy-mumble/
+            candidates.push(dir.join("../lib/fancy-mumble").join(lib_name));
+            candidates.push(
+                dir.join("../lib/fancy-mumble/signal-bridge")
+                    .join(lib_name),
+            );
+        }
+    }
+
+    // 3. Extra search directory
+    if let Some(dir) = extra_search_dir {
+        candidates.push(dir.join(lib_name));
+    }
+
+    // 4. Bare name as last resort (OS / Android linker search path)
+    candidates.push(PathBuf::from(lib_name));
+
+    // On Android, dlopen resolves bare filenames from the app's native
+    // library directory, so we cannot rely on Path::exists(). Try each
+    // candidate with SignalBridge::new directly.
+    #[cfg(target_os = "android")]
+    {
+        for candidate in &candidates {
+            match SignalBridge::new(candidate, own_cert_hash) {
+                Ok(bridge) => {
+                    info!(?candidate, "loaded signal bridge");
+                    return Some(Arc::new(bridge));
+                }
+                Err(e) => {
+                    debug!(?candidate, "signal bridge candidate failed: {e}");
+                }
+            }
+        }
+        warn!(
+            ?candidates,
+            "signal bridge library not found; SignalV1 channels will not work"
+        );
+        return None;
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let lib_path = candidates.iter().find(|p| p.exists());
+
+        let Some(lib_path) = lib_path else {
+            warn!(
+                ?candidates,
+                "signal bridge library not found; SignalV1 channels will not work"
+            );
+            return None;
+        };
+
+        match SignalBridge::new(lib_path, own_cert_hash) {
+            Ok(bridge) => {
+                info!(?lib_path, "loaded signal bridge");
+                Some(Arc::new(bridge))
+            }
+            Err(e) => {
+                warn!(?lib_path, "failed to load signal bridge: {e}");
+                None
+            }
+        }
+    }
+}
+
+/// Ensure the signal bridge is loaded and wired into the key manager.
+///
+/// If a bridge is already loaded, this is a no-op. Otherwise attempts to
+/// load the DLL and stores it in both `PchatState` and `KeyManager`.
+/// If a saved signal state file exists in the identity directory, it is
+/// imported into the freshly created bridge so that sender key sessions
+/// survive across reconnects.
+pub(crate) fn ensure_signal_bridge(pchat: &mut PchatState) {
+    if pchat.signal_bridge.is_some() {
+        return;
+    }
+    let bridge = load_signal_bridge(&pchat.own_cert_hash, None);
+    if let Some(ref b) = bridge {
+        pchat.key_manager.set_signal_bridge(Arc::clone(b));
+        load_signal_state(pchat.identity_dir.as_deref(), b);
+    }
+    pchat.signal_bridge = bridge;
+}
+
+/// Save the signal bridge state to disk so it can be restored on reconnect.
+///
+/// Writes the exported JSON blob to `<identity_dir>/signal_state.json`.
+/// Errors are logged but not propagated -- persistence is best-effort.
+pub(crate) fn save_signal_state(pchat: &PchatState) {
+    let Some(ref bridge) = pchat.signal_bridge else {
+        info!("no signal bridge loaded; skipping signal state save");
+        return;
+    };
+    let Some(ref dir) = pchat.identity_dir else {
+        info!("no identity_dir set; skipping signal state save");
+        return;
+    };
+    match bridge.export_state() {
+        Ok(data) => {
+            let path = dir.join(SIGNAL_STATE_FILE);
+            if let Err(e) = std::fs::write(&path, &data) {
+                warn!(?path, "failed to write signal state: {e}");
+            } else {
+                info!(?path, bytes = data.len(), "saved signal bridge state");
+            }
+        }
+        Err(e) => {
+            warn!("failed to export signal bridge state: {e}");
+        }
+    }
+}
+
+/// Save the local message cache to disk (AES-256-GCM encrypted).
+///
+/// Errors are logged but not propagated -- persistence is best-effort.
+pub(crate) fn save_local_cache(pchat: &PchatState) {
+    if let Some(ref cache) = pchat.local_cache {
+        if let Err(e) = cache.save() {
+            warn!("failed to save local message cache: {e}");
+        }
+    }
+}
+
+/// Load a previously saved signal state from disk into the bridge.
+fn load_signal_state(identity_dir: Option<&Path>, bridge: &SignalBridge) {
+    let Some(dir) = identity_dir else {
+        return;
+    };
+    let path = dir.join(SIGNAL_STATE_FILE);
+    if !path.exists() {
+        info!(?path, "no saved signal state found");
+        return;
+    }
+    match std::fs::read(&path) {
+        Ok(data) => match bridge.import_state(&data) {
+            Ok(()) => info!(?path, "restored signal bridge state from disk"),
+            Err(e) => warn!(?path, "failed to import signal state: {e}"),
+        },
+        Err(e) => warn!(?path, "failed to read signal state file: {e}"),
+    }
+}
+
+// ---- Signal sender key distribution ---------------------------------
+
+/// Create our sender key distribution for a channel and broadcast it
+/// to all channel members via `PluginDataTransmission`.
+///
+/// Each member who receives the distribution can then decrypt our
+/// future messages on that channel.
+pub(crate) fn send_signal_distribution(
+    shared: &Arc<Mutex<SharedState>>,
+    channel_id: u32,
+) {
+    let (handle, distribution, sessions) = {
+        let Ok(mut state) = shared.lock() else { return };
+
+        let Some(ref mut pchat) = state.pchat else { return };
+        ensure_signal_bridge(pchat);
+        let Some(ref bridge) = pchat.signal_bridge else {
+            warn!(channel_id, "cannot send signal distribution: bridge not loaded");
+            return;
+        };
+
+        let dist = match bridge.create_distribution(channel_id) {
+            Ok(d) => d,
+            Err(e) => {
+                warn!(channel_id, "create_distribution failed: {e}");
+                return;
+            }
+        };
+
+        // Collect all other user sessions in this channel.
+        let own_session = state.own_session.unwrap_or(0);
+        let receiver_sessions: Vec<u32> = state
+            .users
+            .values()
+            .filter(|u| u.channel_id == channel_id && u.session != own_session)
+            .map(|u| u.session)
+            .collect();
+
+        (state.client_handle.clone(), dist, receiver_sessions)
+    };
+
+    if sessions.is_empty() {
+        debug!(channel_id, "no peers in channel, skipping distribution send");
+        return;
+    }
+
+    let Some(handle) = handle else { return };
+
+    let data_id = mumble_protocol::persistent::DATA_ID_SIGNAL_SENDER_KEY.to_string();
+    let _dist_task = tokio::spawn(async move {
+        if let Err(e) = handle
+            .send(command::SendPluginData {
+                receiver_sessions: sessions,
+                data: distribution,
+                data_id,
+            })
+            .await
+        {
+            warn!(channel_id, "failed to send signal distribution: {e}");
+        } else {
+            info!(channel_id, "sent signal sender key distribution");
+        }
+    });
+}
+
+/// Process a received Signal sender key distribution from a peer.
+///
+/// Called when we receive a `PluginDataTransmission` with
+/// `data_id == DATA_ID_SIGNAL_SENDER_KEY`.
+pub(crate) fn handle_signal_sender_key(
+    shared: &Arc<Mutex<SharedState>>,
+    sender_session: u32,
+    data: &[u8],
+) {
+    let Ok(mut state) = shared.lock() else { return };
+
+    // Resolve sender's cert hash from their session.
+    let sender_hash = state
+        .users
+        .get(&sender_session)
+        .and_then(|u| u.hash.clone());
+    let Some(sender_hash) = sender_hash else {
+        warn!(sender_session, "signal sender key from unknown session");
+        return;
+    };
+
+    // Determine the sender's channel to use as the distribution channel_id.
+    let sender_channel = state
+        .users
+        .get(&sender_session)
+        .map(|u| u.channel_id)
+        .unwrap_or(0);
+
+    let Some(ref mut pchat) = state.pchat else { return };
+    ensure_signal_bridge(pchat);
+    let Some(ref bridge) = pchat.signal_bridge else {
+        warn!("signal bridge not loaded, cannot process sender key");
+        return;
+    };
+
+    match bridge.process_distribution(&sender_hash, sender_channel, data) {
+        Ok(()) => {
+            info!(
+                sender = %sender_hash,
+                channel_id = sender_channel,
+                "processed signal sender key distribution"
+            );
+        }
+        Err(e) => {
+            warn!(
+                sender = %sender_hash,
+                channel_id = sender_channel,
+                "failed to process signal distribution: {e}"
+            );
+        }
+    }
+}
+
 /// Emit a `pchat-history-loading` event to the frontend via an `AppHandle`
 /// stored in `SharedState`. Call with `loading: true` before starting
 /// key-exchange wait / history fetch and `loading: false` when done.
@@ -1818,7 +2390,7 @@ struct PersistedArchiveKey {
 /// expected at a time since we hold the `SharedState` mutex while
 /// extracting the data).
 pub(crate) fn persist_archive_key(
-    identity_dir: &std::path::Path,
+    identity_dir: &Path,
     channel_id: u32,
     key: &[u8; 32],
     originator: Option<&str>,
@@ -1854,7 +2426,7 @@ pub(crate) fn persist_archive_key(
 
 /// Delete the persisted archive key for a single channel.
 pub(crate) fn delete_persisted_archive_key(
-    identity_dir: &std::path::Path,
+    identity_dir: &Path,
     channel_id: u32,
 ) {
     let path = identity_dir.join(ARCHIVE_KEYS_FILE);
@@ -1884,7 +2456,7 @@ pub(crate) fn delete_persisted_archive_key(
 /// Returns `(channel_id, key_bytes, originator)` tuples. Entries with
 /// invalid hex or wrong key length are silently skipped.
 pub(crate) fn load_persisted_archive_keys(
-    identity_dir: &std::path::Path,
+    identity_dir: &Path,
 ) -> Vec<(u32, [u8; 32], Option<String>)> {
     let path = identity_dir.join(ARCHIVE_KEYS_FILE);
 
@@ -1964,7 +2536,7 @@ mod tests {
 
     #[test]
     fn load_from_nonexistent_dir_returns_empty() {
-        let dir = std::path::Path::new("/nonexistent/path/12345");
+        let dir = Path::new("/nonexistent/path/12345");
         let loaded = load_persisted_archive_keys(dir);
         assert!(loaded.is_empty());
     }
