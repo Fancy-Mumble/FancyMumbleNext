@@ -381,6 +381,16 @@ jobs:
           shared-key: ${{ matrix.target.os }}-signal-bridge
           workspaces: crates/signal-bridge
 
+      - name: Install protoc (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Install protoc (Windows)
+        if: runner.os == 'Windows'
+        run: choco install protoc -y
+
       - name: Build signal-bridge (release)
         working-directory: crates/signal-bridge
         run: cargo build --release
