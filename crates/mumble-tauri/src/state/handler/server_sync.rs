@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use mumble_protocol::command;
-use mumble_protocol::persistent::PersistenceMode;
+use mumble_protocol::persistent::PchatProtocol;
 use mumble_protocol::proto::mumble_tcp;
 use tracing::{debug, info, warn};
 
@@ -294,8 +294,8 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                 if let Some(ref s) = s {
                                     let ch = s.current_channel;
                                     let mode = ch.and_then(|c| {
-                                        s.channels.get(&c).and_then(|ce| ce.pchat_mode)
-                                    }).map(PersistenceMode::from);
+                                        s.channels.get(&c).and_then(|ce| ce.pchat_protocol)
+                                    });
                                     (ch, mode)
                                 } else {
                                     (None, None)
@@ -316,7 +316,7 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                     // For FullArchive, derive the key immediately (it's
                                     // deterministic from the seed) so we can skip the
                                     // 2-second peer-exchange wait.
-                                    if mode == PersistenceMode::FullArchive {
+                                    if mode == PchatProtocol::FancyV1FullArchive {
                                         use mumble_protocol::persistent::KeyTrustLevel;
                                         if let Ok(mut s) = shared.lock() {
                                             if let Some(ref mut p) = s.pchat {
@@ -362,17 +362,17 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                     if needs_key {
                                         use mumble_protocol::persistent::KeyTrustLevel;
                                         if let Ok(mut s) = shared.lock() {
-                                            let mode = s.channels.get(&ch).and_then(|c| c.pchat_mode).map(PersistenceMode::from);
+                                            let mode = s.channels.get(&ch).and_then(|c| c.pchat_protocol);
                                             if let Some(ref mut p) = s.pchat {
                                                 let cert = p.own_cert_hash.clone();
                                                 match mode {
-                                                    Some(PersistenceMode::FullArchive) => {
+                                                    Some(PchatProtocol::FancyV1FullArchive) => {
                                                         let key = mumble_protocol::persistent::encryption::derive_archive_key(&p.seed, ch);
                                                         p.key_manager.store_archive_key(ch, key, KeyTrustLevel::Verified);
                                                         p.key_manager.set_channel_originator(ch, cert.clone());
                                                         info!(channel_id = ch, cert_hash = %cert, "derived archive key on initial join");
                                                     }
-                                                    Some(PersistenceMode::PostJoin) => {
+                                                    Some(PchatProtocol::FancyV1PostJoin) => {
                                                         let key: [u8; 32] = rand::random();
                                                         p.key_manager.store_epoch_key(ch, 0, key, KeyTrustLevel::Verified);
                                                         p.key_manager.set_channel_originator(ch, cert.clone());

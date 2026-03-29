@@ -1,6 +1,6 @@
 //! Channel persistence configuration parsed from `ChannelState` protobuf.
 
-use super::PersistenceMode;
+use super::PchatProtocol;
 use serde::{Deserialize, Serialize};
 
 /// Persistence configuration for a single channel, derived from
@@ -10,7 +10,7 @@ pub struct ChannelPersistConfig {
     /// The channel this config applies to.
     pub channel_id: u32,
     /// Persistence mode.
-    pub mode: PersistenceMode,
+    pub mode: PchatProtocol,
     /// Maximum messages stored (0 = unlimited).
     pub max_history: u32,
     /// Auto-delete after N days (0 = forever).
@@ -25,16 +25,16 @@ impl ChannelPersistConfig {
     /// Fields that are absent default to `NONE` mode with server defaults.
     pub fn from_channel_state(
         channel_id: u32,
-        pchat_mode: Option<i32>,
+        pchat_protocol: Option<i32>,
         pchat_max_history: Option<u32>,
         pchat_retention_days: Option<u32>,
         pchat_key_custodians: Vec<String>,
     ) -> Self {
         Self {
             channel_id,
-            mode: pchat_mode
-                .map(PersistenceMode::from_proto)
-                .unwrap_or(PersistenceMode::None),
+            mode: pchat_protocol
+                .map(PchatProtocol::from_proto)
+                .unwrap_or(PchatProtocol::None),
             max_history: pchat_max_history.unwrap_or(0),
             retention_days: pchat_retention_days.unwrap_or(0),
             key_custodians: pchat_key_custodians,
@@ -44,7 +44,7 @@ impl ChannelPersistConfig {
     /// Whether this channel has any persistence enabled.
     #[must_use]
     pub fn is_persistent(&self) -> bool {
-        self.mode != PersistenceMode::None
+        self.mode != PchatProtocol::None
     }
 }
 
@@ -58,10 +58,10 @@ pub trait PersistenceConfigProvider: Send + Sync {
     fn get_config(&self, channel_id: u32) -> Option<&ChannelPersistConfig>;
 
     /// Resolve the persistence mode for a channel, defaulting to `None`.
-    fn mode_for(&self, channel_id: u32) -> PersistenceMode {
+    fn mode_for(&self, channel_id: u32) -> PchatProtocol {
         self.get_config(channel_id)
             .map(|c| c.mode)
-            .unwrap_or(PersistenceMode::None)
+            .unwrap_or(PchatProtocol::None)
     }
 }
 
@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn from_channel_state_defaults() {
         let cfg = ChannelPersistConfig::from_channel_state(1, None, None, None, vec![]);
-        assert_eq!(cfg.mode, PersistenceMode::None);
+        assert_eq!(cfg.mode, PchatProtocol::None);
         assert_eq!(cfg.max_history, 0);
         assert_eq!(cfg.retention_days, 0);
         assert!(cfg.key_custodians.is_empty());
@@ -122,7 +122,7 @@ mod tests {
             Some(90),
             vec!["abc123".into()],
         );
-        assert_eq!(cfg.mode, PersistenceMode::PostJoin);
+        assert_eq!(cfg.mode, PchatProtocol::FancyV1PostJoin);
         assert_eq!(cfg.max_history, 1000);
         assert_eq!(cfg.retention_days, 90);
         assert_eq!(cfg.key_custodians, vec!["abc123"]);
@@ -134,8 +134,8 @@ mod tests {
         let mut reg = ConfigRegistry::new();
         let cfg = ChannelPersistConfig::from_channel_state(1, Some(2), None, None, vec![]);
         reg.upsert(cfg);
-        assert_eq!(reg.mode_for(1), PersistenceMode::FullArchive);
-        assert_eq!(reg.mode_for(999), PersistenceMode::None);
+        assert_eq!(reg.mode_for(1), PchatProtocol::FancyV1FullArchive);
+        assert_eq!(reg.mode_for(999), PchatProtocol::None);
     }
 
     #[test]

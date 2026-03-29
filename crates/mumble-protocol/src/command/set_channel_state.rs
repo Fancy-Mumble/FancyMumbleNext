@@ -1,7 +1,7 @@
 use crate::command::core::{CommandAction, CommandOutput};
 use crate::message::ControlMessage;
 use crate::proto::mumble_tcp;
-use crate::state::{PchatMode, ServerState};
+use crate::state::{PchatProtocol, ServerState};
 
 /// Update or create a channel on the server.
 ///
@@ -29,8 +29,8 @@ pub struct SetChannelState {
     pub temporary: Option<bool>,
     /// Maximum number of users allowed in the channel (0 = unlimited).
     pub max_users: Option<u32>,
-    /// Persistent-chat mode for this channel.
-    pub pchat_mode: Option<PchatMode>,
+    /// Persistent-chat protocol for this channel.
+    pub pchat_protocol: Option<PchatProtocol>,
     /// Max stored messages (0 = unlimited).
     pub pchat_max_history: Option<u32>,
     /// Auto-delete after N days (0 = forever).
@@ -47,7 +47,7 @@ impl CommandAction for SetChannelState {
             position: self.position,
             temporary: self.temporary,
             max_users: self.max_users,
-            pchat_mode: self.pchat_mode.map(PchatMode::to_proto),
+            pchat_protocol: self.pchat_protocol.map(PchatProtocol::to_proto),
             pchat_max_history: self.pchat_max_history,
             pchat_retention_days: self.pchat_retention_days,
             ..Default::default()

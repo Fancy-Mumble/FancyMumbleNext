@@ -1,4 +1,4 @@
-﻿//! Shared application state for the Tauri backend.
+//! Shared application state for the Tauri backend.
 //!
 //! Mirrors the architecture of the Dioxus `MumbleBackend` but uses
 //! Tauri's event system instead of mpsc channels to push updates to
@@ -19,12 +19,12 @@ mod handler;
 pub(crate) mod hash_names;
 pub mod offload;
 pub(crate) mod pchat;
+#[allow(dead_code, reason = "recording module is work-in-progress")]
 mod recording;
 mod search;
 pub mod types;
 
 // Re-export everything that lib.rs needs.
-pub use recording::{RecordingFormat, RecordingState};
 pub use types::{
     AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus, DebugStats,
     GroupChat, PhotoEntry, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
@@ -43,18 +43,17 @@ use offload::OffloadStore;
 use mumble_protocol::audio::mixer::{AudioMixer, SpeakerVolumes};
 use mumble_protocol::client::ClientHandle;
 use mumble_protocol::command;
-use mumble_protocol::persistent::PersistenceMode;
-use mumble_protocol::state::PchatMode;
+use mumble_protocol::persistent::PchatProtocol;
 
 use types::*;
 
 /// Parse a frontend pchat mode string into the protobuf i32 value.
-fn parse_pchat_mode_str(s: &str) -> PchatMode {
+fn parse_pchat_protocol_str(s: &str) -> PchatProtocol {
     match s {
-        "post_join" => PchatMode::PostJoin,
-        "full_archive" => PchatMode::FullArchive,
-        "server_managed" => PchatMode::ServerManaged,
-        _ => PchatMode::None,
+        "post_join" => PchatProtocol::FancyV1PostJoin,
+        "full_archive" => PchatProtocol::FancyV1FullArchive,
+        "server_managed" => PchatProtocol::ServerManaged,
+        _ => PchatProtocol::None,
     }
 }
 
@@ -516,18 +515,18 @@ impl AppState {
 
     #[allow(clippy::too_many_lines, reason = "message send path covers legacy text, fancy extensions, pchat encryption, and local storage")]
     pub async fn send_message(&self, channel_id: u32, body: String) -> Result<(), String> {
-        let (handle, own_session, own_name, is_fancy, pchat_mode) = {
+        let (handle, own_session, own_name, is_fancy, pchat_protocol) = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;
-            let mode = state
+            let pchat_proto = state
                 .channels
                 .get(&channel_id)
-                .and_then(|ch| ch.pchat_mode);
+                .and_then(|ch| ch.pchat_protocol);
             (
                 state.client_handle.clone(),
                 state.own_session,
                 state.own_name.clone(),
                 state.server_fancy_version.is_some(),
-                mode,
+                pchat_proto,
             )
         };
 
@@ -561,17 +560,15 @@ impl AppState {
 
         // If the channel has persistent chat enabled, also send the encrypted
         // PchatMessage proto for server storage (dual-path per spec section 7.1).
-        let persistence_mode = pchat_mode.map(PersistenceMode::from);
         tracing::debug!(
             channel_id,
-            ?pchat_mode,
-            ?persistence_mode,
+            ?pchat_protocol,
             ?message_id,
             now_ms,
             "send_message: checking pchat path"
         );
-        if let Some(mode) = persistence_mode {
-            if mode.is_encrypted() {
+        if let Some(protocol) = pchat_protocol {
+            if protocol.is_encrypted() {
                 if let Some(ref msg_id) = message_id {
                     let session = own_session.unwrap_or(0);
                     // Build encrypted payload inside the lock, then send outside.
@@ -584,7 +581,7 @@ impl AppState {
                             match pchat::build_encrypted_pchat_message(
                                 pchat_state,
                                 channel_id,
-                                mode,
+                                protocol,
                                 msg_id,
                                 &body,
                                 &own_name,
@@ -1306,7 +1303,7 @@ impl AppState {
         position: Option<i32>,
         temporary: Option<bool>,
         max_users: Option<u32>,
-        pchat_mode: Option<String>,
+        pchat_protocol: Option<String>,
         pchat_max_history: Option<u32>,
         pchat_retention_days: Option<u32>,
     ) -> Result<(), String> {
@@ -1324,7 +1321,7 @@ impl AppState {
                     position,
                     temporary,
                     max_users,
-                    pchat_mode: pchat_mode.map(|s| parse_pchat_mode_str(&s)),
+                    pchat_protocol: pchat_protocol.map(|s| parse_pchat_protocol_str(&s)),
                     pchat_max_history,
                     pchat_retention_days,
                 })
@@ -1366,7 +1363,7 @@ impl AppState {
         position: Option<i32>,
         temporary: Option<bool>,
         max_users: Option<u32>,
-        pchat_mode: Option<String>,
+        pchat_protocol: Option<String>,
         pchat_max_history: Option<u32>,
         pchat_retention_days: Option<u32>,
     ) -> Result<(), String> {
@@ -1384,7 +1381,7 @@ impl AppState {
                     position,
                     temporary,
                     max_users,
-                    pchat_mode: pchat_mode.map(|s| parse_pchat_mode_str(&s)),
+                    pchat_protocol: pchat_protocol.map(|s| parse_pchat_protocol_str(&s)),
                     pchat_max_history,
                     pchat_retention_days,
                 })

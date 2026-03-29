@@ -8,53 +8,85 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 
-/// Persistent-chat mode for a channel.
+/// Unified pchat protocol indicator for a channel.
 ///
-/// Maps 1:1 to the `ChannelState.PchatMode` protobuf enum.
-/// Lives in core (no feature gate) so all consumers can use it.
+/// Each value identifies both the E2EE protocol implementation and
+/// the persistence behaviour. Maps 1:1 to the `PchatProtocol`
+/// protobuf enum. Lives in core (no feature gate) so all consumers
+/// can use it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum PchatMode {
+#[cfg_attr(feature = "persistent-chat", derive(serde::Serialize, serde::Deserialize))]
+pub enum PchatProtocol {
     /// No persistence.  Standard volatile Mumble chat.
     #[default]
     None,
-    /// Messages accessible from the moment a user first joined.
-    PostJoin,
-    /// All stored messages accessible to any channel member.
-    FullArchive,
+    /// `FancyV1` E2EE (XChaCha20-Poly1305, X25519/Ed25519) with
+    /// post-join visibility (epoch keys + chain ratchet).
+    FancyV1PostJoin,
+    /// `FancyV1` E2EE with full-archive access (shared archive key).
+    FancyV1FullArchive,
     /// Server stores messages (no client-side key management).
     ServerManaged,
 }
 
-impl PchatMode {
-    /// Parse from the protobuf `pchat_mode` i32 value.
+impl PchatProtocol {
+    /// Parse from the protobuf `PchatProtocol` i32 value.
     #[must_use]
     pub fn from_proto(value: i32) -> Self {
         match value {
-            1 => Self::PostJoin,
-            2 => Self::FullArchive,
+            1 => Self::FancyV1PostJoin,
+            2 => Self::FancyV1FullArchive,
             3 => Self::ServerManaged,
             _ => Self::None,
         }
     }
 
-    /// Convert to the protobuf `pchat_mode` i32 value.
+    /// Convert to the protobuf `PchatProtocol` i32 value.
     #[must_use]
     pub fn to_proto(self) -> i32 {
         match self {
             Self::None => 0,
-            Self::PostJoin => 1,
-            Self::FullArchive => 2,
+            Self::FancyV1PostJoin => 1,
+            Self::FancyV1FullArchive => 2,
             Self::ServerManaged => 3,
+        }
+    }
+
+    /// Whether this protocol uses post-join epoch key semantics.
+    #[must_use]
+    pub fn is_post_join(&self) -> bool {
+        matches!(self, Self::FancyV1PostJoin)
+    }
+
+    /// Whether this protocol uses full-archive shared key semantics.
+    #[must_use]
+    pub fn is_full_archive(&self) -> bool {
+        matches!(self, Self::FancyV1FullArchive)
+    }
+
+    /// Whether this protocol uses client-side E2E encryption.
+    #[must_use]
+    pub fn is_encrypted(&self) -> bool {
+        matches!(self, Self::FancyV1PostJoin | Self::FancyV1FullArchive)
+    }
+
+    /// The E2EE algorithm version byte, or `None` if the protocol
+    /// does not use client-side encryption.
+    #[must_use]
+    pub fn protocol_version(&self) -> Option<u8> {
+        match self {
+            Self::FancyV1PostJoin | Self::FancyV1FullArchive => Some(1),
+            _ => None,
         }
     }
 }
 
-impl fmt::Display for PchatMode {
+impl fmt::Display for PchatProtocol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::None => write!(f, "None"),
-            Self::PostJoin => write!(f, "PostJoin"),
-            Self::FullArchive => write!(f, "FullArchive"),
+            Self::FancyV1PostJoin => write!(f, "FancyV1PostJoin"),
+            Self::FancyV1FullArchive => write!(f, "FancyV1FullArchive"),
             Self::ServerManaged => write!(f, "ServerManaged"),
         }
     }
@@ -166,8 +198,8 @@ pub struct Channel {
     /// Whether the server reports the current user can enter
     /// this channel (`ChannelState.can_enter`).
     pub can_enter: bool,
-    /// Persistent-chat mode.  `None` if not announced by the server.
-    pub pchat_mode: Option<PchatMode>,
+    /// Persistent-chat protocol.  `None` if not announced by the server.
+    pub pchat_protocol: Option<PchatProtocol>,
     /// Maximum stored messages (0 = unlimited).  `None` if not set.
     pub pchat_max_history: Option<u32>,
     /// Auto-delete after N days (0 = forever).  `None` if not set.
@@ -264,7 +296,7 @@ impl ServerState {
             permissions: None,
             is_enter_restricted: false,
             can_enter: true,
-            pchat_mode: None,
+            pchat_protocol: None,
             pchat_max_history: None,
             pchat_retention_days: None,
         });
@@ -278,7 +310,7 @@ impl ServerState {
         let _ = state.max_users.inspect(|&v| channel.max_users = v);
         let _ = state.is_enter_restricted.inspect(|&v| channel.is_enter_restricted = v);
         let _ = state.can_enter.inspect(|&v| channel.can_enter = v);
-        let _ = state.pchat_mode.inspect(|&v| channel.pchat_mode = Some(PchatMode::from_proto(v)));
+        let _ = state.pchat_protocol.inspect(|&v| channel.pchat_protocol = Some(PchatProtocol::from_proto(v)));
         let _ = state.pchat_max_history.inspect(|&v| channel.pchat_max_history = Some(v));
         let _ = state.pchat_retention_days.inspect(|&v| channel.pchat_retention_days = Some(v));
     }

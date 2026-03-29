@@ -42,9 +42,9 @@ use mumble_protocol::persistent::wire::{
     PchatKeyExchange as WireKeyExchange,
     PchatKeyRequest as WireKeyRequest,
 };
-use mumble_protocol::persistent::{KeyTrustLevel, PersistenceMode};
+use mumble_protocol::persistent::{KeyTrustLevel, PchatProtocol};
 use mumble_protocol::proto::mumble_tcp;
-use mumble_protocol::state::{PchatMode, ServerState};
+use mumble_protocol::state::ServerState;
 use mumble_protocol::transport::tcp::{TcpConfig, TcpTransport};
 
 /// How long to wait for the server to respond.
@@ -280,12 +280,12 @@ fn now_millis() -> u64 {
         .as_millis() as u64
 }
 
-/// Set `pchat_mode` on a channel. Requires admin (`SuperUser`) privileges.
-async fn set_pchat_mode(
+/// Set `pchat_protocol` on a channel. Requires admin (`SuperUser`) privileges.
+async fn set_pchat_protocol(
     transport: &mut TcpTransport,
     state: &ServerState,
     channel_id: u32,
-    mode: PchatMode,
+    mode: PchatProtocol,
 ) {
     let cmd = SetChannelState {
         channel_id: Some(channel_id),
@@ -295,7 +295,7 @@ async fn set_pchat_mode(
         position: None,
         temporary: None,
         max_users: None,
-        pchat_mode: Some(mode),
+        pchat_protocol: Some(mode),
         pchat_max_history: None,
         pchat_retention_days: None,
     };
@@ -310,20 +310,20 @@ async fn set_pchat_mode(
         match tokio::time::timeout(Duration::from_secs(2), transport.recv()).await {
             Ok(Ok(ControlMessage::ChannelState(cs))) => {
                 if cs.channel_id == Some(channel_id)
-                    && cs.pchat_mode == Some(mode.to_proto())
+                    && cs.pchat_protocol == Some(mode.to_proto())
                 {
                     return;
                 }
             }
             Ok(Ok(ControlMessage::PermissionDenied(_))) => {
-                panic!("Permission denied setting pchat_mode - authenticate as SuperUser");
+                panic!("Permission denied setting pchat_protocol - authenticate as SuperUser");
             }
             Ok(Ok(_)) => continue,
             _ => break,
         }
     }
     panic!(
-        "Server did not confirm pchat_mode change to {mode:?} on channel {channel_id}"
+        "Server did not confirm pchat_protocol change to {mode:?} on channel {channel_id}"
     );
 }
 
@@ -354,10 +354,10 @@ fn wire_key_announce_to_proto(w: &WireKeyAnnounce) -> mumble_tcp::PchatKeyAnnoun
     }
 }
 
-fn persistence_mode_to_proto(mode: PersistenceMode) -> i32 {
+fn persistence_mode_to_proto(mode: PchatProtocol) -> i32 {
     match mode {
-        PersistenceMode::FullArchive => mumble_tcp::PchatPersistenceMode::PchatModeFullArchive as i32,
-        _ => mumble_tcp::PchatPersistenceMode::PchatModePostJoin as i32,
+        PchatProtocol::FancyV1FullArchive => mumble_tcp::PchatProtocol::FancyV1FullArchive as i32,
+        _ => mumble_tcp::PchatProtocol::FancyV1PostJoin as i32,
     }
 }
 
@@ -369,7 +369,7 @@ async fn send_pchat_msg(
     key_manager: &mut KeyManager,
     cert_hash: &str,
     channel_id: u32,
-    mode: PersistenceMode,
+    mode: PchatProtocol,
     body: &str,
     sender_name: &str,
     sender_session: u32,
@@ -395,7 +395,7 @@ async fn send_pchat_msg(
         channel_id: Some(channel_id),
         timestamp: Some(now),
         sender_hash: Some(cert_hash.to_string()),
-        mode: Some(persistence_mode_to_proto(mode)),
+        protocol: Some(persistence_mode_to_proto(mode)),
         envelope: Some(payload.ciphertext),
         epoch: payload.epoch,
         chain_index: payload.chain_index,
@@ -471,21 +471,21 @@ async fn test_key_announce_accepted() {
     assert!(got_pong, "Connection should remain alive after key-announce");
 }
 
-/// Test setting `pchat_mode` on a channel (requires server pchat support).
+/// Test setting `pchat_protocol` on a channel (requires server pchat support).
 #[tokio::test]
-async fn test_set_pchat_mode_on_channel() {
+async fn test_set_pchat_protocol_on_channel() {
     if !ensure_server_available().await {
         return;
     }
 
     let (mut transport, state, _cert_hash) = connect_as_superuser().await;
 
-    // Set pchat_mode = FullArchive on root channel.
-    // set_pchat_mode waits for the server echo internally.
-    set_pchat_mode(&mut transport, &state, 0, PchatMode::FullArchive).await;
+    // Set pchat_protocol = FullArchive on root channel.
+    // set_pchat_protocol waits for the server echo internally.
+    set_pchat_protocol(&mut transport, &state, 0, PchatProtocol::FancyV1FullArchive).await;
 
     // Reset back to None for other tests.
-    set_pchat_mode(&mut transport, &state, 0, PchatMode::None).await;
+    set_pchat_protocol(&mut transport, &state, 0, PchatProtocol::None).await;
 }
 
 /// Test the full pchat message storage and retrieval flow:
@@ -507,8 +507,8 @@ async fn test_pchat_message_store_and_fetch() {
     let session = state.own_session().expect("should have session");
     let channel_id: u32 = 0; // Root channel
 
-    // 1. Set pchat_mode = FullArchive on root channel (requires admin).
-    set_pchat_mode(&mut transport, &state, channel_id, PchatMode::FullArchive).await;
+    // 1. Set pchat_protocol = FullArchive on root channel (requires admin).
+    set_pchat_protocol(&mut transport, &state, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
     // 2. Send key-announce.
     let mut key_manager = make_key_manager();
@@ -528,7 +528,7 @@ async fn test_pchat_message_store_and_fetch() {
         &mut key_manager,
         &cert_hash,
         channel_id,
-        PersistenceMode::FullArchive,
+        PchatProtocol::FancyV1FullArchive,
         msg_body,
         "PchatStoreUser",
         session,
@@ -584,7 +584,7 @@ async fn test_pchat_message_store_and_fetch() {
 
     let decrypted = key_manager
         .decrypt(
-            PersistenceMode::FullArchive,
+            PchatProtocol::FancyV1FullArchive,
             channel_id,
             &message_id,
             our_msg.timestamp.unwrap_or(0),
@@ -598,8 +598,8 @@ async fn test_pchat_message_store_and_fetch() {
     assert_eq!(envelope.sender_name, "PchatStoreUser");
     assert_eq!(envelope.sender_session, session);
 
-    // Cleanup: reset pchat_mode.
-    set_pchat_mode(&mut transport, &state, channel_id, PchatMode::None).await;
+    // Cleanup: reset pchat_protocol.
+    set_pchat_protocol(&mut transport, &state, channel_id, PchatProtocol::None).await;
 }
 
 /// Test sending multiple messages and fetching them all back.
@@ -614,7 +614,7 @@ async fn test_pchat_multiple_messages_stored_and_fetched() {
     let channel_id: u32 = 0;
 
     // Setup: set mode, announce key, generate archive key.
-    set_pchat_mode(&mut transport, &state, channel_id, PchatMode::FullArchive).await;
+    set_pchat_protocol(&mut transport, &state, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
     let mut key_manager = make_key_manager();
     send_key_announce(&mut transport, &state, &key_manager, &cert_hash).await;
@@ -634,7 +634,7 @@ async fn test_pchat_multiple_messages_stored_and_fetched() {
             &mut key_manager,
             &cert_hash,
             channel_id,
-            PersistenceMode::FullArchive,
+            PchatProtocol::FancyV1FullArchive,
             body,
             "PchatMultiUser",
             session,
@@ -679,7 +679,7 @@ async fn test_pchat_multiple_messages_stored_and_fetched() {
         let payload = payload_from_proto_msg(msg);
         let decrypted = key_manager
             .decrypt(
-                PersistenceMode::FullArchive,
+                PchatProtocol::FancyV1FullArchive,
                 channel_id,
                 id,
                 msg.timestamp.unwrap_or(0),
@@ -692,7 +692,7 @@ async fn test_pchat_multiple_messages_stored_and_fetched() {
     }
 
     // Cleanup.
-    set_pchat_mode(&mut transport, &state, channel_id, PchatMode::None).await;
+    set_pchat_protocol(&mut transport, &state, channel_id, PchatProtocol::None).await;
 }
 
 /// Test that a second client can fetch messages stored by the first client
@@ -711,7 +711,7 @@ async fn test_pchat_cross_client_fetch() {
     let (mut transport_a, state_a, cert_hash_a) = connect_as_superuser().await;
     let session_a = state_a.own_session().unwrap();
 
-    set_pchat_mode(&mut transport_a, &state_a, channel_id, PchatMode::FullArchive).await;
+    set_pchat_protocol(&mut transport_a, &state_a, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
     let mut km_a = make_key_manager();
     send_key_announce(&mut transport_a, &state_a, &km_a, &cert_hash_a).await;
@@ -727,7 +727,7 @@ async fn test_pchat_cross_client_fetch() {
         &mut km_a,
         &cert_hash_a,
         channel_id,
-        PersistenceMode::FullArchive,
+        PchatProtocol::FancyV1FullArchive,
         msg_body,
         "PchatCrossA",
         session_a,
@@ -783,7 +783,7 @@ async fn test_pchat_cross_client_fetch() {
 
     let decrypted = km_b
         .decrypt(
-            PersistenceMode::FullArchive,
+            PchatProtocol::FancyV1FullArchive,
             channel_id,
             &message_id,
             our_msg.timestamp.unwrap_or(0),
@@ -797,7 +797,7 @@ async fn test_pchat_cross_client_fetch() {
     assert_eq!(envelope.sender_name, "PchatCrossA");
 
     // Cleanup.
-    set_pchat_mode(&mut transport_a, &state_a, channel_id, PchatMode::None).await;
+    set_pchat_protocol(&mut transport_a, &state_a, channel_id, PchatProtocol::None).await;
 }
 
 /// Test that fetch on a channel with no stored messages returns an empty response.
@@ -810,7 +810,7 @@ async fn test_pchat_fetch_empty_channel() {
     let (mut transport, state, cert_hash) = connect_as_superuser().await;
     let channel_id: u32 = 0;
 
-    set_pchat_mode(&mut transport, &state, channel_id, PchatMode::FullArchive).await;
+    set_pchat_protocol(&mut transport, &state, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
     let key_manager = make_key_manager();
     send_key_announce(&mut transport, &state, &key_manager, &cert_hash).await;
@@ -832,7 +832,7 @@ async fn test_pchat_fetch_empty_channel() {
     assert!(!resp.has_more.unwrap_or(false), "empty channel should not have more pages");
 
     // Cleanup.
-    set_pchat_mode(&mut transport, &state, channel_id, PchatMode::None).await;
+    set_pchat_protocol(&mut transport, &state, channel_id, PchatProtocol::None).await;
 }
 
 /// Test that messages persist across client reconnections.
@@ -852,7 +852,7 @@ async fn test_pchat_messages_persist_across_reconnect() {
         let (mut transport, state, cert_hash) = connect_as_superuser().await;
         let session = state.own_session().unwrap();
 
-        set_pchat_mode(&mut transport, &state, channel_id, PchatMode::FullArchive).await;
+        set_pchat_protocol(&mut transport, &state, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
         let mut km = make_key_manager();
         send_key_announce(&mut transport, &state, &km, &cert_hash).await;
@@ -867,7 +867,7 @@ async fn test_pchat_messages_persist_across_reconnect() {
             &mut km,
             &cert_hash,
             channel_id,
-            PersistenceMode::FullArchive,
+            PchatProtocol::FancyV1FullArchive,
             msg_body,
             "PchatReconnect1",
             session,
@@ -934,7 +934,7 @@ async fn test_pchat_messages_persist_across_reconnect() {
         let msg_id = our_msg.message_id.clone().unwrap_or_default();
         let decrypted = km2
             .decrypt(
-                PersistenceMode::FullArchive,
+                PchatProtocol::FancyV1FullArchive,
                 channel_id,
                 &msg_id,
                 our_msg.timestamp.unwrap_or(0),
@@ -946,7 +946,7 @@ async fn test_pchat_messages_persist_across_reconnect() {
         assert_eq!(envelope.body, msg_body);
 
         // Cleanup.
-        set_pchat_mode(&mut transport, &state, channel_id, PchatMode::None).await;
+        set_pchat_protocol(&mut transport, &state, channel_id, PchatProtocol::None).await;
     }
 }
 
@@ -992,7 +992,7 @@ fn test_derived_key_survives_keymgr_rebuild() {
 
     let seed: [u8; 32] = [0xCC; 32];
     let channel_id: u32 = 42;
-    let mode = PersistenceMode::FullArchive;
+    let mode = PchatProtocol::FancyV1FullArchive;
     let msg_id = "00000000-0000-0000-0000-000000000001";
     let timestamp = 1_700_000_000_000u64;
 
@@ -1037,7 +1037,7 @@ fn test_decrypt_fails_without_key() {
 
     let seed: [u8; 32] = [0xDD; 32];
     let channel_id: u32 = 7;
-    let mode = PersistenceMode::FullArchive;
+    let mode = PchatProtocol::FancyV1FullArchive;
     let msg_id = "00000000-0000-0000-0000-000000000002";
     let timestamp = 1_700_000_000_000u64;
 
@@ -1102,7 +1102,7 @@ async fn test_reconnect_decrypt_with_derived_key() {
         let (mut transport, state, cert_hash) = connect_as_superuser().await;
         let session = state.own_session().unwrap();
 
-        set_pchat_mode(&mut transport, &state, channel_id, PchatMode::FullArchive).await;
+        set_pchat_protocol(&mut transport, &state, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
         let mut km = make_key_manager_from_seed(&seed);
         send_key_announce(&mut transport, &state, &km, &cert_hash).await;
@@ -1117,7 +1117,7 @@ async fn test_reconnect_decrypt_with_derived_key() {
             &mut km,
             &cert_hash,
             channel_id,
-            PersistenceMode::FullArchive,
+            PchatProtocol::FancyV1FullArchive,
             msg_body,
             "DerivedKeyUser",
             session,
@@ -1167,7 +1167,7 @@ async fn test_reconnect_decrypt_with_derived_key() {
         let msg_id = our_msg.message_id.clone().unwrap_or_default();
         let decrypted = km2
             .decrypt(
-                PersistenceMode::FullArchive,
+                PchatProtocol::FancyV1FullArchive,
                 channel_id,
                 &msg_id,
                 our_msg.timestamp.unwrap_or(0),
@@ -1183,7 +1183,7 @@ async fn test_reconnect_decrypt_with_derived_key() {
         assert_eq!(envelope.sender_name, "DerivedKeyUser");
 
         // Cleanup.
-        set_pchat_mode(&mut transport, &state, channel_id, PchatMode::None).await;
+        set_pchat_protocol(&mut transport, &state, channel_id, PchatProtocol::None).await;
     }
 }
 
@@ -1214,7 +1214,7 @@ async fn test_cross_user_sender_hash_determines_is_own() {
 
     // --- SuperUser: set channel mode ---
     let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::FancyV1FullArchive).await;
     // Keep SuperUser alive so mode persists.
 
     // --- Alice: connect, announce key, send a message ---
@@ -1242,7 +1242,7 @@ async fn test_cross_user_sender_hash_determines_is_own() {
         &mut alice_km,
         &alice_cert_hash,
         channel_id,
-        PersistenceMode::FullArchive,
+        PchatProtocol::FancyV1FullArchive,
         msg_body,
         "AliceIsOwn",
         alice_session,
@@ -1337,7 +1337,7 @@ async fn test_cross_user_sender_hash_determines_is_own() {
     let payload = payload_from_proto_msg(alice_msg);
     let decrypted = bob_km
         .decrypt(
-            PersistenceMode::FullArchive,
+            PchatProtocol::FancyV1FullArchive,
             channel_id,
             &alice_msg_id,
             alice_msg.timestamp.unwrap_or(0),
@@ -1351,7 +1351,7 @@ async fn test_cross_user_sender_hash_determines_is_own() {
     assert_eq!(envelope.sender_name, "AliceIsOwn");
 
     // Cleanup.
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::None).await;
 }
 
 /// Complementary test: verify that when Alice fetches her OWN message,
@@ -1368,7 +1368,7 @@ async fn test_sender_hash_matches_own_for_self_fetch() {
     let (mut transport, state, cert_hash) = connect_as_superuser().await;
     let session = state.own_session().unwrap();
 
-    set_pchat_mode(&mut transport, &state, channel_id, PchatMode::FullArchive).await;
+    set_pchat_protocol(&mut transport, &state, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
     let mut km = make_key_manager();
     send_key_announce(&mut transport, &state, &km, &cert_hash).await;
@@ -1384,7 +1384,7 @@ async fn test_sender_hash_matches_own_for_self_fetch() {
         &mut km,
         &cert_hash,
         channel_id,
-        PersistenceMode::FullArchive,
+        PchatProtocol::FancyV1FullArchive,
         msg_body,
         "SelfFetcher",
         session,
@@ -1430,7 +1430,7 @@ async fn test_sender_hash_matches_own_for_self_fetch() {
     );
 
     // Cleanup.
-    set_pchat_mode(&mut transport, &state, channel_id, PchatMode::None).await;
+    set_pchat_protocol(&mut transport, &state, channel_id, PchatProtocol::None).await;
 }
 
 // =============================================================================
@@ -1518,7 +1518,7 @@ async fn collect_key_announces(
 fn wire_key_exchange_to_proto(w: &WireKeyExchange) -> mumble_tcp::PchatKeyExchange {
     mumble_tcp::PchatKeyExchange {
         channel_id: Some(w.channel_id),
-        mode: Some(persistence_mode_to_proto(PersistenceMode::from_wire_str(&w.mode))),
+        protocol: Some(persistence_mode_to_proto(PchatProtocol::from_wire_str(&w.protocol))),
         epoch: Some(w.epoch),
         encrypted_key: Some(w.encrypted_key.clone()),
         sender_hash: Some(w.sender_hash.clone()),
@@ -1551,11 +1551,11 @@ fn proto_key_announce_to_wire(p: &mumble_tcp::PchatKeyAnnounce) -> WireKeyAnnoun
 fn proto_key_request_to_wire(p: &mumble_tcp::PchatKeyRequest) -> WireKeyRequest {
     WireKeyRequest {
         channel_id: p.channel_id.unwrap_or(0),
-        mode: match p.mode {
-            Some(m) if m == mumble_tcp::PchatPersistenceMode::PchatModeFullArchive as i32 => {
-                "FULL_ARCHIVE".to_string()
+        protocol: match p.protocol {
+            Some(m) if m == mumble_tcp::PchatProtocol::FancyV1FullArchive as i32 => {
+                "FANCY_V1_FULL_ARCHIVE".to_string()
             }
-            _ => "POST_JOIN".to_string(),
+            _ => "FANCY_V1_POST_JOIN".to_string(),
         },
         requester_hash: p.requester_hash.clone().unwrap_or_default(),
         requester_public: p.requester_public.clone().unwrap_or_default(),
@@ -1750,7 +1750,7 @@ fn test_different_seeds_produce_incompatible_keys() {
     let msg_id = "00000000-0000-0000-0000-aaaaaaaaaaaa";
     let timestamp = 1_700_000_000_000u64;
     let payload = km_a
-        .encrypt(PersistenceMode::FullArchive, channel_id, msg_id, timestamp, &env_bytes)
+        .encrypt(PchatProtocol::FancyV1FullArchive, channel_id, msg_id, timestamp, &env_bytes)
         .expect("A's encryption should succeed");
 
     // B tries to decrypt with key_b (its own derived key).
@@ -1758,7 +1758,7 @@ fn test_different_seeds_produce_incompatible_keys() {
     km_b.store_archive_key(channel_id, key_b, KeyTrustLevel::Verified);
 
     let result = km_b.decrypt(
-        PersistenceMode::FullArchive,
+        PchatProtocol::FancyV1FullArchive,
         channel_id,
         msg_id,
         timestamp,
@@ -1772,7 +1772,7 @@ fn test_different_seeds_produce_incompatible_keys() {
 
     // Verify that A CAN decrypt its own message.
     let decrypted = km_a
-        .decrypt(PersistenceMode::FullArchive, channel_id, msg_id, timestamp, &payload)
+        .decrypt(PchatProtocol::FancyV1FullArchive, channel_id, msg_id, timestamp, &payload)
         .expect("A should decrypt its own message");
     let env_a: MessageEnvelope = c.decode(&decrypted).unwrap();
     assert_eq!(env_a.body, "secret from A");
@@ -1832,11 +1832,11 @@ fn test_key_exchange_overwrites_self_derived_key() {
     let msg_id = "00000000-0000-0000-0000-bbbbbbbbbbbb";
     let timestamp = now;
     let payload = km_a
-        .encrypt(PersistenceMode::FullArchive, channel_id, msg_id, timestamp, &env_bytes)
+        .encrypt(PchatProtocol::FancyV1FullArchive, channel_id, msg_id, timestamp, &env_bytes)
         .unwrap();
 
     // B cannot decrypt yet (wrong key).
-    let fail = km_b.decrypt(PersistenceMode::FullArchive, channel_id, msg_id, timestamp, &payload);
+    let fail = km_b.decrypt(PchatProtocol::FancyV1FullArchive, channel_id, msg_id, timestamp, &payload);
     assert!(fail.is_err(), "B should not decrypt with its own derived key");
 
     // A distributes its key to B via key-exchange (no request_id = direct acceptance).
@@ -1844,7 +1844,7 @@ fn test_key_exchange_overwrites_self_derived_key() {
     let mut exchange = km_a
         .distribute_key(
             channel_id,
-            PersistenceMode::FullArchive,
+            PchatProtocol::FancyV1FullArchive,
             0,
             cert_hash_b,
             &peer_b.dh_public,
@@ -1860,7 +1860,7 @@ fn test_key_exchange_overwrites_self_derived_key() {
 
     // Now B should be able to decrypt A's message.
     let decrypted = km_b
-        .decrypt(PersistenceMode::FullArchive, channel_id, msg_id, timestamp, &payload)
+        .decrypt(PchatProtocol::FancyV1FullArchive, channel_id, msg_id, timestamp, &payload)
         .expect("After key-exchange, B must decrypt A's message");
     let env: MessageEnvelope = c.decode(&decrypted).unwrap();
     assert_eq!(env.body, "shared secret");
@@ -1920,7 +1920,7 @@ fn test_key_exchange_via_consensus_resolves_key() {
     let msg_id = "00000000-0000-0000-0000-cccccccccccc";
     let timestamp = now;
     let payload = km_a
-        .encrypt(PersistenceMode::FullArchive, channel_id, msg_id, timestamp, &env_bytes)
+        .encrypt(PchatProtocol::FancyV1FullArchive, channel_id, msg_id, timestamp, &env_bytes)
         .unwrap();
 
     // Simulate server-generated key request with a request_id.
@@ -1931,7 +1931,7 @@ fn test_key_exchange_via_consensus_resolves_key() {
     let mut exchange = km_a
         .distribute_key(
             channel_id,
-            PersistenceMode::FullArchive,
+            PchatProtocol::FancyV1FullArchive,
             0,
             cert_hash_b,
             &peer_b.dh_public,
@@ -1947,7 +1947,7 @@ fn test_key_exchange_via_consensus_resolves_key() {
 
     // B cannot decrypt yet (archive_keys still has the old self-derived key).
     let still_fails = km_b.decrypt(
-        PersistenceMode::FullArchive, channel_id, msg_id, timestamp, &payload,
+        PchatProtocol::FancyV1FullArchive, channel_id, msg_id, timestamp, &payload,
     );
     assert!(
         still_fails.is_err(),
@@ -1972,7 +1972,7 @@ fn test_key_exchange_via_consensus_resolves_key() {
 
     // NOW B should be able to decrypt A's message.
     let decrypted = km_b
-        .decrypt(PersistenceMode::FullArchive, channel_id, msg_id, timestamp, &payload)
+        .decrypt(PchatProtocol::FancyV1FullArchive, channel_id, msg_id, timestamp, &payload)
         .expect("After consensus, B must decrypt A's message");
     let env: MessageEnvelope = c.decode(&decrypted).unwrap();
     assert_eq!(env.body, "consensus test");
@@ -1999,7 +1999,7 @@ async fn test_full_key_exchange_via_server() {
 
     // --- SuperUser: set channel mode ---
     let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
     // --- Client A: connect, announce, store key, send message ---
     let (mut transport_a, state_a, cert_hash_a) = connect_and_authenticate("KexFlowA").await;
@@ -2022,7 +2022,7 @@ async fn test_full_key_exchange_via_server() {
         &mut km_a,
         &cert_hash_a,
         channel_id,
-        PersistenceMode::FullArchive,
+        PchatProtocol::FancyV1FullArchive,
         msg_body,
         "KexFlowA",
         session_a,
@@ -2111,11 +2111,11 @@ async fn test_full_key_exchange_via_server() {
                     // Convert proto to wire and process.
                     let wire_kex = WireKeyExchange {
                         channel_id: kex.channel_id.unwrap_or(0),
-                        mode: match kex.mode {
-                            Some(m) if m == mumble_tcp::PchatPersistenceMode::PchatModeFullArchive as i32 => {
-                                "FULL_ARCHIVE".to_string()
+                        protocol: match kex.protocol {
+                            Some(m) if m == mumble_tcp::PchatProtocol::FancyV1FullArchive as i32 => {
+                                "FANCY_V1_FULL_ARCHIVE".to_string()
                             }
-                            _ => "POST_JOIN".to_string(),
+                            _ => "FANCY_V1_POST_JOIN".to_string(),
                         },
                         epoch: kex.epoch.unwrap_or(0),
                         encrypted_key: kex.encrypted_key.unwrap_or_default(),
@@ -2175,7 +2175,7 @@ async fn test_full_key_exchange_via_server() {
 
     // Regardless of whether the key-exchange path succeeded,
     // verify the direct key-share path: share the key manually.
-    if !km_b.has_key(channel_id, PersistenceMode::FullArchive)
+    if !km_b.has_key(channel_id, PchatProtocol::FancyV1FullArchive)
         || {
             // Check if B has A's key (not its own).
             // We do this by trying to decrypt A's message.
@@ -2208,7 +2208,7 @@ async fn test_full_key_exchange_via_server() {
     if let Some(msg) = our_msg {
         let payload = payload_from_proto_msg(msg);
         let decrypted = km_b.decrypt(
-            PersistenceMode::FullArchive,
+            PchatProtocol::FancyV1FullArchive,
             channel_id,
             &message_id,
             msg.timestamp.unwrap_or(0),
@@ -2232,7 +2232,7 @@ async fn test_full_key_exchange_via_server() {
     }
 
     // Cleanup.
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::None).await;
 }
 
 /// Test: server generates key-request when a user joins a `FullArchive` channel.
@@ -2249,7 +2249,7 @@ async fn test_server_generates_key_request_on_join() {
 
     // --- SuperUser: create FullArchive channel ---
     let (mut su_transport, su_state, su_hash) = connect_as_superuser().await;
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
     // SuperUser announces keys (required for pchat participation).
     let su_km = make_key_manager();
@@ -2304,7 +2304,7 @@ async fn test_server_generates_key_request_on_join() {
     }
 
     // Cleanup.
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::None).await;
 }
 
 /// Test: `handle_key_request` correctly builds an exchange when we hold the key.
@@ -2338,7 +2338,7 @@ fn test_handle_key_request_produces_valid_exchange() {
     let request_id = "req-unit-test-001";
     let request = WireKeyRequest {
         channel_id,
-        mode: "FULL_ARCHIVE".to_string(),
+        protocol: "FANCY_V1_FULL_ARCHIVE".to_string(),
         requester_hash: cert_hash_b.to_string(),
         requester_public: km_b.dh_public_bytes().to_vec(),
         request_id: request_id.to_string(),
@@ -2393,11 +2393,11 @@ fn test_handle_key_request_no_key_returns_none() {
     km_a.record_peer_key(&ann_b).unwrap();
 
     // A does NOT have an archive key for this channel.
-    assert!(!km_a.has_key(channel_id, PersistenceMode::FullArchive));
+    assert!(!km_a.has_key(channel_id, PchatProtocol::FancyV1FullArchive));
 
     let request = WireKeyRequest {
         channel_id,
-        mode: "FULL_ARCHIVE".to_string(),
+        protocol: "FANCY_V1_FULL_ARCHIVE".to_string(),
         requester_hash: cert_hash_b.to_string(),
         requester_public: km_b.dh_public_bytes().to_vec(),
         request_id: "req-no-key".to_string(),
@@ -2480,7 +2480,7 @@ async fn test_key_holder_report_then_query_returns_holder() {
 
     // Set up FullArchive mode.
     let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
     // Client A connects and reports itself as a key holder.
     let (mut transport_a, _state_a, cert_hash_a) = connect_and_authenticate("HolderA").await;
@@ -2508,7 +2508,7 @@ async fn test_key_holder_report_then_query_returns_holder() {
     );
 
     // Cleanup.
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::None).await;
 }
 
 /// Test: multiple clients report as key holders, all appear in the list.
@@ -2521,7 +2521,7 @@ async fn test_multiple_key_holders_reported() {
     let channel_id: u32 = 0;
 
     let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
     // Client A reports.
     let (mut transport_a, _state_a, cert_hash_a) = connect_and_authenticate("MultiA").await;
@@ -2557,7 +2557,7 @@ async fn test_multiple_key_holders_reported() {
     );
 
     // Cleanup.
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::None).await;
 }
 
 /// Test: the `SendPchatKeyHolderReport` command produces the correct
@@ -2675,7 +2675,7 @@ async fn test_key_holder_report_triggers_challenge() {
     let channel_id: u32 = 0;
 
     let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
     let (mut transport_a, _state_a, cert_hash_a) = connect_and_authenticate("ChallengeA").await;
     drain(&mut transport_a).await;
@@ -2692,7 +2692,7 @@ async fn test_key_holder_report_triggers_challenge() {
     let challenge_bytes = challenge.challenge.as_ref().unwrap();
     assert_eq!(challenge_bytes.len(), 32, "challenge must be 32 bytes");
 
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::None).await;
 }
 
 /// Reporting as a holder and responding with the correct HMAC proof must result
@@ -2706,7 +2706,7 @@ async fn test_challenge_correct_proof_passes() {
     let channel_id: u32 = 0;
 
     let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
     let (mut transport_a, _state_a, cert_hash_a) = connect_and_authenticate("CorrectA").await;
     drain(&mut transport_a).await;
@@ -2743,7 +2743,7 @@ async fn test_challenge_correct_proof_passes() {
         "first prover must always pass (sets the reference)"
     );
 
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::None).await;
 }
 
 /// Two clients with the same archive key must both pass the challenge.
@@ -2756,7 +2756,7 @@ async fn test_challenge_two_clients_same_key_both_pass() {
     let channel_id: u32 = 0;
 
     let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
     let archive_key = [0x77; 32];
 
@@ -2808,7 +2808,7 @@ async fn test_challenge_two_clients_same_key_both_pass() {
         "B (same key as A) must also pass"
     );
 
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::None).await;
 }
 
 /// A second client with a different key must fail the challenge.
@@ -2821,7 +2821,7 @@ async fn test_challenge_wrong_key_fails() {
     let channel_id: u32 = 0;
 
     let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
     // --- Client A: first prover with key_a ---
     let (mut transport_a, _state_a, cert_hash_a) = connect_and_authenticate("WrongKeyA").await;
@@ -2871,7 +2871,7 @@ async fn test_challenge_wrong_key_fails() {
         "B (wrong key) must FAIL the challenge"
     );
 
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::None).await;
 }
 
 /// Sending a fabricated (garbage) proof must fail.
@@ -2884,7 +2884,7 @@ async fn test_challenge_garbage_proof_fails() {
     let channel_id: u32 = 0;
 
     let (mut su_transport, su_state, _su_hash) = connect_as_superuser().await;
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::FullArchive).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::FancyV1FullArchive).await;
 
     // First prover sets the reference.
     let (mut transport_a, _state_a, cert_hash_a) = connect_and_authenticate("GarbageRefA").await;
@@ -2925,7 +2925,7 @@ async fn test_challenge_garbage_proof_fails() {
         "garbage proof must be rejected"
     );
 
-    set_pchat_mode(&mut su_transport, &su_state, channel_id, PchatMode::None).await;
+    set_pchat_protocol(&mut su_transport, &su_state, channel_id, PchatProtocol::None).await;
 }
 
 /// Test: the `SendPchatKeyChallengeResponse` command produces the correct

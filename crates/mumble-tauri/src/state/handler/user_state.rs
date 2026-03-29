@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use mumble_protocol::command;
-use mumble_protocol::persistent::PersistenceMode;
+use mumble_protocol::persistent::PchatProtocol;
 use mumble_protocol::persistent::KeyTrustLevel;
 use mumble_protocol::proto::mumble_tcp;
 use tracing::info;
@@ -161,8 +161,7 @@ impl HandleMessage for mumble_tcp::UserState {
                         let mode = s
                             .channels
                             .get(&ch)
-                            .and_then(|c| c.pchat_mode)
-                            .map(PersistenceMode::from);
+                            .and_then(|c| c.pchat_protocol);
                         let has_pchat = s.pchat.is_some();
                         let already_fetched = s
                             .pchat
@@ -197,15 +196,15 @@ impl HandleMessage for mumble_tcp::UserState {
                             let mode = {
                                 let s = shared.lock().ok();
                                 s.as_ref().and_then(|s| {
-                                    s.channels.get(&ch).and_then(|c| c.pchat_mode).map(PersistenceMode::from)
+                                    s.channels.get(&ch).and_then(|c| c.pchat_protocol)
                                 })
                             };
-                            if mode == Some(PersistenceMode::FullArchive) {
+                            if mode == Some(PchatProtocol::FancyV1FullArchive) {
                                 use mumble_protocol::persistent::KeyTrustLevel;
                                 let persist_info = {
                                     if let Ok(mut s) = shared.lock() {
                                         if let Some(ref mut p) = s.pchat {
-                                            if !p.key_manager.has_key(ch, PersistenceMode::FullArchive) {
+                                            if !p.key_manager.has_key(ch, PchatProtocol::FancyV1FullArchive) {
                                                 let cert = p.own_cert_hash.clone();
                                                 let key = mumble_protocol::persistent::encryption::derive_archive_key(&p.seed, ch);
                                                 p.key_manager.store_archive_key(ch, key, KeyTrustLevel::Verified);
@@ -236,8 +235,7 @@ impl HandleMessage for mumble_tcp::UserState {
                                 let mode = s
                                     .channels
                                     .get(&ch)
-                                    .and_then(|c| c.pchat_mode)
-                                    .map(PersistenceMode::from);
+                                    .and_then(|c| c.pchat_protocol);
                                 if let Some(ref pchat) = s.pchat {
                                     mode.is_some_and(|m| pchat.key_manager.has_key(ch, m))
                                 } else {
@@ -263,8 +261,7 @@ impl HandleMessage for mumble_tcp::UserState {
                                 let mode = s
                                     .channels
                                     .get(&ch)
-                                    .and_then(|c| c.pchat_mode)
-                                    .map(PersistenceMode::from);
+                                    .and_then(|c| c.pchat_protocol);
                                 if let Some(ref pchat) = s.pchat {
                                     mode.map(|m| !pchat.key_manager.has_key(ch, m))
                                         .unwrap_or(false)
@@ -280,12 +277,11 @@ impl HandleMessage for mumble_tcp::UserState {
                                 let mode = s
                                     .channels
                                     .get(&ch)
-                                    .and_then(|c| c.pchat_mode)
-                                    .map(PersistenceMode::from);
+                                    .and_then(|c| c.pchat_protocol);
                                 if let Some(ref mut pchat) = s.pchat {
                                     let cert = pchat.own_cert_hash.clone();
                                     match mode {
-                                        Some(PersistenceMode::FullArchive) => {
+                                        Some(PchatProtocol::FancyV1FullArchive) => {
                                             let key = mumble_protocol::persistent::encryption::derive_archive_key(&pchat.seed, ch);
                                             pchat.key_manager.store_archive_key(
                                                 ch,
@@ -296,7 +292,7 @@ impl HandleMessage for mumble_tcp::UserState {
                                             info!(channel_id = ch, cert_hash = %cert, "derived archive key (originator)");
                                             pchat.identity_dir.clone().map(|dir| (dir, key, cert))
                                         }
-                                        Some(PersistenceMode::PostJoin) => {
+                                        Some(PchatProtocol::FancyV1PostJoin) => {
                                             let key: [u8; 32] = rand::random();
                                             pchat.key_manager.store_epoch_key(
                                                 ch,

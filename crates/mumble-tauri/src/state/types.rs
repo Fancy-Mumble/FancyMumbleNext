@@ -5,17 +5,17 @@ use std::collections::HashMap;
 
 use serde::{Serialize, Deserialize, Serializer};
 
-use mumble_protocol::state::PchatMode;
+use mumble_protocol::state::PchatProtocol;
 
 // --- Serialization helpers ----------------------------------------
 
-fn serialize_pchat_mode<S: Serializer>(mode: &Option<PchatMode>, s: S) -> Result<S::Ok, S::Error> {
-    match mode {
-        Some(m) => s.serialize_str(match m {
-            PchatMode::None => "none",
-            PchatMode::PostJoin => "post_join",
-            PchatMode::FullArchive => "full_archive",
-            PchatMode::ServerManaged => "server_managed",
+fn serialize_pchat_protocol<S: Serializer>(protocol: &Option<PchatProtocol>, s: S) -> Result<S::Ok, S::Error> {
+    match protocol {
+        Some(p) => s.serialize_str(match p {
+            PchatProtocol::None => "none",
+            PchatProtocol::FancyV1PostJoin => "fancy_v1_post_join",
+            PchatProtocol::FancyV1FullArchive => "fancy_v1_full_archive",
+            PchatProtocol::ServerManaged => "server_managed",
         }),
         _ => s.serialize_none(),
     }
@@ -43,9 +43,9 @@ pub struct ChannelEntry {
     pub position: i32,
     /// Maximum users allowed (0 = unlimited).
     pub max_users: u32,
-    /// Persistent-chat mode.  `None` if not announced by the server.
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "serialize_pchat_mode")]
-    pub pchat_mode: Option<PchatMode>,
+    /// Persistent-chat protocol.  `None` if not announced by the server.
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "serialize_pchat_protocol")]
+    pub pchat_protocol: Option<PchatProtocol>,
     /// Maximum stored messages (0 = unlimited).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pchat_max_history: Option<u32>,

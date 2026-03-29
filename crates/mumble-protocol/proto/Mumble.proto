@@ -96,14 +96,9 @@ message ChannelState {
 	// Field IDs start at 100 to avoid clashing with future upstream
 	// Mumble protocol additions. Legacy clients silently ignore
 	// unknown fields (standard protobuf behaviour).
-	enum PchatMode {
-		PCHAT_NONE = 0;
-		PCHAT_POST_JOIN = 1;
-		PCHAT_FULL_ARCHIVE = 2;
-		PCHAT_SERVER_MANAGED = 3;
-	}
-	// Persistence mode for this channel.
-	optional PchatMode pchat_mode = 100;
+	// Protocol and persistence mode for this channel.
+	// Uses the top-level PchatProtocol enum.
+	optional PchatProtocol pchat_protocol = 100;
 	// Maximum number of messages to store (0 = unlimited).
 	optional uint32 pchat_max_history = 101;
 	// Auto-delete messages after this many days (0 = forever).
@@ -373,10 +368,14 @@ message PluginDataTransmission {
 
 // ---- Persistent Chat (pchat) native protocol messages ----
 
-// Persistence mode used in pchat runtime messages.
-enum PchatPersistenceMode {
-	PCHAT_MODE_POST_JOIN = 0;
-	PCHAT_MODE_FULL_ARCHIVE = 1;
+// Unified pchat protocol indicator.
+// Each value identifies both the E2EE protocol implementation
+// and the persistence behaviour for a channel.
+enum PchatProtocol {
+	PCHAT_PROTOCOL_NONE = 0;
+	PCHAT_PROTOCOL_FANCY_V1_POST_JOIN = 1;
+	PCHAT_PROTOCOL_FANCY_V1_FULL_ARCHIVE = 2;
+	PCHAT_PROTOCOL_SERVER_MANAGED = 3;
 }
 
 // Ack status for PchatAck.
@@ -393,7 +392,7 @@ message PchatMessage {
 	optional uint32 channel_id = 2;
 	optional uint64 timestamp = 3;
 	optional string sender_hash = 4;
-	optional PchatPersistenceMode mode = 5;
+	optional PchatProtocol protocol = 5;
 	optional bytes envelope = 6;
 	optional uint32 epoch = 7;
 	optional uint32 chain_index = 8;
@@ -423,7 +422,7 @@ message PchatMessageDeliver {
 	optional uint32 channel_id = 2;
 	optional uint64 timestamp = 3;
 	optional string sender_hash = 4;
-	optional PchatPersistenceMode mode = 5;
+	optional PchatProtocol protocol = 5;
 	optional bytes envelope = 6;
 	optional string replaces_id = 7;
 }
@@ -442,7 +441,7 @@ message PchatKeyAnnounce {
 // Peer-to-peer key exchange relayed through the server.
 message PchatKeyExchange {
 	optional uint32 channel_id = 1;
-	optional PchatPersistenceMode mode = 2;
+	optional PchatProtocol protocol = 2;
 	optional uint32 epoch = 3;
 	optional bytes encrypted_key = 4;
 	optional string sender_hash = 5;
@@ -460,7 +459,7 @@ message PchatKeyExchange {
 // Server-broadcast key request when a new member joins a persistent channel.
 message PchatKeyRequest {
 	optional uint32 channel_id = 1;
-	optional PchatPersistenceMode mode = 2;
+	optional PchatProtocol protocol = 2;
 	optional string requester_hash = 3;
 	optional bytes requester_public = 4;
 	optional string request_id = 5;

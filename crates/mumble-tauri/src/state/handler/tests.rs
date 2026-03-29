@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use mumble_protocol::message::ControlMessage;
 use mumble_protocol::proto::mumble_tcp;
-use mumble_protocol::state::PchatMode;
+use mumble_protocol::persistent::PchatProtocol;
 
 use super::{dispatch, EventEmitter, HandleMessage, HandlerContext};
 use crate::state::hash_names::HashNameResolver;
@@ -267,7 +267,7 @@ async fn server_sync_stores_root_channel_permissions() {
                 temporary: false,
                 position: 0,
                 max_users: 0,
-                pchat_mode: None,
+                pchat_protocol: None,
                 pchat_max_history: None,
                 pchat_retention_days: None,
                 pchat_key_custodians: Vec::new(),
@@ -610,7 +610,7 @@ async fn channel_state_updates_existing_channel() {
                 temporary: false,
                 position: 0,
                 max_users: 0,
-                pchat_mode: None,
+                pchat_protocol: None,
                 pchat_max_history: None,
                 pchat_retention_days: None,
                     pchat_key_custodians: Vec::new(),            },
@@ -693,7 +693,7 @@ fn channel_remove_clears_channel_and_messages() {
                 temporary: false,
                 position: 0,
                 max_users: 0,
-                pchat_mode: None,
+                pchat_protocol: None,
                 pchat_max_history: None,
                 pchat_retention_days: None,
                     pchat_key_custodians: Vec::new(),            },
@@ -1347,7 +1347,7 @@ fn permission_query_stores_permissions() {
                 temporary: false,
                 position: 0,
                 max_users: 0,
-                pchat_mode: None,
+                pchat_protocol: None,
                 pchat_max_history: None,
                 pchat_retention_days: None,
                     pchat_key_custodians: Vec::new(),            },
@@ -1386,7 +1386,7 @@ fn permission_query_flush_clears_all() {
                 temporary: false,
                 position: 0,
                 max_users: 0,
-                pchat_mode: None,
+                pchat_protocol: None,
                 pchat_max_history: None,
                 pchat_retention_days: None,
                     pchat_key_custodians: Vec::new(),            },
@@ -1404,7 +1404,7 @@ fn permission_query_flush_clears_all() {
                 temporary: false,
                 position: 0,
                 max_users: 0,
-                pchat_mode: None,
+                pchat_protocol: None,
                 pchat_max_history: None,
                 pchat_retention_days: None,
                     pchat_key_custodians: Vec::new(),            },
@@ -1516,7 +1516,7 @@ fn text_message_skipped_for_pchat_enabled_channel() {
                 temporary: false,
                 position: 0,
                 max_users: 0,
-                pchat_mode: Some(PchatMode::PostJoin),
+                pchat_protocol: Some(PchatProtocol::FancyV1PostJoin),
                 pchat_max_history: None,
                 pchat_retention_days: None,
                     pchat_key_custodians: Vec::new(),            },
@@ -1554,7 +1554,7 @@ fn text_message_stored_for_non_pchat_channel() {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
         let _ = state.users.insert(10, make_user(10, "Bob"));
-        // Channel 3 with pchat_mode = None (explicitly disabled).
+        // Channel 3 with pchat_protocol = None (explicitly disabled).
         let _ = state.channels.insert(
             3,
             ChannelEntry {
@@ -1568,7 +1568,7 @@ fn text_message_stored_for_non_pchat_channel() {
                 temporary: false,
                 position: 0,
                 max_users: 0,
-                pchat_mode: Some(PchatMode::None),
+                pchat_protocol: Some(PchatProtocol::None),
                 pchat_max_history: None,
                 pchat_retention_days: None,
                     pchat_key_custodians: Vec::new(),            },
@@ -1590,13 +1590,13 @@ fn text_message_stored_for_non_pchat_channel() {
 }
 
 #[test]
-fn text_message_stored_when_pchat_mode_absent() {
+fn text_message_stored_when_pchat_protocol_absent() {
     let (ctx, _) = make_ctx();
     {
         let mut state = ctx.shared.lock().unwrap();
         state.own_session = Some(1);
         let _ = state.users.insert(10, make_user(10, "Carol"));
-        // Channel 7 without pchat_mode (legacy channel, no pchat support).
+        // Channel 7 without pchat_protocol (legacy channel, no pchat support).
         let _ = state.channels.insert(
             7,
             ChannelEntry {
@@ -1610,7 +1610,7 @@ fn text_message_stored_when_pchat_mode_absent() {
                 temporary: false,
                 position: 0,
                 max_users: 0,
-                pchat_mode: None,
+                pchat_protocol: None,
                 pchat_max_history: None,
                 pchat_retention_days: None,
                     pchat_key_custodians: Vec::new(),            },
@@ -1652,7 +1652,7 @@ fn text_message_skipped_for_full_archive_channel() {
                 temporary: false,
                 position: 0,
                 max_users: 0,
-                pchat_mode: Some(PchatMode::FullArchive),
+                pchat_protocol: Some(PchatProtocol::FancyV1FullArchive),
                 pchat_max_history: None,
                 pchat_retention_days: None,
                     pchat_key_custodians: Vec::new(),            },
@@ -1695,7 +1695,7 @@ fn text_message_mixed_pchat_and_regular_channels() {
                 temporary: false,
                 position: 0,
                 max_users: 0,
-                pchat_mode: Some(PchatMode::PostJoin),
+                pchat_protocol: Some(PchatProtocol::FancyV1PostJoin),
                 pchat_max_history: None,
                 pchat_retention_days: None,
                     pchat_key_custodians: Vec::new(),            },
@@ -1714,7 +1714,7 @@ fn text_message_mixed_pchat_and_regular_channels() {
                 temporary: false,
                 position: 0,
                 max_users: 0,
-                pchat_mode: None,
+                pchat_protocol: None,
                 pchat_max_history: None,
                 pchat_retention_days: None,
                     pchat_key_custodians: Vec::new(),            },

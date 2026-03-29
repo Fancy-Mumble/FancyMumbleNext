@@ -7,7 +7,7 @@ use ed25519_dalek::Verifier;
 
 use crate::error::{Error, Result};
 use crate::persistent::encryption::build_countersig_data;
-use crate::persistent::{KeyTrustLevel, PersistenceMode, StoredMessage};
+use crate::persistent::{KeyTrustLevel, PchatProtocol, StoredMessage};
 
 use super::types::{CustodianPinState, EncryptedPayload, COUNTERSIG_FRESHNESS_MS};
 use super::KeyManager;
@@ -206,7 +206,7 @@ impl KeyManager {
     pub fn check_key_by_decryption(
         &self,
         channel_id: u32,
-        mode: PersistenceMode,
+        mode: PchatProtocol,
         messages: &[StoredMessage],
     ) -> bool {
         let mut successful_senders = HashSet::new();
@@ -238,17 +238,17 @@ impl KeyManager {
     pub fn resolve_dispute(
         &mut self,
         channel_id: u32,
-        mode: PersistenceMode,
+        mode: PchatProtocol,
         _trusted_sender_hash: &str,
     ) -> Result<()> {
         match mode {
-            PersistenceMode::FullArchive => {
+            PchatProtocol::FancyV1FullArchive => {
                 if let Some((_key, trust)) = self.archive_keys.get_mut(&channel_id) {
                     *trust = KeyTrustLevel::ManuallyVerified;
                 }
                 Ok(())
             }
-            PersistenceMode::PostJoin => {
+            PchatProtocol::FancyV1PostJoin => {
                 if let Some(epochs) = self.epoch_keys.get_mut(&channel_id) {
                     if let Some((_key, trust)) = epochs.values_mut().next_back() {
                         *trust = KeyTrustLevel::ManuallyVerified;
@@ -265,14 +265,14 @@ impl KeyManager {
     // ---- Trust level query ------------------------------------------
 
     /// Get the trust level for a channel's current key.
-    pub fn trust_level(&self, channel_id: u32, mode: PersistenceMode) -> Option<KeyTrustLevel> {
+    pub fn trust_level(&self, channel_id: u32, mode: PchatProtocol) -> Option<KeyTrustLevel> {
         match mode {
-            PersistenceMode::PostJoin => self
+            PchatProtocol::FancyV1PostJoin => self
                 .epoch_keys
                 .get(&channel_id)
                 .and_then(|epochs| epochs.values().next_back())
                 .map(|(_, trust)| *trust),
-            PersistenceMode::FullArchive => {
+            PchatProtocol::FancyV1FullArchive => {
                 self.archive_keys.get(&channel_id).map(|(_, trust)| *trust)
             }
             _ => None,
@@ -285,7 +285,7 @@ mod tests {
     #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::super::identity::SeedIdentity;
     use super::super::KeyManager;
-    use crate::persistent::{KeyTrustLevel, PersistenceMode};
+    use crate::persistent::{KeyTrustLevel, PchatProtocol};
 
     fn make_key_manager() -> KeyManager {
         let identity = SeedIdentity::from_seed(&[0xAA; 32]).unwrap();
@@ -295,17 +295,17 @@ mod tests {
     #[test]
     fn trust_level_query() {
         let mut km = make_key_manager();
-        assert!(km.trust_level(1, PersistenceMode::PostJoin).is_none());
+        assert!(km.trust_level(1, PchatProtocol::FancyV1PostJoin).is_none());
 
         km.store_epoch_key(1, 0, [0; 32], KeyTrustLevel::Unverified);
         assert_eq!(
-            km.trust_level(1, PersistenceMode::PostJoin),
+            km.trust_level(1, PchatProtocol::FancyV1PostJoin),
             Some(KeyTrustLevel::Unverified)
         );
 
         km.store_archive_key(2, [0; 32], KeyTrustLevel::Verified);
         assert_eq!(
-            km.trust_level(2, PersistenceMode::FullArchive),
+            km.trust_level(2, PchatProtocol::FancyV1FullArchive),
             Some(KeyTrustLevel::Verified)
         );
     }

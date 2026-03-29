@@ -25,7 +25,7 @@ use mumble_protocol::persistent::wire::{
     PchatKeyRequest as WireKeyRequest,
     WireCodec,
 };
-use mumble_protocol::persistent::PersistenceMode;
+use mumble_protocol::persistent::PchatProtocol;
 use mumble_protocol::proto::mumble_tcp;
 
 use super::types::ChatMessage;
@@ -362,19 +362,19 @@ pub(crate) fn import_identity(
 
 // ---- Proto <-> Wire conversion helpers ------------------------------
 
-fn persistence_mode_to_proto(mode: PersistenceMode) -> i32 {
-    match mode {
-        PersistenceMode::PostJoin => mumble_tcp::PchatPersistenceMode::PchatModePostJoin as i32,
-        PersistenceMode::FullArchive => mumble_tcp::PchatPersistenceMode::PchatModeFullArchive as i32,
-        _ => mumble_tcp::PchatPersistenceMode::PchatModePostJoin as i32,
+fn protocol_to_proto(protocol: PchatProtocol) -> i32 {
+    match protocol {
+        PchatProtocol::FancyV1PostJoin => mumble_tcp::PchatProtocol::FancyV1PostJoin as i32,
+        PchatProtocol::FancyV1FullArchive => mumble_tcp::PchatProtocol::FancyV1FullArchive as i32,
+        _ => mumble_tcp::PchatProtocol::FancyV1PostJoin as i32,
     }
 }
 
-fn proto_to_persistence_mode(mode: Option<i32>) -> PersistenceMode {
-    match mode.and_then(|v| mumble_tcp::PchatPersistenceMode::try_from(v).ok()) {
-        Some(mumble_tcp::PchatPersistenceMode::PchatModePostJoin) => PersistenceMode::PostJoin,
-        Some(mumble_tcp::PchatPersistenceMode::PchatModeFullArchive) => PersistenceMode::FullArchive,
-        None => PersistenceMode::PostJoin,
+fn proto_to_protocol(proto: Option<i32>) -> PchatProtocol {
+    match proto.and_then(|v| mumble_tcp::PchatProtocol::try_from(v).ok()) {
+        Some(mumble_tcp::PchatProtocol::FancyV1PostJoin) => PchatProtocol::FancyV1PostJoin,
+        Some(mumble_tcp::PchatProtocol::FancyV1FullArchive) => PchatProtocol::FancyV1FullArchive,
+        _ => PchatProtocol::FancyV1PostJoin,
     }
 }
 
@@ -405,7 +405,7 @@ fn proto_to_wire_key_announce(p: &mumble_tcp::PchatKeyAnnounce) -> WireKeyAnnoun
 fn proto_to_wire_key_request(p: &mumble_tcp::PchatKeyRequest) -> WireKeyRequest {
     WireKeyRequest {
         channel_id: p.channel_id.unwrap_or(0),
-        mode: proto_mode_to_wire_str(p.mode),
+        protocol: proto_protocol_to_wire_str(p.protocol),
         requester_hash: p.requester_hash.clone().unwrap_or_default(),
         requester_public: p.requester_public.clone().unwrap_or_default(),
         request_id: p.request_id.clone().unwrap_or_default(),
@@ -418,7 +418,7 @@ fn proto_to_wire_key_request(p: &mumble_tcp::PchatKeyRequest) -> WireKeyRequest 
 pub(crate) fn wire_key_exchange_to_proto_pub(w: &WireKeyExchange) -> mumble_tcp::PchatKeyExchange {
     mumble_tcp::PchatKeyExchange {
         channel_id: Some(w.channel_id),
-        mode: Some(wire_mode_str_to_proto(&w.mode)),
+        protocol: Some(wire_protocol_str_to_proto(&w.protocol)),
         epoch: Some(w.epoch),
         encrypted_key: Some(w.encrypted_key.clone()),
         sender_hash: Some(w.sender_hash.clone()),
@@ -437,7 +437,7 @@ pub(crate) fn wire_key_exchange_to_proto_pub(w: &WireKeyExchange) -> mumble_tcp:
 fn proto_to_wire_key_exchange(p: &mumble_tcp::PchatKeyExchange) -> WireKeyExchange {
     WireKeyExchange {
         channel_id: p.channel_id.unwrap_or(0),
-        mode: proto_mode_to_wire_str(p.mode),
+        protocol: proto_protocol_to_wire_str(p.protocol),
         epoch: p.epoch.unwrap_or(0),
         encrypted_key: p.encrypted_key.clone().unwrap_or_default(),
         sender_hash: p.sender_hash.clone().unwrap_or_default(),
@@ -453,17 +453,13 @@ fn proto_to_wire_key_exchange(p: &mumble_tcp::PchatKeyExchange) -> WireKeyExchan
     }
 }
 
-fn proto_mode_to_wire_str(mode: Option<i32>) -> String {
-    match proto_to_persistence_mode(mode) {
-        PersistenceMode::PostJoin => "POST_JOIN".to_string(),
-        PersistenceMode::FullArchive => "FULL_ARCHIVE".to_string(),
-        _ => "POST_JOIN".to_string(),
-    }
+fn proto_protocol_to_wire_str(proto: Option<i32>) -> String {
+    proto_to_protocol(proto).as_wire_str().to_string()
 }
 
-fn wire_mode_str_to_proto(s: &str) -> i32 {
-    let mode = PersistenceMode::from_wire_str(s);
-    persistence_mode_to_proto(mode)
+fn wire_protocol_str_to_proto(s: &str) -> i32 {
+    let protocol = PchatProtocol::from_wire_str(s);
+    protocol_to_proto(protocol)
 }
 
 // ---- Outbound: send key announce ------------------------------------
@@ -497,7 +493,7 @@ pub(crate) async fn send_key_announce(
 pub(crate) fn build_encrypted_pchat_message(
     pchat: &mut PchatState,
     channel_id: u32,
-    mode: PersistenceMode,
+    protocol: PchatProtocol,
     message_id: &str,
     body: &str,
     sender_name: &str,
@@ -506,10 +502,10 @@ pub(crate) fn build_encrypted_pchat_message(
 ) -> Result<mumble_tcp::PchatMessage, String> {
     debug!(
         channel_id,
-        ?mode,
+        ?protocol,
         message_id,
         timestamp,
-        has_key = pchat.key_manager.has_key(channel_id, mode),
+        has_key = pchat.key_manager.has_key(channel_id, protocol),
         "pchat: build_encrypted_pchat_message"
     );
     let envelope = MessageEnvelope {
@@ -526,7 +522,7 @@ pub(crate) fn build_encrypted_pchat_message(
 
     let payload = pchat
         .key_manager
-        .encrypt(mode, channel_id, message_id, timestamp, &envelope_bytes)
+        .encrypt(protocol, channel_id, message_id, timestamp, &envelope_bytes)
         .map_err(|e| format!("encrypt message: {e}"))?;
 
     Ok(mumble_tcp::PchatMessage {
@@ -534,7 +530,7 @@ pub(crate) fn build_encrypted_pchat_message(
         channel_id: Some(channel_id),
         timestamp: Some(timestamp),
         sender_hash: Some(pchat.own_cert_hash.clone()),
-        mode: Some(persistence_mode_to_proto(mode)),
+        protocol: Some(protocol_to_proto(protocol)),
         envelope: Some(payload.ciphertext),
         epoch: payload.epoch,
         chain_index: payload.chain_index,
@@ -557,7 +553,7 @@ pub(crate) async fn send_encrypted_message(
     handle: &ClientHandle,
     pchat: &mut PchatState,
     channel_id: u32,
-    mode: PersistenceMode,
+    protocol: PchatProtocol,
     message_id: &str,
     body: &str,
     sender_name: &str,
@@ -579,7 +575,7 @@ pub(crate) async fn send_encrypted_message(
 
     let payload = pchat
         .key_manager
-        .encrypt(mode, channel_id, message_id, now, &envelope_bytes)
+        .encrypt(protocol, channel_id, message_id, now, &envelope_bytes)
         .map_err(|e| format!("encrypt message: {e}"))?;
 
     let proto_msg = mumble_tcp::PchatMessage {
@@ -587,7 +583,7 @@ pub(crate) async fn send_encrypted_message(
         channel_id: Some(channel_id),
         timestamp: Some(now),
         sender_hash: Some(pchat.own_cert_hash.clone()),
-        mode: Some(persistence_mode_to_proto(mode)),
+        protocol: Some(protocol_to_proto(protocol)),
         envelope: Some(payload.ciphertext),
         epoch: payload.epoch,
         chain_index: payload.chain_index,
@@ -753,10 +749,9 @@ fn find_shareable_channels(
             let is_full_archive = state
                 .channels
                 .get(&ch_id)
-                .and_then(|ch| ch.pchat_mode)
-                .map(PersistenceMode::from)
-                == Some(PersistenceMode::FullArchive);
-            let has_key = pchat.key_manager.has_key(ch_id, PersistenceMode::FullArchive);
+                .and_then(|ch| ch.pchat_protocol)
+                == Some(PchatProtocol::FancyV1FullArchive);
+            let has_key = pchat.key_manager.has_key(ch_id, PchatProtocol::FancyV1FullArchive);
             let already_holder = pchat.key_manager.key_holders(ch_id).contains(peer_cert_hash);
             is_full_archive && has_key && !already_holder
         })
@@ -778,16 +773,15 @@ pub(crate) fn check_key_share_for_channel(shared: &Arc<Mutex<SharedState>>, chan
     let is_full_archive = state
         .channels
         .get(&channel_id)
-        .and_then(|c| c.pchat_mode)
-        .map(PersistenceMode::from)
-        == Some(PersistenceMode::FullArchive);
+        .and_then(|c| c.pchat_protocol)
+        == Some(PchatProtocol::FancyV1FullArchive);
     if !is_full_archive {
         return;
     }
 
     let Some(ref pchat) = state.pchat else { return };
 
-    if !pchat.key_manager.has_key(channel_id, PersistenceMode::FullArchive) {
+    if !pchat.key_manager.has_key(channel_id, PchatProtocol::FancyV1FullArchive) {
         return;
     }
 
@@ -876,7 +870,7 @@ pub(crate) fn handle_proto_key_request(
     // consent banner.
     if !pchat.key_manager.has_key(
         wire_request.channel_id,
-        PersistenceMode::FullArchive,
+        PchatProtocol::FancyV1FullArchive,
     ) {
         info!(channel_id = wire_request.channel_id, "no key to share for this channel");
         return;
@@ -959,7 +953,7 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
     );
 
     let channel_id = wire_exchange.channel_id;
-    let mode = PersistenceMode::from_wire_str(&wire_exchange.mode);
+    let protocol = PchatProtocol::from_wire_str(&wire_exchange.protocol);
     let request_id = wire_exchange.request_id.clone();
 
     let Ok(mut state) = shared.lock() else { return };
@@ -986,7 +980,7 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
                 // pending_consensus (when request_id is present). We must
                 // evaluate consensus immediately to promote it into
                 // archive_keys so that has_key() returns true.
-                if mode == PersistenceMode::FullArchive {
+                if protocol == PchatProtocol::FancyV1FullArchive {
                     if let Some(ref rid) = request_id {
                         match pchat.key_manager.evaluate_consensus(rid, channel_id, &[]) {
                             Ok((trust, Some(_key))) => {
@@ -1007,10 +1001,10 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
                     } else {
                         // No request_id means direct acceptance (already stored
                         // in archive_keys by receive_key_exchange).
-                        key_accepted = pchat.key_manager.has_key(channel_id, mode);
+                        key_accepted = pchat.key_manager.has_key(channel_id, protocol);
                     }
                 } else {
-                    key_accepted = pchat.key_manager.has_key(channel_id, mode);
+                    key_accepted = pchat.key_manager.has_key(channel_id, protocol);
                 }
             }
             Err(e) => {
@@ -1063,7 +1057,7 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
 
         // Extract key data and identity_dir for disk persistence
         // before we drop the lock.
-        let persist_info = if mode == PersistenceMode::FullArchive {
+        let persist_info = if protocol == PchatProtocol::FancyV1FullArchive {
             state.pchat.as_ref().and_then(|p| {
                 let (key, _trust) = p.key_manager.get_archive_key(channel_id)?;
                 let originator = p.key_manager.get_channel_originator(channel_id)
@@ -1084,7 +1078,7 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
             );
         }
 
-        retry_decrypt_pending_messages(&mut state, channel_id, mode);
+        retry_decrypt_pending_messages(&mut state, channel_id, protocol);
 
         // Drop the mutex before calling send_key_holder_report (which
         // re-acquires it briefly to read cert_hash + client_handle).
@@ -1109,7 +1103,7 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
 fn retry_decrypt_pending_messages(
     state: &mut SharedState,
     channel_id: u32,
-    _mode: PersistenceMode,
+    _protocol: PchatProtocol,
 ) {
     let has_placeholders = state
         .messages
@@ -1162,7 +1156,7 @@ pub(crate) fn handle_proto_msg_deliver(shared: &Arc<Mutex<SharedState>>, msg: &m
     let channel_id = msg.channel_id.unwrap_or(0);
     let timestamp = msg.timestamp.unwrap_or(0);
     let sender_hash = msg.sender_hash.clone().unwrap_or_default();
-    let mode = proto_to_persistence_mode(msg.mode);
+    let protocol = proto_to_protocol(msg.protocol);
     let envelope_bytes = msg.envelope.clone().unwrap_or_default();
     let replaces_id = msg.replaces_id.clone();
 
@@ -1190,7 +1184,7 @@ pub(crate) fn handle_proto_msg_deliver(shared: &Arc<Mutex<SharedState>>, msg: &m
     // Actually we don't have epoch_fingerprint in PchatMessageDeliver — it's only in PchatMessage.
     // For decryption, we need epoch info. Since PchatMessageDeliver doesn't carry epoch/chain_index/epoch_fingerprint,
     // this is a broadcast notification — the server already stored it. We still need to decrypt though.
-    // Looking at the proto definition, PchatMessageDeliver only has: message_id, channel_id, timestamp, sender_hash, mode, envelope, replaces_id.
+    // Looking at the proto definition, PchatMessageDeliver only has: message_id, channel_id, timestamp, sender_hash, protocol, envelope, replaces_id.
     // We need to handle this with a "latest epoch" approach for decryption.
 
     // For PchatMessageDeliver (real-time), we try decrypting with the current epoch key.
@@ -1205,7 +1199,7 @@ pub(crate) fn handle_proto_msg_deliver(shared: &Arc<Mutex<SharedState>>, msg: &m
 
     let (body, sender_name) = match pchat
         .key_manager
-        .decrypt(mode, channel_id, &message_id, timestamp, &payload)
+        .decrypt(protocol, channel_id, &message_id, timestamp, &payload)
     {
         Ok(plaintext) => {
             debug!(message_id = %message_id, plaintext_len = plaintext.len(), "pchat msg-deliver: decrypted OK");
@@ -1218,7 +1212,7 @@ pub(crate) fn handle_proto_msg_deliver(shared: &Arc<Mutex<SharedState>>, msg: &m
             }
         }
         Err(e) => {
-            warn!(message_id = %message_id, channel_id, has_key = pchat.key_manager.has_key(channel_id, mode), "failed to decrypt message: {e}");
+            warn!(message_id = %message_id, channel_id, has_key = pchat.key_manager.has_key(channel_id, protocol), "failed to decrypt message: {e}");
             (
                 "[Encrypted message - awaiting key]".to_string(),
                 sender_hash.clone(),
@@ -1303,8 +1297,8 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
         let msg_channel_id = proto_msg.channel_id.unwrap_or(0);
         let msg_timestamp = proto_msg.timestamp.unwrap_or(0);
         let msg_sender_hash = proto_msg.sender_hash.clone().unwrap_or_default();
-        let mode = proto_to_persistence_mode(proto_msg.mode);
-        let has_key = pchat.key_manager.has_key(msg_channel_id, mode);
+        let protocol = proto_to_protocol(proto_msg.protocol);
+        let has_key = pchat.key_manager.has_key(msg_channel_id, protocol);
 
         debug!(
             message_id = %msg_id,
@@ -1330,7 +1324,7 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
 
         let (body, sender_name, _decrypted) = match pchat
             .key_manager
-            .decrypt(mode, msg_channel_id, &msg_id, msg_timestamp, &payload)
+            .decrypt(protocol, msg_channel_id, &msg_id, msg_timestamp, &payload)
         {
             Ok(plaintext) => {
                 debug!(message_id = %msg_id, plaintext_len = plaintext.len(), "pchat fetch-resp: decrypted OK");
