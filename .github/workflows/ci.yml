@@ -213,7 +213,12 @@ jobs:
       - name: Build Tauri app
         working-directory: crates/mumble-tauri
         env:
-          TAURI_CONFIG: '{"bundle":{"resources":["signal-bridge/*.dll","signal-bridge/*.so","signal-bridge/*.dylib"]}}'
+          TAURI_CONFIG: >-
+            ${{ runner.os == 'Windows'
+                && '{"bundle":{"resources":["signal-bridge/*.dll"]}}'
+                || runner.os == 'macOS'
+                && '{"bundle":{"resources":["signal-bridge/*.dylib"]}}'
+                || '{"bundle":{"resources":["signal-bridge/*.so"]}}' }}
         run: cargo tauri build
 
       - name: Upload build artifacts
