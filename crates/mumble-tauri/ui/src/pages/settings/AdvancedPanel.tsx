@@ -1,4 +1,5 @@
 ﻿import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { UserMode, TimeFormat } from "../../types";
 import { Toggle } from "./SharedControls";
 import styles from "./SettingsPage.module.css";
@@ -41,6 +42,18 @@ export function AdvancedPanel({
   onReset: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const [debugLogging, setDebugLogging] = useState(false);
+
+  const toggleDebugLogging = async () => {
+    const next = !debugLogging;
+    const filter = next ? "debug" : "info";
+    try {
+      await invoke("set_log_level", { filter });
+      setDebugLogging(next);
+    } catch (e) {
+      console.error("Failed to set log level:", e);
+    }
+  };
 
   return (
     <>
@@ -101,6 +114,22 @@ export function AdvancedPanel({
               checked={userMode === "developer"}
               onChange={onToggleDeveloperMode}
             />
+          </div>
+        </section>
+      )}
+
+      {userMode === "developer" && (
+        <section className={styles.section}>
+          <div className={styles.toggleRow}>
+            <div className={styles.toggleInfo}>
+              <h3 className={styles.sectionTitle}>Debug Logging</h3>
+              <p className={styles.fieldHint}>
+                Enable verbose debug logging in the Rust backend. Useful for
+                diagnosing protocol and connection issues. Resets to info level
+                on app restart.
+              </p>
+            </div>
+            <Toggle checked={debugLogging} onChange={toggleDebugLogging} />
           </div>
         </section>
       )}

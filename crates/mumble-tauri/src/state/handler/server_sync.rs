@@ -42,7 +42,7 @@ impl HandleMessage for mumble_tcp::ServerSync {
                     ch.permissions = Some(perms_u32);
                 }
             } else {
-                info!("ServerSync has no permissions field");
+                debug!("ServerSync has no permissions field");
             }
 
             // Now that we know our session, look up the channel

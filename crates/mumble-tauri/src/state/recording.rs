@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use hound::{SampleFormat as HoundSampleFormat, WavSpec, WavWriter};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use mumble_protocol::audio::mixer::{AudioMixer, SpeakerBuffers};
 
@@ -212,7 +212,7 @@ async fn recording_loop(
     let mut writer =
         WavWriter::create(path, spec).map_err(|e| format!("Failed to create WAV file: {e}"))?;
 
-    info!("Recording loop started, writing to {}", path.display());
+    debug!("Recording loop started, writing to {}", path.display());
 
     // Poll interval: 20 ms (matches Opus frame size at 48 kHz).
     let interval = Duration::from_millis(20);

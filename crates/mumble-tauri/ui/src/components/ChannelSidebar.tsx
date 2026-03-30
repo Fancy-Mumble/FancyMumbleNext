@@ -9,6 +9,7 @@ import { UserListItem, colorFor, avatarUrl } from "./UserListItem";
 import { UserContextMenu } from "./UserContextMenu";
 import type { UserContextMenuState } from "./UserContextMenu";
 import ChannelEditorDialog, { canEditChannel, canCreateChannel, canOnlyCreateTemp, canDeleteChannel } from "./ChannelEditorDialog";
+import { PchatBadge } from "./PchatBadge";
 import styles from "./ChannelSidebar.module.css";
 import CheckIcon from "../assets/icons/status/check.svg?react";
 import ListenBadgeIcon from "../assets/icons/audio/listen-badge.svg?react";
@@ -678,6 +679,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
                 <ListenBadgeIcon width={12} height={12} />
               </span>
             )}
+            <PchatBadge protocol={channel.pchat_protocol} />
           </span>
         </div>
         {unread > 0 && (
@@ -838,6 +840,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
                         <ListenBadgeIcon width={12} height={12} />
                       </span>
                     )}
+                    <PchatBadge protocol={group.folder.pchat_protocol} />
                   </span>
                   <span className={styles.channelMeta}>
                     {totalUsers} {totalUsers === 1 ? "member" : "members"}

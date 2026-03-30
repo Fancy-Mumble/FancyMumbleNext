@@ -18,7 +18,15 @@ use state::{
     VoiceState,
 };
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use tauri::Manager;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::reload;
+
+/// Global handle for reloading the tracing filter at runtime.
+static LOG_RELOAD_HANDLE: OnceLock<reload::Handle<EnvFilter, tracing_subscriber::Registry>> =
+    OnceLock::new();
 
 // --- Windows system clock detection ------------------------------
 
@@ -666,7 +674,7 @@ async fn fetch_public_servers() -> Result<Vec<PublicServer>, String> {
 
     let servers = parse_public_server_xml(&body)?;
 
-    tracing::info!("Fetched {} public servers", servers.len());
+    tracing::debug!("Fetched {} public servers", servers.len());
     Ok(servers)
 }
 
@@ -1017,6 +1025,26 @@ fn set_disable_dual_path(
 ) -> Result<(), String> {
     state.inner.lock().map_err(|e| e.to_string())?.disable_dual_path = disabled;
     Ok(())
+}
+
+/// Change the log level filter at runtime.
+///
+/// Accepts a `tracing_subscriber::EnvFilter`-compatible string such as
+/// `"debug"`, `"mumble_tauri=debug,mumble_protocol=debug,info"`, or
+/// `"trace"`.  Returns the filter that was actually applied.
+#[tauri::command]
+fn set_log_level(filter: String) -> Result<String, String> {
+    let handle = LOG_RELOAD_HANDLE
+        .get()
+        .ok_or_else(|| "logging not initialised".to_string())?;
+    let new_filter =
+        EnvFilter::try_new(&filter).map_err(|e| format!("invalid filter '{filter}': {e}"))?;
+    let applied = format!("{new_filter}");
+    handle
+        .reload(new_filter)
+        .map_err(|e| format!("failed to reload filter: {e}"))?;
+    tracing::info!(filter = %applied, "log level changed");
+    Ok(applied)
 }
 
 /// Reset all app data to factory defaults (preferences, saved servers, certs).
@@ -1601,7 +1629,17 @@ async fn process_background(
 pub fn run() {
     // Install the ring TLS crypto provider before anything touches rustls.
     let _ = rustls::crypto::ring::default_provider().install_default();
-    tracing_subscriber::fmt::init();
+
+    // Set up a reloadable tracing subscriber so the log level can be changed
+    // at runtime from the frontend (Advanced Settings > Debug Logging).
+    let default_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into());
+    let filter = EnvFilter::try_new(&default_filter).unwrap_or_else(|_| EnvFilter::new("info"));
+    let (filter_layer, reload_handle) = reload::Layer::new(filter);
+    tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+    let _ = LOG_RELOAD_HANDLE.set(reload_handle);
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -1709,6 +1747,7 @@ pub fn run() {
             get_group_unread_counts,
             mark_group_read,
             reset_app_data,
+            set_log_level,
             set_notifications_enabled,
             set_disable_dual_path,
             update_badge_count,

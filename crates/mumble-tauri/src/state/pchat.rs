@@ -506,7 +506,7 @@ pub(crate) async fn send_key_announce(
         .await
         .map_err(|e| format!("send key-announce: {e}"))?;
 
-    info!(cert_hash, "sent pchat key-announce");
+    debug!(cert_hash, "sent pchat key-announce");
     Ok(())
 }
 
@@ -622,7 +622,7 @@ pub(crate) async fn send_encrypted_message(
         .await
         .map_err(|e| format!("send pchat-msg: {e}"))?;
 
-    info!(message_id, channel_id, "sent encrypted pchat message");
+    debug!(message_id, channel_id, "sent encrypted pchat message");
     Ok(())
 }
 
@@ -648,7 +648,7 @@ pub(crate) async fn send_fetch(
         .await
         .map_err(|e| format!("send pchat-fetch: {e}"))?;
 
-    info!(channel_id, "sent pchat-fetch");
+    debug!(channel_id, "sent pchat-fetch");
     Ok(())
 }
 
@@ -671,7 +671,7 @@ pub(crate) fn handle_proto_key_announce(shared: &Arc<Mutex<SharedState>>, msg: &
     if let Some(ref mut pchat) = state.pchat {
         match pchat.key_manager.record_peer_key(&wire) {
             Ok(true) => {
-                info!(cert_hash = %wire.cert_hash, "recorded peer key");
+                debug!(cert_hash = %wire.cert_hash, "recorded peer key");
                 should_push_keys = true;
             }
             Ok(false) => debug!(cert_hash = %wire.cert_hash, "stale key-announce discarded"),
@@ -731,7 +731,7 @@ pub(crate) fn handle_proto_key_announce(shared: &Arc<Mutex<SharedState>>, msg: &
                     );
                 }
 
-                info!(
+                debug!(
                     channel_id = ch_id,
                     peer = %peer_cert_hash,
                     "queued key-share consent request"
@@ -867,7 +867,7 @@ pub(crate) fn check_key_share_for_channel(shared: &Arc<Mutex<SharedState>>, chan
             );
         }
 
-        info!(
+        debug!(
             channel_id,
             peer = %peer_cert_hash,
             "queued key-share consent on channel move"
@@ -881,7 +881,7 @@ pub(crate) fn handle_proto_key_request(
 ) {
     let wire_request = proto_to_wire_key_request(msg);
 
-    info!(
+    debug!(
         channel_id = wire_request.channel_id,
         requester = %wire_request.requester_hash,
         request_id = %wire_request.request_id,
@@ -898,7 +898,7 @@ pub(crate) fn handle_proto_key_request(
         wire_request.channel_id,
         PchatProtocol::FancyV1FullArchive,
     ) {
-        info!(channel_id = wire_request.channel_id, "no key to share for this channel");
+        debug!(channel_id = wire_request.channel_id, "no key to share for this channel");
         return;
     }
 
@@ -913,13 +913,13 @@ pub(crate) fn handle_proto_key_request(
         .values()
         .any(|u| u.hash.as_deref() == Some(peer_cert_hash.as_str()));
     if !requester_online {
-        info!(channel_id = ch_id, peer = %peer_cert_hash, "ignoring key-request from offline user");
+        debug!(channel_id = ch_id, peer = %peer_cert_hash, "ignoring key-request from offline user");
         return;
     }
 
     // Skip requests from users who are already known key holders.
     if pchat.key_manager.key_holders(ch_id).contains(&peer_cert_hash) {
-        info!(channel_id = ch_id, peer = %peer_cert_hash, "ignoring key-request from existing holder");
+        debug!(channel_id = ch_id, peer = %peer_cert_hash, "ignoring key-request from existing holder");
         return;
     }
 
@@ -928,7 +928,7 @@ pub(crate) fn handle_proto_key_request(
         p.channel_id == ch_id && p.peer_cert_hash == peer_cert_hash
     });
     if already_pending {
-        info!(channel_id = ch_id, peer = %peer_cert_hash, "key-request consent already pending");
+        debug!(channel_id = ch_id, peer = %peer_cert_hash, "key-request consent already pending");
         return;
     }
 
@@ -960,7 +960,7 @@ pub(crate) fn handle_proto_key_request(
         );
     }
 
-    info!(
+    debug!(
         channel_id = ch_id,
         peer = %peer_cert_hash,
         "queued key-share consent request (key-request path)"
@@ -971,7 +971,7 @@ pub(crate) fn handle_proto_key_request(
 pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &mumble_tcp::PchatKeyExchange) {
     let wire_exchange = proto_to_wire_key_exchange(msg);
 
-    info!(
+    debug!(
         channel_id = wire_exchange.channel_id,
         sender = %wire_exchange.sender_hash,
         epoch = wire_exchange.epoch,
@@ -989,7 +989,7 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
     if let Some(ref mut pchat) = state.pchat {
         match pchat.key_manager.receive_key_exchange(&wire_exchange, None) {
             Ok(()) => {
-                info!(
+                debug!(
                     channel_id = wire_exchange.channel_id,
                     epoch = wire_exchange.epoch,
                     "accepted key-exchange"
@@ -1010,7 +1010,7 @@ pub(crate) fn handle_proto_key_exchange(shared: &Arc<Mutex<SharedState>>, msg: &
                     if let Some(ref rid) = request_id {
                         match pchat.key_manager.evaluate_consensus(rid, channel_id, &[]) {
                             Ok((trust, Some(_key))) => {
-                                info!(
+                                debug!(
                                     channel_id,
                                     ?trust,
                                     "accepted archive key via consensus"
@@ -1140,7 +1140,7 @@ fn retry_decrypt_pending_messages(
         return;
     }
 
-    info!(
+    debug!(
         channel_id,
         "removing placeholder messages and re-fetching after key exchange"
     );
@@ -1171,7 +1171,7 @@ fn retry_decrypt_pending_messages(
             {
                 warn!(channel_id, "re-fetch after key exchange failed: {e}");
             } else {
-                info!(channel_id, "sent pchat re-fetch after key exchange");
+                debug!(channel_id, "sent pchat re-fetch after key exchange");
             }
         });
     }
@@ -1195,7 +1195,7 @@ pub(crate) fn handle_proto_msg_deliver(shared: &Arc<Mutex<SharedState>>, msg: &m
 
     debug!(data_len = envelope_bytes.len(), "pchat: handle_proto_msg_deliver entry");
 
-    info!(
+    debug!(
         message_id = %message_id,
         channel_id,
         sender = %sender_hash,
@@ -1315,7 +1315,7 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
 
     debug!(data_len = msg.messages.len(), "pchat: handle_proto_fetch_resp entry");
 
-    info!(
+    debug!(
         channel_id,
         count = msg.messages.len(),
         has_more,
@@ -1409,7 +1409,7 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
             });
         }
 
-        info!(
+        debug!(
             message_id = %msg_id,
             msg_sender_hash = %msg_sender_hash,
             own_cert_hash = %own_cert_hash,
@@ -1489,7 +1489,7 @@ pub(crate) fn handle_proto_ack(msg: &mumble_tcp::PchatAck) {
             "pchat message rejected by server"
         );
     } else {
-        info!(
+        debug!(
             ?message_ids,
             status,
             "received pchat ack"
@@ -1551,7 +1551,7 @@ pub(crate) fn handle_proto_delete_messages(
     });
 
     let removed = before - messages.len();
-    info!(channel_id, removed, "pchat delete: evicted messages from local store");
+    debug!(channel_id, removed, "pchat delete: evicted messages from local store");
 }
 
 // ---- Offline queue drain handler ------------------------------------
@@ -1568,7 +1568,7 @@ pub(crate) fn handle_proto_offline_queue_drain(
 ) {
     let channel_id = msg.channel_id.unwrap_or(0);
 
-    info!(
+    debug!(
         channel_id,
         count = msg.messages.len(),
         "received offline queue drain"
@@ -1752,7 +1752,7 @@ fn send_offline_queue_ack(state: &SharedState, channel_id: u32, acked_ids: Vec<S
         if let Err(e) = handle.send(command::SendPchatAck { ack }).await {
             warn!(channel_id, "failed to send offline queue ack: {e}");
         } else {
-            info!(
+            debug!(
                 channel_id,
                 count = acked_ids.len(),
                 "sent offline queue ack"
@@ -1792,7 +1792,7 @@ pub(crate) fn handle_proto_key_challenge(
 
     match (handle, proof) {
         (Some(handle), Some(proof)) => {
-            info!(channel_id, "responding to key-possession challenge");
+            debug!(channel_id, "responding to key-possession challenge");
             let _challenge_response_task = tokio::spawn(async move {
                 let response = mumble_tcp::PchatKeyChallengeResponse {
                     channel_id: Some(channel_id),
@@ -1831,7 +1831,7 @@ pub(crate) fn handle_proto_key_challenge_result(
     let passed = msg.passed.unwrap_or(false);
 
     if passed {
-        info!(channel_id, "key-possession challenge passed");
+        debug!(channel_id, "key-possession challenge passed");
         return;
     }
 
@@ -1955,7 +1955,7 @@ pub(crate) async fn send_key_holder_report_async(
         {
             warn!(channel_id, "failed to report key holder: {e}");
         } else {
-            info!(channel_id, "reported self as key holder");
+            debug!(channel_id, "reported self as key holder");
         }
     }
 }
@@ -1973,7 +1973,7 @@ pub(crate) fn send_key_holder_report(shared: &Arc<Mutex<SharedState>>, channel_i
             {
                 warn!(channel_id, "failed to report key holder: {e}");
             } else {
-                info!(channel_id, "reported self as key holder");
+                debug!(channel_id, "reported self as key holder");
             }
         });
     }
@@ -2014,7 +2014,7 @@ pub(crate) fn send_key_takeover(shared: &Arc<Mutex<SharedState>>, channel_id: u3
         {
             warn!(channel_id, "failed to send key takeover: {e}");
         } else {
-            info!(channel_id, "sent key takeover");
+            debug!(channel_id, "sent key takeover");
         }
     });
 }
@@ -2176,11 +2176,11 @@ pub(crate) fn ensure_signal_bridge(pchat: &mut PchatState) {
 /// Errors are logged but not propagated -- persistence is best-effort.
 pub(crate) fn save_signal_state(pchat: &PchatState) {
     let Some(ref bridge) = pchat.signal_bridge else {
-        info!("no signal bridge loaded; skipping signal state save");
+        debug!("no signal bridge loaded; skipping signal state save");
         return;
     };
     let Some(ref dir) = pchat.identity_dir else {
-        info!("no identity_dir set; skipping signal state save");
+        debug!("no identity_dir set; skipping signal state save");
         return;
     };
     match bridge.export_state() {
@@ -2189,7 +2189,7 @@ pub(crate) fn save_signal_state(pchat: &PchatState) {
             if let Err(e) = std::fs::write(&path, &data) {
                 warn!(?path, "failed to write signal state: {e}");
             } else {
-                info!(?path, bytes = data.len(), "saved signal bridge state");
+                debug!(?path, bytes = data.len(), "saved signal bridge state");
             }
         }
         Err(e) => {
@@ -2216,12 +2216,12 @@ fn load_signal_state(identity_dir: Option<&Path>, bridge: &SignalBridge) {
     };
     let path = dir.join(SIGNAL_STATE_FILE);
     if !path.exists() {
-        info!(?path, "no saved signal state found");
+        debug!(?path, "no saved signal state found");
         return;
     }
     match std::fs::read(&path) {
         Ok(data) => match bridge.import_state(&data) {
-            Ok(()) => info!(?path, "restored signal bridge state from disk"),
+            Ok(()) => debug!(?path, "restored signal bridge state from disk"),
             Err(e) => warn!(?path, "failed to import signal state: {e}"),
         },
         Err(e) => warn!(?path, "failed to read signal state file: {e}"),
@@ -2288,7 +2288,7 @@ pub(crate) fn send_signal_distribution(
         {
             warn!(channel_id, "failed to send signal distribution: {e}");
         } else {
-            info!(channel_id, "sent signal sender key distribution");
+            debug!(channel_id, "sent signal sender key distribution");
         }
     });
 }
@@ -2330,7 +2330,7 @@ pub(crate) fn handle_signal_sender_key(
 
     match bridge.process_distribution(&sender_hash, sender_channel, data) {
         Ok(()) => {
-            info!(
+            debug!(
                 sender = %sender_hash,
                 channel_id = sender_channel,
                 "processed signal sender key distribution"
@@ -2417,7 +2417,7 @@ pub(crate) fn persist_archive_key(
             if let Err(e) = std::fs::write(&path, json) {
                 warn!("failed to persist archive key: {e}");
             } else {
-                info!(channel_id, "persisted archive key to disk");
+                debug!(channel_id, "persisted archive key to disk");
             }
         }
         Err(e) => warn!("failed to serialize archive keys: {e}"),
@@ -2443,7 +2443,7 @@ pub(crate) fn delete_persisted_archive_key(
                 if let Err(e) = std::fs::write(&path, json) {
                     warn!("failed to update archive keys file: {e}");
                 } else {
-                    info!(channel_id, "removed persisted archive key from disk");
+                    debug!(channel_id, "removed persisted archive key from disk");
                 }
             }
             Err(e) => warn!("failed to serialize archive keys: {e}"),

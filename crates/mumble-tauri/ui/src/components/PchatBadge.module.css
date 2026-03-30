@@ -1,0 +1,29 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  border-radius: 8px;
+  white-space: nowrap;
+  vertical-align: middle;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+}
+
+.fancy {
+  background: rgba(177, 100, 230, 0.2);
+  color: #c88eff;
+}
+
+.signal {
+  background: rgba(58, 118, 240, 0.2);
+  color: #7aabff;
+}
+
+.server {
+  background: rgba(50, 190, 140, 0.2);
+  color: #5cd6a8;
+}

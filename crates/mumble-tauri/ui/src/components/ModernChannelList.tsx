@@ -22,6 +22,7 @@ import SwipeableCard from "./elements/SwipeableCard";
 import { isMobilePlatform } from "../utils/platform";
 import ChevronRightIcon from "../assets/icons/navigation/chevron-right.svg?react";
 import ListenBadgeIcon from "../assets/icons/audio/listen-badge.svg?react";
+import { PchatBadge } from "./PchatBadge";
 import MicOffSmallIcon from "../assets/icons/audio/mic-off-small.svg?react";
 import HeadphonesOffIcon from "../assets/icons/audio/headphones-off.svg?react";
 import styles from "./ModernChannelList.module.css";
@@ -303,6 +304,7 @@ export default function ModernChannelList({
                   <ListenBadgeIcon width={12} height={12} />
                 </span>
               )}
+              <PchatBadge protocol={channel.pchat_protocol} />
             </span>
             {hasUsers && (
               <span className={styles.memberCount}>
