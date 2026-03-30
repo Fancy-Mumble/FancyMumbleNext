@@ -1,6 +1,6 @@
 use mumble_protocol::persistent::DATA_ID_SIGNAL_SENDER_KEY;
 use mumble_protocol::proto::mumble_tcp;
-use tracing::info;
+use tracing::debug;
 
 use super::{HandleMessage, HandlerContext};
 use crate::state::pchat;
@@ -37,7 +37,7 @@ fn handle_group_create(data: &[u8], ctx: &HandlerContext) {
         Err(_) => return,
     };
 
-    info!(group_id = %group.id, name = %group.name, "group chat created via plugin data");
+    debug!(group_id = %group.id, name = %group.name, "group chat created via plugin data");
 
     if let Ok(mut state) = ctx.shared.lock() {
         let _ = state.group_chats.insert(group.id.clone(), group.clone());
@@ -50,7 +50,7 @@ fn handle_group_create(data: &[u8], ctx: &HandlerContext) {
 
 impl HandleMessage for mumble_tcp::PluginDataTransmission {
     fn handle(&self, ctx: &HandlerContext) {
-        info!(
+        debug!(
             sender = ?self.sender_session,
             data_id = ?self.data_id,
             data_len = self.data.as_ref().map(Vec::len).unwrap_or(0),

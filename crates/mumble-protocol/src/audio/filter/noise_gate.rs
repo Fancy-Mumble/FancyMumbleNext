@@ -104,7 +104,7 @@ impl AudioFilter for NoiseGate {
         self.frame_count += 1;
         // Periodic diagnostic: every ~10 seconds (500 frames at 20ms).
         if self.frame_count.is_multiple_of(500) {
-            info!(
+            debug!(
                 "NoiseGate stats: frame={}, state={:?}, rms={:.5}, threshold={:.5}",
                 self.frame_count, self.state, level, self.config.open_threshold,
             );

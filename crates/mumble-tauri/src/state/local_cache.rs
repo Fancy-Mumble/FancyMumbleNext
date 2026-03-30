@@ -13,7 +13,7 @@ use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM, NONCE_LEN};
 use ring::hkdf::{self, Salt, HKDF_SHA256};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::debug;
 
 use super::types::ChatMessage;
 
@@ -123,7 +123,7 @@ impl LocalMessageCache {
         let encrypted = self.encrypt(&json)?;
         std::fs::write(&self.cache_path, &encrypted)
             .map_err(|e| format!("write cache: {e}"))?;
-        info!(
+        debug!(
             path = ?self.cache_path,
             messages = self.total_count(),
             "saved local message cache"
@@ -134,7 +134,7 @@ impl LocalMessageCache {
     /// Load the cache from the encrypted file on disk.
     pub fn load(&mut self) -> Result<(), String> {
         if !self.cache_path.exists() {
-            info!(path = ?self.cache_path, "no local message cache found");
+            debug!(path = ?self.cache_path, "no local message cache found");
             return Ok(());
         }
         let encrypted =
@@ -142,7 +142,7 @@ impl LocalMessageCache {
         let json = self.decrypt(&encrypted)?;
         self.messages =
             serde_json::from_slice(&json).map_err(|e| format!("deserialize cache: {e}"))?;
-        info!(
+        debug!(
             path = ?self.cache_path,
             messages = self.total_count(),
             "loaded local message cache"

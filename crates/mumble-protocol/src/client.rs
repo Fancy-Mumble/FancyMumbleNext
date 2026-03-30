@@ -265,7 +265,7 @@ async fn event_loop<H: EventHandler>(
     let mut force_tcp = *force_tcp_rx.borrow();
 
     // Main dispatch loop
-    info!("entering main event loop");
+    debug!("entering main event loop");
     let mut tcp_reader_alive = true;
     loop {
         let item = tokio::select! {
@@ -726,7 +726,7 @@ async fn handle_force_tcp_change<H: EventHandler>(
             )
             .await;
         } else {
-            info!("force_tcp disabled but no CryptSetup received yet; UDP will start when server sends keys");
+            debug!("force_tcp disabled but no CryptSetup received yet; UDP will start when server sends keys");
         }
     }
 }

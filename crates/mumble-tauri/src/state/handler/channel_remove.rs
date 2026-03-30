@@ -1,4 +1,4 @@
-use tracing::info;
+use tracing::debug;
 use mumble_protocol::proto::mumble_tcp;
 
 use super::{HandleMessage, HandlerContext};
@@ -15,7 +15,7 @@ impl HandleMessage for mumble_tcp::ChannelRemove {
             if let Some(ref mut p) = state.pchat {
                 p.key_manager.remove_channel(self.channel_id);
                 let _ = p.fetched_channels.remove(&self.channel_id);
-                info!(channel_id = self.channel_id, "cleared pchat state for removed channel");
+                debug!(channel_id = self.channel_id, "cleared pchat state for removed channel");
 
                 // Remove persisted archive key from disk.
                 if let Some(ref dir) = p.identity_dir {

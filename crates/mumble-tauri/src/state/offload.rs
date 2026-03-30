@@ -16,7 +16,7 @@ use std::path::PathBuf;
 
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use ring::rand::{SecureRandom, SystemRandom};
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 /// Nonce size for ChaCha20-Poly1305 (96 bits).
 const NONCE_LEN: usize = 12;
@@ -116,7 +116,7 @@ impl EncryptedFileProvider {
         fs::create_dir_all(&dir)
             .map_err(|e| format!("Failed to create offload directory: {e}"))?;
 
-        info!("EncryptedFileProvider initialised at {}", dir.display());
+        debug!("EncryptedFileProvider initialised at {}", dir.display());
 
         Ok(Self {
             key,
@@ -131,7 +131,7 @@ impl EncryptedFileProvider {
     pub fn cleanup_stale(base_dir: &std::path::Path) {
         let dir = base_dir.join(OFFLOAD_DIR_NAME);
         if dir.exists() {
-            info!("Removing stale offload directory from a previous session");
+            debug!("Removing stale offload directory from a previous session");
             let _ = fs::remove_dir_all(&dir);
         }
     }
@@ -248,7 +248,7 @@ impl OffloadProvider for EncryptedFileProvider {
             if let Err(e) = fs::remove_dir_all(&self.dir) {
                 warn!("Failed to clean up offload directory: {e}");
             } else {
-                info!("Cleaned up offload directory");
+                debug!("Cleaned up offload directory");
             }
         }
     }

@@ -37,7 +37,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use tauri::{AppHandle, Emitter, Manager};
-use tracing::info;
+use tracing::debug;
 
 use offload::OffloadStore;
 
@@ -878,7 +878,7 @@ impl AppState {
     /// Returns `Err` if the user lacks the Listen permission (`0x800`)
     /// on the target channel.
     pub async fn toggle_listen(&self, channel_id: u32) -> Result<bool, String> {
-        info!(channel_id, "toggle_listen called");
+        debug!(channel_id, "toggle_listen called");
         let (handle, is_now_listened, add, remove) = {
             let mut state = self.inner.lock().map_err(|e| e.to_string())?;
             let handle = state.client_handle.clone();
@@ -924,7 +924,7 @@ impl AppState {
 
         if let Some(handle) = handle {
             if !add.is_empty() || !remove.is_empty() {
-                info!(?add, ?remove, is_now_listened, "sending ChannelListen");
+                debug!(?add, ?remove, is_now_listened, "sending ChannelListen");
                 if let Err(e) = handle
                     .send(command::ChannelListen {
                         add: add.clone(),
@@ -935,7 +935,7 @@ impl AppState {
                     tracing::error!("failed to send ChannelListen: {e}");
                 }
             } else {
-                info!(
+                debug!(
                     is_now_listened,
                     "toggle_listen: no protocol message needed (channel already listened via selection)"
                 );
@@ -1350,6 +1350,17 @@ impl AppState {
         };
         match handle {
             Some(h) => {
+                let parsed_protocol = pchat_protocol.as_ref().map(|s| parse_pchat_protocol_str(s));
+                tracing::debug!(
+                    channel_id,
+                    ?name,
+                    ?pchat_protocol,
+                    ?parsed_protocol,
+                    proto_value = ?parsed_protocol.map(PchatProtocol::to_proto),
+                    ?pchat_max_history,
+                    ?pchat_retention_days,
+                    "sending update_channel command"
+                );
                 h.send(command::SetChannelState {
                     channel_id: Some(channel_id),
                     parent: None,
@@ -1358,7 +1369,7 @@ impl AppState {
                     position,
                     temporary,
                     max_users,
-                    pchat_protocol: pchat_protocol.map(|s| parse_pchat_protocol_str(&s)),
+                    pchat_protocol: parsed_protocol,
                     pchat_max_history,
                     pchat_retention_days,
                 })

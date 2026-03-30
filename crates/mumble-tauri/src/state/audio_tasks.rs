@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 use mumble_protocol::audio::capture::AudioCapture;
 use mumble_protocol::audio::filter::automatic_gain::AutomaticGainControl;
@@ -151,7 +151,7 @@ fn process_outbound_tick(
                 }
             }
             if stats.packets == 1 || stats.packets.is_multiple_of(500) {
-                info!(
+                debug!(
                     "outbound_audio: sending packet #{} (opus {} bytes, seq {})",
                     stats.packets,
                     packet.data.len(),
@@ -178,7 +178,7 @@ fn process_outbound_tick(
                     let _ = app.emit("user-talking", (session, false));
                 }
             }
-            info!(
+            debug!(
                 "outbound_audio: sending terminator (opus {} bytes)",
                 packet.data.len()
             );
@@ -193,7 +193,7 @@ fn process_outbound_tick(
             stats.silence += 1;
             stats.total += 1;
             if stats.total.is_multiple_of(500) {
-                info!(
+                debug!(
                     "outbound_audio stats: total={}, sent={}, silenced={}, silence_rate={:.1}%",
                     stats.total,
                     stats.packets,

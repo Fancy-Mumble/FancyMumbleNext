@@ -214,7 +214,7 @@ impl HandleMessage for mumble_tcp::ChannelState {
                                 data,
                                 data_id: DATA_ID_FETCH.to_string(),
                             }).await;
-                            info!(channel_id = id, "sent pchat-fetch after mode change");
+                            debug!(channel_id = id, "sent pchat-fetch after mode change");
                         }
                     }
                 }

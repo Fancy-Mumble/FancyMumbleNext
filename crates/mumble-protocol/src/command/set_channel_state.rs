@@ -52,6 +52,14 @@ impl CommandAction for SetChannelState {
             pchat_retention_days: self.pchat_retention_days,
             ..Default::default()
         };
+        tracing::debug!(
+            ?self.channel_id,
+            ?self.pchat_protocol,
+            proto_pchat_protocol = ?msg.pchat_protocol,
+            proto_pchat_max_history = ?msg.pchat_max_history,
+            proto_pchat_retention_days = ?msg.pchat_retention_days,
+            "SetChannelState: sending ChannelState to server"
+        );
         CommandOutput {
             tcp_messages: vec![ControlMessage::ChannelState(msg)],
             ..Default::default()

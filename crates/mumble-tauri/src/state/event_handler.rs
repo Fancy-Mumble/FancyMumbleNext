@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter};
 #[cfg(target_os = "windows")]
 use tauri::Manager;
 use tauri_plugin_notification::NotificationExt;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use mumble_protocol::audio::encoder::EncodedPacket;
 use mumble_protocol::event::EventHandler;
@@ -123,7 +123,7 @@ impl EventHandler for TauriEventHandler {
 
             self.inbound_audio_count += 1;
             if self.inbound_audio_count == 1 || self.inbound_audio_count.is_multiple_of(500) {
-                info!(
+                debug!(
                     "inbound audio #{} from session {} (opus {} bytes, seq {}, term={})",
                     self.inbound_audio_count,
                     session,
@@ -171,7 +171,7 @@ impl EventHandler for TauriEventHandler {
             // claimed the shared state.  Silently bail - this callback comes
             // from an orphaned / aborted event loop.
             if state.connection_epoch != self.epoch {
-                info!(
+                debug!(
                     handler_epoch = self.epoch,
                     current_epoch = state.connection_epoch,
                     "stale on_disconnected ignored"
