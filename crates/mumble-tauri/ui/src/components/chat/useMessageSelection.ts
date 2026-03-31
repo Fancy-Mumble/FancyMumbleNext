@@ -126,16 +126,6 @@ export function useMessageSelection({
 
   // --- Message action bar handlers ---------------------------------
 
-  /** Called when a quick-reaction emoji is clicked. */
-  const handleReaction = useCallback((_msg: ChatMessage, _emoji: string) => {
-    // TODO: send reaction to backend once implemented
-  }, []);
-
-  /** Called when "more reactions" is clicked. */
-  const handleMoreReactions = useCallback((_msg: ChatMessage) => {
-    // TODO: open full emoji picker once implemented
-  }, []);
-
   /** Called when the cite/quote button is clicked. */
   const handleCite = useCallback((msg: ChatMessage) => {
     if (!msg.message_id) return;
@@ -263,8 +253,6 @@ export function useMessageSelection({
     confirmDelete,
     handleTouchStart,
     cancelLongPress,
-    handleReaction,
-    handleMoreReactions,
     handleCite,
     handleCopyText,
     handleScrollToMessage,

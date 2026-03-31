@@ -1,0 +1,91 @@
+.reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 0 2px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color, #3f4147);
+  background: var(--bg-secondary, #2b2d31);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  user-select: none;
+  line-height: 1.4;
+}
+
+.pill:hover {
+  background: var(--bg-hover, #35373c);
+}
+
+.pillActive {
+  border-color: var(--accent, #5865f2);
+  background: rgba(88, 101, 242, 0.15);
+}
+
+.pillEmoji {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.pillCount {
+  font-size: 0.72rem;
+  color: var(--text-secondary, #949ba4);
+  min-width: 8px;
+  text-align: center;
+}
+
+.pillActive .pillCount {
+  color: var(--accent, #5865f2);
+}
+
+.addBtn {
+  composes: pill;
+  padding: 2px 6px;
+  color: var(--text-secondary, #949ba4);
+  border-style: dashed;
+}
+
+.addBtn:hover {
+  color: var(--text-primary, #dbdee1);
+  border-color: var(--text-secondary, #949ba4);
+}
+
+/* ---- Tooltip ---- */
+
+.tooltip {
+  position: fixed;
+  z-index: 800;
+  background: var(--bg-primary, #1e1f22);
+  color: var(--text-secondary, #949ba4);
+  font-size: 0.7rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- Mobile adjustments ---- */
+
+@media (max-width: 768px) {
+  .pill {
+    padding: 4px 10px;
+    font-size: 0.85rem;
+    min-height: 32px;
+  }
+
+  .pillEmoji {
+    font-size: 1.05rem;
+  }
+}

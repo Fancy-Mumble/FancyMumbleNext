@@ -9,6 +9,8 @@ import MobileCallControls from "./MobileCallControls";
 import ChatComposer from "./ChatComposer";
 import PollCreator from "./PollCreator";
 import { usePolls } from "./usePolls";
+import { useReactions } from "./useReactions";
+import EmojiPicker from "../elements/EmojiPicker";
 import MessageContextMenu from "./MessageContextMenu";
 import MobileMessageActionSheet from "./MobileMessageActionSheet";
 import ChevronDownIcon from "../../assets/icons/navigation/chevron-down.svg?react";
@@ -209,13 +211,19 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     toggleMsgSelection, enterSelectionMode, exitSelectionMode,
     handleMessageContextMenu, handleSingleDelete, handleBulkDelete, confirmDelete,
     handleTouchStart, cancelLongPress,
-    handleReaction, handleMoreReactions, handleCite, handleCopyText,
+    handleCite, handleCopyText,
     handleScrollToMessage, removePendingQuote,
     closeContextMenu, clearDeleteConfirm, clearToast,
   } = useMessageSelection({
     selectedChannel, selectedDmUser, selectedGroup,
     channel, messagesContainerRef, setPendingQuotes,
   });
+
+  const {
+    emojiPicker, handleReaction, handleMoreReactions,
+    closeEmojiPicker, handleEmojiSelect,
+    getMessageReactions, toggleReaction,
+  } = useReactions();
 
   // Compute header values before any early returns (hooks can't be conditional).
   const [headerName, headerMemberCount] = computeHeader(
@@ -338,6 +346,9 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
               handlePollVote={handlePollVote}
               handleScrollToMessage={handleScrollToMessage}
               handleOpenLightbox={(src) => lightboxRef.current?.open(src)}
+              getMessageReactions={getMessageReactions}
+              onToggleReaction={toggleReaction}
+              onAddReaction={handleMoreReactions}
             />
           )}
           {/* Bottom sentinel - scroll target for auto-scroll */}
@@ -425,7 +436,18 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         />
       )}
 
-      {toast && <Toast {...toast} onDismiss={clearToast} />}
+      {toast && <Toast {...toast} onDismiss={clearToast} />
+      }
+
+      {/* Emoji picker overlay */}
+      {emojiPicker && (
+        <EmojiPicker
+          anchorX={emojiPicker.x}
+          anchorY={emojiPicker.y}
+          onSelect={handleEmojiSelect}
+          onClose={closeEmojiPicker}
+        />
+      )}
 
       <Lightbox
         ref={lightboxRef}

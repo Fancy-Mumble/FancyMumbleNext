@@ -62,7 +62,9 @@ impl HandleMessage for mumble_tcp::PluginDataTransmission {
                 Some("fancy-group") => handle_fancy_group(data, ctx),
                 Some(DATA_ID_SIGNAL_SENDER_KEY) => {
                     let sender = self.sender_session.unwrap_or(0);
-                    pchat::handle_signal_sender_key(&ctx.shared, sender, data);
+                    if pchat::handle_signal_sender_key(&ctx.shared, sender, data) {
+                        ctx.emit_empty("state-changed");
+                    }
                 }
                 _ => {}
             }

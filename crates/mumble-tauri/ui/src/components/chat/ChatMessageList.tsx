@@ -2,6 +2,8 @@ import React from "react";
 import type { ChatMessage, TimeFormat, UserEntry } from "../../types";
 import MessageItem, { MessageAvatar } from "./MessageItem";
 import MessageActionBar from "../elements/MessageActionBar";
+import ReactionBar from "./ReactionBar";
+import type { ReactionSummary } from "./reactionStore";
 import CheckIcon from "../../assets/icons/status/check.svg?react";
 import { dateKey, formatDateChip } from "../../utils/format";
 import { isHeavyContent } from "../../messageOffload";
@@ -31,12 +33,15 @@ interface ChatMessageListProps {
   readonly handleTouchStart: (msg: ChatMessage) => void;
   readonly cancelLongPress: () => void;
   readonly handleReaction: (msg: ChatMessage, emoji: string) => void;
-  readonly handleMoreReactions: (msg: ChatMessage) => void;
+  readonly handleMoreReactions: (msg: ChatMessage, e?: React.MouseEvent) => void;
   readonly handleCopyText: (msg: ChatMessage) => void;
   readonly handleSingleDelete: (msg: ChatMessage) => void;
   readonly handlePollVote: (pollId: string, selected: number[]) => Promise<void>;
   readonly handleScrollToMessage: (messageId: string) => void;
   readonly handleOpenLightbox: (src: string) => void;
+  readonly getMessageReactions: (messageId: string) => ReactionSummary[];
+  readonly onToggleReaction: (msg: ChatMessage, emoji: string) => void;
+  readonly onAddReaction: (msg: ChatMessage, e?: React.MouseEvent) => void;
 }
 
 interface MsgGroup {
@@ -75,6 +80,9 @@ export default function ChatMessageList({
   handlePollVote,
   handleScrollToMessage,
   handleOpenLightbox,
+  getMessageReactions,
+  onToggleReaction,
+  onAddReaction,
 }: ChatMessageListProps) {
   // Group consecutive messages from the same sender,
   // also breaking on date boundaries so date chips render between groups.
@@ -195,6 +203,17 @@ export default function ChatMessageList({
                           </div>
                         )}
                       </div>
+                      {msg.message_id && (() => {
+                        const reactions = getMessageReactions(msg.message_id!);
+                        return reactions.length > 0 ? (
+                          <ReactionBar
+                            reactions={reactions}
+                            ownSession={ownSession}
+                            onToggle={(emoji) => onToggleReaction(msg, emoji)}
+                            onAdd={(e) => onAddReaction(msg, e)}
+                          />
+                        ) : null;
+                      })()}
                     </React.Fragment>
                   );
                 })}

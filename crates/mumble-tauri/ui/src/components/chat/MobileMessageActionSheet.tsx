@@ -34,7 +34,7 @@ interface MobileMessageActionSheetProps {
   readonly onDelete: (msg: ChatMessage) => void;
   readonly onSelectMode: (msg: ChatMessage) => void;
   readonly onReaction?: (msg: ChatMessage, emoji: string) => void;
-  readonly onMoreReactions?: (msg: ChatMessage) => void;
+  readonly onMoreReactions?: (msg: ChatMessage, e?: React.MouseEvent) => void;
   readonly onCite?: (msg: ChatMessage) => void;
   readonly onCopyText?: (msg: ChatMessage) => void;
 }

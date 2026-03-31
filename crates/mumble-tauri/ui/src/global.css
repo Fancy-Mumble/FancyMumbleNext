@@ -98,6 +98,13 @@ body {
 
 /* --- Custom Scrollbar ------------------------------------------- */
 
+/* Standards-based thin scrollbar (Firefox, future Chromium). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+/* Webkit/Blink engines (current Chromium, Safari). */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -140,6 +147,7 @@ a {
      (DropDataProvider is not registered, causing a crash). */
   * {
     -webkit-user-drag: none;
+    scrollbar-width: none;
   }
 
   /* On small screens, hide the custom scrollbar in favour of native

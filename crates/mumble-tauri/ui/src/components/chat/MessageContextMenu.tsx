@@ -46,7 +46,7 @@ interface MessageContextMenuProps {
   readonly onDelete: (msg: ChatMessage) => void;
   readonly onSelectMode: (msg: ChatMessage) => void;
   readonly onReaction?: (msg: ChatMessage, emoji: string) => void;
-  readonly onMoreReactions?: (msg: ChatMessage) => void;
+  readonly onMoreReactions?: (msg: ChatMessage, e?: React.MouseEvent) => void;
   readonly onCite?: (msg: ChatMessage) => void;
   readonly onCopyText?: (msg: ChatMessage) => void;
 }
@@ -118,7 +118,7 @@ export default function MessageContextMenu({
                 type="button"
                 className={styles.reactionBtn}
                 aria-label="More reactions"
-                onClick={() => { onMoreReactions(menu.message); onClose(); }}
+                onClick={(e) => { onMoreReactions(menu.message, e); onClose(); }}
               >
                 <EmojiPlusIcon width={16} height={16} />
               </button>

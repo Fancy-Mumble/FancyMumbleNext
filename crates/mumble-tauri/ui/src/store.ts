@@ -35,6 +35,7 @@ import type {
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator";
 import { registerPoll, registerVote } from "./components/chat/PollCard";
+import { applyReaction, resetReactions, setServerCustomReactions, REACTION_DATA_ID, CUSTOM_REACTIONS_DATA_ID, type ReactionPayload, type ServerCustomReaction } from "./components/chat/reactionStore";
 import { offloadManager } from "./messageOffload";
 import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume } from "./preferencesStorage";
 
@@ -359,6 +360,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (e) {
       console.error("disconnect error:", e);
     }
+    resetReactions();
     set({ ...INITIAL });
     invoke("update_badge_count", { count: null }).catch(() => {});
   },
@@ -1217,6 +1219,33 @@ export async function initEventListeners(
             }
           } catch (e) {
             console.error("plugin-data poll processing error:", e);
+          }
+        }
+
+        // Handle emoji reactions.
+        if (data_id === REACTION_DATA_ID) {
+          try {
+            const json = new TextDecoder().decode(bytes);
+            const payload = JSON.parse(json) as ReactionPayload;
+            if (payload.type === "reaction" && payload.messageId && payload.emoji) {
+              applyReaction(payload);
+              useAppStore.setState({});
+            }
+          } catch (e) {
+            console.error("plugin-data reaction processing error:", e);
+          }
+        }
+
+        // Handle server-advertised custom reactions.
+        if (data_id === CUSTOM_REACTIONS_DATA_ID) {
+          try {
+            const json = new TextDecoder().decode(bytes);
+            const reactions = JSON.parse(json) as ServerCustomReaction[];
+            if (Array.isArray(reactions)) {
+              setServerCustomReactions(reactions);
+            }
+          } catch (e) {
+            console.error("plugin-data custom-reactions processing error:", e);
           }
         }
 
