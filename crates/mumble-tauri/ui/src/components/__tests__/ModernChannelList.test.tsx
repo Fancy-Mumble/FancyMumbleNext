@@ -7,13 +7,17 @@
 
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import ModernChannelList from "../ModernChannelList";
+import ModernChannelList from "../sidebar/ModernChannelList";
 import type { ChannelEntry, UserEntry } from "../../types";
 
 // Allow tests to toggle the mobile flag.
+const { isMobilePlatformMock } = vi.hoisted(() => ({
+  isMobilePlatformMock: vi.fn(() => false),
+}));
 vi.mock("../../utils/platform", () => ({
-  isMobilePlatform: vi.fn(() => false),
+  isMobilePlatform: isMobilePlatformMock,
   isDesktopPlatform: vi.fn(() => true),
+  get isMobile() { return isMobilePlatformMock(); },
 }));
 
 function makeChannel(overrides: Partial<ChannelEntry> = {}): ChannelEntry {

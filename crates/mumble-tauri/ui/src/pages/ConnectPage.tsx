@@ -11,10 +11,10 @@ import {
 } from "../serverStorage";
 import { getPreferences } from "../preferencesStorage";
 import type { SavedServer, ServerPingResult, UserMode } from "../types";
-import ServerList from "../components/ServerList";
-import ServerEditSheet from "../components/ServerEditSheet";
-import PublicServerList from "../components/PublicServerList";
-import PasswordDialog from "../components/PasswordDialog";
+import ServerList from "../components/server/ServerList";
+import ServerEditSheet from "../components/server/ServerEditSheet";
+import PublicServerList from "../components/server/PublicServerList";
+import PasswordDialog from "../components/server/PasswordDialog";
 import styles from "./ConnectPage.module.css";
 
 type View = "loading" | "servers" | "wizard" | "public";

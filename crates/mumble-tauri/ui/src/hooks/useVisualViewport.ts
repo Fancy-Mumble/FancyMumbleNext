@@ -10,11 +10,11 @@
  */
 
 import { useEffect } from "react";
-import { isMobilePlatform } from "../utils/platform";
+import { isMobile } from "../utils/platform";
 
 export function useVisualViewport(): void {
   useEffect(() => {
-    if (!isMobilePlatform()) return;
+    if (!isMobile) return;
 
     const vv = globalThis.visualViewport;
     if (!vv) return;

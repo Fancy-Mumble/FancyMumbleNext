@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useRef, type RefObject } from "react";
-import { isMobilePlatform } from "../utils/platform";
+import { isMobile } from "../utils/platform";
 
 interface SwipeDrawerOptions {
   /** Width of the left-edge zone (px) where a right-swipe triggers open. Default: 30. */
@@ -47,7 +47,7 @@ export function useSwipeDrawer(
   isOpenRef.current = isOpen;
 
   useEffect(() => {
-    if (!isMobilePlatform()) return;
+    if (!isMobile) return;
 
     const target = containerRef?.current ?? document;
 

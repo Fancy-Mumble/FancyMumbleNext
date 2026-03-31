@@ -6,7 +6,7 @@ import { load } from "@tauri-apps/plugin-store";
 import type { AudioDevice, AudioSettings, FancyProfile, UserMode, TimeFormat } from "../../types";
 import { getPreferences, updatePreferences, getSavedAudioSettings, saveAudioSettings } from "../../preferencesStorage";
 import { serializeProfile, dataUrlToBytes } from "../../profileFormat";
-import { setKlipyApiKey } from "../../components/GifPicker";
+import { setKlipyApiKey } from "../../components/chat/GifPicker";
 import { useAppStore } from "../../store";
 import {
   type ShortcutBindings,

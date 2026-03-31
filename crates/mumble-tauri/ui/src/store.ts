@@ -33,8 +33,8 @@ import type {
   PendingKeyShareRequest,
   KeyHolderEntry,
 } from "./types";
-import type { PollPayload, PollVotePayload } from "./components/PollCreator";
-import { registerPoll, registerVote } from "./components/PollCard";
+import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator";
+import { registerPoll, registerVote } from "./components/chat/PollCard";
 import { offloadManager } from "./messageOffload";
 import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume } from "./preferencesStorage";
 

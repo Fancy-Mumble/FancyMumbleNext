@@ -1,15 +1,15 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store";
-import { isMobilePlatform } from "../utils/platform";
+import { isMobile } from "../utils/platform";
 import { useSwipeDrawer } from "../hooks/useSwipeDrawer";
-import ChannelSidebar from "../components/ChannelSidebar";
-import ChatView from "../components/ChatView";
-import ServerInfoPanel from "../components/ServerInfoPanel";
-import ChannelInfoPanel from "../components/ChannelInfoPanel";
-import UserProfileView from "../components/UserProfileView";
-import MobileProfileSheet from "../components/MobileProfileSheet";
-import MobileBottomSheet from "../components/MobileBottomSheet";
+import ChannelSidebar from "../components/sidebar/ChannelSidebar";
+import ChatView from "../components/chat/ChatView";
+import ServerInfoPanel from "../components/server/ServerInfoPanel";
+import ChannelInfoPanel from "../components/sidebar/ChannelInfoPanel";
+import UserProfileView from "../components/user/UserProfileView";
+import MobileProfileSheet from "../components/user/MobileProfileSheet";
+import MobileBottomSheet from "../components/elements/MobileBottomSheet";
 import MenuIcon from "../assets/icons/navigation/menu.svg?react";
 import styles from "./ChatPage.module.css";
 
@@ -19,7 +19,7 @@ export default function ChatPage() {
   const selectedUser = useAppStore((s) => s.selectedUser);
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
   const navigate = useNavigate();
-  const isMobile = isMobilePlatform();
+
 
   // On desktop, track whether the viewport is narrow (<= 768px).
   // When narrow, the sidebar uses the same slide-out drawer as mobile.

@@ -1,5 +1,5 @@
 import type { FancyProfile } from "../../types";
-import { SafeHtml } from "../../components/SafeHtml";
+import { SafeHtml } from "../../components/elements/SafeHtml";
 import { formatDuration } from "../../utils/format";
 import {
   DECORATIONS,

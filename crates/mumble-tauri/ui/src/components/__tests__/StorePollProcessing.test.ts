@@ -14,8 +14,8 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { useAppStore } from "../../store";
-import type { PollPayload, PollVotePayload } from "../PollCreator";
-import { getPoll, getVotes, registerVote } from "../PollCard";
+import type { PollPayload, PollVotePayload } from "../chat/PollCreator";
+import { getPoll, getVotes, registerVote } from "../chat/PollCard";
 
 // --- Helpers ------------------------------------------------------
 

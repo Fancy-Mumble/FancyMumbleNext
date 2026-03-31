@@ -14,9 +14,16 @@ export function isMobilePlatform(): boolean {
   return /Android|iPhone|iPad|iPod/i.test(ua);
 }
 
+/**
+ * Cached result of `isMobilePlatform()`.
+ * The user-agent never changes during a session, so this is safe to
+ * evaluate once at module load and import as a plain constant.
+ */
+export const isMobile: boolean = isMobilePlatform();
+
 /** Detect whether the app is running on a desktop (Windows/macOS/Linux). */
 export function isDesktopPlatform(): boolean {
-  return !isMobilePlatform();
+  return !isMobile;
 }
 
 /**
@@ -24,7 +31,7 @@ export function isDesktopPlatform(): boolean {
  * empty string on desktop.
  */
 export function mobileOnly(className: string): string {
-  return isMobilePlatform() ? className : "";
+  return isMobile ? className : "";
 }
 
 /**
