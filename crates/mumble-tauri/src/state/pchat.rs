@@ -55,6 +55,21 @@ pub(crate) struct PchatState {
     /// Encrypted local message cache for `SignalV1` channels.
     /// Stores decrypted plaintext on disk with AES-256-GCM encryption.
     pub local_cache: Option<LocalMessageCache>,
+    /// Stashed encrypted envelopes for `SignalV1` messages that arrived before
+    /// the sender's distribution key.  Keyed by `(channel_id, sender_hash)`.
+    /// Retried when we process the corresponding sender key distribution.
+    pub pending_signal_envelopes: Vec<PendingSignalEnvelope>,
+}
+
+/// A `SignalV1` encrypted envelope that could not be decrypted because the
+/// sender's distribution key had not yet arrived.
+#[derive(Clone)]
+pub(crate) struct PendingSignalEnvelope {
+    pub message_id: String,
+    pub channel_id: u32,
+    pub timestamp: u64,
+    pub sender_hash: String,
+    pub envelope_bytes: Vec<u8>,
 }
 
 impl PchatState {
@@ -94,6 +109,7 @@ impl PchatState {
             identity_dir,
             signal_bridge: None,
             local_cache,
+            pending_signal_envelopes: Vec::new(),
         })
     }
 }
@@ -1184,6 +1200,86 @@ fn cache_signal_message(pchat: &mut PchatState, msg: CachedMessage) {
     }
 }
 
+/// Attempt to decrypt and decode a real-time `PchatMessageDeliver` envelope.
+///
+/// Returns `Some((body, sender_name, decrypted))` on success or when a
+/// placeholder is generated for a failed decryption.  Returns `None` when
+/// the envelope is malformed and should be silently dropped.
+fn decrypt_deliver_envelope(
+    pchat: &mut PchatState,
+    protocol: PchatProtocol,
+    sender_hash: &str,
+    channel_id: u32,
+    message_id: &str,
+    timestamp: u64,
+    envelope_bytes: Vec<u8>,
+) -> Option<(String, String, bool)> {
+    let decrypt_result = if protocol == PchatProtocol::SignalV1 {
+        pchat
+            .key_manager
+            .decrypt_signal(sender_hash, channel_id, &envelope_bytes)
+    } else {
+        let payload = mumble_protocol::persistent::keys::EncryptedPayload {
+            ciphertext: envelope_bytes.clone(),
+            epoch: None,
+            chain_index: None,
+            epoch_fingerprint: [0u8; 8],
+        };
+        pchat
+            .key_manager
+            .decrypt(protocol, channel_id, message_id, timestamp, &payload)
+    };
+
+    match decrypt_result {
+        Ok(plaintext) => {
+            debug!(message_id = %message_id, plaintext_len = plaintext.len(), "pchat msg-deliver: decrypted OK");
+            match pchat.codec.decode::<MessageEnvelope>(&plaintext) {
+                Ok(env) => Some((env.body, env.sender_name, true)),
+                Err(e) => {
+                    warn!(message_id = %message_id, "failed to decode envelope: {e}");
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            warn!(
+                message_id = %message_id,
+                channel_id,
+                sender = %sender_hash,
+                ciphertext_len = envelope_bytes.len(),
+                has_key = pchat.key_manager.has_key(channel_id, protocol),
+                "failed to decrypt message: {e}"
+            );
+            if protocol == PchatProtocol::SignalV1 {
+                // Cap stash size to avoid unbounded growth.
+                const MAX_STASHED: usize = 50;
+                if pchat.pending_signal_envelopes.len() < MAX_STASHED {
+                    pchat.pending_signal_envelopes.push(PendingSignalEnvelope {
+                        message_id: message_id.to_owned(),
+                        channel_id,
+                        timestamp,
+                        sender_hash: sender_hash.to_owned(),
+                        envelope_bytes,
+                    });
+                    debug!(
+                        message_id = %message_id,
+                        channel_id,
+                        sender = %sender_hash,
+                        "stashed signal envelope for later retry"
+                    );
+                } else {
+                    warn!("signal stash full ({MAX_STASHED}), dropping envelope");
+                }
+            }
+            Some((
+                "[Encrypted message - awaiting key]".to_string(),
+                sender_hash.to_owned(),
+                false,
+            ))
+        }
+    }
+}
+
 pub(crate) fn handle_proto_msg_deliver(shared: &Arc<Mutex<SharedState>>, msg: &mumble_tcp::PchatMessageDeliver) {
     let message_id = msg.message_id.clone().unwrap_or_default();
     let channel_id = msg.channel_id.unwrap_or(0);
@@ -1212,43 +1308,10 @@ pub(crate) fn handle_proto_msg_deliver(shared: &Arc<Mutex<SharedState>>, msg: &m
 
     let Some(pchat) = state.pchat.as_mut() else { return };
 
-    // For PchatMessageDeliver (real-time), we try decrypting with the
-    // current epoch key (FancyV1) or the sender's chain key (SignalV1).
-    let decrypt_result = if protocol == PchatProtocol::SignalV1 {
-        pchat
-            .key_manager
-            .decrypt_signal(&sender_hash, channel_id, &envelope_bytes)
-    } else {
-        let payload = mumble_protocol::persistent::keys::EncryptedPayload {
-            ciphertext: envelope_bytes,
-            epoch: None,
-            chain_index: None,
-            epoch_fingerprint: [0u8; 8],
-        };
-        pchat
-            .key_manager
-            .decrypt(protocol, channel_id, &message_id, timestamp, &payload)
-    };
-
-    let (body, sender_name, decrypted) = match decrypt_result {
-        Ok(plaintext) => {
-            debug!(message_id = %message_id, plaintext_len = plaintext.len(), "pchat msg-deliver: decrypted OK");
-            match pchat.codec.decode::<MessageEnvelope>(&plaintext) {
-                Ok(env) => (env.body, env.sender_name, true),
-                Err(e) => {
-                    warn!(message_id = %message_id, "failed to decode envelope: {e}");
-                    return;
-                }
-            }
-        }
-        Err(e) => {
-            warn!(message_id = %message_id, channel_id, has_key = pchat.key_manager.has_key(channel_id, protocol), "failed to decrypt message: {e}");
-            (
-                "[Encrypted message - awaiting key]".to_string(),
-                sender_hash.clone(),
-                false,
-            )
-        }
+    let Some((body, sender_name, decrypted)) = decrypt_deliver_envelope(
+        pchat, protocol, &sender_hash, channel_id, &message_id, timestamp, envelope_bytes,
+    ) else {
+        return;
     };
 
     // Cache successfully decrypted SignalV1 messages locally.
@@ -1630,7 +1693,7 @@ fn decrypt_offline_batch(
                 .decrypt_signal(&sender_hash, channel_id, &envelope_bytes)
         } else {
             let payload = mumble_protocol::persistent::keys::EncryptedPayload {
-                ciphertext: envelope_bytes,
+                ciphertext: envelope_bytes.clone(),
                 epoch: None,
                 chain_index: None,
                 epoch_fingerprint: [0u8; 8],
@@ -1653,6 +1716,23 @@ fn decrypt_offline_batch(
             }
             Err(e) => {
                 warn!(message_id = %message_id, channel_id, "offline drain: failed to decrypt: {e}");
+                // For SignalV1, stash the encrypted envelope so we can retry
+                // once the sender's distribution key arrives.
+                if protocol == PchatProtocol::SignalV1 {
+                    pchat.pending_signal_envelopes.push(PendingSignalEnvelope {
+                        message_id: message_id.clone(),
+                        channel_id,
+                        timestamp,
+                        sender_hash: sender_hash.clone(),
+                        envelope_bytes,
+                    });
+                    debug!(
+                        message_id = %message_id,
+                        channel_id,
+                        sender = %sender_hash,
+                        "stashed signal envelope (offline drain) for later retry"
+                    );
+                }
                 (
                     "[Encrypted message - awaiting key]".to_string(),
                     sender_hash.clone(),
@@ -2293,16 +2373,142 @@ pub(crate) fn send_signal_distribution(
     });
 }
 
+/// Retry decrypting stashed `SignalV1` envelopes from `sender_hash`.
+///
+/// Called after successfully processing a sender key distribution.  Any
+/// envelopes that still fail to decrypt are kept in the stash so they
+/// can be retried when a future distribution arrives (the current
+/// distribution may not cover messages encrypted at an earlier chain
+/// iteration).
+fn retry_stashed_signal_envelopes(
+    state: &mut SharedState,
+    sender_hash: &str,
+    sender_channel: u32,
+) -> usize {
+    // Phase 1: drain matching envelopes, decrypt, cache (borrows state.pchat).
+    let decoded: Vec<(String, u32, String, String)> = {
+        let Some(pchat) = state.pchat.as_mut() else {
+            return 0;
+        };
+
+        // Partition: matching envelopes vs. the rest.
+        let mut remaining = Vec::new();
+        let mut matched = Vec::new();
+        for env in pchat.pending_signal_envelopes.drain(..) {
+            if env.sender_hash == sender_hash && env.channel_id == sender_channel {
+                matched.push(env);
+            } else {
+                remaining.push(env);
+            }
+        }
+        pchat.pending_signal_envelopes = remaining;
+
+        if matched.is_empty() {
+            return 0;
+        }
+
+        debug!(
+            sender = %sender_hash,
+            channel_id = sender_channel,
+            count = matched.len(),
+            "retrying stashed signal envelopes after distribution"
+        );
+
+        let mut results = Vec::new();
+        let mut still_pending = Vec::new();
+
+        for env in matched {
+            let decrypt_result = pchat
+                .key_manager
+                .decrypt_signal(&env.sender_hash, env.channel_id, &env.envelope_bytes);
+
+            match decrypt_result {
+                Ok(plaintext) => match pchat.codec.decode::<MessageEnvelope>(&plaintext) {
+                    Ok(envelope) => {
+                        cache_signal_message(
+                            pchat,
+                            CachedMessage {
+                                message_id: env.message_id.clone(),
+                                channel_id: env.channel_id,
+                                timestamp: env.timestamp,
+                                sender_hash: env.sender_hash.clone(),
+                                sender_name: envelope.sender_name.clone(),
+                                body: envelope.body.clone(),
+                                is_own: false,
+                            },
+                        );
+                        results.push((
+                            env.message_id.clone(),
+                            env.channel_id,
+                            envelope.sender_name,
+                            envelope.body,
+                        ));
+                    }
+                    Err(e) => {
+                        warn!(
+                            message_id = %env.message_id,
+                            "stashed envelope: failed to decode after decrypt: {e}"
+                        );
+                    }
+                },
+                Err(e) => {
+                    warn!(
+                        message_id = %env.message_id,
+                        sender = %env.sender_hash,
+                        "stashed envelope: still failed to decrypt, keeping stashed: {e}"
+                    );
+                    still_pending.push(env);
+                }
+            }
+        }
+
+        // Put back envelopes that still failed so they can be retried
+        // on a future distribution.
+        pchat.pending_signal_envelopes.extend(still_pending);
+
+        results
+    };
+    // `state.pchat` borrow is now dropped.
+
+    // Phase 2: replace placeholder messages in `state.messages`.
+    let mut replaced_count = 0usize;
+    for (message_id, channel_id, sender_name, body) in &decoded {
+        if let Some(msgs) = state.messages.get_mut(channel_id) {
+            if let Some(msg) = msgs
+                .iter_mut()
+                .find(|m| m.message_id.as_deref() == Some(message_id.as_str()))
+            {
+                msg.body.clone_from(body);
+                msg.sender_name.clone_from(sender_name);
+                replaced_count += 1;
+            }
+        }
+    }
+
+    if replaced_count > 0 {
+        debug!(
+            replaced_count,
+            sender = %sender_hash,
+            channel_id = sender_channel,
+            "replaced placeholder messages with decrypted content"
+        );
+    }
+
+    replaced_count
+}
+
 /// Process a received Signal sender key distribution from a peer.
 ///
 /// Called when we receive a `PluginDataTransmission` with
 /// `data_id == DATA_ID_SIGNAL_SENDER_KEY`.
+/// Returns `true` if stashed envelopes were successfully decrypted and
+/// placeholder messages replaced (caller should emit `state-changed`).
 pub(crate) fn handle_signal_sender_key(
     shared: &Arc<Mutex<SharedState>>,
     sender_session: u32,
     data: &[u8],
-) {
-    let Ok(mut state) = shared.lock() else { return };
+) -> bool {
+    let Ok(mut state) = shared.lock() else { return false };
 
     // Resolve sender's cert hash from their session.
     let sender_hash = state
@@ -2311,7 +2517,7 @@ pub(crate) fn handle_signal_sender_key(
         .and_then(|u| u.hash.clone());
     let Some(sender_hash) = sender_hash else {
         warn!(sender_session, "signal sender key from unknown session");
-        return;
+        return false;
     };
 
     // Determine the sender's channel to use as the distribution channel_id.
@@ -2321,29 +2527,38 @@ pub(crate) fn handle_signal_sender_key(
         .map(|u| u.channel_id)
         .unwrap_or(0);
 
-    let Some(ref mut pchat) = state.pchat else { return };
-    ensure_signal_bridge(pchat);
-    let Some(ref bridge) = pchat.signal_bridge else {
-        warn!("signal bridge not loaded, cannot process sender key");
-        return;
-    };
+    // Scope the mutable borrow of `state.pchat` so we can pass `&mut state`
+    // to the retry helper afterwards.
+    {
+        let Some(ref mut pchat) = state.pchat else { return false };
+        ensure_signal_bridge(pchat);
+        let Some(ref bridge) = pchat.signal_bridge else {
+            warn!("signal bridge not loaded, cannot process sender key");
+            return false;
+        };
 
-    match bridge.process_distribution(&sender_hash, sender_channel, data) {
-        Ok(()) => {
-            debug!(
-                sender = %sender_hash,
-                channel_id = sender_channel,
-                "processed signal sender key distribution"
-            );
-        }
-        Err(e) => {
-            warn!(
-                sender = %sender_hash,
-                channel_id = sender_channel,
-                "failed to process signal distribution: {e}"
-            );
+        match bridge.process_distribution(&sender_hash, sender_channel, data) {
+            Ok(()) => {
+                debug!(
+                    sender = %sender_hash,
+                    channel_id = sender_channel,
+                    "processed signal sender key distribution"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    sender = %sender_hash,
+                    channel_id = sender_channel,
+                    "failed to process signal distribution: {e}"
+                );
+                return false;
+            }
         }
     }
+
+    // After successfully processing the distribution, retry any stashed
+    // envelopes from this sender on this channel.
+    retry_stashed_signal_envelopes(&mut state, &sender_hash, sender_channel) > 0
 }
 
 /// Emit a `pchat-history-loading` event to the frontend via an `AppHandle`

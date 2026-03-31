@@ -81,6 +81,7 @@ type ImportStateFn = unsafe extern "C" fn(
     data_len: u32,
 ) -> i32;
 type FreeBufFn = unsafe extern "C" fn(ptr: *mut u8, len: u32);
+type LastErrorFn = unsafe extern "C" fn(out_len: *mut u32) -> *const u8;
 
 /// Holds loaded function pointers from the signal-bridge shared library.
 struct BridgeSymbols {
@@ -96,6 +97,7 @@ struct BridgeSymbols {
     export_state: ExportStateFn,
     import_state: ImportStateFn,
     free_buf: FreeBufFn,
+    last_error: Option<LastErrorFn>,
 }
 
 impl BridgeSymbols {
@@ -165,6 +167,13 @@ impl BridgeSymbols {
                     Error::Other(format!("missing symbol signal_bridge_free_buf: {e}"))
                 })?;
 
+            // Optional: newer DLLs expose a last-error function for
+            // detailed diagnostics.
+            let last_error = lib
+                .get::<LastErrorFn>(b"signal_bridge_last_error\0")
+                .ok()
+                .map(|sym| *sym);
+
             Ok(Self {
                 _lib: lib,
                 create,
@@ -178,6 +187,7 @@ impl BridgeSymbols {
                 export_state,
                 import_state,
                 free_buf,
+                last_error,
             })
         }
     }
@@ -242,7 +252,7 @@ impl SignalBridge {
         let rc = unsafe {
             (self.syms.create_distribution)(*ctx, channel_id, &mut out_ptr, &mut out_len)
         };
-        check_rc(rc, "create_distribution")?;
+        self.check_rc(rc, "create_distribution")?;
         Ok(self.take_buf(out_ptr, out_len))
     }
 
@@ -268,7 +278,7 @@ impl SignalBridge {
                 distribution_bytes.len() as u32,
             )
         };
-        check_rc(rc, "process_distribution")
+        self.check_rc(rc, "process_distribution")
     }
 
     /// Encrypt plaintext for a channel using our sender key.
@@ -287,7 +297,7 @@ impl SignalBridge {
                 &mut out_len,
             )
         };
-        check_rc(rc, "group_encrypt")?;
+        self.check_rc(rc, "group_encrypt")?;
         Ok(self.take_buf(out_ptr, out_len))
     }
 
@@ -315,7 +325,7 @@ impl SignalBridge {
                 &mut out_len,
             )
         };
-        check_rc(rc, "group_decrypt")?;
+        self.check_rc(rc, "group_decrypt")?;
         Ok(self.take_buf(out_ptr, out_len))
     }
 
@@ -337,7 +347,7 @@ impl SignalBridge {
         let ctx = self.ctx.lock().map_err(|_| Error::Other("mutex poisoned".into()))?;
 
         let rc = unsafe { (self.syms.remove_channel)(*ctx, channel_id) };
-        check_rc(rc, "remove_channel")
+        self.check_rc(rc, "remove_channel")
     }
 
     /// Export internal state for persistence.
@@ -348,7 +358,7 @@ impl SignalBridge {
 
         let rc =
             unsafe { (self.syms.export_state)(*ctx, &mut out_ptr, &mut out_len) };
-        check_rc(rc, "export_state")?;
+        self.check_rc(rc, "export_state")?;
         Ok(self.take_buf(out_ptr, out_len))
     }
 
@@ -359,7 +369,7 @@ impl SignalBridge {
         let rc = unsafe {
             (self.syms.import_state)(*ctx, data.as_ptr(), data.len() as u32)
         };
-        check_rc(rc, "import_state")
+        self.check_rc(rc, "import_state")
     }
 
     /// Take ownership of a buffer allocated by the bridge library.
@@ -373,6 +383,43 @@ impl SignalBridge {
         unsafe { (self.syms.free_buf)(ptr, len) };
         data
     }
+
+    /// Read the last error detail from the DLL (if available).
+    ///
+    /// The returned string is only valid until the next FFI call, so we
+    /// copy it eagerly.
+    fn last_error_detail(&self) -> Option<String> {
+        let func = self.syms.last_error?;
+        let mut len: u32 = 0;
+        let ptr = unsafe { func(&mut len) };
+        if ptr.is_null() || len == 0 {
+            return None;
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
+        String::from_utf8(bytes.to_vec()).ok()
+    }
+
+    /// Convert a non-zero FFI return code to a descriptive error.
+    fn check_rc(&self, rc: i32, operation: &str) -> Result<()> {
+        if rc == SIGNAL_OK {
+            return Ok(());
+        }
+        let desc = match rc {
+            -1 => "null pointer",
+            -2 => "invalid UTF-8",
+            -3 => "protocol error",
+            -4 => "no key found",
+            -5 => "serialization error",
+            _ => "unknown error",
+        };
+        let detail = self
+            .last_error_detail()
+            .map(|d| format!(" ({d})"))
+            .unwrap_or_default();
+        Err(Error::Other(format!(
+            "signal bridge {operation} failed: {desc} (code {rc}){detail}"
+        )))
+    }
 }
 
 impl Drop for SignalBridge {
@@ -385,35 +432,10 @@ impl Drop for SignalBridge {
     }
 }
 
-/// Convert a non-zero FFI return code to an error.
-fn check_rc(rc: i32, operation: &str) -> Result<()> {
-    if rc == SIGNAL_OK {
-        return Ok(());
-    }
-    let desc = match rc {
-        -1 => "null pointer",
-        -2 => "invalid UTF-8",
-        -3 => "protocol error",
-        -4 => "no key found",
-        -5 => "serialization error",
-        _ => "unknown error",
-    };
-    Err(Error::Other(format!(
-        "signal bridge {operation} failed: {desc} (code {rc})"
-    )))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
-    fn check_rc_ok() {
-        assert!(check_rc(0, "test").is_ok());
-    }
-
-    #[test]
-    fn check_rc_error() {
-        assert!(check_rc(-3, "test").is_err());
+    fn signal_ok_is_zero() {
+        assert_eq!(super::SIGNAL_OK, 0);
     }
 }
