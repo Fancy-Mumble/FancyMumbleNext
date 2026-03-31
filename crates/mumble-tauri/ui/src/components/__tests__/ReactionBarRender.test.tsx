@@ -16,11 +16,14 @@ vi.mock("../../utils/platform", () => ({ isMobile: false }));
 
 // -- Helpers -------------------------------------------------------
 
-function makeSummary(emoji: string, reactors: [number, string][]): ReactionSummary {
+function makeSummary(emoji: string, reactors: [number, string][], firstTimestamp = 0): ReactionSummary {
   return {
     emoji,
     reactors: new Set(reactors.map(([id]) => id)),
     reactorNames: new Map(reactors),
+    reactorHashes: new Set(),
+    reactorHashNames: new Map(),
+    firstTimestamp,
   };
 }
 
@@ -97,20 +100,58 @@ describe("ReactionBar rendering", () => {
     expect(onAdd).toHaveBeenCalledTimes(1);
   });
 
-  it("sorts pills by count descending", () => {
+  it("preserves insertion order (sorted by firstTimestamp from store)", () => {
+    // Reactions come pre-sorted by firstTimestamp from getReactions().
     const reactions = [
-      makeSummary("\u{1F525}", [[1, "A"]]),
-      makeSummary("\u{1F44D}", [[1, "A"], [2, "B"], [3, "C"]]),
-      makeSummary("\u{2764}\u{FE0F}", [[1, "A"], [2, "B"]]),
+      makeSummary("\u{1F44D}", [[1, "A"], [2, "B"], [3, "C"]], 100),
+      makeSummary("\u{2764}\u{FE0F}", [[1, "A"], [2, "B"]], 200),
+      makeSummary("\u{1F525}", [[1, "A"]], 300),
     ];
     render(<ReactionBar reactions={reactions} ownSession={99} onToggle={onToggle} onAdd={onAdd} />);
 
-    // Buttons should be in order: thumbs up (3), heart (2), fire (1), then add.
+    // Buttons should preserve the order given (by firstTimestamp), then add.
     const buttons = screen.getAllByRole("button");
-    // First three are reaction pills, last is the "+" button.
     expect(buttons[0].getAttribute("aria-label")).toBe("\u{1F44D} 3");
     expect(buttons[1].getAttribute("aria-label")).toBe("\u{2764}\u{FE0F} 2");
     expect(buttons[2].getAttribute("aria-label")).toBe("\u{1F525} 1");
     expect(buttons[3].getAttribute("aria-label")).toBe("Add reaction");
+  });
+
+  it("marks pill active when own hash matches a reactor hash", () => {
+    const summary: ReactionSummary = {
+      emoji: "\u{1F44D}",
+      reactors: new Set(),
+      reactorNames: new Map(),
+      reactorHashes: new Set(["abc123"]),
+      reactorHashNames: new Map([["abc123", "Me"]]),
+      firstTimestamp: 0,
+    };
+    render(
+      <ReactionBar
+        reactions={[summary]}
+        ownSession={99}
+        ownHash="abc123"
+        onToggle={onToggle}
+        onAdd={onAdd}
+      />,
+    );
+    const btn = screen.getByLabelText("\u{1F44D} 1");
+    expect(btn.className).toContain("Active");
+  });
+
+  it("counts both session reactors and hash reactors", () => {
+    const summary: ReactionSummary = {
+      emoji: "\u{1F44D}",
+      reactors: new Set([1, 2]),
+      reactorNames: new Map([[1, "Alice"], [2, "Bob"]]),
+      reactorHashes: new Set(["hash1"]),
+      reactorHashNames: new Map([["hash1", "Charlie"]]),
+      firstTimestamp: 0,
+    };
+    render(
+      <ReactionBar reactions={[summary]} ownSession={99} onToggle={onToggle} onAdd={onAdd} />,
+    );
+    // 2 session + 1 hash = 3
+    expect(screen.getByText("3")).toBeTruthy();
   });
 });

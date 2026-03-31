@@ -898,6 +898,18 @@ async fn send_plugin_data(
     state.send_plugin_data(receiver_sessions, data, data_id).await
 }
 
+/// Send a reaction (add/remove) on a persisted chat message.
+#[tauri::command]
+async fn send_reaction(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    message_id: String,
+    emoji: String,
+    action: String,
+) -> Result<(), String> {
+    state.send_reaction(channel_id, message_id, emoji, action).await
+}
+
 /// Delete persisted chat messages on the server.
 ///
 /// At least one of `message_ids`, `time_from`/`time_to`, or `sender_hash`
@@ -1733,6 +1745,7 @@ pub fn run() {
             set_user_texture,
             get_own_session,
             send_plugin_data,
+            send_reaction,
             delete_pchat_messages,
             send_dm,
             get_dm_messages,

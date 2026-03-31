@@ -84,6 +84,9 @@ export default function ChatMessageList({
   onToggleReaction,
   onAddReaction,
 }: ChatMessageListProps) {
+  // Resolve own cert hash for hash-based reaction tracking.
+  const ownHash = ownSession !== null ? userBySession.get(ownSession)?.hash : undefined;
+
   // Group consecutive messages from the same sender,
   // also breaking on date boundaries so date chips render between groups.
   const groups: MsgGroup[] = [];
@@ -194,7 +197,21 @@ export default function ChatMessageList({
                           isFirstInGroup={j === 0}
                           onScrollToMessage={handleScrollToMessage}
                           onOpenLightbox={handleOpenLightbox}
-                        />
+                        >
+                          {msg.message_id && (() => {
+                            const reactions = getMessageReactions(msg.message_id!);
+                            return reactions.length > 0 ? (
+                              <ReactionBar
+                                reactions={reactions}
+                                ownSession={ownSession}
+                                ownHash={ownHash}
+                                isOwn={group.isOwn}
+                                onToggle={(emoji) => onToggleReaction(msg, emoji)}
+                                onAdd={(e) => onAddReaction(msg, e)}
+                              />
+                            ) : null;
+                          })()}
+                        </MessageItem>
                         {selectionMode && canDelete && hasMsgId && (
                           <div className={`${styles.selectCheckbox} ${isSelected ? styles.selectCheckboxChecked : ""}`}>
                             {isSelected && (
@@ -203,17 +220,6 @@ export default function ChatMessageList({
                           </div>
                         )}
                       </div>
-                      {msg.message_id && (() => {
-                        const reactions = getMessageReactions(msg.message_id!);
-                        return reactions.length > 0 ? (
-                          <ReactionBar
-                            reactions={reactions}
-                            ownSession={ownSession}
-                            onToggle={(emoji) => onToggleReaction(msg, emoji)}
-                            onAdd={(e) => onAddReaction(msg, e)}
-                          />
-                        ) : null;
-                      })()}
                     </React.Fragment>
                   );
                 })}

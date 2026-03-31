@@ -35,9 +35,32 @@ import type {
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator";
 import { registerPoll, registerVote } from "./components/chat/PollCard";
-import { applyReaction, resetReactions, setServerCustomReactions, REACTION_DATA_ID, CUSTOM_REACTIONS_DATA_ID, type ReactionPayload, type ServerCustomReaction } from "./components/chat/reactionStore";
+import { applyReaction, applyPchatReaction, resetReactions, setServerCustomReactions, REACTION_DATA_ID, CUSTOM_REACTIONS_DATA_ID, type ReactionPayload, type ServerCustomReaction } from "./components/chat/reactionStore";
 import { offloadManager } from "./messageOffload";
 import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume } from "./preferencesStorage";
+
+/** Event payload for a single reaction delivered by the server. */
+interface ReactionDeliverEvent {
+  channel_id: number;
+  message_id: string;
+  emoji: string;
+  action: string;
+  sender_hash: string;
+  sender_name: string;
+  timestamp: number;
+}
+
+/** Event payload for a batch of stored reactions from the server. */
+interface ReactionFetchResponseEvent {
+  channel_id: number;
+  reactions: {
+    message_id: string;
+    emoji: string;
+    sender_hash: string;
+    sender_name: string;
+    timestamp: number;
+  }[];
+}
 
 /** Sessions that have already had their stored volume applied this connection. */
 const volumeAppliedSessions = new Set<number>();
@@ -109,6 +132,9 @@ interface AppState {
   /** Synthetic local-only messages for rendering polls in the chat flow. */
   pollMessages: ChatMessage[];
 
+  /** Monotonic counter incremented whenever the module-level reaction store changes. */
+  reactionVersion: number;
+
   // -- Persistent chat state -------------------------------------
   /** Persistence metadata per channel (mode, retention, fetch state). */
   channelPersistence: Record<number, ChannelPersistenceState>;
@@ -178,6 +204,8 @@ interface AppState {
   toggleDeafen: () => Promise<void>;
   selectUser: (session: number | null) => void;
   sendPluginData: (receiverSessions: number[], data: Uint8Array, dataId: string) => Promise<void>;
+  /** Send a reaction (add/remove) on a persistent chat message via native proto. */
+  sendReaction: (channelId: number, messageId: string, emoji: string, action: "add" | "remove") => Promise<void>;
   /** Add a poll to the store (called locally when creating a poll). */
   addPoll: (poll: PollPayload, isOwn: boolean) => void;
   setError: (error: string | null) => void;
@@ -255,6 +283,7 @@ const INITIAL: Pick<
   | "groupUnreadCounts"
   | "polls"
   | "pollMessages"
+  | "reactionVersion"
   | "channelPersistence"
   | "keyTrust"
   | "custodianPins"
@@ -298,6 +327,7 @@ const INITIAL: Pick<
   groupUnreadCounts: {},
   polls: new Map(),
   pollMessages: [],
+  reactionVersion: 0,
   channelPersistence: {},
   keyTrust: {},
   custodianPins: {},
@@ -314,6 +344,15 @@ const INITIAL: Pick<
 };
 
 // --- Store --------------------------------------------------------
+
+/**
+ * Monotonically increasing sequence number for channel-message writes.
+ * Every async operation that sets `messages` bumps this counter before
+ * starting the IPC round-trip and only applies the result when the
+ * counter hasn't been bumped again in the meantime.  This prevents
+ * stale `get_messages` responses from overwriting fresher data.
+ */
+let messageWriteSeq = 0;
 
 /** Update the taskbar badge with the total unread count (channels + DMs + groups). */
 function updateBadgeCount(): void {
@@ -367,13 +406,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   selectChannel: async (id) => {
     set({ selectedChannel: id, selectedDmUser: null, dmMessages: [], selectedGroup: null, groupMessages: [] });
+    const seq = ++messageWriteSeq;
     try {
       // Notify backend - marks channel as read and clears DM selection.
       await invoke("select_channel", { channelId: id });
       const messages = await invoke<ChatMessage[]>("get_messages", {
         channelId: id,
       });
-      set({ messages });
+      // Only apply if no newer write has started (avoids overwriting
+      // fresher data from a concurrent refreshMessages / new-message).
+      if (messageWriteSeq === seq) {
+        set({ messages });
+      }
     } catch (e) {
       console.error("select_channel error:", e);
     }
@@ -438,10 +482,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   sendMessage: async (channelId, body) => {
     try {
       await invoke("send_message", { channelId, body });
+      const seq = ++messageWriteSeq;
       const messages = await invoke<ChatMessage[]>("get_messages", {
         channelId,
       });
-      set({ messages });
+      if (messageWriteSeq === seq) {
+        set({ messages });
+      }
     } catch (e) {
       console.error("send_message error:", e);
     }
@@ -478,11 +525,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   refreshMessages: async (channelId) => {
+    const seq = ++messageWriteSeq;
     try {
       const messages = await invoke<ChatMessage[]>("get_messages", {
         channelId,
       });
-      set({ messages });
+      if (messageWriteSeq === seq) {
+        set({ messages });
+      }
     } catch (e) {
       console.error("refresh messages error:", e);
     }
@@ -623,6 +673,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error("send_plugin_data error:", e);
     }
   },
+
+  sendReaction: async (channelId, messageId, emoji, action) => {
+    try {
+      await invoke("send_reaction", { channelId, messageId, emoji, action });
+    } catch (e) {
+      console.error("send_reaction error:", e);
+    }
+  },
+
   addPoll: (poll, isOwn) => {
     registerPoll(poll);
     set((prev) => {
@@ -1229,7 +1288,7 @@ export async function initEventListeners(
             const payload = JSON.parse(json) as ReactionPayload;
             if (payload.type === "reaction" && payload.messageId && payload.emoji) {
               applyReaction(payload);
-              useAppStore.setState({});
+              useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
             }
           } catch (e) {
             console.error("plugin-data reaction processing error:", e);
@@ -1450,6 +1509,31 @@ export async function initEventListeners(
             ...(clearMessages ? { messages: [] } : {}),
           };
         });
+      },
+    ),
+
+    // Reaction add/remove delivered by the server (persistent channels).
+    await listen<ReactionDeliverEvent>(
+      "pchat-reaction-deliver",
+      (event) => {
+        const { message_id, emoji, action, sender_hash, sender_name } = event.payload;
+        // Resolve actual display name from the user list (server may send the hash as fallback).
+        const resolvedName = useAppStore.getState().users.find((u) => u.hash === sender_hash)?.name ?? sender_name;
+        applyPchatReaction(message_id, emoji, action as "add" | "remove", sender_hash, resolvedName);
+        useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
+      },
+    ),
+
+    // Batch reaction fetch response (historical reactions for persistent channels).
+    await listen<ReactionFetchResponseEvent>(
+      "pchat-reaction-fetch-response",
+      (event) => {
+        const { users } = useAppStore.getState();
+        for (const r of event.payload.reactions) {
+          const resolvedName = users.find((u) => u.hash === r.sender_hash)?.name ?? r.sender_name;
+          applyPchatReaction(r.message_id, r.emoji, "add", r.sender_hash, resolvedName);
+        }
+        useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
       },
     ),
   );

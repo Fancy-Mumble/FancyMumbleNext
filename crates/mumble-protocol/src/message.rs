@@ -99,6 +99,12 @@ pub enum TcpMessageType {
     PchatDeleteMessages = 115,
     /// Fancy Mumble: server drains offline message queue to a reconnected client.
     PchatOfflineQueueDrain = 116,
+    /// Fancy Mumble: client sends a reaction (add/remove) on a persistent message.
+    PchatReaction = 117,
+    /// Fancy Mumble: server broadcasts a reaction update to channel members.
+    PchatReactionDeliver = 118,
+    /// Fancy Mumble: server response with reactions for requested messages.
+    PchatReactionFetchResponse = 119,
 }
 
 impl TryFrom<u16> for TcpMessageType {
@@ -150,6 +156,9 @@ impl TryFrom<u16> for TcpMessageType {
             114 => Ok(Self::PchatKeyChallengeResult),
             115 => Ok(Self::PchatDeleteMessages),
             116 => Ok(Self::PchatOfflineQueueDrain),
+            117 => Ok(Self::PchatReaction),
+            118 => Ok(Self::PchatReactionDeliver),
+            119 => Ok(Self::PchatReactionFetchResponse),
             other => Err(crate::error::Error::UnknownMessageType(other)),
         }
     }
@@ -244,6 +253,12 @@ pub enum ControlMessage {
     PchatDeleteMessages(mumble_tcp::PchatDeleteMessages),
     /// Fancy Mumble: server drains offline message queue to a reconnected client.
     PchatOfflineQueueDrain(mumble_tcp::PchatOfflineQueueDrain),
+    /// Fancy Mumble: client sends a reaction (add/remove) on a persistent message.
+    PchatReaction(mumble_tcp::PchatReaction),
+    /// Fancy Mumble: server broadcasts a reaction update to channel members.
+    PchatReactionDeliver(mumble_tcp::PchatReactionDeliver),
+    /// Fancy Mumble: server response with reactions for requested messages.
+    PchatReactionFetchResponse(mumble_tcp::PchatReactionFetchResponse),
     /// UDP audio tunneled through TCP (fallback path).
     UdpTunnel(Vec<u8>),
 }
@@ -319,6 +334,9 @@ mod tests {
             (114, TcpMessageType::PchatKeyChallengeResult),
             (115, TcpMessageType::PchatDeleteMessages),
             (116, TcpMessageType::PchatOfflineQueueDrain),
+            (117, TcpMessageType::PchatReaction),
+            (118, TcpMessageType::PchatReactionDeliver),
+            (119, TcpMessageType::PchatReactionFetchResponse),
         ];
 
         for (id, expected_type) in &expected {
@@ -354,13 +372,18 @@ mod tests {
             let msg_type = TcpMessageType::try_from(116u16).unwrap();
             assert_eq!(msg_type as u16, 116);
         }
+        // Reaction IDs (117..=119)
+        for id in 117..=119u16 {
+            let msg_type = TcpMessageType::try_from(id).unwrap();
+            assert_eq!(msg_type as u16, id);
+        }
     }
 
     #[test]
     fn tcp_message_type_invalid_returns_error() {
         assert!(TcpMessageType::try_from(27u16).is_err());
         assert!(TcpMessageType::try_from(99u16).is_err());
-        assert!(TcpMessageType::try_from(117u16).is_err());
+        assert!(TcpMessageType::try_from(120u16).is_err());
         assert!(TcpMessageType::try_from(199u16).is_err());
         assert!(TcpMessageType::try_from(203u16).is_err());
         assert!(TcpMessageType::try_from(u16::MAX).is_err());

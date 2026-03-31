@@ -5,13 +5,14 @@
  */
 
 import type React from "react";
-import { useState, useCallback, useReducer, useRef } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useAppStore } from "../../store";
 import type { ChatMessage } from "../../types";
 import { isMobile } from "../../utils/platform";
 import {
   applyReaction,
   hasReacted,
+  hasReactedByHash,
   getReactions,
   REACTION_DATA_ID,
   type ReactionPayload,
@@ -31,9 +32,9 @@ export function useReactions() {
   const ownSession = useAppStore((s) => s.ownSession);
   const selectedChannel = useAppStore((s) => s.selectedChannel);
   const sendPluginData = useAppStore((s) => s.sendPluginData);
-
-  /** Force re-render when reactions change (module-level store is mutable). */
-  const [, forceRender] = useReducer((c: number) => c + 1, 0);
+  const sendReaction = useAppStore((s) => s.sendReaction);
+  const channelPersistence = useAppStore((s) => s.channelPersistence);
+  const reactionVersion = useAppStore((s) => s.reactionVersion);
 
   /** Emoji picker state (null = closed). */
   const [emojiPicker, setEmojiPicker] = useState<EmojiPickerState | null>(null);
@@ -41,42 +42,60 @@ export function useReactions() {
   const usersRef = useRef(users);
   usersRef.current = users;
 
+  /** Whether the given channel uses persistent chat (and thus native reaction proto). */
+  const isPersistentChannel = useCallback(
+    (channelId: number): boolean => {
+      const p = channelPersistence[channelId];
+      return !!p && p.mode !== "NONE";
+    },
+    [channelPersistence],
+  );
+
   /**
    * Send a reaction (add or remove) to all users in the channel
    * and apply it locally.
    */
-  const sendReaction = useCallback(
+  const doSendReaction = useCallback(
     async (messageId: string, emoji: string, action: "add" | "remove", channelId: number) => {
       if (ownSession === null) return;
 
       const currentUsers = usersRef.current;
       const ownUser = currentUsers.find((u) => u.session === ownSession);
 
-      const payload: ReactionPayload = {
-        type: "reaction",
-        messageId,
-        emoji,
-        action,
-        reactor: ownSession,
-        reactorName: ownUser?.name ?? "",
-        channelId,
-      };
+      if (isPersistentChannel(channelId)) {
+        // Persistent channel: use native PchatReaction proto.
+        // The server broadcasts PchatReactionDeliver to all channel members;
+        // the local store will update when the event arrives (no optimistic apply
+        // for sessions, only hash-based tracking).
+        await sendReaction(channelId, messageId, emoji, action);
+      } else {
+        // Non-persistent channel: use PluginData broadcast.
+        const payload: ReactionPayload = {
+          type: "reaction",
+          messageId,
+          emoji,
+          action,
+          reactor: ownSession,
+          reactorName: ownUser?.name ?? "",
+          channelId,
+        };
 
-      // Apply locally first for instant feedback.
-      applyReaction(payload);
-      forceRender();
+        // Apply locally first for instant feedback.
+        applyReaction(payload);
+        useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
 
-      // Broadcast to all channel members (exclude self).
-      const targets = currentUsers
-        .filter((u) => u.channel_id === channelId && u.session !== ownSession)
-        .map((u) => u.session);
+        // Broadcast to all channel members (exclude self).
+        const targets = currentUsers
+          .filter((u) => u.channel_id === channelId && u.session !== ownSession)
+          .map((u) => u.session);
 
-      if (targets.length > 0) {
-        const data = new TextEncoder().encode(JSON.stringify(payload));
-        await sendPluginData(targets, data, REACTION_DATA_ID);
+        if (targets.length > 0) {
+          const data = new TextEncoder().encode(JSON.stringify(payload));
+          await sendPluginData(targets, data, REACTION_DATA_ID);
+        }
       }
     },
-    [ownSession, sendPluginData],
+    [ownSession, sendPluginData, sendReaction, isPersistentChannel],
   );
 
   /**
@@ -87,10 +106,18 @@ export function useReactions() {
     async (msg: ChatMessage, emoji: string) => {
       if (!msg.message_id) return;
       const channelId = msg.channel_id ?? selectedChannel ?? 0;
-      const alreadyReacted = ownSession !== null && hasReacted(msg.message_id, emoji, ownSession);
-      await sendReaction(msg.message_id, emoji, alreadyReacted ? "remove" : "add", channelId);
+      const ownUser = ownSession !== null ? users.find((u) => u.session === ownSession) : undefined;
+      const ownHash = ownUser?.hash ?? "";
+
+      let alreadyReacted: boolean;
+      if (isPersistentChannel(channelId) && ownHash) {
+        alreadyReacted = hasReactedByHash(msg.message_id, emoji, ownHash);
+      } else {
+        alreadyReacted = ownSession !== null && hasReacted(msg.message_id, emoji, ownSession);
+      }
+      await doSendReaction(msg.message_id, emoji, alreadyReacted ? "remove" : "add", channelId);
     },
-    [ownSession, selectedChannel, sendReaction],
+    [ownSession, users, selectedChannel, doSendReaction, isPersistentChannel],
   );
 
   /** Handle a quick-reaction emoji click from the action bar. */
@@ -132,14 +159,14 @@ export function useReactions() {
   /** Get reaction summaries for a given message (convenience wrapper). */
   const getMessageReactions = useCallback(
     (messageId: string): ReactionSummary[] => getReactions(messageId),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- forceRender is the dep that matters
-    [forceRender],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reactionVersion triggers re-computation
+    [reactionVersion],
   );
 
   /** Handle incoming reaction from remote peer (called by store). */
   const applyRemoteReaction = useCallback((payload: ReactionPayload) => {
     applyReaction(payload);
-    forceRender();
+    useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
   }, []);
 
   return {

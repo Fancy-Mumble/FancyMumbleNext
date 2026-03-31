@@ -1509,15 +1509,20 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
         );
         let existing = state.messages.entry(channel_id).or_default();
 
-        // De-duplicate: only add messages we don't already have
-        let existing_ids: std::collections::HashSet<Option<&str>> = existing
+        // De-duplicate: only add messages we don't already have.
+        // Only compare messages that have an actual message_id — a None
+        // id means "unknown" and should never match another None.
+        let existing_ids: std::collections::HashSet<&str> = existing
             .iter()
-            .map(|m| m.message_id.as_deref())
+            .filter_map(|m| m.message_id.as_deref())
             .collect();
 
         let mut new_msgs: Vec<ChatMessage> = decrypted_msgs
             .into_iter()
-            .filter(|m| !existing_ids.contains(&m.message_id.as_deref()))
+            .filter(|m| match m.message_id.as_deref() {
+                Some(id) => !existing_ids.contains(id),
+                None => true, // always keep messages without an id
+            })
             .collect();
 
         // Prepend historical messages (they're older) then append existing

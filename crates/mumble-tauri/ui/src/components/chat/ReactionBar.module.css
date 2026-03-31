@@ -6,6 +6,10 @@
   padding: 0 2px;
 }
 
+.reactionsOwn {
+  justify-content: flex-end;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;

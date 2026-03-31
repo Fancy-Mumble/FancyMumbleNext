@@ -5,7 +5,7 @@
  * user's reaction.  A "+" button opens the full emoji picker.
  */
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { ReactionSummary } from "./reactionStore";
 import { isMobile } from "../../utils/platform";
@@ -14,6 +14,10 @@ import styles from "./ReactionBar.module.css";
 interface ReactionBarProps {
   readonly reactions: readonly ReactionSummary[];
   readonly ownSession: number | null;
+  /** Own cert hash (for persistent channel reaction tracking). */
+  readonly ownHash?: string;
+  /** Whether this message is from the current user (controls alignment). */
+  readonly isOwn?: boolean;
   /** Called when a user toggles an existing reaction emoji. */
   readonly onToggle: (emoji: string) => void;
   /** Called when the user clicks "+" to open the full picker. */
@@ -23,6 +27,8 @@ interface ReactionBarProps {
 export default function ReactionBar({
   reactions,
   ownSession,
+  ownHash,
+  isOwn,
   onToggle,
   onAdd,
 }: ReactionBarProps) {
@@ -31,11 +37,17 @@ export default function ReactionBar({
   const handleMouseEnter = useCallback(
     (e: React.MouseEvent, reaction: ReactionSummary) => {
       if (isMobile) return;
-      const names = [...reaction.reactorNames.values()];
+      // Combine session-based names and hash-based names for the tooltip.
+      const names = [
+        ...reaction.reactorNames.values(),
+        ...reaction.reactorHashNames.values(),
+      ];
+      // Deduplicate in case the same user appears in both.
+      const unique = [...new Set(names)];
       const text =
-        names.length <= 3
-          ? names.join(", ")
-          : `${names.slice(0, 3).join(", ")} +${names.length - 3}`;
+        unique.length <= 3
+          ? unique.join(", ")
+          : `${unique.slice(0, 3).join(", ")} +${unique.length - 3}`;
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
       setTooltip({ text, x: rect.left + rect.width / 2, y: rect.top - 4 });
     },
@@ -44,18 +56,18 @@ export default function ReactionBar({
 
   const handleMouseLeave = useCallback(() => setTooltip(null), []);
 
-  // Memoize sorted reactions so render order is stable.
-  const sorted = useMemo(
-    () => [...reactions].sort((a, b) => b.reactors.size - a.reactors.size),
-    [reactions],
-  );
+  // Reactions are already sorted by firstTimestamp from getReactions().
+  const sorted = reactions;
 
   if (sorted.length === 0) return null;
 
   return (
-    <div className={styles.reactions}>
+    <div className={`${styles.reactions} ${isOwn ? styles.reactionsOwn : ""}`}>
       {sorted.map((r) => {
-        const active = ownSession !== null && r.reactors.has(ownSession);
+        const totalCount = r.reactors.size + r.reactorHashes.size;
+        const activeSession = ownSession !== null && r.reactors.has(ownSession);
+        const activeHash = !!ownHash && r.reactorHashes.has(ownHash);
+        const active = activeSession || activeHash;
         return (
           <button
             key={r.emoji}
@@ -64,10 +76,10 @@ export default function ReactionBar({
             onClick={() => onToggle(r.emoji)}
             onMouseEnter={(e) => handleMouseEnter(e, r)}
             onMouseLeave={handleMouseLeave}
-            aria-label={`${r.emoji} ${r.reactors.size}`}
+            aria-label={`${r.emoji} ${totalCount}`}
           >
             <span className={styles.pillEmoji}>{r.emoji}</span>
-            <span className={styles.pillCount}>{r.reactors.size}</span>
+            <span className={styles.pillCount}>{totalCount}</span>
           </button>
         );
       })}

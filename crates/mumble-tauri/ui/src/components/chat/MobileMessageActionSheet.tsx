@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import type { ChatMessage } from "../../types";
+import type { ReactionSummary } from "./reactionStore";
 import { QUICK_REACTIONS } from "../elements/MessageActionBar";
 import MobileBottomSheet from "../elements/MobileBottomSheet";
 import EmojiPlusIcon from "../../assets/icons/communication/emoji-plus.svg?react";
@@ -37,6 +38,8 @@ interface MobileMessageActionSheetProps {
   readonly onMoreReactions?: (msg: ChatMessage, e?: React.MouseEvent) => void;
   readonly onCite?: (msg: ChatMessage) => void;
   readonly onCopyText?: (msg: ChatMessage) => void;
+  /** Existing reactions on this message (for showing reactor names on mobile). */
+  readonly reactions?: readonly ReactionSummary[];
 }
 
 export default function MobileMessageActionSheet({
@@ -49,6 +52,7 @@ export default function MobileMessageActionSheet({
   onMoreReactions,
   onCite,
   onCopyText,
+  reactions,
 }: MobileMessageActionSheetProps) {
   const previewText = useMemo(() => {
     const text = stripHtml(message.body);
@@ -118,6 +122,26 @@ export default function MobileMessageActionSheet({
               <EmojiPlusIcon width={18} height={18} />
             </button>
           )}
+        </div>
+      )}
+
+      {/* Existing reactions with reactor names (mobile-specific) */}
+      {reactions && reactions.length > 0 && (
+        <div className={styles.reactorList}>
+          {reactions.map((r) => {
+            const names = [
+              ...r.reactorNames.values(),
+              ...r.reactorHashNames.values(),
+            ];
+            const unique = [...new Set(names)];
+            if (unique.length === 0) return null;
+            return (
+              <div key={r.emoji} className={styles.reactorRow}>
+                <span className={styles.reactorEmoji}>{r.emoji}</span>
+                <span className={styles.reactorNames}>{unique.join(", ")}</span>
+              </div>
+            );
+          })}
         </div>
       )}
 

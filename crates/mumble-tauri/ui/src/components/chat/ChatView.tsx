@@ -417,6 +417,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onMoreReactions={handleMoreReactions}
           onCite={handleCite}
           onCopyText={handleCopyText}
+          reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
         />
       )}
 

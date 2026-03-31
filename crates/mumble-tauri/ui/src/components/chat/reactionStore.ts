@@ -36,6 +36,12 @@ export interface ReactionSummary {
   readonly reactors: ReadonlySet<number>;
   /** Display names, best-effort resolved. */
   readonly reactorNames: ReadonlyMap<number, string>;
+  /** Cert hashes of all users who reacted (for persistent channel reactions). */
+  readonly reactorHashes: ReadonlySet<string>;
+  /** Display names keyed by cert hash (persistent channel reactions). */
+  readonly reactorHashNames: ReadonlyMap<string, string>;
+  /** Timestamp of the first reaction of this emoji kind (used for display ordering). */
+  readonly firstTimestamp: number;
 }
 
 // -- Server custom reactions --------------------------------------
@@ -59,27 +65,42 @@ export const REACTION_DATA_ID = "fancy-reaction";
 // -- Module-level store -------------------------------------------
 
 /**
- * messageId -> emoji -> { sessions, names }
+ * messageId -> emoji -> { sessions, names, hashes, hashNames, firstTimestamp }
  *
  * Mutable maps for performance; components trigger re-renders via
  * Zustand `setState({})` after mutations (same pattern as polls).
  */
-const reactionMap = new Map<string, Map<string, { sessions: Set<number>; names: Map<number, string> }>>();
+const reactionMap = new Map<string, Map<string, {
+  sessions: Set<number>;
+  names: Map<number, string>;
+  hashes: Set<string>;
+  hashNames: Map<string, string>;
+  firstTimestamp: number;
+}>>();
 
 /** Server-provided custom reactions for the current connection. */
 let serverCustomReactions: ServerCustomReaction[] = [];
 
 // -- Accessors ----------------------------------------------------
 
-/** Get all reaction summaries for a specific message. */
+/** Get all reaction summaries for a specific message, ordered by first-reaction timestamp. */
 export function getReactions(messageId: string): ReactionSummary[] {
   const byEmoji = reactionMap.get(messageId);
   if (!byEmoji) return [];
   const result: ReactionSummary[] = [];
   for (const [emoji, data] of byEmoji) {
-    if (data.sessions.size === 0) continue;
-    result.push({ emoji, reactors: data.sessions, reactorNames: data.names });
+    if (data.sessions.size === 0 && data.hashes.size === 0) continue;
+    result.push({
+      emoji,
+      reactors: data.sessions,
+      reactorNames: data.names,
+      reactorHashes: data.hashes,
+      reactorHashNames: data.hashNames,
+      firstTimestamp: data.firstTimestamp,
+    });
   }
+  // Sort by first-reaction timestamp so the first emoji reacted with stays first.
+  result.sort((a, b) => a.firstTimestamp - b.firstTimestamp);
   return result;
 }
 
@@ -95,7 +116,7 @@ export function getServerCustomReactions(): ServerCustomReaction[] {
 
 // -- Mutations ----------------------------------------------------
 
-/** Apply a reaction payload (local or remote). */
+/** Apply a reaction payload (local or remote, session-based). */
 export function applyReaction(payload: ReactionPayload): void {
   let byEmoji = reactionMap.get(payload.messageId);
   if (!byEmoji) {
@@ -105,7 +126,7 @@ export function applyReaction(payload: ReactionPayload): void {
 
   let data = byEmoji.get(payload.emoji);
   if (!data) {
-    data = { sessions: new Set(), names: new Map() };
+    data = { sessions: new Set(), names: new Map(), hashes: new Set(), hashNames: new Map(), firstTimestamp: Date.now() };
     byEmoji.set(payload.emoji, data);
   }
 
@@ -116,9 +137,45 @@ export function applyReaction(payload: ReactionPayload): void {
     data.sessions.delete(payload.reactor);
     data.names.delete(payload.reactor);
     // Clean up empty entries.
-    if (data.sessions.size === 0) byEmoji.delete(payload.emoji);
+    if (data.sessions.size === 0 && data.hashes.size === 0) byEmoji.delete(payload.emoji);
     if (byEmoji.size === 0) reactionMap.delete(payload.messageId);
   }
+}
+
+/** Apply a persistent-channel reaction (cert-hash-based, from PchatReactionDeliver). */
+export function applyPchatReaction(
+  messageId: string,
+  emoji: string,
+  action: "add" | "remove",
+  senderHash: string,
+  senderName: string,
+): void {
+  let byEmoji = reactionMap.get(messageId);
+  if (!byEmoji) {
+    byEmoji = new Map();
+    reactionMap.set(messageId, byEmoji);
+  }
+
+  let data = byEmoji.get(emoji);
+  if (!data) {
+    data = { sessions: new Set(), names: new Map(), hashes: new Set(), hashNames: new Map(), firstTimestamp: Date.now() };
+    byEmoji.set(emoji, data);
+  }
+
+  if (action === "add") {
+    data.hashes.add(senderHash);
+    data.hashNames.set(senderHash, senderName);
+  } else {
+    data.hashes.delete(senderHash);
+    data.hashNames.delete(senderHash);
+    if (data.sessions.size === 0 && data.hashes.size === 0) byEmoji.delete(emoji);
+    if (byEmoji.size === 0) reactionMap.delete(messageId);
+  }
+}
+
+/** Check whether a specific cert hash has reacted with an emoji on a message (pchat). */
+export function hasReactedByHash(messageId: string, emoji: string, certHash: string): boolean {
+  return reactionMap.get(messageId)?.get(emoji)?.hashes.has(certHash) ?? false;
 }
 
 /** Store server-advertised custom reactions. */

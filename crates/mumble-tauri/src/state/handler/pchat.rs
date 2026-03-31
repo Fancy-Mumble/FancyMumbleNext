@@ -5,7 +5,8 @@ use super::{HandleMessage, HandlerContext};
 use crate::state::pchat;
 use crate::state::types::{
     KeyHoldersChangedPayload, NewMessagePayload, PchatFetchCompletePayload,
-    PchatHistoryLoadingPayload,
+    PchatHistoryLoadingPayload, ReactionDeliverPayload, ReactionFetchResponsePayload,
+    StoredReactionPayload,
 };
 
 impl HandleMessage for mumble_tcp::PchatMessageDeliver {
@@ -220,5 +221,92 @@ impl HandleMessage for mumble_tcp::PchatOfflineQueueDrain {
         pchat::handle_proto_offline_queue_drain(&ctx.shared, self);
         ctx.emit("new-message", NewMessagePayload { channel_id });
         ctx.emit_empty("state-changed");
+    }
+}
+
+impl HandleMessage for mumble_tcp::PchatReactionDeliver {
+    fn handle(&self, ctx: &HandlerContext) {
+        debug!("received PchatReactionDeliver");
+        let channel_id = self.channel_id.unwrap_or(0);
+        let message_id = self.message_id.clone().unwrap_or_default();
+        let action = self.action.unwrap_or(0);
+        let sender_hash = self.sender_hash.clone().unwrap_or_default();
+        let sender_name = self.sender_name.clone().unwrap_or_default();
+        let timestamp = self.timestamp.unwrap_or(0);
+
+        // Resolve the emoji string from the oneof.
+        let emoji = match &self.emoji {
+            Some(mumble_tcp::pchat_reaction_deliver::Emoji::UnicodeEmoji(u)) => {
+                u.grapheme.clone().unwrap_or_default()
+            }
+            Some(mumble_tcp::pchat_reaction_deliver::Emoji::ServerEmoji(s)) => {
+                // Reconstruct shortcode as ":name:" for display.
+                let bytes = s.shortcode.clone().unwrap_or_default();
+                let code = String::from_utf8_lossy(&bytes);
+                format!(":{code}:")
+            }
+            None => String::new(),
+        };
+
+        let action_str = if action == mumble_tcp::ReactionAction::ReactionRemove as i32 {
+            "remove"
+        } else {
+            "add"
+        };
+
+        ctx.emit(
+            "pchat-reaction-deliver",
+            ReactionDeliverPayload {
+                channel_id,
+                message_id,
+                emoji,
+                action: action_str.to_owned(),
+                sender_hash,
+                sender_name,
+                timestamp,
+            },
+        );
+    }
+}
+
+impl HandleMessage for mumble_tcp::PchatReactionFetchResponse {
+    fn handle(&self, ctx: &HandlerContext) {
+        debug!("received PchatReactionFetchResponse");
+        let channel_id = self.channel_id.unwrap_or(0);
+
+        let reactions: Vec<StoredReactionPayload> = self
+            .reactions
+            .iter()
+            .map(|r| {
+                let emoji = match &r.emoji {
+                    Some(
+                        mumble_tcp::pchat_reaction_fetch_response::stored_reaction::Emoji::UnicodeEmoji(u),
+                    ) => u.grapheme.clone().unwrap_or_default(),
+                    Some(
+                        mumble_tcp::pchat_reaction_fetch_response::stored_reaction::Emoji::ServerEmoji(s),
+                    ) => {
+                        let bytes = s.shortcode.clone().unwrap_or_default();
+                        let code = String::from_utf8_lossy(&bytes);
+                        format!(":{code}:")
+                    }
+                    None => String::new(),
+                };
+                StoredReactionPayload {
+                    message_id: r.message_id.clone().unwrap_or_default(),
+                    emoji,
+                    sender_hash: r.sender_hash.clone().unwrap_or_default(),
+                    sender_name: r.sender_name.clone().unwrap_or_default(),
+                    timestamp: r.timestamp.unwrap_or(0),
+                }
+            })
+            .collect();
+
+        ctx.emit(
+            "pchat-reaction-fetch-response",
+            ReactionFetchResponsePayload {
+                channel_id,
+                reactions,
+            },
+        );
     }
 }

@@ -348,6 +348,35 @@ pub(crate) struct PchatFetchCompletePayload {
     pub total_stored: u32,
 }
 
+/// Payload emitted when a `PchatReactionDeliver` is received (single reaction event).
+#[derive(Clone, Serialize)]
+pub(crate) struct ReactionDeliverPayload {
+    pub channel_id: u32,
+    pub message_id: String,
+    pub emoji: String,
+    pub action: String,
+    pub sender_hash: String,
+    pub sender_name: String,
+    pub timestamp: u64,
+}
+
+/// A single stored reaction within a `PchatReactionFetchResponse`.
+#[derive(Clone, Serialize)]
+pub(crate) struct StoredReactionPayload {
+    pub message_id: String,
+    pub emoji: String,
+    pub sender_hash: String,
+    pub sender_name: String,
+    pub timestamp: u64,
+}
+
+/// Payload emitted when a `PchatReactionFetchResponse` is received (batch of reactions).
+#[derive(Clone, Serialize)]
+pub(crate) struct ReactionFetchResponsePayload {
+    pub channel_id: u32,
+    pub reactions: Vec<StoredReactionPayload>,
+}
+
 /// A pending key-share request waiting for user approval.
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct PendingKeyShare {

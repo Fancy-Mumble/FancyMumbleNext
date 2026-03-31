@@ -147,6 +147,8 @@ interface MessageItemProps {
   readonly onScrollToMessage?: (messageId: string) => void;
   /** When provided, media clicks call this instead of opening a per-message lightbox. */
   readonly onOpenLightbox?: (src: string) => void;
+  /** Optional content rendered at the bottom of the bubble (e.g. reactions). */
+  readonly children?: React.ReactNode;
 }
 
 export default function MessageItem({
@@ -162,6 +164,7 @@ export default function MessageItem({
   isFirstInGroup = true,
   onScrollToMessage,
   onOpenLightbox,
+  children,
 }: MessageItemProps) {
   const offloadInfo = extractOffloadInfo(msg.body);
   const offloaded = offloadInfo !== null;
@@ -259,6 +262,7 @@ export default function MessageItem({
           </time>
         )}
         <div className={styles.messageBody}>{renderBody()}</div>
+        {children}
       </div>
     </div>
   );

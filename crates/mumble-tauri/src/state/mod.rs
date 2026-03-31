@@ -755,6 +755,66 @@ impl AppState {
         Ok(())
     }
 
+    // -- Pchat reactions --------------------------------------------
+
+    /// Send a reaction (add/remove) on a persisted chat message.
+    pub async fn send_reaction(
+        &self,
+        channel_id: u32,
+        message_id: String,
+        emoji: String,
+        action: String,
+    ) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+
+        let handle = handle.ok_or("Not connected")?;
+
+        let reaction_action = match action.as_str() {
+            "remove" => mumble_protocol::proto::mumble_tcp::ReactionAction::ReactionRemove as i32,
+            _ => mumble_protocol::proto::mumble_tcp::ReactionAction::ReactionAdd as i32,
+        };
+
+        // Build the emoji oneof: shortcodes (":name:") -> ServerEmoji, else UnicodeEmoji.
+        let emoji_oneof = if emoji.starts_with(':') && emoji.ends_with(':') && emoji.len() > 2 {
+            let shortcode = emoji[1..emoji.len() - 1].to_owned();
+            Some(
+                mumble_protocol::proto::mumble_tcp::pchat_reaction::Emoji::ServerEmoji(
+                    mumble_protocol::proto::mumble_tcp::ServerEmoji {
+                        shortcode: Some(shortcode.into_bytes()),
+                    },
+                ),
+            )
+        } else {
+            Some(
+                mumble_protocol::proto::mumble_tcp::pchat_reaction::Emoji::UnicodeEmoji(
+                    mumble_protocol::proto::mumble_tcp::UnicodeEmoji {
+                        grapheme: Some(emoji),
+                    },
+                ),
+            )
+        };
+
+        // sender_hash is filled by the server; timestamp is advisory.
+        let msg = mumble_protocol::proto::mumble_tcp::PchatReaction {
+            channel_id: Some(channel_id),
+            message_id: Some(message_id),
+            emoji: emoji_oneof,
+            action: Some(reaction_action),
+            sender_hash: None,
+            timestamp: None,
+        };
+
+        handle
+            .send(command::SendPchatReaction { message: msg })
+            .await
+            .map_err(|e| format!("Failed to send reaction: {e}"))?;
+
+        Ok(())
+    }
+
     // -- Pchat delete -----------------------------------------------
 
     /// Request deletion of persisted chat messages on the server.
