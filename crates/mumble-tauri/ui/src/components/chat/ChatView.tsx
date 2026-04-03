@@ -308,6 +308,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           {/* All banners in a single sticky container */}
           <BannerStack>
             {persistent.banner}
+            {persistent.signalBridgeErrorBanner}
             {persistent.disputeBanner}
             {persistent.revokedBanner}
           </BannerStack>

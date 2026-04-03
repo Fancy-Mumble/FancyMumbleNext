@@ -152,6 +152,8 @@ interface AppState {
   keyHolders: Record<number, KeyHolderEntry[]>;
   /** Channels where the key-possession challenge failed (key revoked). */
   pchatKeyRevoked: Set<number>;
+  /** Error message when the signal bridge library fails to load. */
+  signalBridgeError: string | null;
 
   /** Channel IDs silenced for the current server (notifications suppressed). */
   silencedChannels: Set<number>;
@@ -292,6 +294,7 @@ const INITIAL: Pick<
   | "pendingKeyShares"
   | "keyHolders"
   | "pchatKeyRevoked"
+  | "signalBridgeError"
   | "silencedChannels"
   | "userVolumes"
   | "passwordRequired"
@@ -336,6 +339,7 @@ const INITIAL: Pick<
   pendingKeyShares: {},
   keyHolders: {},
   pchatKeyRevoked: new Set(),
+  signalBridgeError: null,
   silencedChannels: new Set(),
   userVolumes: {},
   passwordRequired: false,
@@ -1534,6 +1538,14 @@ export async function initEventListeners(
           applyPchatReaction(r.message_id, r.emoji, "add", r.sender_hash, resolvedName);
         }
         useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
+      },
+    ),
+
+    // Signal bridge load failure: show error banner in the UI.
+    await listen<{ message: string }>(
+      "pchat-signal-bridge-error",
+      (event) => {
+        useAppStore.setState({ signalBridgeError: event.payload.message });
       },
     ),
   );

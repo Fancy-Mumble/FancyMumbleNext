@@ -610,7 +610,7 @@ impl AppState {
                                 Ok(proto_msg) => Some((proto_msg, client)),
                                 Err(e) => {
                                     tracing::warn!("pchat encrypt failed: {e}");
-                                    None
+                                    return Err(format!("Encryption failed: {e}"));
                                 }
                             }
                         } else {

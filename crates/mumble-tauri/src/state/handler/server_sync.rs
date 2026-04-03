@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use mumble_protocol::command;
@@ -242,35 +243,48 @@ impl HandleMessage for mumble_tcp::ServerSync {
                             }
                         }
 
+                        // Load the encrypted local cache BEFORE acquiring the
+                        // lock.  cache.load() does file I/O + AES-GCM decryption
+                        // which can take hundreds of milliseconds.  Doing it
+                        // outside the lock prevents stalling frontend commands
+                        // (get_channels, get_users, etc.) that need the same
+                        // Mutex.
+                        let cached_messages = {
+                            if let Some(ref mut cache) = pchat_state.local_cache {
+                                if let Err(e) = cache.load() {
+                                    warn!("failed to load local message cache: {e}");
+                                    HashMap::new()
+                                } else {
+                                    let cached = cache.all_chat_messages();
+                                    for (ch_id, msgs) in &cached {
+                                        if !msgs.is_empty() {
+                                            info!(
+                                                channel_id = ch_id,
+                                                count = msgs.len(),
+                                                "restored cached messages"
+                                            );
+                                        }
+                                    }
+                                    cached
+                                }
+                            } else {
+                                HashMap::new()
+                            }
+                        };
+
                         info!(cert_hash = %cert_hash, "pchat initialised");
 
-                        // Store pchat state and load local message cache.
+                        // Store pchat state and insert cached messages.
+                        // The lock is only held for the in-memory insertion.
                         if let Ok(mut state) = ctx.shared.lock() {
                             state.pchat = Some(pchat_state);
 
-                            // Load the encrypted local cache and populate
-                            // state.messages with previously cached SignalV1
-                            // messages so they are available immediately.
-                            if let Some(ref mut pchat) = state.pchat {
-                                if let Some(ref mut cache) = pchat.local_cache {
-                                    if let Err(e) = cache.load() {
-                                        warn!("failed to load local message cache: {e}");
-                                    } else {
-                                        let cached = cache.all_chat_messages();
-                                        for (ch_id, msgs) in cached {
-                                            if !msgs.is_empty() {
-                                                info!(
-                                                    channel_id = ch_id,
-                                                    count = msgs.len(),
-                                                    "restored cached messages"
-                                                );
-                                                state.messages
-                                                    .entry(ch_id)
-                                                    .or_default()
-                                                    .extend(msgs);
-                                            }
-                                        }
-                                    }
+                            for (ch_id, msgs) in cached_messages {
+                                if !msgs.is_empty() {
+                                    state.messages
+                                        .entry(ch_id)
+                                        .or_default()
+                                        .extend(msgs);
                                 }
                             }
                         }
@@ -361,13 +375,20 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                     // For SignalV1, load the bridge and create our sender
                                     // key distribution immediately (no peer exchange needed).
                                     if mode == PchatProtocol::SignalV1 {
-                                        if let Ok(mut s) = shared.lock() {
-                                            if let Some(ref mut p) = s.pchat {
-                                                pchat::ensure_signal_bridge(p);
-                                            }
+                                        let bridge_ok = if let Ok(mut s) = shared.lock() {
+                                            s.pchat.as_mut().is_some_and(pchat::ensure_signal_bridge)
+                                        } else {
+                                            false
+                                        };
+                                        if bridge_ok {
+                                            pchat::send_signal_distribution(&shared, ch);
+                                            pchat::send_key_holder_report_async(&shared, ch).await;
+                                        } else {
+                                            pchat::emit_signal_bridge_error(
+                                                &shared,
+                                                "Signal bridge library could not be loaded. End-to-end encryption is unavailable.",
+                                            );
                                         }
-                                        pchat::send_signal_distribution(&shared, ch);
-                                        pchat::send_key_holder_report_async(&shared, ch).await;
                                     }
 
                                     // Check if we already have a key.
@@ -419,7 +440,12 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                                     Some(PchatProtocol::SignalV1) => {
                                                         // Bridge should already be loaded from the
                                                         // immediate init above; this is a fallback.
-                                                        pchat::ensure_signal_bridge(p);
+                                                        if !pchat::ensure_signal_bridge(p) {
+                                                            pchat::emit_signal_bridge_error(
+                                                                &shared,
+                                                                "Signal bridge library could not be loaded. End-to-end encryption is unavailable.",
+                                                            );
+                                                        }
                                                         info!(channel_id = ch, "signal bridge ensured on initial join (fallback)");
                                                     }
                                                     _ => {}
@@ -452,14 +478,30 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                         after_id: None,
                                     };
                                     let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
-                                    if let Some(handle) = handle {
+                                    let fetch_sent = if let Some(handle) = handle {
                                         let _ = handle.send(command::SendPchatFetch { fetch }).await;
                                         info!(channel_id = ch, "sent initial pchat-fetch");
-                                    }
+                                        true
+                                    } else {
+                                        false
+                                    };
 
-                                    // NOTE: emit_history_loading(false) is NOT called here.
-                                    // It will be emitted by the PchatFetchResponse handler
-                                    // once messages are actually ready for display.
+                                    // Safety-net timeout: if the server never replies with a
+                                    // PchatFetchResponse (e.g. the channel has no stored messages
+                                    // yet), the loading indicator would be stuck forever.
+                                    // The PchatFetchResponse handler clears it immediately when
+                                    // the server does respond, making this a no-op in that case.
+                                    if fetch_sent {
+                                        let shared_timeout = Arc::clone(&shared);
+                                        let _timeout_task = tokio::spawn(async move {
+                                            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                                            pchat::emit_history_loading(&shared_timeout, ch, false);
+                                        });
+                                    } else {
+                                        // Fetch could not be sent -- clear immediately so the
+                                        // UI is not stuck on "Loading message history...".
+                                        pchat::emit_history_loading(&shared, ch, false);
+                                    }
                                 }
                             }
                         });

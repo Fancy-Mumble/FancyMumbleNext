@@ -427,7 +427,17 @@ pub(crate) struct KeyHoldersChangedPayload {
 #[derive(Clone, Serialize)]
 pub(crate) struct PchatKeyRevokedPayload {
     pub channel_id: u32,
-}// --- Audio types --------------------------------------------------
+}
+
+/// Payload for the "pchat-signal-bridge-error" event.
+/// Sent when the signal bridge library fails to load, making `SignalV1`
+/// encryption unavailable.
+#[derive(Clone, Serialize)]
+pub(crate) struct SignalBridgeErrorPayload {
+    pub message: String,
+}
+
+// --- Audio types --------------------------------------------------
 
 /// Microphone amplitude payload emitted during mic test.
 #[derive(Clone, Serialize)]

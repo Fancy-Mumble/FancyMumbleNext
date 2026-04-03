@@ -398,17 +398,19 @@ export function PersonalizationPanel({ data, onChange, isExpert }: Personalizati
         {/* Font family */}
         <div className={styles.field}>
           <label className={styles.fieldLabel}>Font Family</label>
-          <select
-            className={styles.select}
-            value={data.fontFamily}
-            onChange={(e) => onChange({ fontFamily: e.target.value })}
-          >
+          <div className={styles.optionGrid}>
             {FONT_FAMILIES.map((f) => (
-              <option key={f.id} value={f.id} style={{ fontFamily: f.css }}>
-                {f.label}
-              </option>
+              <button
+                key={f.id}
+                type="button"
+                className={`${styles.optionCard} ${data.fontFamily === f.id ? styles.optionCardSelected : ""}`}
+                style={{ fontFamily: f.css }}
+                onClick={() => onChange({ fontFamily: f.id })}
+              >
+                <span className={styles.optionLabel}>{f.label}</span>
+              </button>
             ))}
-          </select>
+          </div>
         </div>
       </section>
 

@@ -4,6 +4,7 @@
 //! wire structs, encryption) to the Tauri application state. Handles
 //! sending and receiving pchat messages using native protobuf message types.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -1386,16 +1387,28 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
         "received pchat fetch-resp"
     );
 
-    let Ok(mut state) = shared.lock() else { return };
+    // -- Phase 1: take PchatState out so we can decrypt without holding
+    //    the lock.  This prevents frontend commands (get_channels, etc.)
+    //    from being starved while we process potentially hundreds of
+    //    messages.
+    let (mut pchat, own_cert_hash, user_hashes) = {
+        let mut state = shared.lock().ok().unwrap_or_else(|| unreachable!());
+        let Some(pchat) = state.pchat.take() else { return };
+        let own_cert_hash = pchat.own_cert_hash.clone();
+        // Snapshot user hash -> session mapping for sender resolution.
+        let user_hashes: HashMap<String, u32> = state
+            .users
+            .values()
+            .filter_map(|u| u.hash.as_ref().map(|h| (h.clone(), u.session)))
+            .collect();
+        (pchat, own_cert_hash, user_hashes)
+    };
+    // -- Lock released: frontend commands can proceed --
 
-    let Some(own_cert_hash) = state.pchat.as_ref().map(|p| p.own_cert_hash.clone()) else { return };
-
-    // Decrypt each message and insert at the beginning (they're older)
+    // -- Phase 2: decrypt and decode all messages without a lock.
     let mut decrypted_msgs: Vec<ChatMessage> = Vec::with_capacity(msg.messages.len());
 
     for proto_msg in &msg.messages {
-        let Some(pchat) = state.pchat.as_mut() else { return };
-
         let msg_id = proto_msg.message_id.clone().unwrap_or_default();
         let msg_channel_id = proto_msg.channel_id.unwrap_or(0);
         let msg_timestamp = proto_msg.timestamp.unwrap_or(0);
@@ -1456,16 +1469,13 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
             }
         };
 
-        // Compare cert hashes to determine ownership.  Guard against
-        // empty hashes: if either side is empty the comparison is
-        // meaningless, so default to "not own".
         let is_own = !msg_sender_hash.is_empty()
             && !own_cert_hash.is_empty()
             && msg_sender_hash == own_cert_hash;
 
         // Cache successfully decrypted SignalV1 messages locally.
         if protocol == PchatProtocol::SignalV1 && decrypted {
-            cache_signal_message(pchat, CachedMessage {
+            cache_signal_message(&mut pchat, CachedMessage {
                 message_id: msg_id.clone(), channel_id: msg_channel_id,
                 timestamp: msg_timestamp, sender_hash: msg_sender_hash.clone(),
                 sender_name: sender_name.clone(), body: body.clone(), is_own,
@@ -1481,11 +1491,7 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
             "pchat fetch-resp: is_own check"
         );
 
-        let sender_session = state
-            .users
-            .values()
-            .find(|u| u.hash.as_deref() == Some(&msg_sender_hash))
-            .map(|u| u.session);
+        let sender_session = user_hashes.get(&msg_sender_hash).copied();
 
         decrypted_msgs.push(ChatMessage {
             sender_session,
@@ -1500,6 +1506,13 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
             is_legacy: false,
         });
     }
+
+    // -- Phase 3: re-lock briefly to put pchat back and insert messages.
+    let Ok(mut state) = shared.lock() else {
+        // Lock poisoned: try to restore pchat on a best-effort basis.
+        return;
+    };
+    state.pchat = Some(pchat);
 
     if !decrypted_msgs.is_empty() {
         debug!(
@@ -2243,16 +2256,21 @@ pub(crate) fn load_signal_bridge(
 /// If a saved signal state file exists in the identity directory, it is
 /// imported into the freshly created bridge so that sender key sessions
 /// survive across reconnects.
-pub(crate) fn ensure_signal_bridge(pchat: &mut PchatState) {
+///
+/// Returns `true` if the bridge is loaded (or was already loaded),
+/// `false` if loading failed.
+pub(crate) fn ensure_signal_bridge(pchat: &mut PchatState) -> bool {
     if pchat.signal_bridge.is_some() {
-        return;
+        return true;
     }
     let bridge = load_signal_bridge(&pchat.own_cert_hash, None);
     if let Some(ref b) = bridge {
         pchat.key_manager.set_signal_bridge(Arc::clone(b));
         load_signal_state(pchat.identity_dir.as_deref(), b);
     }
+    let loaded = bridge.is_some();
     pchat.signal_bridge = bridge;
+    loaded
 }
 
 /// Save the signal bridge state to disk so it can be restored on reconnect.
@@ -2328,7 +2346,10 @@ pub(crate) fn send_signal_distribution(
         let Ok(mut state) = shared.lock() else { return };
 
         let Some(ref mut pchat) = state.pchat else { return };
-        ensure_signal_bridge(pchat);
+        if !ensure_signal_bridge(pchat) {
+            warn!(channel_id, "cannot send signal distribution: bridge not loaded");
+            return;
+        }
         let Some(ref bridge) = pchat.signal_bridge else {
             warn!(channel_id, "cannot send signal distribution: bridge not loaded");
             return;
@@ -2536,7 +2557,10 @@ pub(crate) fn handle_signal_sender_key(
     // to the retry helper afterwards.
     {
         let Some(ref mut pchat) = state.pchat else { return false };
-        ensure_signal_bridge(pchat);
+        if !ensure_signal_bridge(pchat) {
+            warn!("signal bridge not loaded, cannot process sender key");
+            return false;
+        }
         let Some(ref bridge) = pchat.signal_bridge else {
             warn!("signal bridge not loaded, cannot process sender key");
             return false;
@@ -2589,6 +2613,28 @@ pub(crate) fn emit_history_loading(
     }
 }
 
+/// Emit a `pchat-signal-bridge-error` event to the frontend when the
+/// signal bridge library fails to load. This lets the UI show a clear
+/// error banner instead of silently degrading.
+pub(crate) fn emit_signal_bridge_error(
+    shared: &Arc<Mutex<SharedState>>,
+    message: &str,
+) {
+    use tauri::Emitter;
+    use super::types::SignalBridgeErrorPayload;
+
+    let app = shared
+        .lock()
+        .ok()
+        .and_then(|s| s.tauri_app_handle.clone());
+    if let Some(app) = app {
+        let _ = app.emit(
+            "pchat-signal-bridge-error",
+            SignalBridgeErrorPayload { message: message.to_string() },
+        );
+    }
+}
+
 // ---- Archive key persistence ----------------------------------------
 
 /// File name for persisted archive keys inside the identity directory.
@@ -2617,7 +2663,7 @@ pub(crate) fn persist_archive_key(
 ) {
     let path = identity_dir.join(ARCHIVE_KEYS_FILE);
 
-    let mut keys: std::collections::HashMap<String, PersistedArchiveKey> =
+    let mut keys: HashMap<String, PersistedArchiveKey> =
         std::fs::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -2651,7 +2697,7 @@ pub(crate) fn delete_persisted_archive_key(
 ) {
     let path = identity_dir.join(ARCHIVE_KEYS_FILE);
 
-    let mut keys: std::collections::HashMap<String, PersistedArchiveKey> =
+    let mut keys: HashMap<String, PersistedArchiveKey> =
         std::fs::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -2680,7 +2726,7 @@ pub(crate) fn load_persisted_archive_keys(
 ) -> Vec<(u32, [u8; 32], Option<String>)> {
     let path = identity_dir.join(ARCHIVE_KEYS_FILE);
 
-    let keys: std::collections::HashMap<String, PersistedArchiveKey> =
+    let keys: HashMap<String, PersistedArchiveKey> =
         std::fs::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())

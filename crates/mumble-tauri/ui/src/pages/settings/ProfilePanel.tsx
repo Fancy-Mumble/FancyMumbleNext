@@ -426,21 +426,23 @@ export function ProfilePanel({
         {/* Font */}
         <div className={styles.field}>
           <label className={styles.fieldLabel}>Font</label>
-          <select
-            className={styles.select}
-            value={nameStyle.font ?? "default"}
-            onChange={(e) =>
-              patchNameStyle({
-                font: e.target.value === "default" ? undefined : e.target.value,
-              })
-            }
-          >
+          <div className={styles.optionGrid}>
             {FONTS.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.label}
-              </option>
+              <button
+                key={f.id}
+                type="button"
+                className={`${styles.optionCard} ${(nameStyle.font ?? "default") === f.id ? styles.optionCardSelected : ""}`}
+                style={{ fontFamily: f.css }}
+                onClick={() =>
+                  patchNameStyle({
+                    font: f.id === "default" ? undefined : f.id,
+                  })
+                }
+              >
+                <span className={styles.optionLabel}>{f.label}</span>
+              </button>
             ))}
-          </select>
+          </div>
         </div>
 
         {/* Color */}

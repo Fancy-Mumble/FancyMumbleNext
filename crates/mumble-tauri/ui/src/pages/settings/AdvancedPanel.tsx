@@ -174,17 +174,18 @@ export function AdvancedPanel({
         </p>
 
         <label className={styles.fieldLabel}>Time Format</label>
-        <select
-          className={styles.input}
-          value={timeFormat}
-          onChange={(e) => onTimeFormatChange(e.target.value as TimeFormat)}
-        >
+        <div className={styles.optionGrid}>
           {TIME_FORMAT_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
+            <button
+              key={opt.value}
+              type="button"
+              className={`${styles.optionCard} ${timeFormat === opt.value ? styles.optionCardSelected : ""}`}
+              onClick={() => onTimeFormatChange(opt.value)}
+            >
+              <span className={styles.optionLabel}>{opt.label}</span>
+            </button>
           ))}
-        </select>
+        </div>
 
         <div className={styles.toggleRow} style={{ marginTop: 12 }}>
           <div className={styles.toggleInfo}>

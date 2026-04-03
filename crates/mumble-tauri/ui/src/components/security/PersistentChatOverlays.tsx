@@ -19,6 +19,7 @@ interface PersistentChatResult {
   disputeBanner: ReactNode;
   keyShareBanner: ReactNode;
   revokedBanner: ReactNode;
+  signalBridgeErrorBanner: ReactNode;
   keyRevoked: boolean;
   dialogs: ReactNode;
 }
@@ -101,6 +102,7 @@ export function usePersistentChat(
   const approveKeyShare = useAppStore((s) => s.approveKeyShare);
   const dismissKeyShare = useAppStore((s) => s.dismissKeyShare);
   const pchatKeyRevoked = useAppStore((s) => s.pchatKeyRevoked);
+  const signalBridgeError = useAppStore((s) => s.signalBridgeError);
 
   const [showVerifyDialog, setShowVerifyDialog] = useState(false);
   const [showCustodianPrompt, setShowCustodianPrompt] = useState(false);
@@ -178,6 +180,16 @@ export function usePersistentChat(
       </InfoBanner>
     ) : null,
     keyRevoked,
+    signalBridgeErrorBanner: (persistenceMode === "SIGNAL_V1" && signalBridgeError) ? (
+      <InfoBanner variant="danger" icon={warningIcon}>
+        <p className={infoBannerStyles.description}>
+          <strong>Encryption unavailable</strong> — {signalBridgeError}
+        </p>
+        <p className={infoBannerStyles.description}>
+          You will not be able to send or read encrypted messages in this channel.
+        </p>
+      </InfoBanner>
+    ) : null,
     dialogs: (
       <>
         {trust && channelId !== null && (

@@ -244,13 +244,20 @@ impl HandleMessage for mumble_tcp::UserState {
                             // For SignalV1, load the bridge and create our sender
                             // key distribution immediately.
                             if mode == Some(PchatProtocol::SignalV1) {
-                                if let Ok(mut s) = shared.lock() {
-                                    if let Some(ref mut p) = s.pchat {
-                                        pchat::ensure_signal_bridge(p);
-                                    }
+                                let bridge_ok = if let Ok(mut s) = shared.lock() {
+                                    s.pchat.as_mut().is_some_and(pchat::ensure_signal_bridge)
+                                } else {
+                                    false
+                                };
+                                if bridge_ok {
+                                    pchat::send_signal_distribution(&shared, ch);
+                                    pchat::send_key_holder_report_async(&shared, ch).await;
+                                } else {
+                                    pchat::emit_signal_bridge_error(
+                                        &shared,
+                                        "Signal bridge library could not be loaded. End-to-end encryption is unavailable.",
+                                    );
                                 }
-                                pchat::send_signal_distribution(&shared, ch);
-                                pchat::send_key_holder_report_async(&shared, ch).await;
                             }
                         }
 
@@ -333,7 +340,12 @@ impl HandleMessage for mumble_tcp::UserState {
                                         Some(PchatProtocol::SignalV1) => {
                                             // Bridge should already be loaded; this
                                             // is a fallback path.
-                                            pchat::ensure_signal_bridge(pchat);
+                                            if !pchat::ensure_signal_bridge(pchat) {
+                                                pchat::emit_signal_bridge_error(
+                                                    &shared,
+                                                    "Signal bridge library could not be loaded. End-to-end encryption is unavailable.",
+                                                );
+                                            }
                                             info!(channel_id = ch, "signal bridge ensured on join (fallback)");
                                             None
                                         }
@@ -358,7 +370,7 @@ impl HandleMessage for mumble_tcp::UserState {
                             state.as_ref().and_then(|s| s.client_handle.clone())
                         };
 
-                        if let Some(handle) = handle {
+                        let fetch_sent = if let Some(handle) = handle {
                             let fetch = mumble_tcp::PchatFetch {
                                 channel_id: Some(ch),
                                 before_id: None,
@@ -370,14 +382,31 @@ impl HandleMessage for mumble_tcp::UserState {
                                 .await
                             {
                                 tracing::warn!("send pchat-fetch failed: {e}");
+                                false
                             } else {
                                 info!(channel_id = ch, "sent pchat-fetch on join");
+                                true
                             }
-                        }
+                        } else {
+                            false
+                        };
 
-                        // NOTE: emit_history_loading(false) is NOT called here.
-                        // It will be emitted by the PchatFetchResponse handler
-                        // once messages are actually ready for display.
+                        // Safety-net timeout: if the server never replies with a
+                        // PchatFetchResponse (e.g. the channel has no stored messages
+                        // yet), the loading indicator would be stuck forever.
+                        // The PchatFetchResponse handler clears it immediately when
+                        // the server does respond, making this a no-op in that case.
+                        if fetch_sent {
+                            let shared_timeout = Arc::clone(&shared);
+                            let _timeout_task = tokio::spawn(async move {
+                                tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                                pchat::emit_history_loading(&shared_timeout, ch, false);
+                            });
+                        } else {
+                            // Fetch could not be sent -- clear immediately so the
+                            // UI is not stuck on "Loading message history...".
+                            pchat::emit_history_loading(&shared, ch, false);
+                        }
                     });
                 }
             }
