@@ -37,7 +37,7 @@ import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator
 import { registerPoll, registerVote } from "./components/chat/PollCard";
 import { applyReaction, applyPchatReaction, resetReactions, setServerCustomReactions, REACTION_DATA_ID, CUSTOM_REACTIONS_DATA_ID, type ReactionPayload, type ServerCustomReaction } from "./components/chat/reactionStore";
 import { offloadManager } from "./messageOffload";
-import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume } from "./preferencesStorage";
+import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume, getMutedPushChannels, setMutedPushChannel } from "./preferencesStorage";
 import { loadProfileData } from "./pages/settings/profileData";
 import { serializeProfile, dataUrlToBytes } from "./profileFormat";
 
@@ -160,6 +160,9 @@ interface AppState {
   /** Channel IDs silenced for the current server (notifications suppressed). */
   silencedChannels: Set<number>;
 
+  /** Channel IDs with push notifications disabled (client preference, synced to server). */
+  mutedPushChannels: Set<number>;
+
   /** Per-user volume overrides keyed by cert hash (0-200, default 100). */
   userVolumes: Record<string, number>;
 
@@ -227,6 +230,12 @@ interface AppState {
   toggleSilenceChannel: (channelId: number) => Promise<boolean>;
   /** Check whether a channel is silenced. */
   isChannelSilenced: (channelId: number) => boolean;
+
+  // Push notification muting
+  /** Toggle push-notification mute for a channel (persisted per server, synced to server). */
+  toggleMutePushChannel: (channelId: number) => Promise<boolean>;
+  /** Check whether push notifications are muted for a channel. */
+  isPushChannelMuted: (channelId: number) => boolean;
 
   // DM actions
   selectDmUser: (session: number) => Promise<void>;
@@ -298,6 +307,7 @@ const INITIAL: Pick<
   | "pchatKeyRevoked"
   | "signalBridgeError"
   | "silencedChannels"
+  | "mutedPushChannels"
   | "userVolumes"
   | "passwordRequired"
   | "passwordAttempted"
@@ -343,6 +353,7 @@ const INITIAL: Pick<
   pchatKeyRevoked: new Set(),
   signalBridgeError: null,
   silencedChannels: new Set(),
+  mutedPushChannels: new Set(),
   userVolumes: {},
   passwordRequired: false,
   passwordAttempted: false,
@@ -742,6 +753,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     return get().silencedChannels.has(channelId);
   },
 
+  // -- Push notification muting -----------------------------------
+
+  toggleMutePushChannel: async (channelId) => {
+    const { mutedPushChannels, pendingConnect } = get();
+    if (!pendingConnect) return false;
+    const serverKey = `${pendingConnect.host}:${pendingConnect.port}`;
+    const isMuted = mutedPushChannels.has(channelId);
+    const updated = await setMutedPushChannel(serverKey, channelId, !isMuted);
+    set({ mutedPushChannels: new Set(updated) });
+
+    // Sync the muted list to the server via fancy-push-update.
+    try {
+      const payload = JSON.stringify({ muted: updated });
+      const data = new TextEncoder().encode(payload);
+      await get().sendPluginData([], data, "fancy-push-update");
+    } catch (e) {
+      console.error("Failed to sync push mute to server:", e);
+    }
+
+    return !isMuted;
+  },
+
+  isPushChannelMuted: (channelId) => {
+    return get().mutedPushChannels.has(channelId);
+  },
+
   // -- Per-user volume overrides ----------------------------------
 
   setUserVolume: (hash, volume) => {
@@ -1012,10 +1049,13 @@ export async function initEventListeners(
       // Load silenced channels for this server (pendingConnect still available).
       const pending = useAppStore.getState().pendingConnect;
       let silenced = new Set<number>();
+      let mutedPush = new Set<number>();
       if (pending) {
         const serverKey = `${pending.host}:${pending.port}`;
         const ids = await getSilencedChannels(serverKey);
         silenced = new Set(ids);
+        const mutedIds = await getMutedPushChannels(serverKey);
+        mutedPush = new Set(mutedIds);
       }
 
       // Load persisted per-user volumes and reset the applied-session tracker.
@@ -1032,6 +1072,7 @@ export async function initEventListeners(
         status: "connected",
         passwordRequired: false,
         silencedChannels: silenced,
+        mutedPushChannels: mutedPush,
         userVolumes: storedVolumes,
       });
       navigate("/chat");

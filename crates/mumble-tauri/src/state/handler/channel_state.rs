@@ -15,9 +15,10 @@ impl HandleMessage for mumble_tcp::ChannelState {
     fn handle(&self, ctx: &HandlerContext) {
         let Some(id) = self.channel_id else { return };
 
-        let (is_synced, needs_description, pchat_changed_for_current, custodian_event) = {
+        let (is_synced, needs_description, pchat_changed_for_current, custodian_event, _is_new_channel) = {
             let mut state_guard = ctx.shared.lock().ok();
             if let Some(ref mut state) = state_guard {
+                let is_new = state.synced && !state.channels.contains_key(&id);
                 let ch = state.channels.entry(id).or_insert_with(|| ChannelEntry {
                     id,
                     parent_id: None,
@@ -98,9 +99,9 @@ impl HandleMessage for mumble_tcp::ChannelState {
                     None
                 };
                 let is_current = state.current_channel == Some(id);
-                (state.synced, needs_desc, mode_changed && is_current, cust_event)
+                (state.synced, needs_desc, mode_changed && is_current, cust_event, is_new)
             } else {
-                (false, false, false, None)
+                (false, false, false, None, false)
             }
         };
 

@@ -182,3 +182,48 @@ export async function saveUserVolume(
   }
   await store.set(USER_VOLUMES_KEY, map);
 }
+
+// -- Push-notification muted channels (per-server, local-only) -----
+
+/**
+ * Channels whose push notifications have been disabled.
+ * Keyed by server address ("host:port"), same as silenced channels.
+ * The muted list is also sent to the server via `fancy-push-update`
+ * so the server can skip sending pushes for those channels.
+ */
+const MUTED_PUSH_CHANNELS_KEY = "mutedPushChannels";
+
+type MutedPushMap = Record<string, number[]>;
+
+/** Return channel IDs with push notifications disabled for a server. */
+export async function getMutedPushChannels(
+  serverKey: string,
+): Promise<number[]> {
+  const store = await getStore();
+  const map =
+    (await store.get<MutedPushMap>(MUTED_PUSH_CHANNELS_KEY)) ?? {};
+  return map[serverKey] ?? [];
+}
+
+/** Toggle push-notification mute for a single channel on a server. */
+export async function setMutedPushChannel(
+  serverKey: string,
+  channelId: number,
+  muted: boolean,
+): Promise<number[]> {
+  const store = await getStore();
+  const map =
+    (await store.get<MutedPushMap>(MUTED_PUSH_CHANNELS_KEY)) ?? {};
+  const current = map[serverKey] ?? [];
+  let updated: number[];
+  if (muted && !current.includes(channelId)) {
+    updated = [...current, channelId];
+  } else if (!muted) {
+    updated = current.filter((id) => id !== channelId);
+  } else {
+    return current;
+  }
+  map[serverKey] = updated;
+  await store.set(MUTED_PUSH_CHANNELS_KEY, map);
+  return updated;
+}

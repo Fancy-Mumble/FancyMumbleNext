@@ -1,7 +1,9 @@
 //! Build script for the `mumble-tauri` crate.
 //!
-//! Invokes `tauri-build` and configures Windows-specific linker flags to
-//! delay-load `comctl32.dll`, preventing startup failures in test binaries.
+//! Invokes `tauri-build` and configures platform-specific linker flags.
+//! On desktop, also builds the AGPL-isolated `signal-bridge` cdylib from
+//! its separate workspace and copies the resulting library next to the
+//! executable so `load_signal_bridge` finds it at runtime.
 fn main() {
     tauri_build::build();
 
@@ -93,4 +95,115 @@ fn main() {
         println!("cargo:rustc-link-lib=delayimp");
         println!("cargo:rustc-link-arg=/DELAYLOAD:comctl32.dll");
     }
+
+    // -- Signal bridge (desktop only) ----------------------------------
+    //
+    // The signal-bridge crate lives in its own workspace (AGPL-isolated)
+    // and produces a cdylib that mumble-tauri loads at runtime via
+    // libloading.  Build it automatically and copy the library next to
+    // the executable so `load_signal_bridge` finds it.
+    //
+    // Skip on Android (signal-bridge is cross-compiled and placed in
+    // jniLibs by the CI pipeline) and when SKIP_SIGNAL_BRIDGE is set
+    // (CI may provide a pre-built artifact instead).
+    if target_os != "android" && std::env::var("SKIP_SIGNAL_BRIDGE").is_err() {
+        build_signal_bridge();
+    }
+}
+
+/// Build the signal-bridge cdylib from its separate workspace and copy
+/// the output library next to the mumble-tauri executable.
+fn build_signal_bridge() {
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| {
+            panic!("CARGO_MANIFEST_DIR must be set in build scripts");
+        });
+    let bridge_dir = std::path::Path::new(&manifest_dir).join("../signal-bridge");
+
+    // If the signal-bridge crate is not present (e.g. shallow checkout),
+    // skip silently.
+    if !bridge_dir.join("Cargo.toml").exists() {
+        println!("cargo:warning=signal-bridge crate not found at {}, skipping", bridge_dir.display());
+        return;
+    }
+
+    // Re-run this build script when signal-bridge sources change.
+    println!("cargo:rerun-if-changed=../signal-bridge/src");
+    println!("cargo:rerun-if-changed=../signal-bridge/Cargo.toml");
+    println!("cargo:rerun-if-env-changed=SKIP_SIGNAL_BRIDGE");
+
+    // Match the current profile: use --release when we are building in
+    // release mode, otherwise default (debug).
+    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
+    let mut cmd = std::process::Command::new("cargo");
+    let _ = cmd.arg("build").current_dir(&bridge_dir);
+    if profile == "release" {
+        let _ = cmd.arg("--release");
+    }
+
+    eprintln!("building signal-bridge ({profile})...");
+    let status = cmd.status().unwrap_or_else(|e| {
+        panic!("failed to run `cargo build` for signal-bridge: {e}");
+    });
+    if !status.success() {
+        panic!("signal-bridge build failed (exit code: {status})");
+    }
+
+    // Determine library filename and source path.
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let lib_name = match target_os.as_str() {
+        "windows" => "signal_bridge.dll",
+        "macos" => "libsignal_bridge.dylib",
+        _ => "libsignal_bridge.so",
+    };
+
+    // signal-bridge has its own target/ directory because it is workspace-excluded.
+    let bridge_lib = bridge_dir.join("target").join(&profile).join(lib_name);
+    if !bridge_lib.exists() {
+        panic!(
+            "signal-bridge library not found at {} after build",
+            bridge_lib.display()
+        );
+    }
+
+    // Copy next to the mumble-tauri executable (workspace target/{profile}/).
+    // OUT_DIR is inside target/{profile}/build/mumble-tauri-*/out/ -- walk
+    // up to reach target/{profile}/.
+    let out_dir =
+        std::env::var("OUT_DIR").unwrap_or_else(|_| {
+            panic!("OUT_DIR must be set in build scripts");
+        });
+    let out_path = std::path::Path::new(&out_dir);
+    // target/{profile}/build/crate-hash/out -> target/{profile}
+    let target_profile_dir = out_path
+        .ancestors()
+        .find(|p| p.file_name().map(|n| n == "debug" || n == "release").unwrap_or(false))
+        .unwrap_or_else(|| {
+            panic!("could not locate target/{profile} from OUT_DIR={out_dir}");
+        });
+
+    let dest = target_profile_dir.join(lib_name);
+    let _ = std::fs::copy(&bridge_lib, &dest).unwrap_or_else(|e| {
+        panic!(
+            "failed to copy {} -> {}: {e}",
+            bridge_lib.display(),
+            dest.display()
+        );
+    });
+    eprintln!("copied signal-bridge to {}", dest.display());
+
+    // Also copy into the signal-bridge/ subdirectory next to the crate
+    // root so that `cargo tauri build` can include it as a bundled
+    // resource (bundle.resources: ["signal-bridge/*.dll"]).
+    let bundle_dir = std::path::Path::new(&manifest_dir).join("signal-bridge");
+    let _ = std::fs::create_dir_all(&bundle_dir);
+    let bundle_dest = bundle_dir.join(lib_name);
+    let _ = std::fs::copy(&bridge_lib, &bundle_dest).unwrap_or_else(|e| {
+        panic!(
+            "failed to copy {} -> {}: {e}",
+            bridge_lib.display(),
+            bundle_dest.display()
+        );
+    });
+    eprintln!("copied signal-bridge to {}", bundle_dest.display());
 }

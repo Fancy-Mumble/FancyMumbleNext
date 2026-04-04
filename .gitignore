@@ -52,3 +52,5 @@ Desktop.ini
 # ---- Test / misc local artifacts ----
 coverage/
 *.log
+
+google-services.json

@@ -76,6 +76,11 @@ class ConnectionService : Service() {
         super.onDestroy()
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        stopSelf()
+    }
+
     private fun acquireWakeLock() {
         val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
         wakeLock = pm.newWakeLock(

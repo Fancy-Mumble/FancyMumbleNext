@@ -34,6 +34,8 @@ import { loadPersonalization } from "../../personalizationStorage";
 import type { ChannelViewerStyle } from "../../personalizationStorage";
 import ModernChannelList from "./ModernChannelList";
 import TrashIcon from "../../assets/icons/action/trash.svg?react";
+import BellIcon from "../../assets/icons/status/bell.svg?react";
+import BellOffIcon from "../../assets/icons/status/bell-off.svg?react";
 import PhoneIcon from "../../assets/icons/communication/phone.svg?react";
 import PhoneOffIcon from "../../assets/icons/communication/phone-off.svg?react";
 import RecordIcon from "../../assets/icons/audio/record.svg?react";
@@ -394,6 +396,8 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
   const enableVoice = useAppStore((s) => s.enableVoice);
   const disableVoice = useAppStore((s) => s.disableVoice);
   const inCall = useAppStore((s) => s.inCall);
+  const toggleMutePushChannel = useAppStore((s) => s.toggleMutePushChannel);
+  const mutedPushChannels = useAppStore((s) => s.mutedPushChannels);
   const navigate = useNavigate();
 
   // Group chat state
@@ -1067,6 +1071,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
         const ctxChannel = channels.find((c) => c.id === ctxMenu.channelId);
         const hasListenPerm = canListen(ctxChannel);
         const isListened = listenedChannels.has(ctxMenu.channelId);
+        const isPushMuted = mutedPushChannels.has(ctxMenu.channelId);
         const showEdit = canEditChannel(ctxChannel);
         const showCreate = canCreateChannel(ctxChannel);
         const showDelete = canDeleteChannel(ctxChannel);
@@ -1095,6 +1100,26 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
                 <>
                   <ListenBadgeIcon width={14} height={14} opacity={hasListenPerm ? 1 : 0.4} />
                   Listen to channel
+                </>
+              )}
+            </button>
+
+            <button
+              className={styles.contextMenuItem}
+              onClick={() => {
+                toggleMutePushChannel(ctxMenu.channelId);
+                setCtxMenu(null);
+              }}
+            >
+              {isPushMuted ? (
+                <>
+                  <BellIcon width={14} height={14} />
+                  Enable notifications
+                </>
+              ) : (
+                <>
+                  <BellOffIcon width={14} height={14} />
+                  Mute notifications
                 </>
               )}
             </button>

@@ -222,6 +222,11 @@ impl EventHandler for TauriEventHandler {
             {
                 crate::connection_service::stop_service(&handle);
             }
+
+            // Keep FCM topic subscriptions active after disconnect so the
+            // device continues to receive push notifications while offline.
+            // Subscriptions are idempotent — re-subscribing on the next
+            // connect is harmless.
         }
     }
 

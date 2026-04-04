@@ -18,6 +18,10 @@ class MainActivity : TauriActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Ensure the "messages" notification channel exists before any
+        // FCM message can arrive (required on Android 8+).
+        FcmService.ensureChannel(this)
+
         // Request microphone permission at launch so the Oboe audio
         // capture stream can be opened when the user unmutes.
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)

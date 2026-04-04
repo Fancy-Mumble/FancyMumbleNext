@@ -244,11 +244,7 @@ impl HandleMessage for mumble_tcp::UserState {
                             // For SignalV1, load the bridge and create our sender
                             // key distribution immediately.
                             if mode == Some(PchatProtocol::SignalV1) {
-                                let bridge_ok = if let Ok(mut s) = shared.lock() {
-                                    s.pchat.as_mut().is_some_and(pchat::ensure_signal_bridge)
-                                } else {
-                                    false
-                                };
+                                let bridge_ok = pchat::ensure_signal_bridge_unlocked(&shared);
                                 if bridge_ok {
                                     pchat::send_signal_distribution(&shared, ch);
                                     pchat::send_key_holder_report_async(&shared, ch).await;
@@ -257,6 +253,10 @@ impl HandleMessage for mumble_tcp::UserState {
                                         &shared,
                                         "Signal bridge library could not be loaded. End-to-end encryption is unavailable.",
                                     );
+                                    // Cannot decrypt without the bridge -- clear
+                                    // loading and skip the rest of the init flow.
+                                    pchat::emit_history_loading(&shared, ch, false);
+                                    return;
                                 }
                             }
                         }

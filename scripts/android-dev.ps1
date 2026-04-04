@@ -51,6 +51,17 @@ function Write-Check {
     }
 }
 
+function Write-SoftCheck {
+    param([string]$Label, [bool]$Ok, [string]$Detail = "")
+    if ($Ok) {
+        Write-Host "  [OK] $Label" -ForegroundColor Green
+        if ($Detail) { Write-Host "       $Detail" -ForegroundColor DarkGray }
+    } else {
+        Write-Host "  [~~] $Label" -ForegroundColor DarkYellow
+        if ($Detail) { Write-Host "       $Detail" -ForegroundColor Yellow }
+    }
+}
+
 function Dump-CrashInfo {
     <#
     .SYNOPSIS
@@ -61,6 +72,66 @@ function Dump-CrashInfo {
         [string]$Serial,           # optional: target a specific device
         [string]$PackageName = "com.fancymumble.app"
     )
+
+    function Get-AppCrashBlocks {
+        param(
+            [string[]]$Lines,
+            [string]$PackageName,
+            [string]$PrimaryPid
+        )
+
+        if (-not $Lines -or $Lines.Count -eq 0) {
+            return @()
+        }
+
+        $pkgPattern = [regex]::Escape($PackageName)
+        $blocks = [System.Collections.Generic.List[object]]::new()
+        $current = [System.Collections.Generic.List[string]]::new()
+        $hasCrashDelimiter = $false
+
+        foreach ($line in $Lines) {
+            if ($line -match '^\*{10}\s+Crash dump:\s+\*{10}$') {
+                $hasCrashDelimiter = $true
+                if ($current.Count -gt 0) {
+                    [void]$blocks.Add(@($current))
+                    $current.Clear()
+                }
+            }
+            [void]$current.Add("$line")
+        }
+
+        if ($current.Count -gt 0) {
+            [void]$blocks.Add(@($current))
+        }
+
+        if (-not $hasCrashDelimiter) {
+            $lineFiltered = @($Lines | Where-Object {
+                ($_ -match $pkgPattern) -or
+                ($PrimaryPid -and ($_ -match "\b$([regex]::Escape($PrimaryPid))\b")) -or
+                ($_ -match 'FATAL|SIGSEGV|SIGABRT|SIGBUS|SIGFPE|backtrace|signal\s+\d+|Abort message|Cmdline:')
+            })
+            if ($lineFiltered.Count -gt 0) {
+                return @($lineFiltered)
+            }
+            return @()
+        }
+
+        $matchedBlocks = [System.Collections.Generic.List[object]]::new()
+        foreach ($block in $blocks) {
+            $text = ($block -join "`n")
+            $pkgHit = $text -match "Cmdline:\s+$pkgPattern" -or $text -match $pkgPattern
+            $pidHit = $false
+            if ($PrimaryPid) {
+                $escapedPid = [regex]::Escape($PrimaryPid)
+                $pidHit = $text -match "\bpid:\s*$escapedPid\b" -or $text -match "\b$escapedPid\b"
+            }
+            if ($pkgHit -or $pidHit) {
+                [void]$matchedBlocks.Add(@($block))
+            }
+        }
+
+        return @($matchedBlocks)
+    }
 
     $adbCmd = Get-Command adb -ErrorAction SilentlyContinue
     if (-not $adbCmd) {
@@ -83,6 +154,13 @@ function Dump-CrashInfo {
     }
 
     Write-Host "  Device: $Serial" -ForegroundColor DarkGray
+
+    # Resolve app PID when it is still running. If the app already crashed,
+    # package-name matching still works via Cmdline lines.
+    $appPid = (& adb @adbArgs shell pidof $PackageName 2>$null | Select-Object -First 1).Trim()
+    if ($appPid) {
+        Write-Host "  App PID: $appPid" -ForegroundColor DarkGray
+    }
 
     # Locate ndk-stack
     $ndkHome = if ($env:NDK_HOME) { $env:NDK_HOME } elseif ($env:ANDROID_NDK_HOME) { $env:ANDROID_NDK_HOME } else { $null }
@@ -108,15 +186,19 @@ function Dump-CrashInfo {
 
     # ---- 1. Logcat crash dump ----
     Write-Host "`n  --- Logcat crash output ---" -ForegroundColor Cyan
-    $logcatRaw = & adb @adbArgs logcat -d -b crash 2>$null
-    # Filter to lines about our package
-    $crashLines = @($logcatRaw | Where-Object {
-        $_ -match $PackageName -or $_ -match 'FATAL|SIGSEGV|SIGABRT|SIGBUS|SIGFPE|backtrace|signal \d+'
-    })
-    if ($crashLines.Count -gt 0) {
-        $crashLines | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+    $logcatRaw = & adb @adbArgs logcat -d -b crash -v threadtime 2>$null
+    $crashBlocks = Get-AppCrashBlocks -Lines @($logcatRaw) -PackageName $PackageName -PrimaryPid $appPid
+    if ($crashBlocks.Count -gt 0) {
+        foreach ($block in $crashBlocks) {
+            if ($block -is [System.Array]) {
+                $block | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+                Write-Host ""
+            } else {
+                Write-Host "    $block" -ForegroundColor Yellow
+            }
+        }
     } else {
-        Write-Host "    (no crash entries in logcat)" -ForegroundColor DarkGray
+        Write-Host "    (no app-specific crash entries in logcat crash buffer)" -ForegroundColor DarkGray
     }
 
     # ---- 2. Tombstone via ndk-stack ----
@@ -125,14 +207,20 @@ function Dump-CrashInfo {
         Write-Host "    Symbols: $symDir" -ForegroundColor DarkGray
         Write-Host "    ndk-stack: $ndkStackPath" -ForegroundColor DarkGray
 
-        # Pipe logcat crash buffer through ndk-stack for symbolication
-        $logcatAll = & adb @adbArgs logcat -d 2>$null
-        $symbolized = $logcatAll | & $ndkStackPath -sym $symDir 2>$null
-        $symbolized = @($symbolized | Where-Object { $_ })
-        if ($symbolized.Count -gt 0) {
-            $symbolized | ForEach-Object { Write-Host "    $_" -ForegroundColor White }
+        # Symbolize only crash-buffer lines to avoid unrelated non-app noise.
+        $symbolized = @($logcatRaw | & $ndkStackPath -sym $symDir 2>$null | Where-Object { $_ })
+        $symbolizedBlocks = Get-AppCrashBlocks -Lines $symbolized -PackageName $PackageName -PrimaryPid $appPid
+        if ($symbolizedBlocks.Count -gt 0) {
+            foreach ($block in $symbolizedBlocks) {
+                if ($block -is [System.Array]) {
+                    $block | ForEach-Object { Write-Host "    $_" -ForegroundColor White }
+                    Write-Host ""
+                } else {
+                    Write-Host "    $block" -ForegroundColor White
+                }
+            }
         } else {
-            Write-Host "    (ndk-stack produced no output - no native backtrace found)" -ForegroundColor DarkGray
+            Write-Host "    (ndk-stack found no app-specific native backtrace)" -ForegroundColor DarkGray
         }
     } elseif (-not $ndkStackPath) {
         Write-Host "`n  [!!] ndk-stack not found. Set NDK_HOME for symbolized backtraces." -ForegroundColor Yellow
@@ -144,14 +232,19 @@ function Dump-CrashInfo {
     Write-Host "`n  --- Device tombstones ---" -ForegroundColor Cyan
     $tombstoneList = & adb @adbArgs shell ls /data/tombstones/ 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $tombstoneList) {
-        # Non-root devices may not have access, try via dumpsys
-        $tombstoneList = & adb @adbArgs shell dumpsys dropbox --print SYSTEM_TOMBSTONE 2>$null |
-            Select-Object -Last 80
-        if ($tombstoneList) {
-            Write-Host "    (via dumpsys dropbox SYSTEM_TOMBSTONE, last 80 lines):" -ForegroundColor DarkGray
-            $tombstoneList | ForEach-Object { Write-Host "    $_" -ForegroundColor White }
+        # Non-root devices may not have access; try dropbox and keep only app-relevant lines.
+        $dropboxLines = @(& adb @adbArgs shell dumpsys dropbox --print SYSTEM_TOMBSTONE 2>$null)
+        $pkgPattern = [regex]::Escape($PackageName)
+        $dropboxFiltered = @($dropboxLines | Where-Object {
+            ($_ -match $pkgPattern) -or
+            ($appPid -and ($_ -match "\bpid:\s*$([regex]::Escape($appPid))\b")) -or
+            ($_ -match 'signal\s+\d+|backtrace|Abort message|Cmdline:')
+        } | Select-Object -Last 120)
+        if ($dropboxFiltered.Count -gt 0) {
+            Write-Host "    (via dumpsys dropbox SYSTEM_TOMBSTONE, app-filtered lines):" -ForegroundColor DarkGray
+            $dropboxFiltered | ForEach-Object { Write-Host "    $_" -ForegroundColor White }
         } else {
-            Write-Host "    (no tombstone access - device may require root)" -ForegroundColor DarkGray
+            Write-Host "    (no app-specific tombstone lines from dropbox; device may hide tombstones)" -ForegroundColor DarkGray
         }
     } else {
         $tombFiles = @($tombstoneList -split "`n" | Where-Object { $_ -match 'tombstone' } | Sort-Object)
@@ -350,13 +443,17 @@ function Start-WebViewInspect {
 Write-Host "`nFancy Mumble - Android Dev Environment Check" -ForegroundColor Cyan
 Write-Host ("=" * 48)
 
-# -- Windows Developer Mode (required for symlink creation by Tauri) --
+# -- Windows Developer Mode (for initial symlink creation by Tauri) --
+# Only a hard error if gen/android has not been initialized yet.
 $devModeKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
 $devModeValue = (Get-ItemProperty -Path $devModeKey -Name "AllowDevelopmentWithoutDevLicense" -ErrorAction SilentlyContinue).AllowDevelopmentWithoutDevLicense
+$genAndroidExists = Test-Path "$PSScriptRoot\..\crates\mumble-tauri\gen\android"
 if ($devModeValue -eq 1) {
     Write-Check "Developer Mode" $true "Symlink creation enabled"
+} elseif ($genAndroidExists) {
+    Write-SoftCheck "Developer Mode" $false "Not enabled, but gen/android already exists. Enable for re-init: Start-Process 'ms-settings:developers'"
 } else {
-    Write-Check "Developer Mode" $false "Required for Tauri Android symlinks. Enable via: Start-Process 'ms-settings:developers'"
+    Write-Check "Developer Mode" $false "Required for Tauri Android init. Enable via: Start-Process 'ms-settings:developers'"
 }
 
 # -- JAVA_HOME / JDK --
@@ -400,6 +497,18 @@ Not found. To fix, run one of:
 
 # -- ANDROID_HOME --
 $androidHome = $env:ANDROID_HOME
+# Auto-detect from persisted User env or common install location
+if (-not ($androidHome -and (Test-Path $androidHome))) {
+    $persistedHome = [System.Environment]::GetEnvironmentVariable("ANDROID_HOME", "User")
+    if ($persistedHome -and (Test-Path $persistedHome)) {
+        $androidHome = $persistedHome
+    } elseif (Test-Path "$env:LOCALAPPDATA\Android\Sdk") {
+        $androidHome = "$env:LOCALAPPDATA\Android\Sdk"
+    }
+    if ($androidHome -and (Test-Path $androidHome)) {
+        $env:ANDROID_HOME = $androidHome
+    }
+}
 if ($androidHome -and (Test-Path $androidHome)) {
     Write-Check "ANDROID_HOME" $true $androidHome
 } else {
@@ -408,11 +517,33 @@ if ($androidHome -and (Test-Path $androidHome)) {
 
 # -- NDK_HOME --
 $ndkHome = $env:NDK_HOME
+# Auto-detect from persisted User env or installed NDKs
+if (-not ($ndkHome -and (Test-Path $ndkHome))) {
+    $persistedNdk = [System.Environment]::GetEnvironmentVariable("NDK_HOME", "User")
+    if ($persistedNdk -and (Test-Path $persistedNdk)) {
+        $ndkHome = $persistedNdk
+    } elseif ($androidHome) {
+        $ndkDir = Get-ChildItem "$androidHome\ndk" -Directory -ErrorAction SilentlyContinue |
+                  Sort-Object Name -Descending | Select-Object -First 1
+        if ($ndkDir) { $ndkHome = $ndkDir.FullName }
+    }
+    if ($ndkHome -and (Test-Path $ndkHome)) {
+        $env:NDK_HOME = $ndkHome
+        if (-not $env:ANDROID_NDK_HOME) { $env:ANDROID_NDK_HOME = $ndkHome }
+    }
+}
 if ($ndkHome -and (Test-Path $ndkHome)) {
     if (-not $env:ANDROID_NDK_HOME) { $env:ANDROID_NDK_HOME = $ndkHome }
 
     $androidToolchain = "$ndkHome\build\cmake\android.toolchain.cmake"
-    $ndkNinjaExe      = "$ndkHome\prebuilt\windows-x86_64\bin\ninja.exe"
+
+    # NDK 27 bundles ninja; NDK 29+ removed it. Fall back to system ninja.
+    $ndkNinjaExe = "$ndkHome\prebuilt\windows-x86_64\bin\ninja.exe"
+    if (-not (Test-Path $ndkNinjaExe)) {
+        $systemNinja = Get-Command ninja -ErrorAction SilentlyContinue
+        if ($systemNinja) { $ndkNinjaExe = $systemNinja.Source }
+        else              { $ndkNinjaExe = $null }
+    }
 
     # cmake-rs does not auto-set ANDROID_ABI when the toolchain file comes
     # from an env var (only when .define() is called in code). We use
@@ -433,7 +564,7 @@ if ($ndkHome -and (Test-Path $ndkHome)) {
             # Fallback to raw NDK toolchain if wrapper is missing
             Set-Item "env:CMAKE_TOOLCHAIN_FILE_$triple" $androidToolchain
         }
-        if (Test-Path $ndkNinjaExe) {
+        if ($ndkNinjaExe -and (Test-Path $ndkNinjaExe)) {
             Set-Item "env:CMAKE_MAKE_PROGRAM_$triple" $ndkNinjaExe
         }
     }
@@ -527,12 +658,12 @@ if ($emulatorCmd) {
     $avds = emulator -list-avds 2>&1 | Where-Object { $_ -and $_ -notmatch "^(INFO|WARNING)" }
     $avdCount = ($avds | Measure-Object).Count
     if ($avdCount -gt 0) {
-        Write-Check "Emulator AVDs" $true "$avdCount available: $($avds -join ', ')"
+        Write-SoftCheck "Emulator AVDs" $true "$avdCount available: $($avds -join ', ')"
     } else {
-        Write-Check "Emulator AVDs" $false "No AVDs found. Create one in Android Studio > Device Manager"
+        Write-SoftCheck "Emulator AVDs" $false "No AVDs found. Create one in Android Studio > Device Manager"
     }
 } else {
-    Write-Check "Emulator" $false "Emulator binary not found in '$androidHome\emulator'. Reinstall via Android Studio SDK Manager."
+    Write-SoftCheck "Emulator" $false "Emulator binary not found in '$androidHome\emulator'. Reinstall via Android Studio SDK Manager."
 }
 
 Write-Host ""

@@ -90,6 +90,41 @@ impl HandleMessage for mumble_tcp::ServerSync {
                         );
                     }
                 }
+
+                // Register FCM device token with the server so it can
+                // send permission-checked push notifications directly
+                // to this device (instead of broadcasting via topics).
+                if let Some(fcm) = app.try_state::<crate::fcm_service::FcmPluginHandle>() {
+                    info!("FCM: FcmPluginHandle found, requesting device token");
+                    match crate::fcm_service::get_token(&fcm) {
+                        Some(token) => {
+                            info!(len = token.len(), "FCM: device token obtained, sending push registration");
+                            let client_handle = ctx.shared.lock().ok().and_then(|s| s.client_handle.clone());
+                            if let Some(handle) = client_handle {
+                                let payload = serde_json::json!({ "token": token });
+                                let data = serde_json::to_vec(&payload).unwrap_or_default();
+                                let _push_register_task = tokio::spawn(async move {
+                                    match handle
+                                        .send(command::SendPluginData {
+                                            receiver_sessions: vec![],
+                                            data,
+                                            data_id: "fancy-push-register".to_string(),
+                                        })
+                                        .await
+                                    {
+                                        Ok(_) => info!("FCM: push registration sent to server"),
+                                        Err(e) => warn!("FCM: failed to send push registration: {e}"),
+                                    }
+                                });
+                            } else {
+                                warn!("FCM: no client handle, cannot send push registration");
+                            }
+                        }
+                        None => warn!("FCM: no device token available, skipping push registration"),
+                    }
+                } else {
+                    info!("FCM: FcmPluginHandle not available (not Android?)");
+                }
             }
         }
 
@@ -375,11 +410,7 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                     // For SignalV1, load the bridge and create our sender
                                     // key distribution immediately (no peer exchange needed).
                                     if mode == PchatProtocol::SignalV1 {
-                                        let bridge_ok = if let Ok(mut s) = shared.lock() {
-                                            s.pchat.as_mut().is_some_and(pchat::ensure_signal_bridge)
-                                        } else {
-                                            false
-                                        };
+                                        let bridge_ok = pchat::ensure_signal_bridge_unlocked(&shared);
                                         if bridge_ok {
                                             pchat::send_signal_distribution(&shared, ch);
                                             pchat::send_key_holder_report_async(&shared, ch).await;
@@ -388,6 +419,10 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                                 &shared,
                                                 "Signal bridge library could not be loaded. End-to-end encryption is unavailable.",
                                             );
+                                            // Cannot decrypt without the bridge -- clear
+                                            // loading and skip the rest of the init flow.
+                                            pchat::emit_history_loading(&shared, ch, false);
+                                            return;
                                         }
                                     }
 

@@ -15,6 +15,8 @@ mod state;
 mod tray;
 #[cfg(target_os = "android")]
 mod connection_service;
+#[cfg(target_os = "android")]
+mod fcm_service;
 
 use state::{
     AppState, AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus,
@@ -1698,6 +1700,23 @@ pub fn run() {
                 connection_service::register_disconnect_listener(&cs_handle, app.clone());
                 connection_service::register_navigate_listener(&cs_handle, app.clone());
                 let _ = app.manage(cs_handle);
+                Ok(())
+            })
+            .build(),
+    );
+
+    // Register the FCM plugin on Android so the Rust backend can
+    // subscribe/unsubscribe to FCM topics for push notifications.
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(
+        tauri::plugin::Builder::<tauri::Wry, ()>::new("fcm-service")
+            .setup(|app, api| {
+                let handle = api.register_android_plugin(
+                    "com.fancymumble.app",
+                    "FcmPlugin",
+                )?;
+                let fcm_handle = fcm_service::FcmPluginHandle(handle);
+                let _ = app.manage(fcm_handle);
                 Ok(())
             })
             .build(),

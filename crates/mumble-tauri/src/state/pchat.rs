@@ -53,6 +53,10 @@ pub(crate) struct PchatState {
     pub identity_dir: Option<PathBuf>,
     /// Signal Protocol bridge (loaded from external DLL, AGPL-isolated).
     pub signal_bridge: Option<Arc<SignalBridge>>,
+    /// Set to `true` after `load_signal_bridge` returns `None` so that
+    /// subsequent calls to `ensure_signal_bridge` short-circuit without
+    /// repeating the file-system search (which runs under the state mutex).
+    pub signal_bridge_load_failed: bool,
     /// Encrypted local message cache for `SignalV1` channels.
     /// Stores decrypted plaintext on disk with AES-256-GCM encryption.
     pub local_cache: Option<LocalMessageCache>,
@@ -109,6 +113,7 @@ impl PchatState {
             fetched_channels: std::collections::HashSet::new(),
             identity_dir,
             signal_bridge: None,
+            signal_bridge_load_failed: false,
             local_cache,
             pending_signal_envelopes: Vec::new(),
         })
@@ -2266,13 +2271,71 @@ pub(crate) fn ensure_signal_bridge(pchat: &mut PchatState) -> bool {
     if pchat.signal_bridge.is_some() {
         return true;
     }
+    if pchat.signal_bridge_load_failed {
+        return false;
+    }
     let bridge = load_signal_bridge(&pchat.own_cert_hash, None);
     if let Some(ref b) = bridge {
         pchat.key_manager.set_signal_bridge(Arc::clone(b));
         load_signal_state(pchat.identity_dir.as_deref(), b);
+    } else {
+        pchat.signal_bridge_load_failed = true;
     }
     let loaded = bridge.is_some();
     pchat.signal_bridge = bridge;
+    loaded
+}
+
+/// Lock-free variant of [`ensure_signal_bridge`] for async contexts.
+///
+/// Performs the potentially slow DLL search and load **outside** the
+/// `SharedState` mutex, then briefly re-acquires the lock to store the
+/// result.  Returns `true` when the bridge is available.
+pub(crate) fn ensure_signal_bridge_unlocked(shared: &Arc<Mutex<SharedState>>) -> bool {
+    // Fast path: already loaded or already failed.
+    {
+        let s = shared.lock().ok();
+        if let Some(pchat) = s.as_ref().and_then(|s| s.pchat.as_ref()) {
+            if pchat.signal_bridge.is_some() {
+                return true;
+            }
+            if pchat.signal_bridge_load_failed {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    // Extract cert hash + identity dir outside the lock.
+    let (cert_hash, identity_dir) = {
+        let s = shared.lock().ok();
+        match s.as_ref().and_then(|s| s.pchat.as_ref()) {
+            Some(p) => (p.own_cert_hash.clone(), p.identity_dir.clone()),
+            None => return false,
+        }
+    };
+
+    // Heavy work: filesystem search + DLL load -- no lock held.
+    let bridge = load_signal_bridge(&cert_hash, None);
+
+    // Import signal state outside the lock (file I/O).
+    if let Some(ref b) = bridge {
+        load_signal_state(identity_dir.as_deref(), b);
+    }
+
+    // Store the result under the lock.
+    let loaded = bridge.is_some();
+    if let Ok(mut s) = shared.lock() {
+        if let Some(ref mut pchat) = s.pchat {
+            if let Some(ref b) = bridge {
+                pchat.key_manager.set_signal_bridge(Arc::clone(b));
+            } else {
+                pchat.signal_bridge_load_failed = true;
+            }
+            pchat.signal_bridge = bridge;
+        }
+    }
     loaded
 }
 
@@ -2345,6 +2408,20 @@ pub(crate) fn send_signal_distribution(
     shared: &Arc<Mutex<SharedState>>,
     channel_id: u32,
 ) {
+    // Quick check: skip entirely when the bridge already failed to load.
+    // This avoids acquiring the lock from the synchronous event handler
+    // for every remote user movement into a SignalV1 channel.
+    {
+        let s = shared.lock().ok();
+        let bridge_unavailable = s
+            .as_ref()
+            .and_then(|s| s.pchat.as_ref())
+            .is_some_and(|p| p.signal_bridge_load_failed);
+        if bridge_unavailable {
+            return;
+        }
+    }
+
     let (handle, distribution, sessions) = {
         let Ok(mut state) = shared.lock() else { return };
 
@@ -2537,6 +2614,18 @@ pub(crate) fn handle_signal_sender_key(
     sender_session: u32,
     data: &[u8],
 ) -> bool {
+    // Quick check: skip when the bridge already failed to load.
+    {
+        let s = shared.lock().ok();
+        let bridge_unavailable = s
+            .as_ref()
+            .and_then(|s| s.pchat.as_ref())
+            .is_some_and(|p| p.signal_bridge_load_failed);
+        if bridge_unavailable {
+            return false;
+        }
+    }
+
     let Ok(mut state) = shared.lock() else { return false };
 
     // Resolve sender's cert hash from their session.
@@ -2825,5 +2914,31 @@ mod tests {
         std::fs::write(dir.path().join(ARCHIVE_KEYS_FILE), json).unwrap();
         let loaded = load_persisted_archive_keys(dir.path());
         assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn ensure_signal_bridge_caches_failure() {
+        // When the bridge DLL is not found, the first call sets
+        // `signal_bridge_load_failed = true` and subsequent calls
+        // return `false` immediately without retrying the filesystem.
+        let mut pchat = PchatState::new(
+            [0u8; 32],
+            "test_cert_hash".to_string(),
+            None,
+        )
+        .unwrap();
+
+        assert!(!pchat.signal_bridge_load_failed);
+        assert!(pchat.signal_bridge.is_none());
+
+        // First call: DLL won't be found, should fail and set the flag.
+        let result = ensure_signal_bridge(&mut pchat);
+        assert!(!result);
+        assert!(pchat.signal_bridge_load_failed);
+
+        // Second call: should short-circuit via the cached flag.
+        let result = ensure_signal_bridge(&mut pchat);
+        assert!(!result);
+        assert!(pchat.signal_bridge_load_failed);
     }
 }

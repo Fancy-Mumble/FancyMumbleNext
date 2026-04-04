@@ -29,6 +29,7 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   { bit: 0x400, label: "Make Temp Channel" },
   { bit: 0x800, label: "Listen" },
   { bit: 0x1000, label: "Delete Message" },
+  { bit: 0x2000, label: "Subscribe Push" },
   { bit: 0x10000, label: "Kick" },
   { bit: 0x20000, label: "Ban" },
   { bit: 0x40000, label: "Register" },
@@ -39,3 +40,4 @@ export const PERMISSIONS: readonly PermissionDef[] = [
 
 /** Well-known permission bits for use in permission checks. */
 export const PERM_KEY_OWNER = 0x200000;
+export const PERM_SUBSCRIBE_PUSH = 0x2000;
