@@ -607,15 +607,16 @@ impl AppState {
                         if let (Some(ref mut pchat_state), Some(client)) =
                             (&mut state.pchat, client)
                         {
-                            match pchat::build_encrypted_pchat_message(
-                                pchat_state,
-                                channel_id,
-                                protocol,
-                                msg_id,
-                                &body,
-                                &own_name,
-                                session,
-                                now_ms,
+                            match pchat_state.build_encrypted_message(
+                                &pchat::OutboundMessage {
+                                    channel_id,
+                                    protocol,
+                                    message_id: msg_id,
+                                    body: &body,
+                                    sender_name: &own_name,
+                                    sender_session: session,
+                                    timestamp: now_ms,
+                                },
                             ) {
                                 Ok(proto_msg) => Some((proto_msg, client)),
                                 Err(e) => {

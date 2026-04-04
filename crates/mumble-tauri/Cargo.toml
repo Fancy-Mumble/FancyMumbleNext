@@ -35,10 +35,10 @@ tauri-plugin-notification = "2.3.3"
 tauri-plugin-dialog = "2"
 hound = "3.5"
 chrono = "0.4"
-png = "0.18"
 
 # Desktop-only dependencies (cpal, global shortcuts, and Opus are not available on Android).
 [target.'cfg(not(target_os = "android"))'.dependencies]
+png = "0.18"
 mumble-protocol = { path = "../mumble-protocol", features = ["opus-codec", "persistent-chat"] }
 cpal = "0.17.3"
 tauri-plugin-global-shortcut = "2"

@@ -340,7 +340,7 @@ impl HandleMessage for mumble_tcp::UserState {
                                         Some(PchatProtocol::SignalV1) => {
                                             // Bridge should already be loaded; this
                                             // is a fallback path.
-                                            if !pchat::ensure_signal_bridge(pchat) {
+                                            if !pchat.ensure_signal_bridge() {
                                                 pchat::emit_signal_bridge_error(
                                                     &shared,
                                                     "Signal bridge library could not be loaded. End-to-end encryption is unavailable.",

@@ -218,7 +218,7 @@ async fn generate_certificate(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    state::pchat::generate_identity_cert(&data_dir, &label)
+    state::pchat::IdentityStore::new(data_dir).generate_cert(&label)
 }
 
 /// List the labels of all identities stored in `{app_data_dir}/identities/`.
@@ -228,7 +228,7 @@ async fn list_certificates(app: tauri::AppHandle) -> Result<Vec<String>, String>
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    Ok(state::pchat::list_identity_labels(&data_dir))
+    Ok(state::pchat::IdentityStore::new(data_dir).list_labels())
 }
 
 /// Delete an identity (TLS cert + pchat seed) by label.
@@ -241,7 +241,7 @@ async fn delete_certificate(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    state::pchat::delete_identity(&data_dir, &label)
+    state::pchat::IdentityStore::new(data_dir).delete(&label)
 }
 
 /// Export an identity to a user-chosen file via the native save dialog.
@@ -255,7 +255,7 @@ async fn export_certificate(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    state::pchat::export_identity(&data_dir, &label, std::path::Path::new(&dest_path))
+    state::pchat::IdentityStore::new(data_dir).export(&label, std::path::Path::new(&dest_path))
 }
 
 /// Import an identity from a user-chosen file via the native open dialog.
@@ -269,7 +269,7 @@ async fn import_certificate(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    state::pchat::import_identity(&data_dir, std::path::Path::new(&src_path))
+    state::pchat::IdentityStore::new(data_dir).import(std::path::Path::new(&src_path))
 }
 
 #[tauri::command]
@@ -1428,7 +1428,7 @@ async fn approve_key_share(
         wire_exchange.sender_hash = pchat.own_cert_hash.clone();
 
         let proto =
-            state::pchat::wire_key_exchange_to_proto_pub(&wire_exchange);
+            state::pchat::wire_key_exchange_to_proto(&wire_exchange);
 
         let handle = shared
             .client_handle

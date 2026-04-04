@@ -475,7 +475,7 @@ impl HandleMessage for mumble_tcp::ServerSync {
                                                     Some(PchatProtocol::SignalV1) => {
                                                         // Bridge should already be loaded from the
                                                         // immediate init above; this is a fallback.
-                                                        if !pchat::ensure_signal_bridge(p) {
+                                                        if !p.ensure_signal_bridge() {
                                                             pchat::emit_signal_bridge_error(
                                                                 &shared,
                                                                 "Signal bridge library could not be loaded. End-to-end encryption is unavailable.",
