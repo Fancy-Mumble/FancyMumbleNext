@@ -38,6 +38,8 @@ import { registerPoll, registerVote } from "./components/chat/PollCard";
 import { applyReaction, applyPchatReaction, resetReactions, setServerCustomReactions, REACTION_DATA_ID, CUSTOM_REACTIONS_DATA_ID, type ReactionPayload, type ServerCustomReaction } from "./components/chat/reactionStore";
 import { offloadManager } from "./messageOffload";
 import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume } from "./preferencesStorage";
+import { loadProfileData } from "./pages/settings/profileData";
+import { serializeProfile, dataUrlToBytes } from "./profileFormat";
 
 /** Event payload for a single reaction delivered by the server. */
 interface ReactionDeliverEvent {
@@ -1048,6 +1050,28 @@ export async function initEventListeners(
           // Fetch our own session ID.
           const ownSession = await invoke<number | null>("get_own_session");
           useAppStore.setState({ ownSession });
+
+          // Auto-apply the locally saved profile for unregistered users.
+          // Registered users have their profile stored server-side, but
+          // unregistered users lose it on each connect.
+          if (ownSession !== null) {
+            const ownUser = useAppStore.getState().users.find((u) => u.session === ownSession);
+            const isRegistered = ownUser?.user_id != null && ownUser.user_id > 0;
+            if (!isRegistered) {
+              loadProfileData()
+                .then(async ({ profile, bio, avatarDataUrl }) => {
+                  const comment = serializeProfile(profile, bio);
+                  if (comment) {
+                    await invoke("set_user_comment", { comment });
+                  }
+                  const texture = avatarDataUrl ? dataUrlToBytes(avatarDataUrl) : [];
+                  if (texture.length > 0) {
+                    await invoke("set_user_texture", { texture });
+                  }
+                })
+                .catch((err) => console.error("Auto-apply profile error:", err));
+            }
+          }
 
           const { channels, selectedChannel } = useAppStore.getState();
           if (selectedChannel === null && channels.length > 0) {

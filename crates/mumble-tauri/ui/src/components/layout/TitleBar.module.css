@@ -5,6 +5,7 @@
   height: 40px;
   padding: 0 8px 0 16px;
   background: rgba(14, 14, 22, 0.85);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
   backdrop-filter: blur(20px) saturate(150%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   position: relative;

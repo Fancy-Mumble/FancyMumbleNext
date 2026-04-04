@@ -21,6 +21,7 @@
   font-size: 13px;
   color: var(--color-text-secondary);
   line-height: 1.4;
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
 }
 

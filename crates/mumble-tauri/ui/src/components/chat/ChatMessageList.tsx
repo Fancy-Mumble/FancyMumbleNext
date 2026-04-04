@@ -15,6 +15,8 @@ interface ChatMessageListProps {
   readonly allMessages: ChatMessage[];
   readonly userBySession: Map<number, UserEntry>;
   readonly avatarBySession: Map<number, string>;
+  readonly userByHash: Map<string, UserEntry>;
+  readonly avatarByHash: Map<string, string>;
   readonly convertToLocalTime: boolean;
   readonly bubbleStyle: string;
   readonly lastReadIdx: number | null;
@@ -46,6 +48,7 @@ interface ChatMessageListProps {
 
 interface MsgGroup {
   senderId: number | null;
+  senderHash: string | null;
   isOwn: boolean;
   startIdx: number;
   messages: ChatMessage[];
@@ -56,6 +59,8 @@ export default function ChatMessageList({
   allMessages,
   userBySession,
   avatarBySession,
+  userByHash,
+  avatarByHash,
   convertToLocalTime,
   bubbleStyle,
   lastReadIdx,
@@ -93,10 +98,11 @@ export default function ChatMessageList({
   for (const [i, msg] of allMessages.entries()) {
     const msgDay = msg.timestamp ? dateKey(msg.timestamp, convertToLocalTime) : "";
     const prev = groups[groups.length - 1];
+    const msgHash = msg.sender_hash ?? null;
     if (prev?.senderId === msg.sender_session && prev.isOwn === msg.is_own && prev.day === msgDay) {
       prev.messages.push(msg);
     } else {
-      groups.push({ senderId: msg.sender_session, isOwn: msg.is_own, startIdx: i, messages: [msg], day: msgDay });
+      groups.push({ senderId: msg.sender_session, senderHash: msgHash, isOwn: msg.is_own, startIdx: i, messages: [msg], day: msgDay });
     }
   }
 
@@ -107,8 +113,10 @@ export default function ChatMessageList({
         const firstGlobalIdx = group.startIdx;
         const firstMsg = group.messages[0];
         const groupKey = firstMsg.message_id ?? `${firstMsg.channel_id}-${firstMsg.sender_session ?? "s"}-${firstGlobalIdx}`;
-        const senderUser = group.senderId === null ? undefined : userBySession.get(group.senderId);
-        const senderAvatar = group.senderId === null ? undefined : avatarBySession.get(group.senderId);
+        const senderUser = (group.senderId !== null ? userBySession.get(group.senderId) : undefined)
+          ?? (group.senderHash ? userByHash.get(group.senderHash) : undefined);
+        const senderAvatar = (group.senderId !== null ? avatarBySession.get(group.senderId) : undefined)
+          ?? (group.senderHash ? avatarByHash.get(group.senderHash) : undefined);
 
         // Show date chip when the day changes.
         let dateChip: React.ReactNode = null;

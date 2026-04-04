@@ -61,6 +61,14 @@ pub(crate) fn parse_pchat_protocol_str(s: &str) -> PchatProtocol {
 
 // --- Shared interior state ----------------------------------------
 
+/// Look up the TLS certificate hash for our own session.
+fn own_session_hash(state: &SharedState) -> Option<String> {
+    state
+        .own_session
+        .and_then(|sid| state.users.get(&sid))
+        .and_then(|u| u.hash.clone())
+}
+
 #[derive(Default)]
 pub(super) struct SharedState {
     pub status: ConnectionStatus,
@@ -520,16 +528,18 @@ impl AppState {
 
     #[allow(clippy::too_many_lines, reason = "message send path covers legacy text, fancy extensions, pchat encryption, and local storage")]
     pub async fn send_message(&self, channel_id: u32, body: String) -> Result<(), String> {
-        let (handle, own_session, own_name, is_fancy, pchat_protocol) = {
+        let (handle, own_session, own_name, own_hash, is_fancy, pchat_protocol) = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;
             let pchat_proto = state
                 .channels
                 .get(&channel_id)
                 .and_then(|ch| ch.pchat_protocol);
+            let hash = own_session_hash(&state);
             (
                 state.client_handle.clone(),
                 state.own_session,
                 state.own_name.clone(),
+                hash,
                 state.server_fancy_version.is_some(),
                 pchat_proto,
             )
@@ -635,6 +645,7 @@ impl AppState {
             let mut msg = ChatMessage {
                 sender_session: own_session,
                 sender_name: own_name,
+                sender_hash: own_hash,
                 body,
                 channel_id,
                 is_own: true,
@@ -671,12 +682,14 @@ impl AppState {
 
     /// Send a direct message (DM) to a specific user by session ID.
     pub async fn send_dm(&self, target_session: u32, body: String) -> Result<(), String> {
-        let (handle, own_session, own_name, is_fancy) = {
+        let (handle, own_session, own_name, own_hash, is_fancy) = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let hash = own_session_hash(&state);
             (
                 state.client_handle.clone(),
                 state.own_session,
                 state.own_name.clone(),
+                hash,
                 state.server_fancy_version.is_some(),
             )
         };
@@ -711,6 +724,7 @@ impl AppState {
             let mut msg = ChatMessage {
                 sender_session: own_session,
                 sender_name: own_name,
+                sender_hash: own_hash,
                 body,
                 channel_id: 0,
                 is_own: true,
@@ -1199,7 +1213,7 @@ impl AppState {
         group_id: String,
         body: String,
     ) -> Result<(), String> {
-        let (handle, own_session, own_name, is_fancy, targets) = {
+        let (handle, own_session, own_name, own_hash, is_fancy, targets) = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;
             let group = state
                 .group_chats
@@ -1212,10 +1226,12 @@ impl AppState {
                 .copied()
                 .filter(|&s| s != own)
                 .collect();
+            let hash = own_session_hash(&state);
             (
                 state.client_handle.clone(),
                 Some(own),
                 state.own_name.clone(),
+                hash,
                 state.server_fancy_version.is_some(),
                 targets,
             )
@@ -1254,6 +1270,7 @@ impl AppState {
             let mut msg = ChatMessage {
                 sender_session: own_session,
                 sender_name: own_name,
+                sender_hash: own_hash,
                 body,
                 channel_id: 0,
                 is_own: true,

@@ -3,6 +3,7 @@
 /* Backdrop rendered by showModal() */
 .dialog::backdrop {
   background: rgba(0, 0, 0, 0.65);
+  -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
   animation: backdropFadeIn 0.15s ease;
 }

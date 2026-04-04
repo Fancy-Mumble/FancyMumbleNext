@@ -47,6 +47,7 @@
   inset: 0;
   z-index: 10002;
   background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: flex-start;

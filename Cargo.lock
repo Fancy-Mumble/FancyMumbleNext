@@ -2760,6 +2760,7 @@ dependencies = [
  "hound",
  "mumble-protocol",
  "oboe",
+ "png 0.18.1",
  "prost",
  "quick-xml 0.39.2",
  "rand 0.10.0",
@@ -2782,6 +2783,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "webkit2gtk",
 ]
 
 [[package]]
@@ -4939,6 +4941,7 @@ dependencies = [
  "gtk",
  "heck 0.5.0",
  "http",
+ "image",
  "jni",
  "libc",
  "log",

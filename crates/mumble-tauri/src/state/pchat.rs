@@ -1333,6 +1333,7 @@ pub(crate) fn handle_proto_msg_deliver(shared: &Arc<Mutex<SharedState>>, msg: &m
     let chat_msg = ChatMessage {
         sender_session,
         sender_name,
+        sender_hash: Some(sender_hash.clone()),
         body,
         channel_id,
         is_own,
@@ -1496,6 +1497,7 @@ pub(crate) fn handle_proto_fetch_resp(shared: &Arc<Mutex<SharedState>>, msg: &mu
         decrypted_msgs.push(ChatMessage {
             sender_session,
             sender_name,
+            sender_hash: Some(msg_sender_hash.clone()),
             body,
             channel_id: msg_channel_id,
             is_own,
@@ -1812,6 +1814,7 @@ fn insert_offline_messages(
         let chat_msg = ChatMessage {
             sender_session,
             sender_name: dm.sender_name.clone(),
+            sender_hash: Some(dm.sender_hash.clone()),
             body: dm.body.clone(),
             channel_id,
             is_own: false,

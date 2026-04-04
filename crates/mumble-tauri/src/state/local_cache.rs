@@ -101,6 +101,7 @@ impl LocalMessageCache {
                     .map(|m| ChatMessage {
                         sender_session: None,
                         sender_name: m.sender_name.clone(),
+                        sender_hash: Some(m.sender_hash.clone()),
                         body: m.body.clone(),
                         channel_id: m.channel_id,
                         is_own: m.is_own,

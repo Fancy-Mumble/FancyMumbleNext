@@ -169,6 +169,27 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     return map;
   }, [users]);
 
+  /** Map cert-hash -> UserEntry for resolving stored messages after reconnect. */
+  const userByHash = useMemo(() => {
+    const map = new Map<string, (typeof users)[number]>();
+    for (const u of users) {
+      if (u.hash) map.set(u.hash, u);
+    }
+    return map;
+  }, [users]);
+
+  /** Map cert-hash -> avatar data-URL for hash-based avatar lookup. */
+  const avatarByHash = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const u of users) {
+      if (u.hash) {
+        const url = avatarBySession.get(u.session);
+        if (url) map.set(u.hash, url);
+      }
+    }
+    return map;
+  }, [users, avatarBySession]);
+
   // Persistent chat hook (banners, key verification, custodian prompt).
   const persistent = usePersistentChat(
     isDmMode || isGroupMode ? null : selectedChannel,
@@ -323,6 +344,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
               allMessages={allMessages}
               userBySession={userBySession}
               avatarBySession={avatarBySession}
+              userByHash={userByHash}
+              avatarByHash={avatarByHash}
               convertToLocalTime={convertToLocalTime}
               bubbleStyle={personalization.bubbleStyle}
               lastReadIdx={lastReadIdx}

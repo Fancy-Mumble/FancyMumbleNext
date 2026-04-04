@@ -1,4 +1,4 @@
-import { useState, useCallback, type ClipboardEvent } from "react";
+import { useState, useCallback, useEffect, useRef, type ClipboardEvent } from "react";
 import { useAppStore } from "../../store";
 import type { ChatMessage } from "../../types";
 import { markdownToHtml } from "./MarkdownInput";
@@ -107,23 +107,106 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft }: U
     [isGroupMode, selectedGroup, sendGroupMessage, isDmMode, selectedDmUser, selectedChannel, serverConfig, sendMessage, sendDm],
   );
 
-  const handlePaste = useCallback(
-    (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      for (const item of items) {
-        if (item.kind === "file" && item.type.startsWith("image/")) {
-          e.preventDefault();
-          const file = item.getAsFile();
-          if (file) sendMediaFile(file);
-          return;
+  // Shared image extraction logic used by both the React onPaste handler
+  // and the document-level fallback listener.
+  const extractAndSendImage = useCallback(
+    (clip: DataTransfer): boolean => {
+      // Prefer DataTransferItemList (Chrome, Firefox).
+      const items = clip.items;
+      if (items?.length) {
+        for (const item of items) {
+          if (item.kind === "file" && item.type.startsWith("image/")) {
+            const file = item.getAsFile();
+            if (file) {
+              sendMediaFile(file);
+              return true;
+            }
+          }
         }
       }
-      // If no image found, let the default paste into the text input happen.
+
+      // Fallback: clipboardData.files (some engines only populate this).
+      const files = clip.files;
+      if (files?.length) {
+        for (const file of files) {
+          if (file.type.startsWith("image/")) {
+            sendMediaFile(file);
+            return true;
+          }
+        }
+      }
+
+      return false;
     },
     [sendMediaFile],
   );
+
+  // Read image from clipboard via the async Clipboard API.  This is the
+  // only reliable way to get pasted image data on WebKitGTK (Linux),
+  // where the synchronous clipboardData on paste events is empty for
+  // images.
+  const readClipboardImage = useCallback(async (): Promise<boolean> => {
+    if (!navigator.clipboard?.read) return false;
+    try {
+      const clipItems = await navigator.clipboard.read();
+      for (const item of clipItems) {
+        const imageType = item.types.find((t) => t.startsWith("image/"));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const file = new File([blob], "clipboard.png", { type: imageType });
+          sendMediaFile(file);
+          return true;
+        }
+      }
+    } catch {
+      // Permission denied or API unavailable - fall through silently.
+    }
+    return false;
+  }, [sendMediaFile]);
+
+  // Track whether the React onPaste handler already processed the event
+  // so the document-level fallback doesn't double-fire.
+  const pasteHandledRef = useRef(false);
+
+  const handlePaste = useCallback(
+    (e: ClipboardEvent) => {
+      const clip = e.clipboardData;
+      if (!clip) return;
+
+      if (extractAndSendImage(clip)) {
+        e.preventDefault();
+        pasteHandledRef.current = true;
+      }
+      // If no image found, let the default paste into the text input happen.
+    },
+    [extractAndSendImage],
+  );
+
+  // Document-level paste listener.  On most engines the React onPaste
+  // already handles images, but WebKitGTK on Linux does not populate
+  // clipboardData with image files for <textarea> paste events.  In that
+  // case we fall back to the async Clipboard API.
+  useEffect(() => {
+    const onDocPaste = (e: globalThis.ClipboardEvent) => {
+      // Skip if the React handler already processed this event.
+      if (pasteHandledRef.current) {
+        pasteHandledRef.current = false;
+        return;
+      }
+
+      // Try synchronous DataTransfer first.
+      const clip = e.clipboardData;
+      if (clip && extractAndSendImage(clip)) {
+        e.preventDefault();
+        return;
+      }
+
+      // Async fallback: read image via Clipboard API (WebKitGTK).
+      readClipboardImage();
+    };
+    document.addEventListener("paste", onDocPaste);
+    return () => document.removeEventListener("paste", onDocPaste);
+  }, [extractAndSendImage, readClipboardImage]);
 
   const handleGifSelect = useCallback(
     async (url: string, alt: string) => {

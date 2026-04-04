@@ -232,6 +232,12 @@ fn resolve_sender_name(state: &SharedState, actor: Option<u32>) -> String {
         .unwrap_or_else(|| "Server".into())
 }
 
+fn resolve_sender_hash(state: &SharedState, actor: Option<u32>) -> Option<String> {
+    actor
+        .and_then(|sid| state.users.get(&sid))
+        .and_then(|u| u.hash.clone())
+}
+
 fn handle_group_message(
     marker: &GroupMarker,
     tm: &mumble_tcp::TextMessage,
@@ -246,6 +252,7 @@ fn handle_group_message(
     let mut msg = ChatMessage {
         sender_session: tm.actor,
         sender_name,
+        sender_hash: resolve_sender_hash(state, tm.actor),
         body: marker.body.clone(),
         channel_id: 0,
         is_own: false,
@@ -291,6 +298,7 @@ fn handle_direct_message(
     let mut msg = ChatMessage {
         sender_session: tm.actor,
         sender_name,
+        sender_hash: resolve_sender_hash(state, tm.actor),
         body: tm.message.clone(),
         channel_id: 0,
         is_own: false,
@@ -365,6 +373,7 @@ fn handle_channel_message(
         let mut msg = ChatMessage {
             sender_session: tm.actor,
             sender_name: sender_name.clone(),
+            sender_hash: resolve_sender_hash(state, tm.actor),
             body: tm.message.clone(),
             channel_id: ch_id,
             is_own: false,

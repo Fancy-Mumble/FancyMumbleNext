@@ -54,6 +54,8 @@ export interface UserEntry {
 export interface ChatMessage {
   sender_session: number | null;
   sender_name: string;
+  /** TLS certificate hash of the sender. Stable across reconnects. */
+  sender_hash?: string | null;
   body: string;
   channel_id: number;
   is_own: boolean;

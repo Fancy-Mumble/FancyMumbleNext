@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 fancy-utils = { path = "../fancy-utils" }
-tauri = { version = "2.10.1", features = [] }
+tauri = { version = "2.10.1", features = ["tray-icon", "image-png"] }
 tauri-plugin-store = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
@@ -35,6 +35,7 @@ tauri-plugin-notification = "2.3.3"
 tauri-plugin-dialog = "2"
 hound = "3.5"
 chrono = "0.4"
+png = "0.18"
 
 # Desktop-only dependencies (cpal, global shortcuts, and Opus are not available on Android).
 [target.'cfg(not(target_os = "android"))'.dependencies]
@@ -42,6 +43,10 @@ mumble-protocol = { path = "../mumble-protocol", features = ["opus-codec", "pers
 cpal = "0.17.3"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-window-state = "2"
+
+# Linux: webkit2gtk for webview settings (hardware acceleration, etc.).
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"
 
 # Android: mumble-protocol with Opus codec + oboe for native audio I/O.
 [target.'cfg(target_os = "android")'.dependencies]

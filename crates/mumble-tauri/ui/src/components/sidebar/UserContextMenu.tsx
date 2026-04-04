@@ -18,6 +18,7 @@ import MessageMinusIcon from "../../assets/icons/communication/message-minus.svg
 import ImageIcon from "../../assets/icons/general/image.svg?react";
 import TrashIcon from "../../assets/icons/action/trash.svg?react";
 import UserXIcon from "../../assets/icons/user/user-x.svg?react";
+import HashIcon from "../../assets/icons/general/hash.svg?react";
 import styles from "./UserContextMenu.module.css";
 
 /** Mumble permission bitmask: Register users (root channel only). */
@@ -82,6 +83,8 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
   const ownSession = useAppStore((s) => s.ownSession);
   const channels = useAppStore((s) => s.channels);
   const selectedChannel = useAppStore((s) => s.selectedChannel);
+  const currentChannel = useAppStore((s) => s.currentChannel);
+  const joinChannel = useAppStore((s) => s.joinChannel);
   const deletePchatMessages = useAppStore((s) => s.deletePchatMessages);
   const setUserVolume = useAppStore((s) => s.setUserVolume);
   const storedVolume = useAppStore((s) => user.hash ? (s.userVolumes[user.hash] ?? 100) : 100);
@@ -89,6 +92,9 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
 
   const channel = channels.find((c) => c.id === selectedChannel);
   const showDeleteMessages = !isSelf && canDeleteMessages(channel) && user.hash;
+
+  const userChannel = channels.find((c) => c.id === user.channel_id);
+  const canJoinChannel = !isSelf && user.channel_id !== currentChannel;
 
   const rootChannel = channels.find((c) => c.id === 0);
   const hasRegisterPerm =
@@ -210,6 +216,21 @@ export function UserContextMenu({ menu, onClose }: UserContextMenuProps) {
               />
               <span className={styles.volumeValue}>{volume}%</span>
             </div>
+            {canJoinChannel && (
+              <button
+                type="button"
+                className={styles.menuItem}
+                onClick={() => {
+                  joinChannel(user.channel_id);
+                  onClose();
+                }}
+              >
+                <span className={styles.menuIcon}>
+                  <HashIcon width={14} height={14} />
+                </span>
+                Join {userChannel?.name ?? "channel"}
+              </button>
+            )}
           </>
         )}
 

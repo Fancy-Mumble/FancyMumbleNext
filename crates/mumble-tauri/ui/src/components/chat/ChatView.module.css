@@ -351,13 +351,13 @@
 
 .messageRow {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
   width: 100%;
 }
 
 .messageRow.own {
   align-self: flex-end;
-  flex-direction: row-reverse;
+  align-items: flex-end;
 }
 
 .messageTimeContinuation {
@@ -429,6 +429,7 @@
   border: none;
   border-radius: var(--radius-md) var(--radius-md) 4px var(--radius-md);
   box-shadow: none;
+  -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
 }
 
@@ -544,7 +545,7 @@
 }
 
 .flatStyle .messageRow.own {
-  flex-direction: row;
+  align-items: flex-start;
 }
 
 .flatStyle .bubble {

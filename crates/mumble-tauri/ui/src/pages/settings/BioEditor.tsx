@@ -5,8 +5,10 @@
  * Outputs sanitised HTML that is stored in the Mumble user comment.
  */
 
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
+import type { EditorView } from "@tiptap/pm/view";
+import type { Slice } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
 import { TextStyle } from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
@@ -57,6 +59,104 @@ export function BioEditor({
   // feedback loops when the parent pushes a new `value`.
   const suppressUpdate = useRef(false);
 
+  // Fetch an external image URL and return a resized base64 data URL.
+  const fetchAndResizeImage = useCallback(async (url: string): Promise<string | null> => {
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) return null;
+      const blob = await resp.blob();
+      if (!blob.type.startsWith("image/")) return null;
+      const raw = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      return resizeImage(raw, 400, 400, 80_000);
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Tiptap paste handler: intercepts pasted image files and HTML
+  // containing external <img> URLs, converting them to base64.
+  const handleEditorPaste = useMemo(() => {
+    return (view: EditorView, event: globalThis.ClipboardEvent, _slice: Slice): boolean => {
+      const clip = event.clipboardData;
+      if (!clip) return false;
+
+      // 1. Handle pasted image files (e.g. screenshots).
+      const files = clip.files;
+      if (files?.length) {
+        for (const file of files) {
+          if (file.type.startsWith("image/")) {
+            event.preventDefault();
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+              const raw = e.target?.result as string | undefined;
+              if (!raw) return;
+              const dataUrl = await resizeImage(raw, 400, 400, 80_000);
+              view.dispatch(view.state.tr.replaceSelectionWith(
+                view.state.schema.nodes.image.create({ src: dataUrl }),
+              ));
+            };
+            reader.readAsDataURL(file);
+            return true;
+          }
+        }
+      }
+
+      // 2. Handle pasted HTML containing external image URLs.
+      const html = clip.getData("text/html");
+      if (html) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, "text/html");
+        const imgs = doc.querySelectorAll("img[src]");
+        const externalImgs = Array.from(imgs).filter((img) => {
+          const src = img.getAttribute("src") ?? "";
+          return src.startsWith("http://") || src.startsWith("https://");
+        });
+
+        if (externalImgs.length > 0) {
+          event.preventDefault();
+          // Process each external image: fetch, resize, insert.
+          for (const img of externalImgs) {
+            const src = img.getAttribute("src")!;
+            fetchAndResizeImage(src).then((dataUrl) => {
+              if (!dataUrl) return;
+              const { tr } = view.state;
+              const node = view.state.schema.nodes.image.create({ src: dataUrl });
+              view.dispatch(tr.replaceSelectionWith(node));
+            });
+          }
+          // Insert any non-image text content alongside.
+          const plainText = clip.getData("text/plain")?.trim();
+          if (plainText && externalImgs.length < imgs.length + 1) {
+            // There was text alongside images - let it through as text.
+            const textNode = view.state.schema.text(plainText);
+            view.dispatch(view.state.tr.replaceSelectionWith(textNode));
+          }
+          return true;
+        }
+      }
+
+      // 3. Handle pasted plain text that is an image URL.
+      const text = clip.getData("text/plain")?.trim();
+      if (text && /^https?:\/\/.+\.(png|jpe?g|gif|webp|svg|bmp|avif)(\?.*)?$/i.test(text)) {
+        event.preventDefault();
+        fetchAndResizeImage(text).then((dataUrl) => {
+          if (!dataUrl) return;
+          const { tr } = view.state;
+          const node = view.state.schema.nodes.image.create({ src: dataUrl });
+          view.dispatch(tr.replaceSelectionWith(node));
+        });
+        return true;
+      }
+
+      return false;
+    };
+  }, [fetchAndResizeImage]);
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -95,6 +195,7 @@ export function BioEditor({
       attributes: {
         class: styles.bioEditorContent,
       },
+      handlePaste: handleEditorPaste,
     },
   });
 
