@@ -5,9 +5,16 @@
 //! its separate workspace and copies the resulting library next to the
 //! executable so `load_signal_bridge` finds it at runtime.
 fn main() {
-    tauri_build::build();
-
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+
+    // Build signal-bridge BEFORE tauri_build::build() so that the
+    // library file exists when Tauri validates bundle resource globs
+    // (TAURI_CONFIG -> bundle.resources -> "signal-bridge/*.dll" etc.).
+    if target_os != "android" && std::env::var("SKIP_SIGNAL_BRIDGE").is_err() {
+        build_signal_bridge();
+    }
+
+    tauri_build::build();
 
     // Oboe (Android audio) is a C++ library whose pure-virtual functions
     // need the C++ runtime (`__cxa_pure_virtual` etc.).  The Rust linker
@@ -94,20 +101,6 @@ fn main() {
     if target_os == "windows" {
         println!("cargo:rustc-link-lib=delayimp");
         println!("cargo:rustc-link-arg=/DELAYLOAD:comctl32.dll");
-    }
-
-    // -- Signal bridge (desktop only) ----------------------------------
-    //
-    // The signal-bridge crate lives in its own workspace (AGPL-isolated)
-    // and produces a cdylib that mumble-tauri loads at runtime via
-    // libloading.  Build it automatically and copy the library next to
-    // the executable so `load_signal_bridge` finds it.
-    //
-    // Skip on Android (signal-bridge is cross-compiled and placed in
-    // jniLibs by the CI pipeline) and when SKIP_SIGNAL_BRIDGE is set
-    // (CI may provide a pre-built artifact instead).
-    if target_os != "android" && std::env::var("SKIP_SIGNAL_BRIDGE").is_err() {
-        build_signal_bridge();
     }
 }
 
