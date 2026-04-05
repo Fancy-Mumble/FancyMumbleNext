@@ -6,7 +6,7 @@ import { load } from "@tauri-apps/plugin-store";
 import type { AudioDevice, AudioSettings, FancyProfile, UserMode, TimeFormat } from "../../types";
 import { getPreferences, updatePreferences, getSavedAudioSettings, saveAudioSettings } from "../../preferencesStorage";
 import { serializeProfile, dataUrlToBytes } from "../../profileFormat";
-import { setKlipyApiKey } from "../../components/GifPicker";
+import { setKlipyApiKey } from "../../components/chat/GifPicker";
 import { useAppStore } from "../../store";
 import {
   type ShortcutBindings,
@@ -15,7 +15,7 @@ import {
   applyGlobalShortcut,
   clearGlobalShortcut,
 } from "./shortcutHelpers";
-import { loadProfileData, saveProfileData } from "./profileData";
+import { loadProfileData, saveProfileData, migrateProfilesToIdentities } from "./profileData";
 import { ProfilePanel } from "./ProfilePanel";
 import { AudioPanel } from "./AudioPanel";
 import { ShortcutsPanel } from "./ShortcutsPanel";
@@ -80,6 +80,7 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>("profile");
   const isConnected = useAppStore((s) => s.status) === "connected";
+  const connectedCertLabel = useAppStore((s) => s.connectedCertLabel);
 
   // Audio
   const [devices, setDevices] = useState<AudioDevice[]>([]);
@@ -103,10 +104,11 @@ export default function SettingsPage() {
     toggleDeafen: "",
   });
 
-  // Profile
+  // Profile (per-identity)
   const [profile, setProfile] = useState<FancyProfile>({});
   const [bio, setBio] = useState("");
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null);
+  const [activeIdentity, setActiveIdentity] = useState<string | null>(null);
 
   // Identities
   const [identities, setIdentities] = useState<string[]>([]);
@@ -164,15 +166,24 @@ export default function SettingsPage() {
         /* keep defaults */
       }
 
+      let certs: string[] = [];
       try {
-        const certs = await invoke<string[]>("list_certificates");
+        certs = await invoke<string[]>("list_certificates");
         setIdentities(certs);
       } catch {
         /* keep defaults */
       }
 
+      // Migrate global profile to per-identity storage (one-time).
+      await migrateProfilesToIdentities(certs);
+
+      // Prefer the identity used for the active connection; fall back to first cert.
+      const { connectedCertLabel } = useAppStore.getState();
+      const initialIdentity = connectedCertLabel ?? certs[0] ?? null;
+      setActiveIdentity(initialIdentity);
+
       try {
-        const pd = await loadProfileData();
+        const pd = await loadProfileData(initialIdentity);
         setProfile(pd.profile);
         setBio(pd.bio);
         setAvatarDataUrl(pd.avatarDataUrl);
@@ -256,18 +267,20 @@ export default function SettingsPage() {
           profile,
           bio,
           avatarDataUrl,
-        });
+        }, activeIdentity);
       } catch (e) {
         console.error("Auto-save profile error:", e);
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [profile, bio, avatarDataUrl]);
+  }, [profile, bio, avatarDataUrl, activeIdentity]);
 
   // -- Auto-apply profile to server (debounced) --------------------
+  // Only sync when viewing the identity that is actually connected.
 
   useEffect(() => {
     if (!initialLoadDone.current || !isConnected) return;
+    if (connectedCertLabel !== activeIdentity) return;
     const timer = setTimeout(async () => {
       setProfileError(null);
       try {
@@ -281,7 +294,7 @@ export default function SettingsPage() {
       }
     }, 800);
     return () => clearTimeout(timer);
-  }, [profile, bio, avatarDataUrl, isConnected]);
+  }, [profile, bio, avatarDataUrl, isConnected, connectedCertLabel, activeIdentity]);
 
   // -- Handlers ----------------------------------------------------
 
@@ -373,6 +386,28 @@ export default function SettingsPage() {
     }
   }, []);
 
+  const switchIdentity = useCallback(async (label: string | null) => {
+    setActiveIdentity(label);
+    try {
+      const pd = await loadProfileData(label);
+      setProfile(pd.profile);
+      setBio(pd.bio);
+      setAvatarDataUrl(pd.avatarDataUrl);
+    } catch {
+      setProfile({});
+      setBio("");
+      setAvatarDataUrl(null);
+    }
+  }, []);
+
+  const handleEditIdentityProfile = useCallback(
+    (label: string) => {
+      switchIdentity(label);
+      setTab("profile");
+    },
+    [switchIdentity],
+  );
+
   const handleReset = useCallback(async () => {
     try {
       // Clear all tauri-plugin-store caches so the in-memory data is gone.
@@ -426,6 +461,11 @@ export default function SettingsPage() {
               onAvatarChange={setAvatarDataUrl}
               profileError={profileError}
               isExpert={userMode !== "normal"}
+              activeIdentity={activeIdentity}
+              identities={identities}
+              connectedCertLabel={connectedCertLabel}
+              onSwitchIdentity={switchIdentity}
+              onGoToIdentities={() => setTab("identities")}
             />
           )}
 
@@ -449,7 +489,10 @@ export default function SettingsPage() {
           {tab === "identities" && (
             <IdentitiesPanel
               identities={identities}
+              connectedCertLabel={connectedCertLabel}
               onRefresh={refreshIdentities}
+              onEditProfile={handleEditIdentityProfile}
+              isExpert={userMode !== "normal"}
             />
           )}
 

@@ -12,10 +12,9 @@ use mumble_protocol::transport::udp::UdpConfig;
 
 use super::event_handler::TauriEventHandler;
 use super::types::*;
-use super::AppState;
+use super::{AppState, SharedState};
 
 impl AppState {
-    #[allow(clippy::too_many_lines, reason = "connection setup spans auth, TLS, state init, and event loop spawn")]
     pub async fn connect(
         &self,
         host: String,
@@ -27,86 +26,8 @@ impl AppState {
         let inner = self.inner.clone();
         let app_handle = self.app_handle().ok_or("App not initialized")?;
 
-        // Abort any stale event loop and clear state before starting a new
-        // connection. Dropping a JoinHandle only detaches the task - it keeps
-        // running.  We must `.abort()` it explicitly so its `on_disconnected`
-        // callback cannot fire and clobber the new connection's state.
-        {
-            let mut state = inner.lock().map_err(|e| e.to_string())?;
-
-            // Abort the old event-loop task (if any).
-            if let Some(handle) = state.event_loop_handle.take() {
-                handle.abort();
-            }
-            // Abort any stale connecting-phase task (in case a previous
-            // connect() was cancelled before the handshake completed).
-            if let Some(task) = state.connect_task_handle.take() {
-                task.abort();
-            }
-
-            state.connection_epoch += 1;
-            state.status = ConnectionStatus::Connecting;
-            state.own_name = username.clone();
-            state.connected_host = host.clone();
-            state.connected_port = port;
-            state.users.clear();
-            state.channels.clear();
-            state.messages.clear();
-            state.own_session = None;
-            state.client_handle = None;
-            state.synced = false;
-            state.permanently_listened.clear();
-            state.selected_channel = None;
-            state.current_channel = None;
-            state.unread_counts.clear();
-            state.server_config = ServerConfig::default();
-            state.voice_state = VoiceState::Inactive;
-            state.root_permissions = None;
-            // Save signal state before dropping pchat (connect-time reset).
-            if let Some(ref pchat) = state.pchat {
-                super::pchat::save_signal_state(pchat);
-                super::pchat::save_local_cache(pchat);
-            }
-            state.pchat = None;
-            state.pchat_seed = None;
-            state.pchat_identity_dir = None;
-            state.pending_key_shares.clear();
-            state.tauri_app_handle = Some(app_handle.clone());
-        }
-
-        // Initialise the cert-hash-to-username resolver (persisted across sessions).
-        if let Ok(data_dir) = app_handle.path().app_data_dir() {
-            let hash_names_path = data_dir.join("hash_names.json");
-            let resolver = super::hash_names::DefaultHashNameResolver::new(hash_names_path);
-            if let Ok(mut state) = inner.lock() {
-                state.hash_name_resolver =
-                    Some(std::sync::Arc::new(resolver));
-            }
-        }
-
-        // Migrate legacy storage layout (certs/ + pchat/) to per-identity
-        // folders on first connect after the update.  Idempotent.
-        if let Ok(data_dir) = app_handle.path().app_data_dir() {
-            super::pchat::migrate_legacy_storage(&data_dir);
-        }
-
-        // Load (or generate) the persistent chat identity seed
-        // scoped to this certificate / identity label.
-        let identity_label = cert_label.clone().unwrap_or_else(|| "default".to_string());
-        if let Ok(data_dir) = app_handle.path().app_data_dir() {
-            match super::pchat::load_or_generate_seed(&data_dir, &identity_label) {
-                Ok(seed) => {
-                    if let Ok(mut state) = inner.lock() {
-                        state.pchat_seed = Some(seed);
-                        state.pchat_identity_dir =
-                            Some(super::pchat::identity_dir(&data_dir, &identity_label));
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("failed to load pchat seed: {e}");
-                }
-            }
-        }
+        reset_state_for_connect(&inner, &username, &host, port, &app_handle)?;
+        init_identity(&inner, &app_handle, &cert_label);
 
         // Emit status change so the frontend can show a loading screen immediately.
         let _ = app_handle.emit("status-changed", "connecting");
@@ -120,7 +41,7 @@ impl AppState {
                     .path()
                     .app_data_dir()
                     .ok()
-                    .map(|d| super::pchat::load_identity_cert(&d, label))
+                    .map(|d| super::pchat::IdentityStore::new(d).load_cert(label))
                     .unwrap_or((None, None))
             } else {
                 (None, None)
@@ -157,72 +78,7 @@ impl AppState {
             };
 
             let result = mumble_protocol::client::run(config, handler).await;
-
-            match result {
-                Ok((handle, join)) => {
-                    // Store the client handle and event-loop JoinHandle for later
-                    // commands and for awaiting a clean shutdown on disconnect.
-                    // Clear connect_task_handle - the connecting phase is done.
-                    if let Ok(mut state) = inner.lock() {
-                        state.client_handle = Some(handle.clone());
-                        state.event_loop_handle = Some(join);
-                        state.connect_task_handle = None;
-                    }
-
-                    // Send Authenticate command.
-                    if let Err(e) = handle
-                        .send(command::Authenticate {
-                            username,
-                            password,
-                            tokens: vec![],
-                        })
-                        .await
-                    {
-                        tracing::error!("Failed to send auth: {e}");
-                        if let Ok(mut state) = inner.lock() {
-                            state.status = ConnectionStatus::Disconnected;
-                            state.client_handle = None;
-                            state.event_loop_handle = None;
-                            state.connect_task_handle = None;
-                        }
-                        let _ = app_handle.emit(
-                            "connection-rejected",
-                            RejectedPayload {
-                                reason: format!("Failed to authenticate: {e}"),
-                                reject_type: None,
-                            },
-                        );
-                        return;
-                    }
-
-                    info!("TCP connected, authenticate sent - waiting for ServerSync");
-
-                    // Start deaf+muted so the user does not transmit or
-                    // hear audio until they explicitly enable voice calling.
-                    if let Err(e) = handle
-                        .send(command::SetSelfDeaf { deafened: true })
-                        .await
-                    {
-                        tracing::warn!("failed to send initial self-deaf: {e}");
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("Connection failed: {e}");
-                    if let Ok(mut state) = inner.lock() {
-                        state.status = ConnectionStatus::Disconnected;
-                        state.client_handle = None;
-                        state.event_loop_handle = None;
-                        state.connect_task_handle = None;
-                    }
-                    let _ = app_handle.emit(
-                        "connection-rejected",
-                        RejectedPayload {
-                            reason: format!("Connection failed: {e}"),
-                            reject_type: None,
-                        },
-                    );
-                }
-            }
+            handle_connect_result(result, &inner, &app_handle, username, password).await;
         });
 
         // Store the task handle so disconnect() can abort it if the user
@@ -291,8 +147,8 @@ impl AppState {
             // Note: on_disconnected may have already cleared pchat, so this
             // is a safety net for cases where disconnect() runs first.
             if let Some(ref pchat) = state.pchat {
-                super::pchat::save_signal_state(pchat);
-                super::pchat::save_local_cache(pchat);
+                pchat.save_signal_state();
+                pchat.save_local_cache();
             }
 
             state.status = ConnectionStatus::Disconnected;
@@ -318,5 +174,180 @@ impl AppState {
         }
 
         Ok(())
+    }
+}
+
+// -- Helpers ----------------------------------------------------------
+
+use std::sync::Mutex;
+
+type SharedInner = std::sync::Arc<Mutex<SharedState>>;
+
+/// Abort stale tasks and reset all connection-related state for a fresh
+/// connection attempt.
+fn reset_state_for_connect(
+    inner: &SharedInner,
+    username: &str,
+    host: &str,
+    port: u16,
+    app_handle: &tauri::AppHandle,
+) -> Result<(), String> {
+    let mut state = inner.lock().map_err(|e| e.to_string())?;
+
+    // Abort the old event-loop task (if any).
+    if let Some(handle) = state.event_loop_handle.take() {
+        handle.abort();
+    }
+    // Abort any stale connecting-phase task (in case a previous
+    // connect() was cancelled before the handshake completed).
+    if let Some(task) = state.connect_task_handle.take() {
+        task.abort();
+    }
+
+    state.connection_epoch += 1;
+    state.status = ConnectionStatus::Connecting;
+    state.own_name = username.to_owned();
+    state.connected_host = host.to_owned();
+    state.connected_port = port;
+    state.users.clear();
+    state.channels.clear();
+    state.messages.clear();
+    state.own_session = None;
+    state.client_handle = None;
+    state.synced = false;
+    state.permanently_listened.clear();
+    state.selected_channel = None;
+    state.current_channel = None;
+    state.unread_counts.clear();
+    state.server_config = ServerConfig::default();
+    state.voice_state = VoiceState::Inactive;
+    state.root_permissions = None;
+    // Save signal state before dropping pchat (connect-time reset).
+    if let Some(ref pchat) = state.pchat {
+        pchat.save_signal_state();
+        pchat.save_local_cache();
+    }
+    state.pchat = None;
+    state.pchat_seed = None;
+    state.pchat_identity_dir = None;
+    state.pending_key_shares.clear();
+    state.tauri_app_handle = Some(app_handle.clone());
+
+    Ok(())
+}
+
+/// Initialise the cert-hash resolver, migrate legacy storage, and load
+/// the identity seed for the given certificate label.
+fn init_identity(
+    inner: &SharedInner,
+    app_handle: &tauri::AppHandle,
+    cert_label: &Option<String>,
+) {
+    // Cert-hash-to-username resolver (persisted across sessions).
+    if let Ok(data_dir) = app_handle.path().app_data_dir() {
+        let hash_names_path = data_dir.join("hash_names.json");
+        let resolver = super::hash_names::DefaultHashNameResolver::new(hash_names_path);
+        if let Ok(mut state) = inner.lock() {
+            state.hash_name_resolver = Some(std::sync::Arc::new(resolver));
+        }
+    }
+
+    // Migrate legacy storage layout (certs/ + pchat/) to per-identity
+    // folders on first connect after the update.  Idempotent.
+    if let Ok(data_dir) = app_handle.path().app_data_dir() {
+        super::pchat::IdentityStore::new(data_dir).migrate_legacy_storage();
+    }
+
+    // Load (or generate) the persistent chat identity seed.
+    let identity_label = cert_label.as_deref().unwrap_or("default");
+    if let Ok(data_dir) = app_handle.path().app_data_dir() {
+        let store = super::pchat::IdentityStore::new(data_dir);
+        match store.load_or_generate_seed(identity_label) {
+            Ok(seed) => {
+                if let Ok(mut state) = inner.lock() {
+                    state.pchat_seed = Some(seed);
+                    state.pchat_identity_dir = Some(store.identity_dir(identity_label));
+                }
+            }
+            Err(e) => {
+                tracing::warn!("failed to load pchat seed: {e}");
+            }
+        }
+    }
+}
+
+/// Handle the result of `mumble_protocol::client::run()`: store handles,
+/// send Authenticate, or emit rejection events on failure.
+async fn handle_connect_result(
+    result: Result<
+        (mumble_protocol::client::ClientHandle, tokio::task::JoinHandle<()>),
+        mumble_protocol::error::Error,
+    >,
+    inner: &SharedInner,
+    app_handle: &tauri::AppHandle,
+    username: String,
+    password: Option<String>,
+) {
+    match result {
+        Ok((handle, join)) => {
+            if let Ok(mut state) = inner.lock() {
+                state.client_handle = Some(handle.clone());
+                state.event_loop_handle = Some(join);
+                state.connect_task_handle = None;
+            }
+
+            // Send Authenticate command.
+            if let Err(e) = handle
+                .send(command::Authenticate {
+                    username,
+                    password,
+                    tokens: vec![],
+                })
+                .await
+            {
+                tracing::error!("Failed to send auth: {e}");
+                mark_disconnected(inner);
+                let _ = app_handle.emit(
+                    "connection-rejected",
+                    RejectedPayload {
+                        reason: format!("Failed to authenticate: {e}"),
+                        reject_type: None,
+                    },
+                );
+                return;
+            }
+
+            info!("TCP connected, authenticate sent - waiting for ServerSync");
+
+            // Start deaf+muted so the user does not transmit or
+            // hear audio until they explicitly enable voice calling.
+            if let Err(e) = handle
+                .send(command::SetSelfDeaf { deafened: true })
+                .await
+            {
+                tracing::warn!("failed to send initial self-deaf: {e}");
+            }
+        }
+        Err(e) => {
+            tracing::error!("Connection failed: {e}");
+            mark_disconnected(inner);
+            let _ = app_handle.emit(
+                "connection-rejected",
+                RejectedPayload {
+                    reason: format!("Connection failed: {e}"),
+                    reject_type: None,
+                },
+            );
+        }
+    }
+}
+
+/// Clear connection handles and set status to `Disconnected`.
+fn mark_disconnected(inner: &SharedInner) {
+    if let Ok(mut state) = inner.lock() {
+        state.status = ConnectionStatus::Disconnected;
+        state.client_handle = None;
+        state.event_loop_handle = None;
+        state.connect_task_handle = None;
     }
 }

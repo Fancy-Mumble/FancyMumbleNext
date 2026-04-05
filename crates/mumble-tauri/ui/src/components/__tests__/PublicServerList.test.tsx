@@ -17,8 +17,8 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 // Import after mocks so the module picks up the mocked invoke.
-import PublicServerList from "../PublicServerList";
-import { clearPingCache } from "../PublicServerList";
+import PublicServerList from "../server/PublicServerList";
+import { clearPingCache } from "../server/PublicServerList";
 import type { PublicServer } from "../../types";
 
 // --- Helpers ------------------------------------------------------

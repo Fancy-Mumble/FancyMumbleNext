@@ -8,9 +8,15 @@
 #![allow(unreachable_pub, reason = "application crate: pub items in private modules are intentional for Tauri command system")]
 
 mod audio;
+#[cfg(target_os = "linux")]
+mod linux_desktop;
 mod state;
+#[cfg(not(target_os = "android"))]
+mod tray;
 #[cfg(target_os = "android")]
 mod connection_service;
+#[cfg(target_os = "android")]
+mod fcm_service;
 
 use state::{
     AppState, AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus,
@@ -212,7 +218,7 @@ async fn generate_certificate(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    state::pchat::generate_identity_cert(&data_dir, &label)
+    state::pchat::IdentityStore::new(data_dir).generate_cert(&label)
 }
 
 /// List the labels of all identities stored in `{app_data_dir}/identities/`.
@@ -222,7 +228,7 @@ async fn list_certificates(app: tauri::AppHandle) -> Result<Vec<String>, String>
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    Ok(state::pchat::list_identity_labels(&data_dir))
+    Ok(state::pchat::IdentityStore::new(data_dir).list_labels())
 }
 
 /// Delete an identity (TLS cert + pchat seed) by label.
@@ -235,7 +241,7 @@ async fn delete_certificate(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    state::pchat::delete_identity(&data_dir, &label)
+    state::pchat::IdentityStore::new(data_dir).delete(&label)
 }
 
 /// Export an identity to a user-chosen file via the native save dialog.
@@ -249,7 +255,7 @@ async fn export_certificate(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    state::pchat::export_identity(&data_dir, &label, std::path::Path::new(&dest_path))
+    state::pchat::IdentityStore::new(data_dir).export(&label, std::path::Path::new(&dest_path))
 }
 
 /// Import an identity from a user-chosen file via the native open dialog.
@@ -263,7 +269,7 @@ async fn import_certificate(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    state::pchat::import_identity(&data_dir, std::path::Path::new(&src_path))
+    state::pchat::IdentityStore::new(data_dir).import(std::path::Path::new(&src_path))
 }
 
 #[tauri::command]
@@ -898,6 +904,18 @@ async fn send_plugin_data(
     state.send_plugin_data(receiver_sessions, data, data_id).await
 }
 
+/// Send a reaction (add/remove) on a persisted chat message.
+#[tauri::command]
+async fn send_reaction(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    message_id: String,
+    emoji: String,
+    action: String,
+) -> Result<(), String> {
+    state.send_reaction(channel_id, message_id, emoji, action).await
+}
+
 /// Delete persisted chat messages on the server.
 ///
 /// At least one of `message_ids`, `time_from`/`time_to`, or `sender_hash`
@@ -1410,7 +1428,7 @@ async fn approve_key_share(
         wire_exchange.sender_hash = pchat.own_cert_hash.clone();
 
         let proto =
-            state::pchat::wire_key_exchange_to_proto_pub(&wire_exchange);
+            state::pchat::wire_key_exchange_to_proto(&wire_exchange);
 
         let handle = shared
             .client_handle
@@ -1630,6 +1648,26 @@ pub fn run() {
     // Install the ring TLS crypto provider before anything touches rustls.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
+    // On Linux, handle quick-action CLI args (e.g. `--action mute`) sent
+    // by .desktop file actions.  If one is found, forward it to the running
+    // instance via a Unix socket and exit immediately.
+    #[cfg(target_os = "linux")]
+    if linux_desktop::try_send_quick_action() {
+        return;
+    }
+
+    // On Linux, set the GTK program name and application name so GNOME
+    // matches the running window to the .desktop file.
+    #[cfg(target_os = "linux")]
+    linux_desktop::set_gtk_identifiers();
+
+    // On Linux, force WebKitGTK to use compositing mode so that CSS
+    // `backdrop-filter: blur()` is actually rendered (not just parsed).
+    #[cfg(target_os = "linux")]
+    {
+        std::env::set_var("WEBKIT_FORCE_COMPOSITING_MODE", "1");
+    }
+
     // Set up a reloadable tracing subscriber so the log level can be changed
     // at runtime from the frontend (Advanced Settings > Debug Logging).
     let default_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into());
@@ -1667,6 +1705,23 @@ pub fn run() {
             .build(),
     );
 
+    // Register the FCM plugin on Android so the Rust backend can
+    // subscribe/unsubscribe to FCM topics for push notifications.
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(
+        tauri::plugin::Builder::<tauri::Wry, ()>::new("fcm-service")
+            .setup(|app, api| {
+                let handle = api.register_android_plugin(
+                    "com.fancymumble.app",
+                    "FcmPlugin",
+                )?;
+                let fcm_handle = fcm_service::FcmPluginHandle(handle);
+                let _ = app.manage(fcm_handle);
+                Ok(())
+            })
+            .build(),
+    );
+
     // Window state persistence is desktop-only.
     #[cfg(not(target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_window_state::Builder::new().build());
@@ -1685,6 +1740,47 @@ pub fn run() {
             if let Err(e) = state.init_offload_store() {
                 tracing::warn!("Failed to initialise offload store: {e}");
             }
+
+            // On Linux, install the .desktop file (for GNOME app name + icon)
+            // and start the quick-action IPC listener.
+            #[cfg(target_os = "linux")]
+            {
+                linux_desktop::install_desktop_entry();
+                linux_desktop::start_action_listener(app.handle().clone());
+            }
+
+            // On Linux (WebKitGTK), force hardware-accelerated compositing so
+            // that CSS `backdrop-filter: blur()` actually renders.
+            #[cfg(target_os = "linux")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let result = window.with_webview(|webview| {
+                        use webkit2gtk::{SettingsExt, WebViewExt};
+                        let wv = webview.inner();
+                        if let Some(settings) = wv.settings() {
+                            settings.set_hardware_acceleration_policy(
+                                webkit2gtk::HardwareAccelerationPolicy::Always,
+                            );
+                            settings.set_enable_webgl(true);
+                            tracing::info!("WebKitGTK: hardware acceleration set to Always, WebGL enabled");
+                        } else {
+                            tracing::warn!("WebKitGTK: could not get webview settings");
+                        }
+                    });
+                    if let Err(e) = result {
+                        tracing::warn!("WebKitGTK: with_webview failed: {e}");
+                    }
+                } else {
+                    tracing::warn!("WebKitGTK: main webview window not found in setup");
+                }
+            }
+
+            // System tray icon with quick actions (desktop only).
+            #[cfg(not(target_os = "android"))]
+            if let Err(e) = tray::setup_tray(app) {
+                tracing::warn!("Failed to create system tray icon: {e}");
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1733,6 +1829,7 @@ pub fn run() {
             set_user_texture,
             get_own_session,
             send_plugin_data,
+            send_reaction,
             delete_pchat_messages,
             send_dm,
             get_dm_messages,
@@ -1802,6 +1899,9 @@ pub fn run() {
                 if let Some(state) = app.try_state::<AppState>() {
                     state.shutdown_offload_store();
                 }
+                // Remove the quick-action Unix socket.
+                #[cfg(target_os = "linux")]
+                linux_desktop::cleanup_socket();
             }
         });
 }

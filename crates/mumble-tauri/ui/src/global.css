@@ -47,6 +47,21 @@
   --touch-target-min: 44px;
 }
 
+/*
+ * Fallback for engines that parse but do not render backdrop-filter
+ * (e.g. WebKitGTK on Linux). When the data attribute is set by the
+ * runtime detection in platform.ts, swap the near-transparent glass
+ * backgrounds for more opaque ones that look good without blur.
+ */
+:root[data-no-backdrop-blur] {
+  --color-glass: rgba(20, 20, 40, 0.75);
+  --color-glass-hover: rgba(30, 30, 55, 0.8);
+  --color-glass-active: rgba(42, 171, 238, 0.2);
+  --color-glass-border: rgba(255, 255, 255, 0.1);
+  --color-glass-border-hover: rgba(255, 255, 255, 0.18);
+  --glass-blur: none;
+}
+
 *,
 *::before,
 *::after {
@@ -98,6 +113,13 @@ body {
 
 /* --- Custom Scrollbar ------------------------------------------- */
 
+/* Standards-based thin scrollbar (Firefox, future Chromium). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+/* Webkit/Blink engines (current Chromium, Safari). */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -140,6 +162,7 @@ a {
      (DropDataProvider is not registered, causing a crash). */
   * {
     -webkit-user-drag: none;
+    scrollbar-width: none;
   }
 
   /* On small screens, hide the custom scrollbar in favour of native

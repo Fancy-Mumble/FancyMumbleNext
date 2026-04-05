@@ -102,6 +102,11 @@ impl UserEntry {
 pub struct ChatMessage {
     pub sender_session: Option<u32>,
     pub sender_name: String,
+    /// TLS certificate hash of the sender.  Stable across reconnects,
+    /// allowing the frontend to resolve the sender's profile even when
+    /// `sender_session` is stale or `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_hash: Option<String>,
     pub body: String,
     pub channel_id: u32,
     pub is_own: bool,
@@ -348,6 +353,35 @@ pub(crate) struct PchatFetchCompletePayload {
     pub total_stored: u32,
 }
 
+/// Payload emitted when a `PchatReactionDeliver` is received (single reaction event).
+#[derive(Clone, Serialize)]
+pub(crate) struct ReactionDeliverPayload {
+    pub channel_id: u32,
+    pub message_id: String,
+    pub emoji: String,
+    pub action: String,
+    pub sender_hash: String,
+    pub sender_name: String,
+    pub timestamp: u64,
+}
+
+/// A single stored reaction within a `PchatReactionFetchResponse`.
+#[derive(Clone, Serialize)]
+pub(crate) struct StoredReactionPayload {
+    pub message_id: String,
+    pub emoji: String,
+    pub sender_hash: String,
+    pub sender_name: String,
+    pub timestamp: u64,
+}
+
+/// Payload emitted when a `PchatReactionFetchResponse` is received (batch of reactions).
+#[derive(Clone, Serialize)]
+pub(crate) struct ReactionFetchResponsePayload {
+    pub channel_id: u32,
+    pub reactions: Vec<StoredReactionPayload>,
+}
+
 /// A pending key-share request waiting for user approval.
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct PendingKeyShare {
@@ -398,7 +432,17 @@ pub(crate) struct KeyHoldersChangedPayload {
 #[derive(Clone, Serialize)]
 pub(crate) struct PchatKeyRevokedPayload {
     pub channel_id: u32,
-}// --- Audio types --------------------------------------------------
+}
+
+/// Payload for the "pchat-signal-bridge-error" event.
+/// Sent when the signal bridge library fails to load, making `SignalV1`
+/// encryption unavailable.
+#[derive(Clone, Serialize)]
+pub(crate) struct SignalBridgeErrorPayload {
+    pub message: String,
+}
+
+// --- Audio types --------------------------------------------------
 
 /// Microphone amplitude payload emitted during mic test.
 #[derive(Clone, Serialize)]

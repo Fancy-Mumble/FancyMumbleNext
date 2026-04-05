@@ -33,10 +33,36 @@ import type {
   PendingKeyShareRequest,
   KeyHolderEntry,
 } from "./types";
-import type { PollPayload, PollVotePayload } from "./components/PollCreator";
-import { registerPoll, registerVote } from "./components/PollCard";
+import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator";
+import { registerPoll, registerVote } from "./components/chat/PollCard";
+import { applyReaction, applyPchatReaction, resetReactions, setServerCustomReactions, REACTION_DATA_ID, CUSTOM_REACTIONS_DATA_ID, type ReactionPayload, type ServerCustomReaction } from "./components/chat/reactionStore";
 import { offloadManager } from "./messageOffload";
-import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume } from "./preferencesStorage";
+import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume, getMutedPushChannels, setMutedPushChannel } from "./preferencesStorage";
+import { loadProfileData } from "./pages/settings/profileData";
+import { serializeProfile, dataUrlToBytes } from "./profileFormat";
+
+/** Event payload for a single reaction delivered by the server. */
+interface ReactionDeliverEvent {
+  channel_id: number;
+  message_id: string;
+  emoji: string;
+  action: string;
+  sender_hash: string;
+  sender_name: string;
+  timestamp: number;
+}
+
+/** Event payload for a batch of stored reactions from the server. */
+interface ReactionFetchResponseEvent {
+  channel_id: number;
+  reactions: {
+    message_id: string;
+    emoji: string;
+    sender_hash: string;
+    sender_name: string;
+    timestamp: number;
+  }[];
+}
 
 /** Sessions that have already had their stored volume applied this connection. */
 const volumeAppliedSessions = new Set<number>();
@@ -108,6 +134,9 @@ interface AppState {
   /** Synthetic local-only messages for rendering polls in the chat flow. */
   pollMessages: ChatMessage[];
 
+  /** Monotonic counter incremented whenever the module-level reaction store changes. */
+  reactionVersion: number;
+
   // -- Persistent chat state -------------------------------------
   /** Persistence metadata per channel (mode, retention, fetch state). */
   channelPersistence: Record<number, ChannelPersistenceState>;
@@ -125,9 +154,14 @@ interface AppState {
   keyHolders: Record<number, KeyHolderEntry[]>;
   /** Channels where the key-possession challenge failed (key revoked). */
   pchatKeyRevoked: Set<number>;
+  /** Error message when the signal bridge library fails to load. */
+  signalBridgeError: string | null;
 
   /** Channel IDs silenced for the current server (notifications suppressed). */
   silencedChannels: Set<number>;
+
+  /** Channel IDs with push notifications disabled (client preference, synced to server). */
+  mutedPushChannels: Set<number>;
 
   /** Per-user volume overrides keyed by cert hash (0-200, default 100). */
   userVolumes: Record<string, number>;
@@ -138,6 +172,8 @@ interface AppState {
   passwordAttempted: boolean;
   /** Connection params stored when a password prompt is needed so the user can retry. */
   pendingConnect: { host: string; port: number; username: string; certLabel: string | null } | null;
+  /** Certificate label used for the active connection. Stays set until explicit disconnect. */
+  connectedCertLabel: string | null;
 
   // Actions
   connect: (host: string, port: number, username: string, certLabel?: string | null, password?: string | null) => Promise<void>;
@@ -177,6 +213,8 @@ interface AppState {
   toggleDeafen: () => Promise<void>;
   selectUser: (session: number | null) => void;
   sendPluginData: (receiverSessions: number[], data: Uint8Array, dataId: string) => Promise<void>;
+  /** Send a reaction (add/remove) on a persistent chat message via native proto. */
+  sendReaction: (channelId: number, messageId: string, emoji: string, action: "add" | "remove") => Promise<void>;
   /** Add a poll to the store (called locally when creating a poll). */
   addPoll: (poll: PollPayload, isOwn: boolean) => void;
   setError: (error: string | null) => void;
@@ -194,6 +232,12 @@ interface AppState {
   toggleSilenceChannel: (channelId: number) => Promise<boolean>;
   /** Check whether a channel is silenced. */
   isChannelSilenced: (channelId: number) => boolean;
+
+  // Push notification muting
+  /** Toggle push-notification mute for a channel (persisted per server, synced to server). */
+  toggleMutePushChannel: (channelId: number) => Promise<boolean>;
+  /** Check whether push notifications are muted for a channel. */
+  isPushChannelMuted: (channelId: number) => boolean;
 
   // DM actions
   selectDmUser: (session: number) => Promise<void>;
@@ -254,6 +298,7 @@ const INITIAL: Pick<
   | "groupUnreadCounts"
   | "polls"
   | "pollMessages"
+  | "reactionVersion"
   | "channelPersistence"
   | "keyTrust"
   | "custodianPins"
@@ -262,11 +307,14 @@ const INITIAL: Pick<
   | "pendingKeyShares"
   | "keyHolders"
   | "pchatKeyRevoked"
+  | "signalBridgeError"
   | "silencedChannels"
+  | "mutedPushChannels"
   | "userVolumes"
   | "passwordRequired"
   | "passwordAttempted"
   | "pendingConnect"
+  | "connectedCertLabel"
 > = {
   status: "disconnected",
   channels: [],
@@ -297,6 +345,7 @@ const INITIAL: Pick<
   groupUnreadCounts: {},
   polls: new Map(),
   pollMessages: [],
+  reactionVersion: 0,
   channelPersistence: {},
   keyTrust: {},
   custodianPins: {},
@@ -305,14 +354,26 @@ const INITIAL: Pick<
   pendingKeyShares: {},
   keyHolders: {},
   pchatKeyRevoked: new Set(),
+  signalBridgeError: null,
   silencedChannels: new Set(),
+  mutedPushChannels: new Set(),
   userVolumes: {},
   passwordRequired: false,
   passwordAttempted: false,
   pendingConnect: null,
+  connectedCertLabel: null,
 };
 
 // --- Store --------------------------------------------------------
+
+/**
+ * Monotonically increasing sequence number for channel-message writes.
+ * Every async operation that sets `messages` bumps this counter before
+ * starting the IPC round-trip and only applies the result when the
+ * counter hasn't been bumped again in the meantime.  This prevents
+ * stale `get_messages` responses from overwriting fresher data.
+ */
+let messageWriteSeq = 0;
 
 /** Update the taskbar badge with the total unread count (channels + DMs + groups). */
 function updateBadgeCount(): void {
@@ -337,6 +398,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       error: null,
       passwordRequired: false,
       pendingConnect: { host, port, username, certLabel: certLabel ?? null },
+      connectedCertLabel: certLabel ?? null,
     });
     try {
       await invoke("connect", {
@@ -347,7 +409,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         password: password ?? null,
       });
     } catch (e) {
-      set({ status: "disconnected", error: String(e), pendingConnect: null });
+      set({ status: "disconnected", error: String(e), pendingConnect: null, connectedCertLabel: null });
     }
   },
 
@@ -359,19 +421,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (e) {
       console.error("disconnect error:", e);
     }
+    resetReactions();
     set({ ...INITIAL });
     invoke("update_badge_count", { count: null }).catch(() => {});
   },
 
   selectChannel: async (id) => {
     set({ selectedChannel: id, selectedDmUser: null, dmMessages: [], selectedGroup: null, groupMessages: [] });
+    const seq = ++messageWriteSeq;
     try {
       // Notify backend - marks channel as read and clears DM selection.
       await invoke("select_channel", { channelId: id });
       const messages = await invoke<ChatMessage[]>("get_messages", {
         channelId: id,
       });
-      set({ messages });
+      // Only apply if no newer write has started (avoids overwriting
+      // fresher data from a concurrent refreshMessages / new-message).
+      if (messageWriteSeq === seq) {
+        set({ messages });
+      }
     } catch (e) {
       console.error("select_channel error:", e);
     }
@@ -436,10 +504,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   sendMessage: async (channelId, body) => {
     try {
       await invoke("send_message", { channelId, body });
+      const seq = ++messageWriteSeq;
       const messages = await invoke<ChatMessage[]>("get_messages", {
         channelId,
       });
-      set({ messages });
+      if (messageWriteSeq === seq) {
+        set({ messages });
+      }
     } catch (e) {
       console.error("send_message error:", e);
     }
@@ -476,11 +547,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   refreshMessages: async (channelId) => {
+    const seq = ++messageWriteSeq;
     try {
       const messages = await invoke<ChatMessage[]>("get_messages", {
         channelId,
       });
-      set({ messages });
+      if (messageWriteSeq === seq) {
+        set({ messages });
+      }
     } catch (e) {
       console.error("refresh messages error:", e);
     }
@@ -621,6 +695,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error("send_plugin_data error:", e);
     }
   },
+
+  sendReaction: async (channelId, messageId, emoji, action) => {
+    try {
+      await invoke("send_reaction", { channelId, messageId, emoji, action });
+    } catch (e) {
+      console.error("send_reaction error:", e);
+    }
+  },
+
   addPoll: (poll, isOwn) => {
     registerPoll(poll);
     set((prev) => {
@@ -655,7 +738,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   dismissPasswordPrompt: () => {
-    set({ passwordRequired: false, passwordAttempted: false, pendingConnect: null });
+    set({ passwordRequired: false, passwordAttempted: false, pendingConnect: null, connectedCertLabel: null });
   },
 
   // -- Silenced channels ------------------------------------------
@@ -673,6 +756,32 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   isChannelSilenced: (channelId) => {
     return get().silencedChannels.has(channelId);
+  },
+
+  // -- Push notification muting -----------------------------------
+
+  toggleMutePushChannel: async (channelId) => {
+    const { mutedPushChannels, pendingConnect } = get();
+    if (!pendingConnect) return false;
+    const serverKey = `${pendingConnect.host}:${pendingConnect.port}`;
+    const isMuted = mutedPushChannels.has(channelId);
+    const updated = await setMutedPushChannel(serverKey, channelId, !isMuted);
+    set({ mutedPushChannels: new Set(updated) });
+
+    // Sync the muted list to the server via fancy-push-update.
+    try {
+      const payload = JSON.stringify({ muted: updated });
+      const data = new TextEncoder().encode(payload);
+      await get().sendPluginData([], data, "fancy-push-update");
+    } catch (e) {
+      console.error("Failed to sync push mute to server:", e);
+    }
+
+    return !isMuted;
+  },
+
+  isPushChannelMuted: (channelId) => {
+    return get().mutedPushChannels.has(channelId);
   },
 
   // -- Per-user volume overrides ----------------------------------
@@ -945,10 +1054,13 @@ export async function initEventListeners(
       // Load silenced channels for this server (pendingConnect still available).
       const pending = useAppStore.getState().pendingConnect;
       let silenced = new Set<number>();
+      let mutedPush = new Set<number>();
       if (pending) {
         const serverKey = `${pending.host}:${pending.port}`;
         const ids = await getSilencedChannels(serverKey);
         silenced = new Set(ids);
+        const mutedIds = await getMutedPushChannels(serverKey);
+        mutedPush = new Set(mutedIds);
       }
 
       // Load persisted per-user volumes and reset the applied-session tracker.
@@ -965,6 +1077,7 @@ export async function initEventListeners(
         status: "connected",
         passwordRequired: false,
         silencedChannels: silenced,
+        mutedPushChannels: mutedPush,
         userVolumes: storedVolumes,
       });
       navigate("/chat");
@@ -983,6 +1096,29 @@ export async function initEventListeners(
           // Fetch our own session ID.
           const ownSession = await invoke<number | null>("get_own_session");
           useAppStore.setState({ ownSession });
+
+          // Auto-apply the locally saved profile for unregistered users.
+          // Registered users have their profile stored server-side, but
+          // unregistered users lose it on each connect.
+          if (ownSession !== null) {
+            const ownUser = useAppStore.getState().users.find((u) => u.session === ownSession);
+            const isRegistered = ownUser?.user_id != null && ownUser.user_id > 0;
+            if (!isRegistered) {
+              const identityLabel = useAppStore.getState().connectedCertLabel ?? null;
+              loadProfileData(identityLabel)
+                .then(async ({ profile, bio, avatarDataUrl }) => {
+                  const comment = serializeProfile(profile, bio);
+                  if (comment) {
+                    await invoke("set_user_comment", { comment });
+                  }
+                  const texture = avatarDataUrl ? dataUrlToBytes(avatarDataUrl) : [];
+                  if (texture.length > 0) {
+                    await invoke("set_user_texture", { texture });
+                  }
+                })
+                .catch((err) => console.error("Auto-apply profile error:", err));
+            }
+          }
 
           const { channels, selectedChannel } = useAppStore.getState();
           if (selectedChannel === null && channels.length > 0) {
@@ -1220,6 +1356,33 @@ export async function initEventListeners(
           }
         }
 
+        // Handle emoji reactions.
+        if (data_id === REACTION_DATA_ID) {
+          try {
+            const json = new TextDecoder().decode(bytes);
+            const payload = JSON.parse(json) as ReactionPayload;
+            if (payload.type === "reaction" && payload.messageId && payload.emoji) {
+              applyReaction(payload);
+              useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
+            }
+          } catch (e) {
+            console.error("plugin-data reaction processing error:", e);
+          }
+        }
+
+        // Handle server-advertised custom reactions.
+        if (data_id === CUSTOM_REACTIONS_DATA_ID) {
+          try {
+            const json = new TextDecoder().decode(bytes);
+            const reactions = JSON.parse(json) as ServerCustomReaction[];
+            if (Array.isArray(reactions)) {
+              setServerCustomReactions(reactions);
+            }
+          } catch (e) {
+            console.error("plugin-data custom-reactions processing error:", e);
+          }
+        }
+
         // Also dispatch to legacy registered handlers for extensibility.
         for (const handler of pluginDataHandlers) {
           handler(data_id, bytes, sender_session);
@@ -1421,6 +1584,39 @@ export async function initEventListeners(
             ...(clearMessages ? { messages: [] } : {}),
           };
         });
+      },
+    ),
+
+    // Reaction add/remove delivered by the server (persistent channels).
+    await listen<ReactionDeliverEvent>(
+      "pchat-reaction-deliver",
+      (event) => {
+        const { message_id, emoji, action, sender_hash, sender_name } = event.payload;
+        // Resolve actual display name from the user list (server may send the hash as fallback).
+        const resolvedName = useAppStore.getState().users.find((u) => u.hash === sender_hash)?.name ?? sender_name;
+        applyPchatReaction(message_id, emoji, action as "add" | "remove", sender_hash, resolvedName);
+        useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
+      },
+    ),
+
+    // Batch reaction fetch response (historical reactions for persistent channels).
+    await listen<ReactionFetchResponseEvent>(
+      "pchat-reaction-fetch-response",
+      (event) => {
+        const { users } = useAppStore.getState();
+        for (const r of event.payload.reactions) {
+          const resolvedName = users.find((u) => u.hash === r.sender_hash)?.name ?? r.sender_name;
+          applyPchatReaction(r.message_id, r.emoji, "add", r.sender_hash, resolvedName);
+        }
+        useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
+      },
+    ),
+
+    // Signal bridge load failure: show error banner in the UI.
+    await listen<{ message: string }>(
+      "pchat-signal-bridge-error",
+      (event) => {
+        useAppStore.setState({ signalBridgeError: event.payload.message });
       },
     ),
   );

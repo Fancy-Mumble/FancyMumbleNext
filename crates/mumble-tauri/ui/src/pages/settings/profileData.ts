@@ -9,6 +9,7 @@ export interface ProfileData {
 }
 
 const PROFILE_STORE = "profile.json";
+const MIGRATION_KEY = "_migrated_per_identity";
 
 const PROFILE_DEFAULTS: ProfileData = {
   profile: {},
@@ -16,15 +17,51 @@ const PROFILE_DEFAULTS: ProfileData = {
   avatarDataUrl: null,
 };
 
-export async function loadProfileData(): Promise<ProfileData> {
+function profileKey(identityLabel: string | null | undefined): string {
+  return identityLabel ? `profile:${identityLabel}` : "data";
+}
+
+export async function loadProfileData(
+  identityLabel?: string | null,
+): Promise<ProfileData> {
   const store = await load(PROFILE_STORE, { autoSave: true, defaults: {} });
-  const data = await store.get<ProfileData>("data");
+  const key = profileKey(identityLabel);
+  const data = await store.get<ProfileData>(key);
   return data ? { ...PROFILE_DEFAULTS, ...data } : { ...PROFILE_DEFAULTS };
 }
 
-export async function saveProfileData(data: ProfileData): Promise<void> {
+export async function saveProfileData(
+  data: ProfileData,
+  identityLabel?: string | null,
+): Promise<void> {
   const store = await load(PROFILE_STORE, { autoSave: true, defaults: {} });
-  await store.set("data", data);
+  await store.set(profileKey(identityLabel), data);
+}
+
+export async function deleteProfileData(
+  identityLabel: string,
+): Promise<void> {
+  const store = await load(PROFILE_STORE, { autoSave: true, defaults: {} });
+  await store.delete(profileKey(identityLabel));
+}
+
+export async function migrateProfilesToIdentities(
+  identities: string[],
+): Promise<void> {
+  const store = await load(PROFILE_STORE, { autoSave: true, defaults: {} });
+  const migrated = await store.get<boolean>(MIGRATION_KEY);
+  if (migrated) return;
+
+  const globalData = await store.get<ProfileData>("data");
+  if (globalData) {
+    for (const label of identities) {
+      const existing = await store.get<ProfileData>(profileKey(label));
+      if (!existing) {
+        await store.set(profileKey(label), globalData);
+      }
+    }
+  }
+  await store.set(MIGRATION_KEY, true);
 }
 
 export const DECORATIONS: { id: string; label: string; preview: string }[] = [

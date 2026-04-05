@@ -1,14 +1,21 @@
 import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
+import { deleteProfileData } from "./profileData";
 import styles from "./SettingsPage.module.css";
 
 export function IdentitiesPanel({
   identities,
+  connectedCertLabel,
   onRefresh,
+  onEditProfile,
+  isExpert,
 }: Readonly<{
   identities: string[];
+  connectedCertLabel: string | null;
   onRefresh: () => void;
+  onEditProfile: (label: string) => void;
+  isExpert: boolean;
 }>) {
   const [newLabel, setNewLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +39,7 @@ export function IdentitiesPanel({
       setError(null);
       try {
         await invoke("delete_certificate", { label });
+        await deleteProfileData(label);
         setConfirmDelete(null);
         onRefresh();
       } catch (e) {
@@ -90,10 +98,27 @@ export function IdentitiesPanel({
         ) : (
           <ul className={styles.identityList}>
             {identities.map((label) => (
-              <li key={label} className={styles.identityItem}>
-                <span className={styles.identityLabel}>{label}</span>
+              <li
+                key={label}
+                className={`${styles.identityItem}${label === connectedCertLabel ? ` ${styles.identityItemActive}` : ""}`}
+              >
+                <span className={styles.identityLabel}>
+                  {label}
+                  {label === connectedCertLabel && (
+                    <span className={styles.identityActiveBadge}>connected</span>
+                  )}
+                </span>
 
                 <div className={styles.identityActions}>
+                  {isExpert && (
+                    <button
+                      type="button"
+                      className={styles.identityEditBtn}
+                      onClick={() => onEditProfile(label)}
+                    >
+                      Edit Profile
+                    </button>
+                  )}
                   <button
                     type="button"
                     className={styles.ghostBtn}

@@ -13,8 +13,8 @@ import {
   getVotes,
   registerLocalVote,
   getLocalVote,
-} from "../PollCard";
-import type { PollPayload, PollVotePayload } from "../PollCreator";
+} from "../chat/PollCard";
+import type { PollPayload, PollVotePayload } from "../chat/PollCreator";
 
 // --- Helpers ------------------------------------------------------
 

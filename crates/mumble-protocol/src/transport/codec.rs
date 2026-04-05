@@ -104,6 +104,9 @@ fn serialize_control_message(msg: &ControlMessage) -> Result<(u16, Vec<u8>)> {
         PchatKeyChallengeResult(m) => (TcpMessageType::PchatKeyChallengeResult as u16, m.encode_to_vec()),
         PchatDeleteMessages(m) => (TcpMessageType::PchatDeleteMessages as u16, m.encode_to_vec()),
         PchatOfflineQueueDrain(m) => (TcpMessageType::PchatOfflineQueueDrain as u16, m.encode_to_vec()),
+        PchatReaction(m) => (TcpMessageType::PchatReaction as u16, m.encode_to_vec()),
+        PchatReactionDeliver(m) => (TcpMessageType::PchatReactionDeliver as u16, m.encode_to_vec()),
+        PchatReactionFetchResponse(m) => (TcpMessageType::PchatReactionFetchResponse as u16, m.encode_to_vec()),
         UdpTunnel(data) => (TcpMessageType::UdpTunnel as u16, data.clone()),
     };
 
@@ -159,6 +162,9 @@ fn deserialize_control_message(type_id: u16, payload: &[u8]) -> Result<ControlMe
         PchatKeyChallengeResult => ControlMessage::PchatKeyChallengeResult(mumble_tcp::PchatKeyChallengeResult::decode(payload)?),
         PchatDeleteMessages => ControlMessage::PchatDeleteMessages(mumble_tcp::PchatDeleteMessages::decode(payload)?),
         PchatOfflineQueueDrain => ControlMessage::PchatOfflineQueueDrain(mumble_tcp::PchatOfflineQueueDrain::decode(payload)?),
+        PchatReaction => ControlMessage::PchatReaction(mumble_tcp::PchatReaction::decode(payload)?),
+        PchatReactionDeliver => ControlMessage::PchatReactionDeliver(mumble_tcp::PchatReactionDeliver::decode(payload)?),
+        PchatReactionFetchResponse => ControlMessage::PchatReactionFetchResponse(mumble_tcp::PchatReactionFetchResponse::decode(payload)?),
     };
     Ok(msg)
 }

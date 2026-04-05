@@ -18,6 +18,8 @@ use std::slice;
 
 use context::SignalBridgeCtx;
 
+use std::cell::RefCell;
+
 /// Result codes returned by all bridge functions.
 pub const SIGNAL_OK: i32 = 0;
 pub const SIGNAL_ERR_NULL_PTR: i32 = -1;
@@ -25,6 +27,50 @@ pub const SIGNAL_ERR_INVALID_UTF8: i32 = -2;
 pub const SIGNAL_ERR_PROTOCOL: i32 = -3;
 pub const SIGNAL_ERR_NO_KEY: i32 = -4;
 pub const SIGNAL_ERR_SERIALIZE: i32 = -5;
+
+// ---------------------------------------------------------------------------
+// Thread-local error detail
+// ---------------------------------------------------------------------------
+
+thread_local! {
+    static LAST_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+fn set_last_error(msg: &str) {
+    LAST_ERROR.with(|cell| {
+        let mut s = cell.borrow_mut();
+        s.clear();
+        s.push_str(msg);
+    });
+}
+
+/// Retrieve the last error message from the most recent failed
+/// operation on this thread.
+///
+/// The returned pointer is only valid until the next bridge call on the
+/// same thread.  The caller must NOT free the returned pointer.
+///
+/// Returns null if no error has been recorded.
+///
+/// # Safety
+///
+/// `out_len` must be a valid pointer to a `u32` or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn signal_bridge_last_error(out_len: *mut u32) -> *const u8 {
+    LAST_ERROR.with(|cell| {
+        let s = cell.borrow();
+        if s.is_empty() {
+            if !out_len.is_null() {
+                unsafe { *out_len = 0 };
+            }
+            return ptr::null();
+        }
+        if !out_len.is_null() {
+            unsafe { *out_len = s.len() as u32 };
+        }
+        s.as_ptr()
+    })
+}
 
 // ---------------------------------------------------------------------------
 // Context lifecycle
@@ -88,7 +134,10 @@ pub extern "C" fn signal_bridge_create_distribution(
     };
     match ctx.create_distribution(channel_id) {
         Ok(bytes) => write_output(bytes, out_msg, out_len),
-        Err(_) => SIGNAL_ERR_PROTOCOL,
+        Err(e) => {
+            set_last_error(&e);
+            SIGNAL_ERR_PROTOCOL
+        }
     }
 }
 
@@ -118,7 +167,10 @@ pub extern "C" fn signal_bridge_process_distribution(
     };
     match ctx.process_distribution(&sender, channel_id, data) {
         Ok(()) => SIGNAL_OK,
-        Err(_) => SIGNAL_ERR_PROTOCOL,
+        Err(e) => {
+            set_last_error(&e);
+            SIGNAL_ERR_PROTOCOL
+        }
     }
 }
 
@@ -145,7 +197,10 @@ pub extern "C" fn signal_bridge_group_encrypt(
     };
     match ctx.group_encrypt(channel_id, pt) {
         Ok(bytes) => write_output(bytes, out_ct, out_ct_len),
-        Err(_) => SIGNAL_ERR_PROTOCOL,
+        Err(e) => {
+            set_last_error(&e);
+            SIGNAL_ERR_PROTOCOL
+        }
     }
 }
 
@@ -177,7 +232,10 @@ pub extern "C" fn signal_bridge_group_decrypt(
     };
     match ctx.group_decrypt(&sender, channel_id, ct) {
         Ok(bytes) => write_output(bytes, out_pt, out_pt_len),
-        Err(_) => SIGNAL_ERR_PROTOCOL,
+        Err(e) => {
+            set_last_error(&e);
+            SIGNAL_ERR_PROTOCOL
+        }
     }
 }
 
@@ -232,7 +290,10 @@ pub extern "C" fn signal_bridge_export_state(
     };
     match ctx.export_state() {
         Ok(bytes) => write_output(bytes, out_data, out_len),
-        Err(_) => SIGNAL_ERR_SERIALIZE,
+        Err(e) => {
+            set_last_error(&e);
+            SIGNAL_ERR_SERIALIZE
+        }
     }
 }
 
@@ -254,7 +315,10 @@ pub extern "C" fn signal_bridge_import_state(
     };
     match ctx.import_state(blob) {
         Ok(()) => SIGNAL_OK,
-        Err(_) => SIGNAL_ERR_SERIALIZE,
+        Err(e) => {
+            set_last_error(&e);
+            SIGNAL_ERR_SERIALIZE
+        }
     }
 }
 

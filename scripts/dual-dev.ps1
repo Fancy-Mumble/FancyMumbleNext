@@ -27,6 +27,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot  = Split-Path $PSScriptRoot -Parent
 $tauriDir  = Join-Path $repoRoot "crates\mumble-tauri"
 $uiDir     = Join-Path $tauriDir "ui"
+$bridgeDir = Join-Path $repoRoot "crates\signal-bridge"
 
 # -------------------------------------------------------------------
 # Helpers
@@ -35,6 +36,101 @@ function Write-Tag {
     param([string]$Tag, [ConsoleColor]$Color, [string]$Message)
     Write-Host "[$Tag] " -ForegroundColor $Color -NoNewline
     Write-Host $Message
+}
+
+function Resolve-NdkHome {
+    if ($env:NDK_HOME -and (Test-Path $env:NDK_HOME)) { return $env:NDK_HOME }
+    if ($env:ANDROID_NDK_HOME -and (Test-Path $env:ANDROID_NDK_HOME)) { return $env:ANDROID_NDK_HOME }
+    $persistedNdk = [System.Environment]::GetEnvironmentVariable("NDK_HOME", "User")
+    if ($persistedNdk -and (Test-Path $persistedNdk)) { return $persistedNdk }
+    $androidHome = $env:ANDROID_HOME
+    if (-not ($androidHome -and (Test-Path $androidHome))) {
+        $persistedHome = [System.Environment]::GetEnvironmentVariable("ANDROID_HOME", "User")
+        if ($persistedHome -and (Test-Path $persistedHome)) { $androidHome = $persistedHome }
+        elseif (Test-Path "$env:LOCALAPPDATA\Android\Sdk") { $androidHome = "$env:LOCALAPPDATA\Android\Sdk" }
+    }
+    if ($androidHome) {
+        $ndkDir = Get-ChildItem "$androidHome\ndk" -Directory -ErrorAction SilentlyContinue |
+                  Sort-Object Name -Descending | Select-Object -First 1
+        if ($ndkDir) { return $ndkDir.FullName }
+    }
+    return $null
+}
+
+function Build-SignalBridgeAndroid {
+    <#
+    .SYNOPSIS
+        Cross-compile signal-bridge for Android and place the .so in jniLibs.
+    #>
+    param([string]$NdkHome, [string[]]$Targets)
+
+    $llvmBin = "$NdkHome\toolchains\llvm\prebuilt\windows-x86_64\bin"
+    if (-not (Test-Path $llvmBin)) {
+        # Linux / macOS host
+        if (Test-Path "$NdkHome\toolchains\llvm\prebuilt\linux-x86_64\bin") {
+            $llvmBin = "$NdkHome\toolchains\llvm\prebuilt\linux-x86_64\bin"
+        } elseif (Test-Path "$NdkHome\toolchains\llvm\prebuilt\darwin-x86_64\bin") {
+            $llvmBin = "$NdkHome\toolchains\llvm\prebuilt\darwin-x86_64\bin"
+        } else {
+            Write-Tag "WARN" Yellow "Cannot locate NDK LLVM bin directory. Skipping signal-bridge."
+            return
+        }
+    }
+
+    # Map Rust target triples to NDK clang prefixes and jniLibs ABI dirs
+    $targetInfo = @{
+        "aarch64-linux-android" = @{ clang = "aarch64-linux-android24-clang"; abi = "arm64-v8a"; cargo = "AARCH64_LINUX_ANDROID" }
+        "x86_64-linux-android"  = @{ clang = "x86_64-linux-android24-clang";  abi = "x86_64";    cargo = "X86_64_LINUX_ANDROID" }
+    }
+
+    foreach ($target in $Targets) {
+        $info = $targetInfo[$target]
+        if (-not $info) {
+            Write-Tag "WARN" Yellow "Unknown Android target: $target, skipping signal-bridge for it."
+            continue
+        }
+
+        # Resolve clang: prefer .cmd on Windows, bare name on Unix
+        $cc = "$llvmBin\$($info.clang).cmd"
+        if (-not (Test-Path $cc)) { $cc = "$llvmBin\$($info.clang)" }
+        $cxx = "${cc}++"
+        $ar = "$llvmBin\llvm-ar"
+        if (Test-Path "$llvmBin\llvm-ar.exe") { $ar = "$llvmBin\llvm-ar.exe" }
+
+        $cargoKey = $info.cargo
+        $env:CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER    = $null
+        $env:CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER     = $null
+        Set-Item "env:CARGO_TARGET_${cargoKey}_LINKER" $cc
+        Set-Item "env:CC_$($target -replace '-','_')" $cc
+        Set-Item "env:CXX_$($target -replace '-','_')" $cxx
+        Set-Item "env:AR_$($target -replace '-','_')" $ar
+
+        Write-Tag "BRDG" Yellow "Building signal-bridge for $target ..."
+        # cargo writes compile progress to stderr; prevent $ErrorActionPreference = "Stop"
+        # from treating those lines as terminating errors.
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        $buildResult = & cargo build --target $target 2>&1
+        $buildExitCode = $LASTEXITCODE
+        $ErrorActionPreference = $prevEAP
+        if ($buildExitCode -ne 0) {
+            Write-Tag "WARN" Yellow "signal-bridge build failed for $target. Persistent chat will be unavailable."
+            $buildResult | ForEach-Object { Write-Tag "BRDG" Yellow $_ }
+            continue
+        }
+
+        # Copy .so into jniLibs so Gradle includes it in the APK
+        $soPath = Join-Path $bridgeDir "target\$target\debug\libsignal_bridge.so"
+        if (-not (Test-Path $soPath)) {
+            Write-Tag "WARN" Yellow "libsignal_bridge.so not found at $soPath after build."
+            continue
+        }
+
+        $jniDir = Join-Path $tauriDir "gen\android\app\src\main\jniLibs\$($info.abi)"
+        if (-not (Test-Path $jniDir)) { $null = New-Item -ItemType Directory -Path $jniDir -Force }
+        Copy-Item -Path $soPath -Destination "$jniDir\libsignal_bridge.so" -Force
+        Write-Tag "BRDG" Yellow "Placed libsignal_bridge.so in jniLibs/$($info.abi)"
+    }
 }
 
 # -------------------------------------------------------------------
@@ -141,7 +237,36 @@ try {
     }
 
     # ---------------------------------------------------------------
-    # 3. Android build (separate window - Tauri has its own interactive
+    # 3. Build signal-bridge for Android (if crate exists)
+    # ---------------------------------------------------------------
+    if (-not $DesktopOnly -and (Test-Path (Join-Path $bridgeDir "Cargo.toml"))) {
+        $ndkHome = Resolve-NdkHome
+        if ($ndkHome) {
+            $env:NDK_HOME = $ndkHome
+            if (-not $env:ANDROID_NDK_HOME) { $env:ANDROID_NDK_HOME = $ndkHome }
+
+            # Build for all installed Android targets
+            $installedTargets = rustup target list --installed 2>$null
+            $androidTargets = @($installedTargets | Where-Object {
+                $_ -eq "aarch64-linux-android" -or $_ -eq "x86_64-linux-android"
+            })
+            if ($androidTargets.Count -gt 0) {
+                Push-Location $bridgeDir
+                try {
+                    Build-SignalBridgeAndroid -NdkHome $ndkHome -Targets $androidTargets
+                } finally {
+                    Pop-Location
+                }
+            } else {
+                Write-Tag "WARN" Yellow "No Android Rust targets installed. Skipping signal-bridge."
+            }
+        } else {
+            Write-Tag "WARN" Yellow "NDK not found. Skipping signal-bridge for Android (persistent chat will be unavailable)."
+        }
+    }
+
+    # ---------------------------------------------------------------
+    # 4. Android build (separate window - Tauri has its own interactive
     #    device picker that requires a real console session)
     # ---------------------------------------------------------------
     if (-not $DesktopOnly) {
@@ -154,7 +279,7 @@ try {
     }
 
     # ---------------------------------------------------------------
-    # 4. Stream background output until Ctrl+C or all done
+    # 5. Stream background output until Ctrl+C or all done
     # ---------------------------------------------------------------
     Write-Host ""
     Write-Tag "INFO" Cyan "All processes started. Press Ctrl+C to stop."

@@ -200,8 +200,8 @@ impl EventHandler for TauriEventHandler {
             state.root_permissions = None;
             // Save signal state before dropping pchat.
             if let Some(ref pchat) = state.pchat {
-                super::pchat::save_signal_state(pchat);
-                super::pchat::save_local_cache(pchat);
+                pchat.save_signal_state();
+                pchat.save_local_cache();
             }
             state.pchat = None;
             state.pchat_seed = None;
@@ -222,6 +222,11 @@ impl EventHandler for TauriEventHandler {
             {
                 crate::connection_service::stop_service(&handle);
             }
+
+            // Keep FCM topic subscriptions active after disconnect so the
+            // device continues to receive push notifications while offline.
+            // Subscriptions are idempotent — re-subscribing on the next
+            // connect is harmless.
         }
     }
 

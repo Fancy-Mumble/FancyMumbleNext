@@ -61,6 +61,14 @@ pub(crate) fn parse_pchat_protocol_str(s: &str) -> PchatProtocol {
 
 // --- Shared interior state ----------------------------------------
 
+/// Look up the TLS certificate hash for our own session.
+fn own_session_hash(state: &SharedState) -> Option<String> {
+    state
+        .own_session
+        .and_then(|sid| state.users.get(&sid))
+        .and_then(|u| u.hash.clone())
+}
+
 #[derive(Default)]
 pub(super) struct SharedState {
     pub status: ConnectionStatus,
@@ -520,16 +528,18 @@ impl AppState {
 
     #[allow(clippy::too_many_lines, reason = "message send path covers legacy text, fancy extensions, pchat encryption, and local storage")]
     pub async fn send_message(&self, channel_id: u32, body: String) -> Result<(), String> {
-        let (handle, own_session, own_name, is_fancy, pchat_protocol) = {
+        let (handle, own_session, own_name, own_hash, is_fancy, pchat_protocol) = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;
             let pchat_proto = state
                 .channels
                 .get(&channel_id)
                 .and_then(|ch| ch.pchat_protocol);
+            let hash = own_session_hash(&state);
             (
                 state.client_handle.clone(),
                 state.own_session,
                 state.own_name.clone(),
+                hash,
                 state.server_fancy_version.is_some(),
                 pchat_proto,
             )
@@ -597,20 +607,21 @@ impl AppState {
                         if let (Some(ref mut pchat_state), Some(client)) =
                             (&mut state.pchat, client)
                         {
-                            match pchat::build_encrypted_pchat_message(
-                                pchat_state,
-                                channel_id,
-                                protocol,
-                                msg_id,
-                                &body,
-                                &own_name,
-                                session,
-                                now_ms,
+                            match pchat_state.build_encrypted_message(
+                                &pchat::OutboundMessage {
+                                    channel_id,
+                                    protocol,
+                                    message_id: msg_id,
+                                    body: &body,
+                                    sender_name: &own_name,
+                                    sender_session: session,
+                                    timestamp: now_ms,
+                                },
                             ) {
                                 Ok(proto_msg) => Some((proto_msg, client)),
                                 Err(e) => {
                                     tracing::warn!("pchat encrypt failed: {e}");
-                                    None
+                                    return Err(format!("Encryption failed: {e}"));
                                 }
                             }
                         } else {
@@ -635,6 +646,7 @@ impl AppState {
             let mut msg = ChatMessage {
                 sender_session: own_session,
                 sender_name: own_name,
+                sender_hash: own_hash,
                 body,
                 channel_id,
                 is_own: true,
@@ -671,12 +683,14 @@ impl AppState {
 
     /// Send a direct message (DM) to a specific user by session ID.
     pub async fn send_dm(&self, target_session: u32, body: String) -> Result<(), String> {
-        let (handle, own_session, own_name, is_fancy) = {
+        let (handle, own_session, own_name, own_hash, is_fancy) = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let hash = own_session_hash(&state);
             (
                 state.client_handle.clone(),
                 state.own_session,
                 state.own_name.clone(),
+                hash,
                 state.server_fancy_version.is_some(),
             )
         };
@@ -711,6 +725,7 @@ impl AppState {
             let mut msg = ChatMessage {
                 sender_session: own_session,
                 sender_name: own_name,
+                sender_hash: own_hash,
                 body,
                 channel_id: 0,
                 is_own: true,
@@ -751,6 +766,66 @@ impl AppState {
             })
             .await
             .map_err(|e| format!("Failed to send plugin data: {e}"))?;
+
+        Ok(())
+    }
+
+    // -- Pchat reactions --------------------------------------------
+
+    /// Send a reaction (add/remove) on a persisted chat message.
+    pub async fn send_reaction(
+        &self,
+        channel_id: u32,
+        message_id: String,
+        emoji: String,
+        action: String,
+    ) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+
+        let handle = handle.ok_or("Not connected")?;
+
+        let reaction_action = match action.as_str() {
+            "remove" => mumble_protocol::proto::mumble_tcp::ReactionAction::ReactionRemove as i32,
+            _ => mumble_protocol::proto::mumble_tcp::ReactionAction::ReactionAdd as i32,
+        };
+
+        // Build the emoji oneof: shortcodes (":name:") -> ServerEmoji, else UnicodeEmoji.
+        let emoji_oneof = if emoji.starts_with(':') && emoji.ends_with(':') && emoji.len() > 2 {
+            let shortcode = emoji[1..emoji.len() - 1].to_owned();
+            Some(
+                mumble_protocol::proto::mumble_tcp::pchat_reaction::Emoji::ServerEmoji(
+                    mumble_protocol::proto::mumble_tcp::ServerEmoji {
+                        shortcode: Some(shortcode.into_bytes()),
+                    },
+                ),
+            )
+        } else {
+            Some(
+                mumble_protocol::proto::mumble_tcp::pchat_reaction::Emoji::UnicodeEmoji(
+                    mumble_protocol::proto::mumble_tcp::UnicodeEmoji {
+                        grapheme: Some(emoji),
+                    },
+                ),
+            )
+        };
+
+        // sender_hash is filled by the server; timestamp is advisory.
+        let msg = mumble_protocol::proto::mumble_tcp::PchatReaction {
+            channel_id: Some(channel_id),
+            message_id: Some(message_id),
+            emoji: emoji_oneof,
+            action: Some(reaction_action),
+            sender_hash: None,
+            timestamp: None,
+        };
+
+        handle
+            .send(command::SendPchatReaction { message: msg })
+            .await
+            .map_err(|e| format!("Failed to send reaction: {e}"))?;
 
         Ok(())
     }
@@ -1139,7 +1214,7 @@ impl AppState {
         group_id: String,
         body: String,
     ) -> Result<(), String> {
-        let (handle, own_session, own_name, is_fancy, targets) = {
+        let (handle, own_session, own_name, own_hash, is_fancy, targets) = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;
             let group = state
                 .group_chats
@@ -1152,10 +1227,12 @@ impl AppState {
                 .copied()
                 .filter(|&s| s != own)
                 .collect();
+            let hash = own_session_hash(&state);
             (
                 state.client_handle.clone(),
                 Some(own),
                 state.own_name.clone(),
+                hash,
                 state.server_fancy_version.is_some(),
                 targets,
             )
@@ -1194,6 +1271,7 @@ impl AppState {
             let mut msg = ChatMessage {
                 sender_session: own_session,
                 sender_name: own_name,
+                sender_hash: own_hash,
                 body,
                 channel_id: 0,
                 is_own: true,

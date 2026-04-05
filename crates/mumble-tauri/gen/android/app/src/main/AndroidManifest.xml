@@ -45,5 +45,20 @@
             android:name=".ConnectionService"
             android:foregroundServiceType="remoteMessaging|microphone"
             android:exported="false" />
+
+        <service
+            android:name=".FcmService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Default notification channel for FCM messages received while the
+             app is in the background or killed (Android 8+). Must match
+             FcmService.CHANNEL_ID. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="messages" />
     </application>
 </manifest>

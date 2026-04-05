@@ -90,16 +90,69 @@ crates/
         serverStorage.ts            # Persistent saved servers via @tauri-apps/plugin-store
         preferencesStorage.ts       # Persistent user preferences via @tauri-apps/plugin-store
         components/
-          ChannelSidebar.tsx        # Channel tree, user list with hover profile cards
-          ChatView.tsx              # Chat message view with rich markdown input, GIF picker, polls
-          MarkdownInput.tsx         # Overlay-based markdown input with live formatting preview
-          GifPicker.tsx             # GIF/sticker search popup (Klipy API)
-          PollCreator.tsx           # Poll creation modal (question, options, checkbox/radio)
-          PollCard.tsx              # Poll rendering in chat with interactive voting
-          MediaPreview.tsx          # Image/file preview component
-          UserProfileView.tsx       # Full-height right panel showing user profile
-          ServerList.tsx            # Saved server list (connect page)
-          TitleBar.tsx              # Custom frameless title bar
+          chat/                     # Chat view and all related components/hooks
+            ChatView.tsx            # Chat message view with rich markdown input, GIF picker, polls
+            ChatHeader.tsx          # Channel/group header bar
+            ChatComposer.tsx        # Message input area with attachments
+            ChatMessageList.tsx     # Message list rendering with date separators
+            MessageItem.tsx         # Individual message with reactions, media, quotes
+            QuotePreviewStrip.tsx   # Quote preview strip in composer
+            MarkdownInput.tsx       # Overlay-based markdown input with live formatting preview
+            GifPicker.tsx           # GIF/sticker search popup (Klipy API)
+            MediaPreview.tsx        # Image/file preview component
+            MessageContextMenu.tsx  # Right-click/long-press message menu
+            MobileMessageActionSheet.tsx  # Mobile message action sheet
+            MessageSelectionBar.tsx # Bulk message selection toolbar
+            MobileCallControls.tsx  # Mobile mic/deaf toggle buttons
+            PollCreator.tsx         # Poll creation modal (question, options, checkbox/radio)
+            PollCard.tsx            # Poll rendering in chat with interactive voting
+            useChatSend.ts          # Message sending hook
+            useChatScroll.ts        # Scroll behavior hook
+            useMessageSelection.ts  # Selection mode hook
+            usePolls.ts             # Poll creation & voting hook
+          sidebar/                  # Channel sidebar and user list
+            ChannelSidebar.tsx      # Channel tree, user list with hover profile cards
+            ModernChannelList.tsx   # Flat channel view with inline members
+            SidebarSearchView.tsx   # Search overlay for channels, users, messages
+            UserListItem.tsx        # User entry with avatar, mute/deaf badges
+            UserContextMenu.tsx     # Right-click user menu (mute, volume, admin)
+            ChannelEditorDialog.tsx # Channel creation/edit dialog
+            ChannelInfoPanel.tsx    # Channel description, members, permissions
+            PchatBadge.tsx          # Protocol indicator badge
+            RecordingModal.tsx      # Recording indicator modal
+          server/                   # Server connection and management
+            ServerList.tsx          # Saved server list (connect page)
+            PublicServerList.tsx    # Public server directory
+            ServerEditSheet.tsx     # Server edit form
+            ServerInfoPanel.tsx     # Server connection metadata panel
+            PasswordDialog.tsx      # Server password dialog
+          user/                     # User profile display
+            UserProfileView.tsx     # Full-height right panel showing user profile
+            UserInfoPanel.tsx       # User connection stats
+            MobileProfileSheet.tsx  # Mobile user profile bottom sheet
+          security/                 # Encryption, keys, persistent chat
+            KeyTrustIndicator.tsx   # Trust level icon/badge
+            KeyVerificationDialog.tsx  # Fingerprint verification dialog
+            KeyShareWarningDialog.tsx  # Key share warning
+            CustodianPrompt.tsx     # Custodian mode prompt
+            PersistenceBanner.tsx   # Persistent chat info banner
+            PersistentChatOverlays.tsx  # Container for security overlays
+            InfoBanner.tsx          # Reusable info/warning banner
+          layout/                   # App-level layout
+            TitleBar.tsx            # Custom frameless title bar
+            SuperSearch.tsx         # Global search overlay (Cmd+K)
+          elements/                 # Reusable UI primitives
+            ConfirmDialog.tsx       # Confirmation dialog
+            KebabMenu.tsx           # Dropdown kebab menu
+            Lightbox.tsx            # Full-screen media viewer with carousel
+            MessageActionBar.tsx    # Message action bar (reactions, quote, etc.)
+            MobileBottomSheet.tsx   # Swipe-to-dismiss bottom sheet
+            QuoteBlock.tsx          # Quoted message block
+            SafeHtml.tsx            # Sanitized HTML renderer
+            ExternalLinkGuard.tsx   # External link confirmation guard
+            SwipeableCard.tsx       # Swipeable list item
+            TabbedPage.tsx          # Tabbed page container
+            Toast.tsx               # Toast notification
         pages/
           ConnectPage.tsx           # Server connect / add-server page
           ChatPage.tsx              # Main connected view (sidebar + chat)

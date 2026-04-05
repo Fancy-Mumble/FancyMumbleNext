@@ -8,8 +8,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import ConfirmDialog from "../elements/ConfirmDialog";
-import MessageSelectionBar from "../MessageSelectionBar";
-import MessageContextMenu, { type MessageContextMenuState } from "../MessageContextMenu";
+import MessageSelectionBar from "../chat/MessageSelectionBar";
+import MessageContextMenu, { type MessageContextMenuState } from "../chat/MessageContextMenu";
 import type { ChatMessage } from "../../types";
 
 // --- Helpers ------------------------------------------------------

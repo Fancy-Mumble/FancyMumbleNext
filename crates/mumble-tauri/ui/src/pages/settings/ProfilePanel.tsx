@@ -1,17 +1,16 @@
 ﻿import { useRef, useState, useCallback } from "react";
 import type { FancyProfile } from "../../types";
 import { updatePreferences } from "../../preferencesStorage";
-import { Toggle, SliderField } from "./SharedControls";
 import {
   DECORATIONS,
   NAMEPLATES,
   EFFECTS,
-  FONTS,
   CARD_BACKGROUNDS,
   AVATAR_BORDERS,
 } from "./profileData";
 import { ImageEditor } from "./ImageEditor";
 import { BioEditor } from "./BioEditor";
+import { NameStyleSection } from "./NameStyleSection";
 import styles from "./SettingsPage.module.css";
 
 export function ProfilePanel({
@@ -25,7 +24,12 @@ export function ProfilePanel({
   onAvatarChange,
   profileError,
   isExpert,
-}: {
+  activeIdentity,
+  identities,
+  connectedCertLabel,
+  onSwitchIdentity,
+  onGoToIdentities,
+}: Readonly<{
   defaultUsername: string;
   setDefaultUsername: (v: string) => void;
   profile: FancyProfile;
@@ -36,7 +40,12 @@ export function ProfilePanel({
   onAvatarChange: (v: string | null) => void;
   profileError: string | null;
   isExpert: boolean;
-}) {
+  activeIdentity: string | null;
+  identities: string[];
+  connectedCertLabel: string | null;
+  onSwitchIdentity: (label: string | null) => void;
+  onGoToIdentities: () => void;
+}>) {
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
 
@@ -86,12 +95,42 @@ export function ProfilePanel({
   const patchNameStyle = (patch: Partial<NonNullable<FancyProfile["nameStyle"]>>) =>
     onPatchProfile({ nameStyle: { ...nameStyle, ...patch } });
 
-  const fontCss =
-    FONTS.find((f) => f.id === (nameStyle.font ?? "default"))?.css ?? "inherit";
-
   return (
     <>
       <h2 className={styles.panelTitle}>Profile</h2>
+
+      {/* -- Identity selector (advanced mode only) ------------- */}
+      {isExpert && identities.length > 0 && (
+        <section className={styles.identityBar}>
+          <div className={styles.identityBarRow}>
+            <label className={styles.identityBarLabel}>Identity</label>
+            <select
+              className={styles.select}
+              value={activeIdentity ?? ""}
+              onChange={(e) => onSwitchIdentity(e.target.value || null)}
+            >
+              {identities.map((label) => (
+                <option key={label} value={label}>
+                  {label}{label === connectedCertLabel ? " (connected)" : ""}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className={styles.ghostBtn}
+              onClick={onGoToIdentities}
+            >
+              Manage identities
+            </button>
+          </div>
+          {connectedCertLabel && activeIdentity !== connectedCertLabel && (
+            <p className={styles.fieldHint}>
+              Viewing profile for a different identity. Changes are saved locally
+              but will not be applied to the server until you connect with this identity.
+            </p>
+          )}
+        </section>
+      )}
 
       {/* -- Default Username ----------------------------------- */}
       <section className={styles.section}>
@@ -394,178 +433,11 @@ export function ProfilePanel({
       </section>
 
       {/* -- Name Style ----------------------------------------- */}
-      <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>Name Style</h3>
-        <p className={styles.fieldHint}>
-          Customise how your name is rendered for FancyMumble users.
-        </p>
-
-        {/* Live preview */}
-        <div
-          className={styles.namePreview}
-          style={{
-            fontFamily: fontCss,
-            color: nameStyle.gradient
-              ? "transparent"
-              : nameStyle.color || "var(--color-text-primary)",
-            fontWeight: nameStyle.bold ? "bold" : "normal",
-            fontStyle: nameStyle.italic ? "italic" : "normal",
-            textShadow: nameStyle.glow
-              ? `0 0 ${nameStyle.glow.size}px ${nameStyle.glow.color}`
-              : "none",
-            background: nameStyle.gradient
-              ? `linear-gradient(135deg,${nameStyle.gradient[0]},${nameStyle.gradient[1]})`
-              : "transparent",
-            WebkitBackgroundClip: nameStyle.gradient ? "text" : undefined,
-            WebkitTextFillColor: nameStyle.gradient ? "transparent" : undefined,
-          }}
-        >
-          {defaultUsername || "Your Name"}
-        </div>
-
-        {/* Font */}
-        <div className={styles.field}>
-          <label className={styles.fieldLabel}>Font</label>
-          <select
-            className={styles.select}
-            value={nameStyle.font ?? "default"}
-            onChange={(e) =>
-              patchNameStyle({
-                font: e.target.value === "default" ? undefined : e.target.value,
-              })
-            }
-          >
-            {FONTS.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Color */}
-        <div className={styles.field}>
-          <div className={styles.fieldRow}>
-            <label className={styles.fieldLabel}>Text Colour</label>
-            <input
-              type="color"
-              className={styles.colorInput}
-              value={nameStyle.color || "#ffffff"}
-              onChange={(e) => patchNameStyle({ color: e.target.value })}
-            />
-          </div>
-        </div>
-
-        {/* Gradient */}
-        <div className={styles.field}>
-          <div className={styles.toggleRow}>
-            <div className={styles.toggleInfo}>
-              <label className={styles.fieldLabel}>Gradient</label>
-            </div>
-            <Toggle
-              checked={!!nameStyle.gradient}
-              onChange={() =>
-                patchNameStyle({
-                  gradient: nameStyle.gradient
-                    ? undefined
-                    : ["#667eea", "#764ba2"],
-                })
-              }
-            />
-          </div>
-          {nameStyle.gradient && (
-            <div className={styles.gradientRow}>
-              <input
-                type="color"
-                className={styles.colorInput}
-                value={nameStyle.gradient[0]}
-                onChange={(e) =>
-                  patchNameStyle({
-                    gradient: [e.target.value, nameStyle.gradient![1]],
-                  })
-                }
-              />
-              <span className={styles.fieldLabel}>→</span>
-              <input
-                type="color"
-                className={styles.colorInput}
-                value={nameStyle.gradient[1]}
-                onChange={(e) =>
-                  patchNameStyle({
-                    gradient: [nameStyle.gradient![0], e.target.value],
-                  })
-                }
-              />
-            </div>
-          )}
-        </div>
-
-        {/* Glow */}
-        <div className={styles.field}>
-          <div className={styles.toggleRow}>
-            <div className={styles.toggleInfo}>
-              <label className={styles.fieldLabel}>Glow Effect</label>
-            </div>
-            <Toggle
-              checked={!!nameStyle.glow}
-              onChange={() =>
-                patchNameStyle({
-                  glow: nameStyle.glow
-                    ? undefined
-                    : { color: "#667eea", size: 6 },
-                })
-              }
-            />
-          </div>
-          {nameStyle.glow && (
-            <div className={styles.gradientRow}>
-              <input
-                type="color"
-                className={styles.colorInput}
-                value={nameStyle.glow.color}
-                onChange={(e) =>
-                  patchNameStyle({
-                    glow: { ...nameStyle.glow!, color: e.target.value },
-                  })
-                }
-              />
-              <SliderField
-                label="Size"
-                min={1}
-                max={20}
-                step={1}
-                value={nameStyle.glow.size}
-                onChange={(v) =>
-                  patchNameStyle({
-                    glow: { ...nameStyle.glow!, size: v },
-                  })
-                }
-                format={(v) => `${v}px`}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* Bold / Italic */}
-        <div className={styles.field}>
-          <div className={styles.toggleRow}>
-            <label className={styles.fieldLabel}>Bold</label>
-            <Toggle
-              checked={!!nameStyle.bold}
-              onChange={() => patchNameStyle({ bold: !nameStyle.bold })}
-            />
-          </div>
-        </div>
-        <div className={styles.field}>
-          <div className={styles.toggleRow}>
-            <label className={styles.fieldLabel}>Italic</label>
-            <Toggle
-              checked={!!nameStyle.italic}
-              onChange={() => patchNameStyle({ italic: !nameStyle.italic })}
-            />
-          </div>
-        </div>
-      </section>
+      <NameStyleSection
+        nameStyle={nameStyle}
+        onPatch={patchNameStyle}
+        displayName={defaultUsername}
+      />
 
       {/* -- Banner --------------------------------------------- */}
       <section className={styles.section}>

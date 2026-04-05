@@ -612,3 +612,83 @@ message PchatOfflineQueueDrain {
 	// Queued messages, each as a PchatMessageDeliver.
 	repeated PchatMessageDeliver messages = 2;
 }
+
+// ---------------------------------------------------------------------------
+// Emoji reactions (Fancy Mumble extension, IDs 117-119)
+// ---------------------------------------------------------------------------
+
+// Reaction action type.
+enum ReactionAction {
+	REACTION_ADD = 0;
+	REACTION_REMOVE = 1;
+}
+
+// A standard Unicode emoji (grapheme cluster, e.g. "\xF0\x9F\x91\x8D").
+message UnicodeEmoji {
+	optional string grapheme = 1;
+}
+
+// A server-specific custom emoji referenced by shortcode.
+message ServerEmoji {
+	// Short code identifier without colons (e.g. "mumble_parrot").
+	optional bytes shortcode = 1;
+}
+
+// Client -> Server: add or remove an emoji reaction on a persisted message.
+// The server validates sender_hash against the session, stores the
+// reaction (or removes it), and broadcasts a PchatReactionDeliver to
+// all Fancy clients in the channel.
+// Wire type ID = 117.
+message PchatReaction {
+	optional uint32 channel_id = 1;
+	// Target message ID (must be a valid stored message in this channel).
+	optional string message_id = 2;
+	// The emoji being reacted with.
+	oneof emoji {
+		UnicodeEmoji unicode_emoji = 3;
+		ServerEmoji server_emoji = 4;
+	}
+	optional ReactionAction action = 5;
+	// TLS cert hash of the reactor (server validates against session).
+	optional string sender_hash = 6;
+	// Client-supplied timestamp (ms since epoch); server may override.
+	optional uint64 timestamp = 7;
+}
+
+// Server -> Client: delivers a reaction add/remove event.
+// Broadcast to all Fancy clients in the channel after a valid PchatReaction.
+// Wire type ID = 118.
+message PchatReactionDeliver {
+	optional uint32 channel_id = 1;
+	optional string message_id = 2;
+
+	optional ReactionAction action = 3;
+	optional string sender_hash = 4;
+	// Best-effort display name of the reactor.
+	optional string sender_name = 5;
+	optional uint64 timestamp = 6;
+
+	oneof emoji {
+		UnicodeEmoji unicode_emoji = 10;
+		ServerEmoji server_emoji = 11;
+	}
+}
+
+// Server -> Client: batch delivery of all stored reactions for messages
+// in a channel. Sent in response to PchatFetchResponse so the client
+// can populate reaction pills for historical messages.
+// Wire type ID = 119.
+message PchatReactionFetchResponse {
+	message StoredReaction {
+		optional string message_id = 1;
+		optional string sender_hash = 2;
+		optional string sender_name = 3;
+		optional uint64 timestamp = 4;
+		oneof emoji {
+			UnicodeEmoji unicode_emoji = 10;
+			ServerEmoji server_emoji = 11;
+		}
+	}
+	optional uint32 channel_id = 1;
+	repeated StoredReaction reactions = 2;
+}

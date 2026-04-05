@@ -20,6 +20,9 @@ use super::types::ChatMessage;
 /// File name for the encrypted local message cache.
 const CACHE_FILE: &str = "signal_message_cache.enc";
 
+/// File name for the encrypted local reaction cache.
+const REACTION_CACHE_FILE: &str = "signal_reaction_cache.enc";
+
 /// HKDF info string for deriving the cache encryption key.
 const HKDF_INFO: &[u8] = b"fancy-mumble-local-message-cache-v1";
 
@@ -44,16 +47,28 @@ pub(crate) struct CachedMessage {
     pub is_own: bool,
 }
 
+/// A single cached reaction entry (serializable plaintext).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub(crate) struct CachedReaction {
+    pub message_id: String,
+    pub emoji: String,
+    pub sender_hash: String,
+    pub sender_name: String,
+    pub timestamp: u64,
+}
+
 /// AES-256-GCM encrypted local message cache.
 ///
-/// Messages are stored in memory keyed by `channel_id` and persisted to
-/// an encrypted file on disk.  The encryption key is derived from the
-/// identity seed via HKDF so the file is only readable with the
-/// correct seed.
+/// Messages and reactions are stored in memory keyed by `channel_id`
+/// and persisted to encrypted files on disk.  The encryption key is
+/// derived from the identity seed via HKDF so the files are only
+/// readable with the correct seed.
 pub(crate) struct LocalMessageCache {
     messages: HashMap<u32, Vec<CachedMessage>>,
+    reactions: HashMap<u32, Vec<CachedReaction>>,
     cache_key: LessSafeKey,
     cache_path: PathBuf,
+    reaction_cache_path: PathBuf,
 }
 
 impl LocalMessageCache {
@@ -62,8 +77,10 @@ impl LocalMessageCache {
         let cache_key = Self::derive_key(seed)?;
         Ok(Self {
             messages: HashMap::new(),
+            reactions: HashMap::new(),
             cache_key,
             cache_path: identity_dir.join(CACHE_FILE),
+            reaction_cache_path: identity_dir.join(REACTION_CACHE_FILE),
         })
     }
 
@@ -101,6 +118,7 @@ impl LocalMessageCache {
                     .map(|m| ChatMessage {
                         sender_session: None,
                         sender_name: m.sender_name.clone(),
+                        sender_hash: Some(m.sender_hash.clone()),
                         body: m.body.clone(),
                         channel_id: m.channel_id,
                         is_own: m.is_own,
@@ -116,7 +134,51 @@ impl LocalMessageCache {
             .collect()
     }
 
-    /// Save the cache to an AES-256-GCM encrypted file on disk.
+    // -- Reaction methods ---------------------------------------------
+
+    /// Insert a reaction into the cache, deduplicating by
+    /// `(message_id, emoji, sender_hash)`.
+    pub fn insert_reaction(&mut self, channel_id: u32, reaction: CachedReaction) {
+        let channel = self.reactions.entry(channel_id).or_default();
+        let exists = channel.iter().any(|r| {
+            r.message_id == reaction.message_id
+                && r.emoji == reaction.emoji
+                && r.sender_hash == reaction.sender_hash
+        });
+        if !exists {
+            channel.push(reaction);
+        }
+    }
+
+    /// Remove a reaction from the cache by
+    /// `(message_id, emoji, sender_hash)`.
+    pub fn remove_reaction(
+        &mut self,
+        channel_id: u32,
+        message_id: &str,
+        emoji: &str,
+        sender_hash: &str,
+    ) {
+        if let Some(channel) = self.reactions.get_mut(&channel_id) {
+            channel.retain(|r| {
+                !(r.message_id == message_id
+                    && r.emoji == emoji
+                    && r.sender_hash == sender_hash)
+            });
+            if channel.is_empty() {
+                let _ = self.reactions.remove(&channel_id);
+            }
+        }
+    }
+
+    /// Return all cached reactions grouped by channel.
+    pub fn all_reactions(&self) -> &HashMap<u32, Vec<CachedReaction>> {
+        &self.reactions
+    }
+
+    // -- Persistence --------------------------------------------------
+
+    /// Save the message cache to an AES-256-GCM encrypted file on disk.
     pub fn save(&self) -> Result<(), String> {
         let json =
             serde_json::to_vec(&self.messages).map_err(|e| format!("serialize cache: {e}"))?;
@@ -131,7 +193,22 @@ impl LocalMessageCache {
         Ok(())
     }
 
-    /// Load the cache from the encrypted file on disk.
+    /// Save the reaction cache to an AES-256-GCM encrypted file on disk.
+    pub fn save_reactions(&self) -> Result<(), String> {
+        let json = serde_json::to_vec(&self.reactions)
+            .map_err(|e| format!("serialize reaction cache: {e}"))?;
+        let encrypted = self.encrypt(&json)?;
+        std::fs::write(&self.reaction_cache_path, &encrypted)
+            .map_err(|e| format!("write reaction cache: {e}"))?;
+        debug!(
+            path = ?self.reaction_cache_path,
+            reactions = self.reaction_count(),
+            "saved local reaction cache"
+        );
+        Ok(())
+    }
+
+    /// Load the message cache from the encrypted file on disk.
     pub fn load(&mut self) -> Result<(), String> {
         if !self.cache_path.exists() {
             debug!(path = ?self.cache_path, "no local message cache found");
@@ -150,8 +227,31 @@ impl LocalMessageCache {
         Ok(())
     }
 
+    /// Load the reaction cache from the encrypted file on disk.
+    pub fn load_reactions(&mut self) -> Result<(), String> {
+        if !self.reaction_cache_path.exists() {
+            debug!(path = ?self.reaction_cache_path, "no local reaction cache found");
+            return Ok(());
+        }
+        let encrypted = std::fs::read(&self.reaction_cache_path)
+            .map_err(|e| format!("read reaction cache: {e}"))?;
+        let json = self.decrypt(&encrypted)?;
+        self.reactions = serde_json::from_slice(&json)
+            .map_err(|e| format!("deserialize reaction cache: {e}"))?;
+        debug!(
+            path = ?self.reaction_cache_path,
+            reactions = self.reaction_count(),
+            "loaded local reaction cache"
+        );
+        Ok(())
+    }
+
     fn total_count(&self) -> usize {
         self.messages.values().map(Vec::len).sum()
+    }
+
+    fn reaction_count(&self) -> usize {
+        self.reactions.values().map(Vec::len).sum()
     }
 
     /// Encrypt plaintext with AES-256-GCM.  Output format: `[12-byte nonce][ciphertext+tag]`.
@@ -278,5 +378,106 @@ mod tests {
         cache.insert(msg.clone());
         cache.insert(msg);
         assert_eq!(cache.total_count(), 1);
+    }
+
+    // -- Reaction tests -----------------------------------------------
+
+    fn test_reaction(message_id: &str, emoji: &str, sender_hash: &str) -> CachedReaction {
+        CachedReaction {
+            message_id: message_id.to_string(),
+            emoji: emoji.to_string(),
+            sender_hash: sender_hash.to_string(),
+            sender_name: format!("User-{sender_hash}"),
+            timestamp: 1000,
+        }
+    }
+
+    #[test]
+    fn reaction_insert_and_dedup() {
+        let dir = TempDir::new().unwrap();
+        let mut cache = LocalMessageCache::new(dir.path(), &test_seed()).unwrap();
+
+        let r = test_reaction("msg-1", "\u{1f44d}", "alice");
+        cache.insert_reaction(5, r.clone());
+        cache.insert_reaction(5, r);
+        assert_eq!(cache.reaction_count(), 1);
+    }
+
+    #[test]
+    fn reaction_remove() {
+        let dir = TempDir::new().unwrap();
+        let mut cache = LocalMessageCache::new(dir.path(), &test_seed()).unwrap();
+
+        cache.insert_reaction(5, test_reaction("msg-1", "\u{1f44d}", "alice"));
+        cache.insert_reaction(5, test_reaction("msg-1", "\u{2764}", "alice"));
+        assert_eq!(cache.reaction_count(), 2);
+
+        cache.remove_reaction(5, "msg-1", "\u{1f44d}", "alice");
+        assert_eq!(cache.reaction_count(), 1);
+
+        let remaining = &cache.all_reactions()[&5];
+        assert_eq!(remaining[0].emoji, "\u{2764}");
+    }
+
+    #[test]
+    fn reaction_remove_cleans_empty_channel() {
+        let dir = TempDir::new().unwrap();
+        let mut cache = LocalMessageCache::new(dir.path(), &test_seed()).unwrap();
+
+        cache.insert_reaction(5, test_reaction("msg-1", "\u{1f44d}", "alice"));
+        cache.remove_reaction(5, "msg-1", "\u{1f44d}", "alice");
+        assert!(cache.all_reactions().is_empty());
+    }
+
+    #[test]
+    fn reaction_save_load_round_trip() {
+        let dir = TempDir::new().unwrap();
+        let seed = test_seed();
+
+        let mut cache = LocalMessageCache::new(dir.path(), &seed).unwrap();
+        cache.insert_reaction(5, test_reaction("msg-1", "\u{1f44d}", "alice"));
+        cache.insert_reaction(5, test_reaction("msg-1", "\u{2764}", "bob"));
+        cache.insert_reaction(7, test_reaction("msg-2", "\u{1f389}", "carol"));
+        cache.save_reactions().unwrap();
+
+        let mut cache2 = LocalMessageCache::new(dir.path(), &seed).unwrap();
+        cache2.load_reactions().unwrap();
+
+        assert_eq!(cache2.reaction_count(), 3);
+        let ch5 = &cache2.all_reactions()[&5];
+        assert_eq!(ch5.len(), 2);
+        let ch7 = &cache2.all_reactions()[&7];
+        assert_eq!(ch7.len(), 1);
+        assert_eq!(ch7[0].emoji, "\u{1f389}");
+    }
+
+    #[test]
+    fn reaction_cache_independent_from_message_cache() {
+        let dir = TempDir::new().unwrap();
+        let seed = test_seed();
+
+        let mut cache = LocalMessageCache::new(dir.path(), &seed).unwrap();
+        cache.insert(CachedMessage {
+            message_id: "msg-1".to_string(),
+            channel_id: 5,
+            timestamp: 1000,
+            sender_hash: "abc".to_string(),
+            sender_name: "Alice".to_string(),
+            body: "Hello!".to_string(),
+            is_own: false,
+        });
+        cache.insert_reaction(5, test_reaction("msg-1", "\u{1f44d}", "abc"));
+        cache.save().unwrap();
+        cache.save_reactions().unwrap();
+
+        // Load only messages -- reactions should still be empty.
+        let mut cache2 = LocalMessageCache::new(dir.path(), &seed).unwrap();
+        cache2.load().unwrap();
+        assert_eq!(cache2.total_count(), 1);
+        assert_eq!(cache2.reaction_count(), 0);
+
+        // Now load reactions.
+        cache2.load_reactions().unwrap();
+        assert_eq!(cache2.reaction_count(), 1);
     }
 }

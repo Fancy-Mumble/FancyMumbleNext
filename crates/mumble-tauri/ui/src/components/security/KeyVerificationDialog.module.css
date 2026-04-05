@@ -1,0 +1,255 @@
+/* --- Key Verification Dialog ------------------------------------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  border: none;
+  padding: 0;
+  margin: 0;
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
+}
+
+.dialog {
+  width: 460px;
+  max-width: 95vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--color-surface, #1e1e2e);
+  border: 1px solid var(--color-glass-border);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  padding: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--color-glass-border);
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.closeBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.body {
+  padding: 16px 20px;
+}
+
+.infoRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.infoLabel {
+  font-weight: 500;
+  color: var(--color-text);
+  min-width: 100px;
+}
+
+/* --- Tab bar ---------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 0;
+  margin: 16px 0 12px;
+  border-bottom: 1px solid var(--color-glass-border);
+}
+
+.tab {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.tab:hover {
+  color: var(--color-text);
+}
+
+.tabActive {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+/* --- Fingerprint display ---------------------------------------- */
+
+.fingerprint {
+  padding: 14px 16px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+  margin-bottom: 14px;
+  text-align: center;
+}
+
+.emojiFingerprint {
+  font-size: 24px;
+  letter-spacing: 4px;
+  word-spacing: 8px;
+  line-height: 1.6;
+}
+
+.wordFingerprint {
+  font-size: 14px;
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  word-spacing: 6px;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.hexFingerprint {
+  font-size: 13px;
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  letter-spacing: 1px;
+  word-spacing: 4px;
+  line-height: 1.6;
+  color: var(--color-text);
+  word-break: break-all;
+}
+
+.showFullBtn {
+  display: block;
+  margin: 8px auto 0;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--color-glass-border);
+  background: transparent;
+  color: var(--color-accent);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.showFullBtn:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* --- Trust status ----------------------------------------------- */
+
+.trustStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.trustVerified {
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.trustUnverified {
+  background: rgba(234, 179, 8, 0.08);
+  border: 1px solid rgba(234, 179, 8, 0.15);
+  color: #eab308;
+}
+
+.trustDisputed {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* --- Verify action ---------------------------------------------- */
+
+.instructions {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin: 12px 0;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--color-glass-border);
+}
+
+.checkbox {
+  accent-color: var(--color-accent);
+}
+
+.checkboxLabel {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  flex: 1;
+  cursor: pointer;
+}
+
+.verifyBtn {
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, opacity 0.2s;
+  white-space: nowrap;
+}
+
+.verifyBtn:hover {
+  background: rgba(34, 197, 94, 0.18);
+}
+
+.verifyBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* --- Mobile ----------------------------------------------------- */
+
+@media (max-width: 768px) {
+  .dialog {
+    width: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 0;
+  }
+}

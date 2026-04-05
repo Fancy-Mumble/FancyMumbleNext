@@ -7,8 +7,8 @@
 
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import PollCard, { registerVote, registerLocalVote } from "../PollCard";
-import type { PollPayload } from "../PollCreator";
+import PollCard, { registerVote, registerLocalVote } from "../chat/PollCard";
+import type { PollPayload } from "../chat/PollCreator";
 
 // --- Helpers ------------------------------------------------------
 

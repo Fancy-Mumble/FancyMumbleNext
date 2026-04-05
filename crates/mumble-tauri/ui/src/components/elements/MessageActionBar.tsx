@@ -35,7 +35,7 @@ export interface MessageActionBarProps {
   /** Called when a quick-reaction emoji is clicked. */
   readonly onReaction: (message: ChatMessage, emoji: string) => void;
   /** Called when the "more reactions" button is clicked. */
-  readonly onMoreReactions: (message: ChatMessage) => void;
+  readonly onMoreReactions: (message: ChatMessage, e?: React.MouseEvent) => void;
   /** Called when the cite/quote button is clicked. */
   readonly onCite: (message: ChatMessage) => void;
   /** Called when the user chooses "Copy text" from the kebab menu. */
@@ -131,7 +131,7 @@ export default function MessageActionBar({
         className={styles.actionBtn}
         title="More reactions"
         aria-label="More reactions"
-        onClick={() => onMoreReactions(message)}
+        onClick={(e) => onMoreReactions(message, e)}
       >
         <EmojiPlusIcon width={16} height={16} />
       </button>

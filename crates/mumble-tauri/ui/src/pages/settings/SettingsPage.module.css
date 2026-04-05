@@ -588,7 +588,15 @@
   border-radius: var(--radius-sm, 6px);
 }
 
+.identityItemActive {
+  background: var(--color-accent-bg, rgba(99, 179, 237, 0.1));
+  border-color: var(--color-accent, rgba(99, 179, 237, 0.4));
+}
+
 .identityLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 14px;
   font-weight: 500;
   color: var(--color-text-primary);
@@ -596,6 +604,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+
+.identityActiveBadge {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-accent, #63b3ed);
+  background: var(--color-accent-bg, rgba(99, 179, 237, 0.12));
+  padding: 2px 7px;
+  border-radius: var(--radius-xs, 4px);
+  flex-shrink: 0;
 }
 
 .identityActions {
@@ -698,8 +718,9 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  width: 72px;
-  height: 72px;
+  min-width: 72px;
+  min-height: 72px;
+  padding: 8px 10px;
   font-family: inherit;
   font-size: 12px;
   color: var(--color-text-secondary);
@@ -728,7 +749,9 @@
 
 .optionLabel {
   font-size: 11px;
-  white-space: nowrap;
+  text-align: center;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 /* --- Nameplate cards (gradient backgrounds) --------------------- */
@@ -1274,6 +1297,7 @@
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.6);
+  -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
 }
 
@@ -1552,4 +1576,53 @@
   font-size: 13px;
   font-weight: 500;
   pointer-events: none;
+}
+
+/* --- Identity selector bar (Profile tab) ------------------------- */
+
+.identityBar {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+}
+
+.identityBarRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.identityBarLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.identityBarRow .select {
+  flex: 1;
+  min-width: 0;
+}
+
+.identityEditBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-accent);
+  background: transparent;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.identityEditBtn:hover {
+  background: var(--color-accent);
+  color: #fff;
 }

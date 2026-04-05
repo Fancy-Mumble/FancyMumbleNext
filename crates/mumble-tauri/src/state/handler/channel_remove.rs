@@ -29,6 +29,7 @@ impl HandleMessage for mumble_tcp::ChannelRemove {
             // Remove any pending key-share consent for this channel.
             state.pending_key_shares.retain(|p| p.channel_id != self.channel_id);
         }
+
         ctx.emit_empty("state-changed");
     }
 }

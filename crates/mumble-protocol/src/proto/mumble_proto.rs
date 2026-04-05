@@ -1135,6 +1135,124 @@ pub struct PchatOfflineQueueDrain {
     #[prost(message, repeated, tag = "2")]
     pub messages: ::prost::alloc::vec::Vec<PchatMessageDeliver>,
 }
+/// A standard Unicode emoji (grapheme cluster, e.g. "\xF0\x9F\x91\x8D").
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct UnicodeEmoji {
+    #[prost(string, optional, tag = "1")]
+    pub grapheme: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// A server-specific custom emoji referenced by shortcode.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ServerEmoji {
+    /// Short code identifier without colons (e.g. "mumble_parrot").
+    #[prost(bytes = "vec", optional, tag = "1")]
+    pub shortcode: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+}
+/// Client -> Server: add or remove an emoji reaction on a persisted message.
+/// The server validates sender_hash against the session, stores the
+/// reaction (or removes it), and broadcasts a PchatReactionDeliver to
+/// all Fancy clients in the channel.
+/// Wire type ID = 117.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatReaction {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    /// Target message ID (must be a valid stored message in this channel).
+    #[prost(string, optional, tag = "2")]
+    pub message_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(enumeration = "ReactionAction", optional, tag = "5")]
+    pub action: ::core::option::Option<i32>,
+    /// TLS cert hash of the reactor (server validates against session).
+    #[prost(string, optional, tag = "6")]
+    pub sender_hash: ::core::option::Option<::prost::alloc::string::String>,
+    /// Client-supplied timestamp (ms since epoch); server may override.
+    #[prost(uint64, optional, tag = "7")]
+    pub timestamp: ::core::option::Option<u64>,
+    /// The emoji being reacted with.
+    #[prost(oneof = "pchat_reaction::Emoji", tags = "3, 4")]
+    pub emoji: ::core::option::Option<pchat_reaction::Emoji>,
+}
+/// Nested message and enum types in `PchatReaction`.
+pub mod pchat_reaction {
+    /// The emoji being reacted with.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Emoji {
+        #[prost(message, tag = "3")]
+        UnicodeEmoji(super::UnicodeEmoji),
+        #[prost(message, tag = "4")]
+        ServerEmoji(super::ServerEmoji),
+    }
+}
+/// Server -> Client: delivers a reaction add/remove event.
+/// Broadcast to all Fancy clients in the channel after a valid PchatReaction.
+/// Wire type ID = 118.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatReactionDeliver {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(string, optional, tag = "2")]
+    pub message_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(enumeration = "ReactionAction", optional, tag = "3")]
+    pub action: ::core::option::Option<i32>,
+    #[prost(string, optional, tag = "4")]
+    pub sender_hash: ::core::option::Option<::prost::alloc::string::String>,
+    /// Best-effort display name of the reactor.
+    #[prost(string, optional, tag = "5")]
+    pub sender_name: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint64, optional, tag = "6")]
+    pub timestamp: ::core::option::Option<u64>,
+    #[prost(oneof = "pchat_reaction_deliver::Emoji", tags = "10, 11")]
+    pub emoji: ::core::option::Option<pchat_reaction_deliver::Emoji>,
+}
+/// Nested message and enum types in `PchatReactionDeliver`.
+pub mod pchat_reaction_deliver {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Emoji {
+        #[prost(message, tag = "10")]
+        UnicodeEmoji(super::UnicodeEmoji),
+        #[prost(message, tag = "11")]
+        ServerEmoji(super::ServerEmoji),
+    }
+}
+/// Server -> Client: batch delivery of all stored reactions for messages
+/// in a channel. Sent in response to PchatFetchResponse so the client
+/// can populate reaction pills for historical messages.
+/// Wire type ID = 119.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PchatReactionFetchResponse {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(message, repeated, tag = "2")]
+    pub reactions: ::prost::alloc::vec::Vec<
+        pchat_reaction_fetch_response::StoredReaction,
+    >,
+}
+/// Nested message and enum types in `PchatReactionFetchResponse`.
+pub mod pchat_reaction_fetch_response {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct StoredReaction {
+        #[prost(string, optional, tag = "1")]
+        pub message_id: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, optional, tag = "2")]
+        pub sender_hash: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, optional, tag = "3")]
+        pub sender_name: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(uint64, optional, tag = "4")]
+        pub timestamp: ::core::option::Option<u64>,
+        #[prost(oneof = "stored_reaction::Emoji", tags = "10, 11")]
+        pub emoji: ::core::option::Option<stored_reaction::Emoji>,
+    }
+    /// Nested message and enum types in `StoredReaction`.
+    pub mod stored_reaction {
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+        pub enum Emoji {
+            #[prost(message, tag = "10")]
+            UnicodeEmoji(super::super::UnicodeEmoji),
+            #[prost(message, tag = "11")]
+            ServerEmoji(super::super::ServerEmoji),
+        }
+    }
+}
 /// Unified pchat protocol indicator.
 /// Each value identifies both the E2EE protocol implementation
 /// and the persistence behaviour for a channel.
@@ -1202,6 +1320,33 @@ impl PchatAckStatus {
             "PCHAT_ACK_REJECTED" => Some(Self::PchatAckRejected),
             "PCHAT_ACK_QUOTA_EXCEEDED" => Some(Self::PchatAckQuotaExceeded),
             "PCHAT_ACK_DELETED" => Some(Self::PchatAckDeleted),
+            _ => None,
+        }
+    }
+}
+/// Reaction action type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ReactionAction {
+    ReactionAdd = 0,
+    ReactionRemove = 1,
+}
+impl ReactionAction {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::ReactionAdd => "REACTION_ADD",
+            Self::ReactionRemove => "REACTION_REMOVE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "REACTION_ADD" => Some(Self::ReactionAdd),
+            "REACTION_REMOVE" => Some(Self::ReactionRemove),
             _ => None,
         }
     }
