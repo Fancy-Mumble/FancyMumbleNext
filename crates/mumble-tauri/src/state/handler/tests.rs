@@ -454,6 +454,118 @@ fn user_state_no_session_is_noop() {
     assert!(ctx.shared.lock().unwrap().users.is_empty());
 }
 
+/// When a post-sync UserState arrives with `texture_hash` but no `texture`,
+/// the handler must request the full blob so the avatar becomes visible.
+/// (Before this fix, texture_hash was silently ignored for post-sync updates,
+/// causing missing avatars when a user joins *after* us and sets their texture.)
+#[tokio::test]
+async fn user_state_texture_hash_triggers_blob_request() {
+    let (ctx, emitter) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.synced = true;
+        state.own_session = Some(1);
+        let _ = state.users.insert(10, make_user(10, "Alice"));
+    }
+
+    // Server sends UserState with texture_hash but no texture
+    // (this is what happens when a client >= 1.2.2 receives a
+    // texture update from the server).
+    let us = mumble_tcp::UserState {
+        session: Some(10),
+        texture_hash: Some(vec![0xDE, 0xAD, 0xBE, 0xEF]),
+        ..Default::default()
+    };
+    us.handle(&ctx);
+
+    // The handler spawns a task to request the blob.  Give it a
+    // moment to run (it will find no client_handle and exit gracefully).
+    tokio::task::yield_now().await;
+
+    // User is still present and the texture is unchanged (the blob
+    // response would fill it in later).
+    let state = ctx.shared.lock().unwrap();
+    assert!(state.users.contains_key(&10));
+    drop(state);
+
+    // The handler should emit state-changed since we are synced.
+    assert!(emitter.event_names().contains(&"state-changed".to_string()));
+}
+
+/// Same as above but for comment_hash without comment.
+#[tokio::test]
+async fn user_state_comment_hash_triggers_blob_request() {
+    let (ctx, emitter) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.synced = true;
+        state.own_session = Some(1);
+        let _ = state.users.insert(10, make_user(10, "Alice"));
+    }
+
+    let us = mumble_tcp::UserState {
+        session: Some(10),
+        comment_hash: Some(vec![0xCA, 0xFE]),
+        ..Default::default()
+    };
+    us.handle(&ctx);
+
+    tokio::task::yield_now().await;
+
+    let state = ctx.shared.lock().unwrap();
+    assert!(state.users.contains_key(&10));
+    drop(state);
+
+    assert!(emitter.event_names().contains(&"state-changed".to_string()));
+}
+
+/// When the full texture is included alongside the hash, no blob request
+/// should be needed - the texture is applied directly.
+#[test]
+fn user_state_full_texture_does_not_need_blob() {
+    let (ctx, _) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.synced = true;
+        let _ = state.users.insert(10, make_user(10, "Alice"));
+    }
+
+    let us = mumble_tcp::UserState {
+        session: Some(10),
+        texture: Some(vec![0xFF, 0xD8, 0xFF, 0xE0]), // JPEG magic
+        texture_hash: Some(vec![0xAB, 0xCD]),
+        ..Default::default()
+    };
+    us.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    assert_eq!(state.users[&10].texture, Some(vec![0xFF, 0xD8, 0xFF, 0xE0]));
+}
+
+/// Before initial sync, texture_hash should NOT trigger a blob request
+/// (the bulk `request_user_blobs` call in ServerSync handles it).
+#[test]
+fn user_state_texture_hash_before_sync_no_blob() {
+    let (ctx, emitter) = make_ctx();
+    // synced = false (default)
+
+    let us = mumble_tcp::UserState {
+        session: Some(10),
+        name: Some("Alice".into()),
+        texture_hash: Some(vec![0xDE, 0xAD]),
+        ..Default::default()
+    };
+    us.handle(&ctx);
+
+    // User inserted but no events (not synced yet).
+    let state = ctx.shared.lock().unwrap();
+    assert!(state.users.contains_key(&10));
+    drop(state);
+
+    // No state-changed event should be emitted before sync.
+    assert!(!emitter.event_names().contains(&"state-changed".to_string()));
+}
+
 // -- UserRemove ----------------------------------------------------
 
 #[test]

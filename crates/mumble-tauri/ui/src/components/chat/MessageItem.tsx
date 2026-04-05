@@ -262,8 +262,8 @@ export default function MessageItem({
           </time>
         )}
         <div className={styles.messageBody}>{renderBody()}</div>
+        {children}
       </div>
-      {children}
     </div>
   );
 }

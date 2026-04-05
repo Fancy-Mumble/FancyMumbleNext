@@ -146,6 +146,9 @@ impl PchatState {
             if let Err(e) = cache.save() {
                 warn!("failed to save local message cache: {e}");
             }
+            if let Err(e) = cache.save_reactions() {
+                warn!("failed to save local reaction cache: {e}");
+            }
         }
     }
 }

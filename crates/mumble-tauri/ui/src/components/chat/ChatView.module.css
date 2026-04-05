@@ -328,10 +328,15 @@
 .bubbleColumn {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  align-items: flex-start;
+  gap: 4px;
   min-width: 0;
-  flex: 1;
+  max-width: 75%;
   padding-bottom: 12px;
+}
+
+.messageGroupOwn > .bubbleColumn {
+  align-items: flex-end;
 }
 
 /* --- Message Rows ----------------------------------------------- */
@@ -352,7 +357,7 @@
 .messageRow {
   display: flex;
   flex-direction: column;
-  width: 100%;
+  max-width: 100%;
 }
 
 .messageRow.own {

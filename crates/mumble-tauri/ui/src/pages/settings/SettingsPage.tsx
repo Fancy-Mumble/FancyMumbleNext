@@ -15,7 +15,7 @@ import {
   applyGlobalShortcut,
   clearGlobalShortcut,
 } from "./shortcutHelpers";
-import { loadProfileData, saveProfileData } from "./profileData";
+import { loadProfileData, saveProfileData, migrateProfilesToIdentities } from "./profileData";
 import { ProfilePanel } from "./ProfilePanel";
 import { AudioPanel } from "./AudioPanel";
 import { ShortcutsPanel } from "./ShortcutsPanel";
@@ -103,10 +103,11 @@ export default function SettingsPage() {
     toggleDeafen: "",
   });
 
-  // Profile
+  // Profile (per-identity)
   const [profile, setProfile] = useState<FancyProfile>({});
   const [bio, setBio] = useState("");
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null);
+  const [activeIdentity, setActiveIdentity] = useState<string | null>(null);
 
   // Identities
   const [identities, setIdentities] = useState<string[]>([]);
@@ -164,15 +165,24 @@ export default function SettingsPage() {
         /* keep defaults */
       }
 
+      let certs: string[] = [];
       try {
-        const certs = await invoke<string[]>("list_certificates");
+        certs = await invoke<string[]>("list_certificates");
         setIdentities(certs);
       } catch {
         /* keep defaults */
       }
 
+      // Migrate global profile to per-identity storage (one-time).
+      await migrateProfilesToIdentities(certs);
+
+      // Determine which identity's profile to load.
+      const pending = useAppStore.getState().pendingConnect;
+      const initialIdentity = pending?.certLabel ?? certs[0] ?? null;
+      setActiveIdentity(initialIdentity);
+
       try {
-        const pd = await loadProfileData();
+        const pd = await loadProfileData(initialIdentity);
         setProfile(pd.profile);
         setBio(pd.bio);
         setAvatarDataUrl(pd.avatarDataUrl);
@@ -256,13 +266,13 @@ export default function SettingsPage() {
           profile,
           bio,
           avatarDataUrl,
-        });
+        }, activeIdentity);
       } catch (e) {
         console.error("Auto-save profile error:", e);
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [profile, bio, avatarDataUrl]);
+  }, [profile, bio, avatarDataUrl, activeIdentity]);
 
   // -- Auto-apply profile to server (debounced) --------------------
 
@@ -373,6 +383,28 @@ export default function SettingsPage() {
     }
   }, []);
 
+  const switchIdentity = useCallback(async (label: string | null) => {
+    setActiveIdentity(label);
+    try {
+      const pd = await loadProfileData(label);
+      setProfile(pd.profile);
+      setBio(pd.bio);
+      setAvatarDataUrl(pd.avatarDataUrl);
+    } catch {
+      setProfile({});
+      setBio("");
+      setAvatarDataUrl(null);
+    }
+  }, []);
+
+  const handleEditIdentityProfile = useCallback(
+    (label: string) => {
+      switchIdentity(label);
+      setTab("profile");
+    },
+    [switchIdentity],
+  );
+
   const handleReset = useCallback(async () => {
     try {
       // Clear all tauri-plugin-store caches so the in-memory data is gone.
@@ -426,6 +458,10 @@ export default function SettingsPage() {
               onAvatarChange={setAvatarDataUrl}
               profileError={profileError}
               isExpert={userMode !== "normal"}
+              activeIdentity={activeIdentity}
+              identities={identities}
+              onSwitchIdentity={switchIdentity}
+              onGoToIdentities={() => setTab("identities")}
             />
           )}
 
@@ -450,6 +486,8 @@ export default function SettingsPage() {
             <IdentitiesPanel
               identities={identities}
               onRefresh={refreshIdentities}
+              onEditProfile={handleEditIdentityProfile}
+              isExpert={userMode !== "normal"}
             />
           )}
 

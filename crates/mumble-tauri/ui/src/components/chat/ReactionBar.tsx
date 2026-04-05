@@ -37,12 +37,10 @@ export default function ReactionBar({
   const handleMouseEnter = useCallback(
     (e: React.MouseEvent, reaction: ReactionSummary) => {
       if (isMobile) return;
-      // Combine session-based names and hash-based names for the tooltip.
       const names = [
         ...reaction.reactorNames.values(),
         ...reaction.reactorHashNames.values(),
       ];
-      // Deduplicate in case the same user appears in both.
       const unique = [...new Set(names)];
       const text =
         unique.length <= 3
@@ -56,14 +54,11 @@ export default function ReactionBar({
 
   const handleMouseLeave = useCallback(() => setTooltip(null), []);
 
-  // Reactions are already sorted by firstTimestamp from getReactions().
-  const sorted = reactions;
-
-  if (sorted.length === 0) return null;
+  if (reactions.length === 0) return null;
 
   return (
     <div className={`${styles.reactions} ${isOwn ? styles.reactionsOwn : ""}`}>
-      {sorted.map((r) => {
+      {reactions.map((r) => {
         const totalCount = r.reactors.size + r.reactorHashes.size;
         const activeSession = ownSession !== null && r.reactors.has(ownSession);
         const activeHash = !!ownHash && r.reactorHashes.has(ownHash);

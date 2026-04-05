@@ -1,7 +1,10 @@
+use std::collections::HashMap;
+
 use mumble_protocol::proto::mumble_tcp;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use super::{HandleMessage, HandlerContext};
+use crate::state::local_cache::CachedReaction;
 use crate::state::pchat;
 use crate::state::types::{
     KeyHoldersChangedPayload, NewMessagePayload, PchatFetchCompletePayload,
@@ -254,6 +257,46 @@ impl HandleMessage for mumble_tcp::PchatReactionDeliver {
             "add"
         };
 
+        // Persist the reaction in the local cache (Signal V1 channels).
+        if let Ok(mut state) = ctx.shared.lock() {
+            // Resolve the display name from the online user list so the
+            // cache stores a human-readable name (the server may send the
+            // cert hash instead of the display name).
+            let resolved_name = state
+                .users
+                .values()
+                .find(|u| u.hash.as_deref() == Some(&sender_hash))
+                .map(|u| u.name.clone())
+                .unwrap_or_else(|| sender_name.clone());
+
+            if let Some(ref mut pchat_state) = state.pchat {
+                if let Some(ref mut cache) = pchat_state.local_cache {
+                    if action_str == "add" {
+                        cache.insert_reaction(
+                            channel_id,
+                            CachedReaction {
+                                message_id: message_id.clone(),
+                                emoji: emoji.clone(),
+                                sender_hash: sender_hash.clone(),
+                                sender_name: resolved_name,
+                                timestamp,
+                            },
+                        );
+                    } else {
+                        cache.remove_reaction(
+                            channel_id,
+                            &message_id,
+                            &emoji,
+                            &sender_hash,
+                        );
+                    }
+                    if let Err(e) = cache.save_reactions() {
+                        warn!("failed to save reaction cache: {e}");
+                    }
+                }
+            }
+        }
+
         ctx.emit(
             "pchat-reaction-deliver",
             ReactionDeliverPayload {
@@ -300,6 +343,40 @@ impl HandleMessage for mumble_tcp::PchatReactionFetchResponse {
                 }
             })
             .collect();
+
+        // Persist fetched reactions in the local cache (Signal V1 channels).
+        if let Ok(mut state) = ctx.shared.lock() {
+            // Build a hash -> name lookup before borrowing pchat mutably.
+            let name_by_hash: HashMap<String, String> = state
+                .users
+                .values()
+                .filter_map(|u| u.hash.clone().map(|h| (h, u.name.clone())))
+                .collect();
+
+            if let Some(ref mut pchat_state) = state.pchat {
+                if let Some(ref mut cache) = pchat_state.local_cache {
+                    for r in &reactions {
+                        let resolved = name_by_hash
+                            .get(&r.sender_hash)
+                            .cloned()
+                            .unwrap_or_else(|| r.sender_name.clone());
+                        cache.insert_reaction(
+                            channel_id,
+                            CachedReaction {
+                                message_id: r.message_id.clone(),
+                                emoji: r.emoji.clone(),
+                                sender_hash: r.sender_hash.clone(),
+                                sender_name: resolved,
+                                timestamp: r.timestamp,
+                            },
+                        );
+                    }
+                    if let Err(e) = cache.save_reactions() {
+                        warn!("failed to save reaction cache: {e}");
+                    }
+                }
+            }
+        }
 
         ctx.emit(
             "pchat-reaction-fetch-response",

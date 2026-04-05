@@ -411,6 +411,31 @@ impl HandleMessage for mumble_tcp::UserState {
                 }
             }
         }
+        // If we received only a hash (no full payload), the server omitted
+        // the large blob. Request it so we display the texture / comment.
+        // During initial sync `request_user_blobs` handles this in bulk,
+        // so we only fire individual blob requests for post-sync updates.
+        if is_synced {
+            let need_texture = self.texture_hash.is_some() && self.texture.is_none();
+            let need_comment = self.comment_hash.is_some() && self.comment.is_none();
+            if need_texture || need_comment {
+                let shared = Arc::clone(&ctx.shared);
+                let sess = session;
+                let _blob_task = tokio::spawn(async move {
+                    let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
+                    if let Some(handle) = handle {
+                        let _ = handle
+                            .send(command::RequestBlob {
+                                session_texture: if need_texture { vec![sess] } else { Vec::new() },
+                                session_comment: if need_comment { vec![sess] } else { Vec::new() },
+                                channel_description: Vec::new(),
+                            })
+                            .await;
+                    }
+                });
+            }
+        }
+
         // Only notify frontend after initial sync is done.
         if is_synced {
             ctx.emit_empty("state-changed");

@@ -1099,7 +1099,8 @@ export async function initEventListeners(
             const ownUser = useAppStore.getState().users.find((u) => u.session === ownSession);
             const isRegistered = ownUser?.user_id != null && ownUser.user_id > 0;
             if (!isRegistered) {
-              loadProfileData()
+              const identityLabel = useAppStore.getState().pendingConnect?.certLabel ?? null;
+              loadProfileData(identityLabel)
                 .then(async ({ profile, bio, avatarDataUrl }) => {
                   const comment = serializeProfile(profile, bio);
                   if (comment) {
