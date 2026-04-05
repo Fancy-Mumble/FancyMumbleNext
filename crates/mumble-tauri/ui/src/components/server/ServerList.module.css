@@ -262,6 +262,90 @@
   font-size: 14px;
 }
 
+/* --- No search results -- */
+
+.noResults {
+  text-align: center;
+  padding: 20px 16px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* --- Search bar -------------------------------------------------- */
+
+.searchWrap {
+  position: relative;
+  margin: 8px 0 6px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-muted);
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 8px 10px 8px 30px;
+  background: var(--color-glass);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+  box-sizing: border-box;
+}
+
+.searchInput::placeholder {
+  color: var(--color-text-muted);
+}
+
+.searchInput:focus {
+  border-color: var(--color-accent);
+  background: var(--color-glass-hover);
+}
+
+/* --- Scrollable server list container --------------------------- */
+
+.scrollList {
+  /*
+   * offset math (desktop):
+   *   var(--titlebar-height) 40px
+   *   + page padding 48px
+   *   + card padding 80px
+   *   + logo block ~165px
+   *   + list header ~30px
+   *   + search bar ~48px
+   *   + "Browse public servers" ~46px
+   *   + ~18px misc margins
+   *   = ~475px fixed overhead, +35px slack = 510px
+   *
+   * The list starts shrinking as soon as 100dvh < 790px, which is
+   * before the card would overflow the page (overflow threshold = DVH - 457).
+   * Formula is always 53px below that threshold, so no page scrollbar appears.
+   */
+  max-height: clamp(60px, calc(100dvh - 510px), 280px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Fade edges to hint scrollability */
+  mask-image: linear-gradient(to bottom, transparent 0, black 8px, black calc(100% - 8px), transparent 100%);
+}
+
+@media (max-width: 768px) {
+  .scrollList {
+    /* Mobile has smaller card (56px) and page (32px) padding = 40px less. */
+    max-height: clamp(60px, calc(100dvh - 470px), 220px);
+  }
+}
+
 /* --- Section header with "Add server" link ---------------------- */
 
 .header {

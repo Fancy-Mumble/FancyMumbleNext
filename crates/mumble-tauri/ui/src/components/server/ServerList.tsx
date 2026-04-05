@@ -1,4 +1,4 @@
-﻿import { useMemo, useRef, useCallback } from "react";
+﻿import { useMemo, useRef, useCallback, useState } from "react";
 import type { SavedServer, ServerPingResult } from "../../types";
 import { isMobile } from "../../utils/platform";
 import UserFilledIcon from "../../assets/icons/user/user-filled.svg?react";
@@ -159,13 +159,17 @@ export default function ServerList({
   disabled,
   connectingId,
 }: Readonly<Props>) {
+  const [searchQuery, setSearchQuery] = useState("");
 
-
-  // Favourites always appear before non-favourites; relative order is preserved.
-  const displayed = useMemo(
-    () => [...servers].sort((a, b) => Number(b.favorite) - Number(a.favorite)),
-    [servers],
-  );
+  // Favourites first, then filter by search query.
+  const displayed = useMemo(() => {
+    const sorted = [...servers].sort((a, b) => Number(b.favorite) - Number(a.favorite));
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return sorted;
+    return sorted.filter(
+      (s) => (s.label || "").toLowerCase().includes(q) || s.host.toLowerCase().includes(q),
+    );
+  }, [servers, searchQuery]);
 
   return (
     <div>
@@ -182,13 +186,35 @@ export default function ServerList({
         </button>
       </div>
 
-      {displayed.length === 0 ? (
+      {/* Search bar - only shown when there are saved servers */}
+      {servers.length > 0 && (
+        <div className={styles.searchWrap}>
+          <svg className={styles.searchIcon} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M12.5 12.5L16 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+          <input
+            className={styles.searchInput}
+            type="text"
+            placeholder="Search servers..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            disabled={disabled}
+            aria-label="Search saved servers"
+          />
+        </div>
+      )}
+
+      {servers.length === 0 ? (
         <div className={styles.empty}>
           No saved servers yet.
           <br />
           Add one to get started!
         </div>
+      ) : displayed.length === 0 ? (
+        <div className={styles.noResults}>No servers match &ldquo;{searchQuery}&rdquo;</div>
       ) : (
+        <div className={styles.scrollList}>
         <div className={styles.list}>
           {displayed.map((s) => {
             const isThisConnecting = connectingId === s.id;
@@ -304,6 +330,7 @@ export default function ServerList({
               </SwipeableCard>
             );
           })}
+        </div>
         </div>
       )}
     </div>
