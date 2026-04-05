@@ -904,6 +904,19 @@ async fn send_plugin_data(
     state.send_plugin_data(receiver_sessions, data, data_id).await
 }
 
+/// Send a WebRTC screen-sharing signaling message.
+///
+/// `target_session` of 0 broadcasts to all channel members.
+#[tauri::command]
+async fn send_webrtc_signal(
+    state: tauri::State<'_, AppState>,
+    target_session: u32,
+    signal_type: i32,
+    payload: String,
+) -> Result<(), String> {
+    state.send_webrtc_signal(target_session, signal_type, payload).await
+}
+
 /// Send a reaction (add/remove) on a persisted chat message.
 #[tauri::command]
 async fn send_reaction(
@@ -1555,7 +1568,9 @@ async fn key_takeover(
 
 // --- Image processing --------------------------------------------
 
-/// Apply a Gaussian blur to a JPEG/PNG image and return the result as JPEG bytes.
+// --- Image processing commands -----------------------------------
+
+/// Apply a Gaussian blur to an image.
 ///
 /// `image_base64` is the raw file content encoded as a base64 string.
 /// `sigma` controls the blur strength (typical range 1.0 - 30.0).
@@ -1829,6 +1844,7 @@ pub fn run() {
             set_user_texture,
             get_own_session,
             send_plugin_data,
+            send_webrtc_signal,
             send_reaction,
             delete_pchat_messages,
             send_dm,

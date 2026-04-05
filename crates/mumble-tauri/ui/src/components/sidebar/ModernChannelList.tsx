@@ -25,6 +25,7 @@ import ListenBadgeIcon from "../../assets/icons/audio/listen-badge.svg?react";
 import { PchatBadge } from "./PchatBadge";
 import MicOffSmallIcon from "../../assets/icons/audio/mic-off-small.svg?react";
 import HeadphonesOffIcon from "../../assets/icons/audio/headphones-off.svg?react";
+import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
 import styles from "./ModernChannelList.module.css";
 
 const MAX_STACKED = 3;
@@ -43,6 +44,7 @@ interface ModernChannelListProps {
   readonly listenedChannels: Set<number>;
   readonly unreadCounts: Record<number, number>;
   readonly talkingSessions: Set<number>;
+  readonly broadcastingSessions: Set<number>;
   readonly onSelectChannel: (id: number) => void;
   readonly onJoinChannel: (id: number) => void;
   readonly onContextMenu: (e: React.MouseEvent, channelId: number) => void;
@@ -55,11 +57,12 @@ interface ModernChannelListProps {
 interface MemberItemProps {
   readonly user: UserEntry;
   readonly isTalking: boolean;
+  readonly isBroadcasting: boolean;
   readonly onContextMenu?: (e: React.MouseEvent, user: UserEntry) => void;
   readonly onClick?: (session: number) => void;
 }
 
-function MemberItem({ user, isTalking, onContextMenu, onClick }: MemberItemProps) {
+function MemberItem({ user, isTalking, isBroadcasting, onContextMenu, onClick }: MemberItemProps) {
   const url = useMemo(() => avatarUrl(user), [user.texture]);
   const parsed = useMemo(
     () => (user.comment ? parseComment(user.comment) : null),
@@ -129,6 +132,12 @@ function MemberItem({ user, isTalking, onContextMenu, onClick }: MemberItemProps
         {user.self_deaf && (
           <HeadphonesOffIcon className={styles.statusIcon} width={12} height={12} />
         )}
+        {isBroadcasting && (
+          <span className={styles.liveBadge} title="Sharing screen">
+            <ScreenShareIcon width={10} height={10} />
+            Live
+          </span>
+        )}
       </button>
       {showCard && cardPos && createPortal(
         <div
@@ -191,6 +200,7 @@ export default function ModernChannelList({
   listenedChannels,
   unreadCounts,
   talkingSessions,
+  broadcastingSessions,
   onSelectChannel,
   onJoinChannel,
   onContextMenu,
@@ -330,6 +340,7 @@ export default function ModernChannelList({
                 key={u.session}
                 user={u}
                 isTalking={talkingSessions.has(u.session)}
+                isBroadcasting={broadcastingSessions.has(u.session)}
                 onContextMenu={onUserContextMenu}
                 onClick={onUserClick}
               />
@@ -340,7 +351,7 @@ export default function ModernChannelList({
     );
   }, [
     usersByChannel, unreadCounts, listenedChannels, selectedChannel,
-    currentChannel, collapsed, talkingSessions,
+    currentChannel, collapsed, talkingSessions, broadcastingSessions,
     toggleCollapsed, onSelectChannel, onJoinChannel, onContextMenu, onUserContextMenu, onUserClick,
   ]);
 

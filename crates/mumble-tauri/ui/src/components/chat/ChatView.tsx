@@ -5,6 +5,7 @@ import type { ChatMessage, TimeFormat } from "../../types";
 import { getPreferences } from "../../preferencesStorage";
 import { loadPersonalization, type PersonalizationData } from "../../personalizationStorage";
 import ChatHeader from "./ChatHeader";
+import type { BroadcastInfo } from "./ChatHeader";
 import MobileCallControls from "./MobileCallControls";
 import ChatComposer from "./ChatComposer";
 import PollCreator from "./PollCreator";
@@ -27,8 +28,17 @@ import { useChatScroll } from "./useChatScroll";
 import { useMessageSelection } from "./useMessageSelection";
 import { isMobile } from "../../utils/platform";
 import type { MessageScope } from "../../messageOffload";
+import { useScreenShare } from "./useScreenShare";
+import ScreenShareViewer, { BroadcastBanner } from "./ScreenShareViewer";
 import styles from "./ChatView.module.css";
 import { Lightbox, type LightboxHandle } from "../elements/Lightbox";
+
+/**
+ * Minimum Fancy Mumble server version required for screen sharing.
+ * Encoded as (major << 48) | (minor << 32) | (patch << 16).
+ * 0.2.12 = (0 << 48) | (2 << 32) | (12 << 16)
+ */
+const SCREEN_SHARE_MIN_VERSION = 2 * 2 ** 32 + 12 * 2 ** 16;
 
 interface ChatViewProps {
   readonly onChannelInfoToggle?: () => void;
@@ -71,6 +81,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   const selectUser = useAppStore((s) => s.selectUser);
   const toggleSilenceChannel = useAppStore((s) => s.toggleSilenceChannel);
   const silencedChannels = useAppStore((s) => s.silencedChannels);
+  const serverFancyVersion = useAppStore((s) => s.serverFancyVersion);
 
   // DM state
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
@@ -246,11 +257,49 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     getMessageReactions, toggleReaction,
   } = useReactions();
 
+  const screenShare = useScreenShare();
+
+  // Determine which screen share panel to show (own broadcast or watching someone).
+  const activeScreenShare = screenShare.isBroadcasting
+    ? { session: ownSession!, isOwn: true, stream: screenShare.localStream }
+    : screenShare.watchingSession !== null
+      ? { session: screenShare.watchingSession, isOwn: false, stream: null }
+      : null;
+
+  // Other users broadcasting in the current channel (for the notification banner).
+  const channelBroadcasters = useMemo(() => {
+    if (screenShare.broadcastingSessions.size === 0) return [];
+    return users
+      .filter((u) => u.channel_id === selectedChannel
+        && screenShare.broadcastingSessions.has(u.session)
+        && u.session !== ownSession)
+      .map((u) => ({ session: u.session, name: u.name }));
+  }, [users, selectedChannel, screenShare.broadcastingSessions, ownSession]);
+
   // Compute header values before any early returns (hooks can't be conditional).
   const [headerName, headerMemberCount] = computeHeader(
     isGroupMode, activeGroup, isDmMode, dmPartner, channel, memberCount,
   );
   const showJoinButton = !isDmMode && !isGroupMode && !isInChannel;
+
+  // Build broadcastInfo for the header when a stream is active.
+  const broadcastInfo = useMemo((): BroadcastInfo | undefined => {
+    if (!activeScreenShare) return undefined;
+    const broadcaster = users.find((u) => u.session === activeScreenShare.session);
+    const name = broadcaster?.name ?? "User";
+    const avatar = avatarBySession.get(activeScreenShare.session) ?? null;
+    const viewers = broadcaster
+      ? users.filter((u) => u.channel_id === broadcaster.channel_id).length - 1
+      : users.length - 1;
+    return {
+      broadcasterName: name,
+      avatarUrl: avatar,
+      viewerCount: viewers,
+      isOwnBroadcast: activeScreenShare.isOwn,
+      channelName: channel?.name ?? "Unknown",
+      onClose: activeScreenShare.isOwn ? screenShare.stopSharing : screenShare.stopWatching,
+    };
+  }, [activeScreenShare, users, avatarBySession, screenShare.stopSharing, screenShare.stopWatching]);
 
   // Empty state - no channel, DM, or group selected.
   if (selectedChannel === null && !isDmMode && !isGroupMode) {
@@ -265,7 +314,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   }
 
   return (
-    <main className={styles.main}>
+    <main className={`${styles.main} ${activeScreenShare ? styles.streamingLayout : ""}`}>
       {selectionMode ? (
         <MessageSelectionBar
           count={selectedMsgIds.size}
@@ -288,10 +337,33 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onPollCreate={openPollCreator}
           isSilenced={selectedChannel !== null && silencedChannels.has(selectedChannel)}
           onToggleSilence={selectedChannel !== null ? () => toggleSilenceChannel(selectedChannel) : undefined}
+          isScreenSharing={screenShare.isBroadcasting}
+          onToggleScreenShare={
+            !isMobile && serverFancyVersion != null && serverFancyVersion >= SCREEN_SHARE_MIN_VERSION
+              ? (screenShare.isBroadcasting ? screenShare.stopSharing : screenShare.startSharing)
+              : undefined
+          }
+          broadcastInfo={broadcastInfo}
         />
       )}
 
       <MobileCallControls />
+
+      {/* Screen share viewer panel */}
+      {activeScreenShare && (
+        <ScreenShareViewer
+          isOwnBroadcast={activeScreenShare.isOwn}
+          localStream={activeScreenShare.stream}
+        />
+      )}
+
+      {/* Notification banner when someone in the channel is sharing */}
+      {!activeScreenShare && channelBroadcasters.length > 0 && (
+        <BroadcastBanner
+          broadcasters={channelBroadcasters}
+          onWatch={screenShare.watchBroadcast}
+        />
+      )}
 
       {/* Messages wrapper: position:relative so the key-share banner
            can overlay the scroll viewport without scrolling with it */}

@@ -692,3 +692,30 @@ message PchatReactionFetchResponse {
 	optional uint32 channel_id = 1;
 	repeated StoredReaction reactions = 2;
 }
+
+// ---------------------------------------------------------------------------
+// WebRTC screen sharing signaling (Fancy Mumble extension, ID 120)
+// ---------------------------------------------------------------------------
+
+// Bidirectional signaling message for WebRTC screen-share sessions.
+// The server acts as a relay: it fills in sender_session and forwards
+// the message to target_session unchanged.
+// Wire type ID = 120.
+message WebRtcSignal {
+	// Session ID of the intended recipient (0 = broadcast to channel).
+	optional uint32 target_session = 1;
+	// Session ID of the sender (set by server, ignored from client).
+	optional uint32 sender_session = 2;
+
+	enum SignalType {
+		START         = 0;
+		STOP          = 1;
+		SDP_OFFER     = 2;
+		SDP_ANSWER    = 3;
+		ICE_CANDIDATE = 4;
+	}
+	optional SignalType signal_type = 3;
+
+	// SDP or ICE candidate string (JSON-encoded for ICE).
+	optional string payload = 4;
+}

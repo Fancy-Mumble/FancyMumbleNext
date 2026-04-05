@@ -408,6 +408,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
   const createGroup = useAppStore((s) => s.createGroup);
   const ownSession = useAppStore((s) => s.ownSession);
   const talkingSessions = useAppStore((s) => s.talkingSessions);
+  const broadcastingSessions = useAppStore((s) => s.broadcastingSessions);
 
   const selectDmUser = useAppStore((s) => s.selectDmUser);
   const selectUser = useAppStore((s) => s.selectUser);
@@ -789,6 +790,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
             listenedChannels={listenedChannels}
             unreadCounts={unreadCounts}
             talkingSessions={talkingSessions}
+            broadcastingSessions={broadcastingSessions}
             onSelectChannel={(id) => { selectChannel(id); onChannelSelect?.(); }}
             onJoinChannel={(id) => { joinChannel(id); selectChannel(id); onChannelSelect?.(); }}
             onContextMenu={openCtxMenu}
