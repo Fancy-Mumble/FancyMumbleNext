@@ -1,0 +1,242 @@
+/* --- Screen Share Viewer ----------------------------------------- */
+
+.broadcastArea {
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+}
+
+/* --- Video viewport --------------------------------------------- */
+
+.streamViewport {
+  position: relative;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.videoElement {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+/* --- Stream controls overlay ------------------------------------ */
+
+.streamControls {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+  opacity: 1;
+  transition: opacity 0.2s;
+}
+
+.controlBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.controlBtn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.volumeGroup {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.volumeSlider {
+  width: 80px;
+  height: 4px;
+  accent-color: #fff;
+  cursor: pointer;
+}
+
+.controlsSpacer {
+  flex: 1;
+}
+
+.streamPlaceholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 20px;
+  color: var(--color-text-muted);
+  width: 100%;
+}
+
+.streamPlaceholderIcon {
+  width: 48px;
+  height: 48px;
+  opacity: 0.4;
+}
+
+.streamPlaceholderText {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* --- Badges & buttons ------------------------------------------- */
+
+.screenShareBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(237, 66, 69, 0.15);
+  color: #ed4245;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.screenShareBadgeIcon {
+  width: 10px;
+  height: 10px;
+}
+
+.shareScreenBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.shareScreenBtn:hover {
+  background: var(--color-glass-hover, rgba(255, 255, 255, 0.08));
+  color: var(--color-text-primary);
+}
+
+.shareScreenBtnActive {
+  color: #ed4245;
+  background: rgba(237, 66, 69, 0.12);
+}
+
+.shareScreenBtnActive:hover {
+  background: rgba(237, 66, 69, 0.2);
+  color: #ed4245;
+}
+
+/* --- Broadcast notification banner ------------------------------ */
+
+.broadcastBanner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, rgba(237, 66, 69, 0.12), rgba(237, 66, 69, 0.06));
+  border-bottom: 1px solid rgba(237, 66, 69, 0.2);
+  flex-shrink: 0;
+}
+
+.broadcastBannerDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ed4245;
+  flex-shrink: 0;
+  animation: bannerDotPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes bannerDotPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(237, 66, 69, 0.4); }
+  50% { opacity: 0.6; box-shadow: 0 0 6px 2px rgba(237, 66, 69, 0.3); }
+}
+
+.broadcastBannerText {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+
+.broadcastBannerName {
+  font-weight: 600;
+}
+
+.broadcastBannerWatchBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(237, 66, 69, 0.35);
+  background: rgba(237, 66, 69, 0.12);
+  color: #ed4245;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+
+.broadcastBannerWatchBtn:hover {
+  background: rgba(237, 66, 69, 0.22);
+  border-color: rgba(237, 66, 69, 0.5);
+}
+
+.broadcastBannerDismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.broadcastBannerDismiss:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text-primary);
+}
+
+.shareScreenBtnIcon {
+  width: 18px;
+  height: 18px;
+}

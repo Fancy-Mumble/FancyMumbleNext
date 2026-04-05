@@ -12,6 +12,7 @@ import HeadphonesOffIcon from "../../assets/icons/audio/headphones-off.svg?react
 import StarIcon from "../../assets/icons/status/star.svg?react";
 import ShieldCheckIcon from "../../assets/icons/status/shield-check.svg?react";
 import VolumeIcon from "../../assets/icons/audio/volume.svg?react";
+import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
 import styles from "./UserListItem.module.css";
 
 // Re-export so existing consumers (e.g. ChannelSidebar) keep working.
@@ -85,6 +86,7 @@ export function UserListItem({
   const itemRef = useRef<HTMLButtonElement>(null);
   const dmUnread = useAppStore((s) => s.dmUnreadCounts[user.session] ?? 0);
   const volumePct = useAppStore((s) => user.hash ? (s.userVolumes[user.hash] ?? 100) : 100);
+  const isBroadcasting = useAppStore((s) => s.broadcastingSessions.has(user.session));
   const stats = useUserStats(user.session, showCard);
 
   const url = useMemo(() => avatarUrl(user), [user.texture]);
@@ -174,6 +176,12 @@ export function UserListItem({
               <PriorityIcon />
             </span>
           )}
+        </span>
+      )}
+      {isBroadcasting && (
+        <span className={styles.liveBadge} title="Sharing screen">
+          <ScreenShareIcon width={10} height={10} />
+          Live
         </span>
       )}
       {dmUnread > 0 && (

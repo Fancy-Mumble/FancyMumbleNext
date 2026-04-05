@@ -770,6 +770,34 @@ impl AppState {
         Ok(())
     }
 
+    // -- WebRTC signaling -------------------------------------------
+
+    /// Send a WebRTC screen-sharing signal to the server.
+    pub async fn send_webrtc_signal(
+        &self,
+        target_session: u32,
+        signal_type: i32,
+        payload: String,
+    ) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+
+        let handle = handle.ok_or("Not connected")?;
+
+        handle
+            .send(command::SendWebRtcSignal {
+                target_session,
+                signal_type,
+                payload,
+            })
+            .await
+            .map_err(|e| format!("Failed to send WebRTC signal: {e}"))?;
+
+        Ok(())
+    }
+
     // -- Pchat reactions --------------------------------------------
 
     /// Send a reaction (add/remove) on a persisted chat message.

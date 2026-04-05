@@ -1253,6 +1253,72 @@ pub mod pchat_reaction_fetch_response {
         }
     }
 }
+/// Bidirectional signaling message for WebRTC screen-share sessions.
+/// The server acts as a relay: it fills in sender_session and forwards
+/// the message to target_session unchanged.
+/// Wire type ID = 120.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct WebRtcSignal {
+    /// Session ID of the intended recipient (0 = broadcast to channel).
+    #[prost(uint32, optional, tag = "1")]
+    pub target_session: ::core::option::Option<u32>,
+    /// Session ID of the sender (set by server, ignored from client).
+    #[prost(uint32, optional, tag = "2")]
+    pub sender_session: ::core::option::Option<u32>,
+    #[prost(enumeration = "web_rtc_signal::SignalType", optional, tag = "3")]
+    pub signal_type: ::core::option::Option<i32>,
+    /// SDP or ICE candidate string (JSON-encoded for ICE).
+    #[prost(string, optional, tag = "4")]
+    pub payload: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// Nested message and enum types in `WebRtcSignal`.
+pub mod web_rtc_signal {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum SignalType {
+        Start = 0,
+        Stop = 1,
+        SdpOffer = 2,
+        SdpAnswer = 3,
+        IceCandidate = 4,
+    }
+    impl SignalType {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Start => "START",
+                Self::Stop => "STOP",
+                Self::SdpOffer => "SDP_OFFER",
+                Self::SdpAnswer => "SDP_ANSWER",
+                Self::IceCandidate => "ICE_CANDIDATE",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "START" => Some(Self::Start),
+                "STOP" => Some(Self::Stop),
+                "SDP_OFFER" => Some(Self::SdpOffer),
+                "SDP_ANSWER" => Some(Self::SdpAnswer),
+                "ICE_CANDIDATE" => Some(Self::IceCandidate),
+                _ => None,
+            }
+        }
+    }
+}
 /// Unified pchat protocol indicator.
 /// Each value identifies both the E2EE protocol implementation
 /// and the persistence behaviour for a channel.

@@ -105,6 +105,8 @@ pub enum TcpMessageType {
     PchatReactionDeliver = 118,
     /// Fancy Mumble: server response with reactions for requested messages.
     PchatReactionFetchResponse = 119,
+    /// Fancy Mumble: WebRTC screen-sharing signaling relay.
+    WebRtcSignal = 120,
 }
 
 impl TryFrom<u16> for TcpMessageType {
@@ -159,6 +161,7 @@ impl TryFrom<u16> for TcpMessageType {
             117 => Ok(Self::PchatReaction),
             118 => Ok(Self::PchatReactionDeliver),
             119 => Ok(Self::PchatReactionFetchResponse),
+            120 => Ok(Self::WebRtcSignal),
             other => Err(crate::error::Error::UnknownMessageType(other)),
         }
     }
@@ -259,6 +262,8 @@ pub enum ControlMessage {
     PchatReactionDeliver(mumble_tcp::PchatReactionDeliver),
     /// Fancy Mumble: server response with reactions for requested messages.
     PchatReactionFetchResponse(mumble_tcp::PchatReactionFetchResponse),
+    /// Fancy Mumble: WebRTC screen-sharing signaling relay.
+    WebRtcSignal(mumble_tcp::WebRtcSignal),
     /// UDP audio tunneled through TCP (fallback path).
     UdpTunnel(Vec<u8>),
 }
@@ -337,6 +342,7 @@ mod tests {
             (117, TcpMessageType::PchatReaction),
             (118, TcpMessageType::PchatReactionDeliver),
             (119, TcpMessageType::PchatReactionFetchResponse),
+            (120, TcpMessageType::WebRtcSignal),
         ];
 
         for (id, expected_type) in &expected {
@@ -377,13 +383,18 @@ mod tests {
             let msg_type = TcpMessageType::try_from(id).unwrap();
             assert_eq!(msg_type as u16, id);
         }
+        // WebRtcSignal ID (120)
+        {
+            let msg_type = TcpMessageType::try_from(120u16).unwrap();
+            assert_eq!(msg_type as u16, 120);
+        }
     }
 
     #[test]
     fn tcp_message_type_invalid_returns_error() {
         assert!(TcpMessageType::try_from(27u16).is_err());
         assert!(TcpMessageType::try_from(99u16).is_err());
-        assert!(TcpMessageType::try_from(120u16).is_err());
+        assert!(TcpMessageType::try_from(121u16).is_err());
         assert!(TcpMessageType::try_from(199u16).is_err());
         assert!(TcpMessageType::try_from(203u16).is_err());
         assert!(TcpMessageType::try_from(u16::MAX).is_err());

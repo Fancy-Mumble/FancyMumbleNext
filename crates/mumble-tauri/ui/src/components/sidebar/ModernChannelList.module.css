@@ -229,6 +229,29 @@
   opacity: 0.7;
 }
 
+/* --- Live badge (screen sharing) -------------------------------- */
+
+.liveBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(237, 66, 69, 0.15);
+  color: #ed4245;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+  animation: livePulse 2s ease-in-out infinite;
+}
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 /* --- Sticky current channel ------------------------------------- */
 
 .stickyChannel {

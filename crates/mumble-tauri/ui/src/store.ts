@@ -32,6 +32,7 @@ import type {
   PchatProtocol,
   PendingKeyShareRequest,
   KeyHolderEntry,
+  ServerInfo,
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator";
 import { registerPoll, registerVote } from "./components/chat/PollCard";
@@ -102,6 +103,8 @@ interface AppState {
   listenedChannels: Set<number>;
   unreadCounts: Record<number, number>;
   serverConfig: MumbleServerConfig;
+  /** Fancy Mumble version of the connected server (v2-encoded), null if not a fancy server. */
+  serverFancyVersion: number | null;
   voiceState: VoiceState;
   /** True when audio is transported over UDP (false = TCP tunnel). */
   udpActive: boolean;
@@ -136,6 +139,14 @@ interface AppState {
 
   /** Monotonic counter incremented whenever the module-level reaction store changes. */
   reactionVersion: number;
+
+  // -- Screen share state (in-memory) ----------------------------
+  /** Whether we are currently sharing our own screen. */
+  isSharingOwn: boolean;
+  /** Session IDs of other users currently broadcasting. */
+  broadcastingSessions: Set<number>;
+  /** Session ID we are currently watching (null if not watching). */
+  watchingSession: number | null;
 
   // -- Persistent chat state -------------------------------------
   /** Persistence metadata per channel (mode, retention, fetch state). */
@@ -213,6 +224,8 @@ interface AppState {
   toggleDeafen: () => Promise<void>;
   selectUser: (session: number | null) => void;
   sendPluginData: (receiverSessions: number[], data: Uint8Array, dataId: string) => Promise<void>;
+  /** Send a WebRTC screen-sharing signaling message via native proto. */
+  sendWebRtcSignal: (targetSession: number, signalType: number, payload: string) => Promise<void>;
   /** Send a reaction (add/remove) on a persistent chat message via native proto. */
   sendReaction: (channelId: number, messageId: string, emoji: string, action: "add" | "remove") => Promise<void>;
   /** Add a poll to the store (called locally when creating a poll). */
@@ -285,6 +298,7 @@ const INITIAL: Pick<
   | "listenedChannels"
   | "unreadCounts"
   | "serverConfig"
+  | "serverFancyVersion"
   | "voiceState"
   | "udpActive"
   | "inCall"
@@ -299,6 +313,9 @@ const INITIAL: Pick<
   | "polls"
   | "pollMessages"
   | "reactionVersion"
+  | "isSharingOwn"
+  | "broadcastingSessions"
+  | "watchingSession"
   | "channelPersistence"
   | "keyTrust"
   | "custodianPins"
@@ -332,6 +349,7 @@ const INITIAL: Pick<
     max_image_message_length: 131072,
     allow_html: true,
   },
+  serverFancyVersion: null,
   voiceState: "inactive" as VoiceState,
   udpActive: false,
   inCall: false,
@@ -346,6 +364,9 @@ const INITIAL: Pick<
   polls: new Map(),
   pollMessages: [],
   reactionVersion: 0,
+  isSharingOwn: false,
+  broadcastingSessions: new Set(),
+  watchingSession: null,
   channelPersistence: {},
   keyTrust: {},
   custodianPins: {},
@@ -541,6 +562,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
       set({ channels, users, channelPersistence: nextPersistence });
+
+      // Clean up broadcastingSessions for users that are no longer connected.
+      const currentSessions = new Set(users.map((u) => u.session));
+      const { broadcastingSessions } = get();
+      if (broadcastingSessions.size > 0) {
+        const pruned = new Set([...broadcastingSessions].filter((s) => currentSessions.has(s)));
+        if (pruned.size !== broadcastingSessions.size) {
+          set({ broadcastingSessions: pruned });
+        }
+      }
     } catch (e) {
       console.error("refresh error:", e);
     }
@@ -693,6 +724,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     } catch (e) {
       console.error("send_plugin_data error:", e);
+    }
+  },
+
+  sendWebRtcSignal: async (targetSession, signalType, payload) => {
+    try {
+      await invoke("send_webrtc_signal", {
+        targetSession,
+        signalType,
+        payload,
+      });
+    } catch (e) {
+      console.error("send_webrtc_signal error:", e);
     }
   },
 
@@ -1005,6 +1048,20 @@ export function onPluginData(handler: PluginDataHandler): () => void {
   };
 }
 
+// --- WebRTC signal handler registry ---
+
+type WebRtcSignalHandler = (senderSession: number | null, signalType: number, payload: string) => void;
+const webRtcSignalHandlers: WebRtcSignalHandler[] = [];
+
+/** Register a handler for incoming WebRTC screen-sharing signals. */
+export function onWebRtcSignal(handler: WebRtcSignalHandler): () => void {
+  webRtcSignalHandlers.push(handler);
+  return () => {
+    const idx = webRtcSignalHandlers.indexOf(handler);
+    if (idx >= 0) webRtcSignalHandlers.splice(idx, 1);
+  };
+}
+
 /**
  * Subscribe to backend events and translate them into store updates.
  * Call once from the root `<App>` component; returns cleanup functions.
@@ -1096,6 +1153,14 @@ export async function initEventListeners(
           // Fetch our own session ID.
           const ownSession = await invoke<number | null>("get_own_session");
           useAppStore.setState({ ownSession });
+
+          // Fetch the server's Fancy Mumble version (null for standard servers).
+          try {
+            const info = await invoke<ServerInfo>("get_server_info");
+            useAppStore.setState({ serverFancyVersion: info.fancy_version });
+          } catch {
+            // Server info unavailable - leave as null.
+          }
 
           // Auto-apply the locally saved profile for unregistered users.
           // Registered users have their profile stored server-side, but
@@ -1386,6 +1451,20 @@ export async function initEventListeners(
         // Also dispatch to legacy registered handlers for extensibility.
         for (const handler of pluginDataHandlers) {
           handler(data_id, bytes, sender_session);
+        }
+      },
+    ),
+  );
+
+  // -- WebRTC signal events ----------------------------------------
+
+  unlisteners.push(
+    await listen<{ sender_session: number | null; signal_type: number; payload: string }>(
+      "webrtc-signal",
+      (event) => {
+        const { sender_session, signal_type, payload } = event.payload;
+        for (const handler of webRtcSignalHandlers) {
+          handler(sender_session, signal_type, payload);
         }
       },
     ),

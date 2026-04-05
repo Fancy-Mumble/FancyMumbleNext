@@ -5,11 +5,30 @@ import KebabMenu, { type KebabMenuItem } from "../elements/KebabMenu";
 import PollIcon from "../../assets/icons/communication/poll.svg?react";
 import BellIcon from "../../assets/icons/status/bell.svg?react";
 import BellOffIcon from "../../assets/icons/status/bell-off.svg?react";
+import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
+import CloseIcon from "../../assets/icons/action/close.svg?react";
 import styles from "./ChatView.module.css";
 import UsersGroupIcon from "../../assets/icons/user/users-group.svg?react";
 import DatabaseIcon from "../../assets/icons/general/database.svg?react";
 import SearchIcon from "../../assets/icons/action/search.svg?react";
 import FolderIcon from "../../assets/icons/general/folder.svg?react";
+import { colorFor } from "../sidebar/UserListItem";
+
+/** Info about the active broadcast, passed in when streaming is active. */
+export interface BroadcastInfo {
+  /** Name of the broadcaster. */
+  broadcasterName: string;
+  /** Avatar data URL (or null for initial-based avatar). */
+  avatarUrl: string | null;
+  /** Number of viewers in the channel (excluding the broadcaster). */
+  viewerCount: number;
+  /** Whether the current user is the broadcaster. */
+  isOwnBroadcast: boolean;
+  /** Channel name the broadcast is happening in. */
+  channelName: string;
+  /** Called when the user clicks the close/stop button in the stream header. */
+  onClose: () => void;
+}
 
 interface ChatHeaderProps {
   readonly channelName: string;
@@ -26,6 +45,10 @@ interface ChatHeaderProps {
   readonly onPollCreate?: () => void;
   readonly isSilenced?: boolean;
   readonly onToggleSilence?: () => void;
+  readonly isScreenSharing?: boolean;
+  readonly onToggleScreenShare?: () => void;
+  /** When a stream is active, display broadcast info in the header. */
+  readonly broadcastInfo?: BroadcastInfo;
 }
 
 function buildKebabItems({
@@ -71,6 +94,9 @@ export default function ChatHeader({
   onPollCreate,
   isSilenced,
   onToggleSilence,
+  isScreenSharing,
+  onToggleScreenShare,
+  broadcastInfo,
 }: ChatHeaderProps) {
   let prefix: string;
   if (isGroup) prefix = "";
@@ -83,29 +109,74 @@ export default function ChatHeader({
   else subtitle = `${memberCount} members`;
 
   const privateBadge = isDm || isGroup;
+  const isStreaming = !!broadcastInfo;
 
   return (
-    <div className={styles.header}>
-      <div className={styles.headerInfo}>
-        <h2 className={styles.channelName}>
-          {isGroup && (
-            <UsersGroupIcon width={18} height={18} style={{ marginRight: 6, verticalAlign: "text-bottom" }} />
-          )}
-          {prefix} {channelName}
-          {isPersisted && (
-            <DatabaseIcon
-              className={styles.persistedIcon}
-              width={14}
-              height={14}
-              aria-label="Persistent chat"
+    <div className={`${styles.header} ${isStreaming ? styles.headerStreaming : ""}`}>
+      {/* Broadcaster info (replaces channel info when streaming) */}
+      {isStreaming ? (
+        <div className={styles.headerInfo}>
+          <div className={styles.broadcasterRow}>
+            <div
+              className={styles.broadcasterAvatar}
+              style={{
+                background: broadcastInfo.avatarUrl
+                  ? "transparent"
+                  : colorFor(broadcastInfo.broadcasterName),
+              }}
             >
-              <title>Messages in this channel are stored on the server</title>
-            </DatabaseIcon>
-          )}
-        </h2>
-        {!isMobile && (<span className={styles.memberCount}>{subtitle}</span>)}
-      </div>
+              {broadcastInfo.avatarUrl ? (
+                <img
+                  src={broadcastInfo.avatarUrl}
+                  alt={broadcastInfo.broadcasterName}
+                  className={styles.broadcasterAvatarImg}
+                />
+              ) : (
+                broadcastInfo.broadcasterName.charAt(0).toUpperCase()
+              )}
+            </div>
+            <div className={styles.broadcasterMeta}>
+              <span className={styles.broadcasterName}>
+                {broadcastInfo.isOwnBroadcast ? "You" : broadcastInfo.broadcasterName}
+                <span className={styles.broadcasterChannel}> - {broadcastInfo.channelName}</span>
+              </span>
+              <span className={styles.broadcastLabel}>
+                <span className={styles.liveDot} />
+                Screen sharing
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className={styles.headerInfo}>
+          <h2 className={styles.channelName}>
+            {isGroup && (
+              <UsersGroupIcon width={18} height={18} style={{ marginRight: 6, verticalAlign: "text-bottom" }} />
+            )}
+            {prefix} {channelName}
+            {isPersisted && (
+              <DatabaseIcon
+                className={styles.persistedIcon}
+                width={14}
+                height={14}
+                aria-label="Persistent chat"
+              >
+                <title>Messages in this channel are stored on the server</title>
+              </DatabaseIcon>
+            )}
+          </h2>
+          {!isMobile && (<span className={styles.memberCount}>{subtitle}</span>)}
+        </div>
+      )}
+
       <div className={styles.headerActions}>
+        {/* Viewer count (when streaming, shown on the right) */}
+        {isStreaming && (
+          <span className={styles.viewerCount}>
+            <UsersGroupIcon width={14} height={14} />
+            {broadcastInfo.viewerCount}
+          </span>
+        )}
         {keyTrustLevel && !privateBadge && (
           <KeyTrustIndicator
             trustLevel={keyTrustLevel}
@@ -130,6 +201,27 @@ export default function ChatHeader({
             title="Channel info"
           >
             <FolderIcon width={18} height={18} />
+          </button>
+        )}
+        {onToggleScreenShare && !privateBadge && !isStreaming && (
+          <button
+            className={`${styles.serverInfoBtn} ${isScreenSharing ? styles.screenShareActive : ""}`}
+            onClick={onToggleScreenShare}
+            aria-label={isScreenSharing ? "Stop sharing" : "Share screen"}
+            title={isScreenSharing ? "Stop sharing" : "Share screen"}
+          >
+            <ScreenShareIcon width={18} height={18} />
+          </button>
+        )}
+        {/* Stream close button (when streaming, replaces the toggle) */}
+        {isStreaming && (
+          <button
+            className={styles.streamCloseBtn}
+            onClick={broadcastInfo.onClose}
+            title={broadcastInfo.isOwnBroadcast ? "Stop sharing" : "Close stream"}
+            aria-label={broadcastInfo.isOwnBroadcast ? "Stop sharing" : "Close stream"}
+          >
+            <CloseIcon width={16} height={16} />
           </button>
         )}
         {!privateBadge && (

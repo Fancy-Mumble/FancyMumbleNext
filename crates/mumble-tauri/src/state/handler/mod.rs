@@ -23,6 +23,7 @@ mod user_remove;
 mod user_state;
 mod user_stats;
 mod version;
+mod webrtc_signal;
 
 #[cfg(test)]
 mod tests;
@@ -148,6 +149,7 @@ pub(crate) fn dispatch(msg: &ControlMessage, ctx: &HandlerContext) {
         ControlMessage::PchatOfflineQueueDrain(m) => m.handle(ctx),
         ControlMessage::PchatReactionDeliver(m) => m.handle(ctx),
         ControlMessage::PchatReactionFetchResponse(m) => m.handle(ctx),
+        ControlMessage::WebRtcSignal(m) => m.handle(ctx),
         ControlMessage::BanList(m) => m.handle(ctx),
         ControlMessage::UserList(m) => m.handle(ctx),
         ControlMessage::Acl(m) => m.handle(ctx),
