@@ -537,6 +537,14 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+}
+
+/* Let the UserListItem inside the self section shrink so voice
+   toggle buttons never overflow the sidebar edge. */
+.selfUserSection > *:first-child {
+  flex: 1;
+  min-width: 0;
 }
 
 .selfVoiceActions {

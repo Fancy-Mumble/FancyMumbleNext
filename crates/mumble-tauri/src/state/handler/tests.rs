@@ -454,9 +454,9 @@ fn user_state_no_session_is_noop() {
     assert!(ctx.shared.lock().unwrap().users.is_empty());
 }
 
-/// When a post-sync UserState arrives with `texture_hash` but no `texture`,
+/// When a post-sync `UserState` arrives with `texture_hash` but no `texture`,
 /// the handler must request the full blob so the avatar becomes visible.
-/// (Before this fix, texture_hash was silently ignored for post-sync updates,
+/// (Before this fix, `texture_hash` was silently ignored for post-sync updates,
 /// causing missing avatars when a user joins *after* us and sets their texture.)
 #[tokio::test]
 async fn user_state_texture_hash_triggers_blob_request() {
@@ -492,7 +492,7 @@ async fn user_state_texture_hash_triggers_blob_request() {
     assert!(emitter.event_names().contains(&"state-changed".to_string()));
 }
 
-/// Same as above but for comment_hash without comment.
+/// Same as above but for `comment_hash` without comment.
 #[tokio::test]
 async fn user_state_comment_hash_triggers_blob_request() {
     let (ctx, emitter) = make_ctx();
@@ -542,8 +542,8 @@ fn user_state_full_texture_does_not_need_blob() {
     assert_eq!(state.users[&10].texture, Some(vec![0xFF, 0xD8, 0xFF, 0xE0]));
 }
 
-/// Before initial sync, texture_hash should NOT trigger a blob request
-/// (the bulk `request_user_blobs` call in ServerSync handles it).
+/// Before initial sync, `texture_hash` should NOT trigger a blob request
+/// (the bulk `request_user_blobs` call in `ServerSync` handles it).
 #[test]
 fn user_state_texture_hash_before_sync_no_blob() {
     let (ctx, emitter) = make_ctx();

@@ -26,6 +26,7 @@ export function ProfilePanel({
   isExpert,
   activeIdentity,
   identities,
+  connectedCertLabel,
   onSwitchIdentity,
   onGoToIdentities,
 }: Readonly<{
@@ -41,6 +42,7 @@ export function ProfilePanel({
   isExpert: boolean;
   activeIdentity: string | null;
   identities: string[];
+  connectedCertLabel: string | null;
   onSwitchIdentity: (label: string | null) => void;
   onGoToIdentities: () => void;
 }>) {
@@ -109,7 +111,7 @@ export function ProfilePanel({
             >
               {identities.map((label) => (
                 <option key={label} value={label}>
-                  {label}
+                  {label}{label === connectedCertLabel ? " (connected)" : ""}
                 </option>
               ))}
             </select>
@@ -121,6 +123,12 @@ export function ProfilePanel({
               Manage identities
             </button>
           </div>
+          {connectedCertLabel && activeIdentity !== connectedCertLabel && (
+            <p className={styles.fieldHint}>
+              Viewing profile for a different identity. Changes are saved locally
+              but will not be applied to the server until you connect with this identity.
+            </p>
+          )}
         </section>
       )}
 

@@ -172,6 +172,8 @@ interface AppState {
   passwordAttempted: boolean;
   /** Connection params stored when a password prompt is needed so the user can retry. */
   pendingConnect: { host: string; port: number; username: string; certLabel: string | null } | null;
+  /** Certificate label used for the active connection. Stays set until explicit disconnect. */
+  connectedCertLabel: string | null;
 
   // Actions
   connect: (host: string, port: number, username: string, certLabel?: string | null, password?: string | null) => Promise<void>;
@@ -312,6 +314,7 @@ const INITIAL: Pick<
   | "passwordRequired"
   | "passwordAttempted"
   | "pendingConnect"
+  | "connectedCertLabel"
 > = {
   status: "disconnected",
   channels: [],
@@ -358,6 +361,7 @@ const INITIAL: Pick<
   passwordRequired: false,
   passwordAttempted: false,
   pendingConnect: null,
+  connectedCertLabel: null,
 };
 
 // --- Store --------------------------------------------------------
@@ -394,6 +398,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       error: null,
       passwordRequired: false,
       pendingConnect: { host, port, username, certLabel: certLabel ?? null },
+      connectedCertLabel: certLabel ?? null,
     });
     try {
       await invoke("connect", {
@@ -404,7 +409,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         password: password ?? null,
       });
     } catch (e) {
-      set({ status: "disconnected", error: String(e), pendingConnect: null });
+      set({ status: "disconnected", error: String(e), pendingConnect: null, connectedCertLabel: null });
     }
   },
 
@@ -733,7 +738,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   dismissPasswordPrompt: () => {
-    set({ passwordRequired: false, passwordAttempted: false, pendingConnect: null });
+    set({ passwordRequired: false, passwordAttempted: false, pendingConnect: null, connectedCertLabel: null });
   },
 
   // -- Silenced channels ------------------------------------------
@@ -1099,7 +1104,7 @@ export async function initEventListeners(
             const ownUser = useAppStore.getState().users.find((u) => u.session === ownSession);
             const isRegistered = ownUser?.user_id != null && ownUser.user_id > 0;
             if (!isRegistered) {
-              const identityLabel = useAppStore.getState().pendingConnect?.certLabel ?? null;
+              const identityLabel = useAppStore.getState().connectedCertLabel ?? null;
               loadProfileData(identityLabel)
                 .then(async ({ profile, bio, avatarDataUrl }) => {
                   const comment = serializeProfile(profile, bio);

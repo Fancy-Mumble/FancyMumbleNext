@@ -80,6 +80,7 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>("profile");
   const isConnected = useAppStore((s) => s.status) === "connected";
+  const connectedCertLabel = useAppStore((s) => s.connectedCertLabel);
 
   // Audio
   const [devices, setDevices] = useState<AudioDevice[]>([]);
@@ -176,9 +177,9 @@ export default function SettingsPage() {
       // Migrate global profile to per-identity storage (one-time).
       await migrateProfilesToIdentities(certs);
 
-      // Determine which identity's profile to load.
-      const pending = useAppStore.getState().pendingConnect;
-      const initialIdentity = pending?.certLabel ?? certs[0] ?? null;
+      // Prefer the identity used for the active connection; fall back to first cert.
+      const { connectedCertLabel } = useAppStore.getState();
+      const initialIdentity = connectedCertLabel ?? certs[0] ?? null;
       setActiveIdentity(initialIdentity);
 
       try {
@@ -275,9 +276,11 @@ export default function SettingsPage() {
   }, [profile, bio, avatarDataUrl, activeIdentity]);
 
   // -- Auto-apply profile to server (debounced) --------------------
+  // Only sync when viewing the identity that is actually connected.
 
   useEffect(() => {
     if (!initialLoadDone.current || !isConnected) return;
+    if (connectedCertLabel !== activeIdentity) return;
     const timer = setTimeout(async () => {
       setProfileError(null);
       try {
@@ -291,7 +294,7 @@ export default function SettingsPage() {
       }
     }, 800);
     return () => clearTimeout(timer);
-  }, [profile, bio, avatarDataUrl, isConnected]);
+  }, [profile, bio, avatarDataUrl, isConnected, connectedCertLabel, activeIdentity]);
 
   // -- Handlers ----------------------------------------------------
 
@@ -460,6 +463,7 @@ export default function SettingsPage() {
               isExpert={userMode !== "normal"}
               activeIdentity={activeIdentity}
               identities={identities}
+              connectedCertLabel={connectedCertLabel}
               onSwitchIdentity={switchIdentity}
               onGoToIdentities={() => setTab("identities")}
             />
@@ -485,6 +489,7 @@ export default function SettingsPage() {
           {tab === "identities" && (
             <IdentitiesPanel
               identities={identities}
+              connectedCertLabel={connectedCertLabel}
               onRefresh={refreshIdentities}
               onEditProfile={handleEditIdentityProfile}
               isExpert={userMode !== "normal"}

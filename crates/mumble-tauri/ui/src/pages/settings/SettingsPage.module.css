@@ -588,7 +588,15 @@
   border-radius: var(--radius-sm, 6px);
 }
 
+.identityItemActive {
+  background: var(--color-accent-bg, rgba(99, 179, 237, 0.1));
+  border-color: var(--color-accent, rgba(99, 179, 237, 0.4));
+}
+
 .identityLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 14px;
   font-weight: 500;
   color: var(--color-text-primary);
@@ -596,6 +604,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+
+.identityActiveBadge {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-accent, #63b3ed);
+  background: var(--color-accent-bg, rgba(99, 179, 237, 0.12));
+  padding: 2px 7px;
+  border-radius: var(--radius-xs, 4px);
+  flex-shrink: 0;
 }
 
 .identityActions {

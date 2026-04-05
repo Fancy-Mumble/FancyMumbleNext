@@ -29,6 +29,12 @@
   word-wrap: break-word;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-width: none; /* Firefox */
+}
+
+.overlay::-webkit-scrollbar,
+.textarea::-webkit-scrollbar {
+  display: none; /* Chrome / Safari / Edge */
 }
 
 /* The overlay renders the decorated text on top. */

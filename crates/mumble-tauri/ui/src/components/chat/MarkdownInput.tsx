@@ -252,6 +252,8 @@ export function markdownToHtml(raw: string): string {
     /(https?:\/\/[^\s<>"'`,;)\]]+|ftp:\/\/[^\s<>"'`,;)\]]+)/g,
     '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
   );
+  // Newlines -> <br> (must come last so inline formatting is applied first)
+  html = html.replaceAll("\n", "<br>");
   return html;
 }
 
