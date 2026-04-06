@@ -89,6 +89,7 @@ export interface MumbleServerConfig {
   max_message_length: number;
   max_image_message_length: number;
   allow_html: boolean;
+  webrtc_sfu_available: boolean;
 }
 
 /** Aggregated server info from the backend (version, host, codec, etc.). */

@@ -19,6 +19,9 @@ impl HandleMessage for mumble_tcp::ServerConfig {
             if let Some(allow) = self.allow_html {
                 state.server_config.allow_html = allow;
             }
+            if let Some(sfu) = self.webrtc_sfu_available {
+                state.server_config.webrtc_sfu_available = sfu;
+            }
             if let Some(max) = self.max_users {
                 state.max_users = Some(max);
             }
@@ -27,6 +30,7 @@ impl HandleMessage for mumble_tcp::ServerConfig {
                 img_len = state.server_config.max_image_message_length,
                 allow_html = state.server_config.allow_html,
                 max_users = ?state.max_users,
+                webrtc_sfu = state.server_config.webrtc_sfu_available,
                 "server config received"
             );
         }

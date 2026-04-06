@@ -769,6 +769,10 @@ pub struct ServerConfig {
     pub max_users: ::core::option::Option<u32>,
     #[prost(bool, optional, tag = "7")]
     pub recording_allowed: ::core::option::Option<bool>,
+    /// True when the server has a WebRTC SFU module loaded and can
+    /// relay screen-share streams server-side.
+    #[prost(bool, optional, tag = "8")]
+    pub webrtc_sfu_available: ::core::option::Option<bool>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SuggestConfig {

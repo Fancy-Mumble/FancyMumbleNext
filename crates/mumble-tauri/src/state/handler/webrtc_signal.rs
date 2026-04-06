@@ -17,6 +17,7 @@ impl HandleMessage for mumble_tcp::WebRtcSignal {
             "webrtc-signal",
             WebRtcSignalPayload {
                 sender_session: self.sender_session,
+                target_session: self.target_session,
                 signal_type: self.signal_type.unwrap_or(0),
                 payload: self.payload.clone().unwrap_or_default(),
             },

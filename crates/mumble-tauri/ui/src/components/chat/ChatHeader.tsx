@@ -47,6 +47,8 @@ interface ChatHeaderProps {
   readonly onToggleSilence?: () => void;
   readonly isScreenSharing?: boolean;
   readonly onToggleScreenShare?: () => void;
+  /** True when the server has a WebRTC SFU module for server-relayed screen sharing. */
+  readonly sfuAvailable?: boolean;
   /** When a stream is active, display broadcast info in the header. */
   readonly broadcastInfo?: BroadcastInfo;
 }
@@ -96,6 +98,7 @@ export default function ChatHeader({
   onToggleSilence,
   isScreenSharing,
   onToggleScreenShare,
+  sfuAvailable,
   broadcastInfo,
 }: ChatHeaderProps) {
   let prefix: string;
@@ -208,7 +211,13 @@ export default function ChatHeader({
             className={`${styles.serverInfoBtn} ${isScreenSharing ? styles.screenShareActive : ""}`}
             onClick={onToggleScreenShare}
             aria-label={isScreenSharing ? "Stop sharing" : "Share screen"}
-            title={isScreenSharing ? "Stop sharing" : "Share screen"}
+            title={
+              isScreenSharing
+                ? "Stop sharing"
+                : sfuAvailable
+                  ? "Share screen (server-relayed)"
+                  : "Share screen (no SFU - peer-to-peer)"
+            }
           >
             <ScreenShareIcon width={18} height={18} />
           </button>

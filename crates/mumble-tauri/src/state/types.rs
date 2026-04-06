@@ -160,6 +160,7 @@ pub struct ServerConfig {
     pub max_message_length: u32,
     pub max_image_message_length: u32,
     pub allow_html: bool,
+    pub webrtc_sfu_available: bool,
 }
 
 impl Default for ServerConfig {
@@ -169,6 +170,7 @@ impl Default for ServerConfig {
             max_message_length: 5000,
             max_image_message_length: 131072,
             allow_html: true,
+            webrtc_sfu_available: false,
         }
     }
 }
@@ -336,6 +338,7 @@ pub(crate) struct PluginDataPayload {
 #[derive(Clone, Serialize)]
 pub(crate) struct WebRtcSignalPayload {
     pub sender_session: Option<u32>,
+    pub target_session: Option<u32>,
     pub signal_type: i32,
     pub payload: String,
 }

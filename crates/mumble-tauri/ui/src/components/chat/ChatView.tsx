@@ -82,6 +82,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   const toggleSilenceChannel = useAppStore((s) => s.toggleSilenceChannel);
   const silencedChannels = useAppStore((s) => s.silencedChannels);
   const serverFancyVersion = useAppStore((s) => s.serverFancyVersion);
+  const sfuAvailable = useAppStore((s) => s.serverConfig.webrtc_sfu_available);
 
   // DM state
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
@@ -343,6 +344,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
               ? (screenShare.isBroadcasting ? screenShare.stopSharing : screenShare.startSharing)
               : undefined
           }
+          sfuAvailable={sfuAvailable}
           broadcastInfo={broadcastInfo}
         />
       )}

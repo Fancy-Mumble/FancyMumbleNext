@@ -313,4 +313,32 @@ describe("Screen share signaling", () => {
       expect(useAppStore.getState().serverFancyVersion).toBeNull();
     });
   });
+
+  describe("SFU availability flag", () => {
+    it("defaults webrtc_sfu_available to false", () => {
+      useAppStore.getState().reset();
+      expect(useAppStore.getState().serverConfig.webrtc_sfu_available).toBe(false);
+    });
+
+    it("stores webrtc_sfu_available from server config", () => {
+      useAppStore.setState({
+        serverConfig: {
+          ...useAppStore.getState().serverConfig,
+          webrtc_sfu_available: true,
+        },
+      });
+      expect(useAppStore.getState().serverConfig.webrtc_sfu_available).toBe(true);
+    });
+
+    it("resets webrtc_sfu_available on disconnect", () => {
+      useAppStore.setState({
+        serverConfig: {
+          ...useAppStore.getState().serverConfig,
+          webrtc_sfu_available: true,
+        },
+      });
+      useAppStore.getState().reset();
+      expect(useAppStore.getState().serverConfig.webrtc_sfu_available).toBe(false);
+    });
+  });
 });

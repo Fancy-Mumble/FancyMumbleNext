@@ -1296,6 +1296,27 @@ fn server_config_partial_update() {
     assert!(state.server_config.allow_html); // unchanged default
 }
 
+#[test]
+fn server_config_webrtc_sfu_available() {
+    let (ctx, _) = make_ctx();
+
+    // Default should be false.
+    {
+        let state = ctx.shared.lock().unwrap();
+        assert!(!state.server_config.webrtc_sfu_available);
+    }
+
+    // Server reports SFU available.
+    let sc = mumble_tcp::ServerConfig {
+        webrtc_sfu_available: Some(true),
+        ..Default::default()
+    };
+    sc.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    assert!(state.server_config.webrtc_sfu_available);
+}
+
 // -- PermissionDenied ----------------------------------------------
 
 #[test]

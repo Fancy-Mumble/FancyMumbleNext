@@ -348,6 +348,7 @@ const INITIAL: Pick<
     max_message_length: 5000,
     max_image_message_length: 131072,
     allow_html: true,
+    webrtc_sfu_available: false,
   },
   serverFancyVersion: null,
   voiceState: "inactive" as VoiceState,
@@ -1050,7 +1051,7 @@ export function onPluginData(handler: PluginDataHandler): () => void {
 
 // --- WebRTC signal handler registry ---
 
-type WebRtcSignalHandler = (senderSession: number | null, signalType: number, payload: string) => void;
+type WebRtcSignalHandler = (senderSession: number | null, targetSession: number | null, signalType: number, payload: string) => void;
 const webRtcSignalHandlers: WebRtcSignalHandler[] = [];
 
 /** Register a handler for incoming WebRTC screen-sharing signals. */
@@ -1459,12 +1460,12 @@ export async function initEventListeners(
   // -- WebRTC signal events ----------------------------------------
 
   unlisteners.push(
-    await listen<{ sender_session: number | null; signal_type: number; payload: string }>(
+    await listen<{ sender_session: number | null; target_session: number | null; signal_type: number; payload: string }>(
       "webrtc-signal",
       (event) => {
-        const { sender_session, signal_type, payload } = event.payload;
+        const { sender_session, target_session, signal_type, payload } = event.payload;
         for (const handler of webRtcSignalHandlers) {
-          handler(sender_session, signal_type, payload);
+          handler(sender_session, target_session, signal_type, payload);
         }
       },
     ),

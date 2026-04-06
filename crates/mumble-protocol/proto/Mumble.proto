@@ -350,6 +350,9 @@ message ServerConfig {
 	optional uint32 image_message_length = 5;
 	optional uint32 max_users = 6;
 	optional bool recording_allowed = 7;
+	// True when the server has a WebRTC SFU module loaded and can
+	// relay screen-share streams server-side.
+	optional bool webrtc_sfu_available = 8;
 }
 
 message SuggestConfig {

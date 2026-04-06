@@ -1,17 +1,21 @@
 /**
- * Browser-native screen sharing via getDisplayMedia + WebRTC.
+ * Server-relayed screen sharing via getDisplayMedia + WebRTC SFU.
  *
- * - Capture: uses navigator.mediaDevices.getDisplayMedia() (hardware-accel)
- * - Local preview: raw MediaStream in a <video> element (zero encoding)
- * - Remote viewing: WebRTC peer connections, signaled through a dedicated
- *   WebRtcSignal proto message (ID 120, send_webrtc_signal / onWebRtcSignal)
+ * Architecture: the broadcaster sends ONE WebRTC stream to the Mumble
+ * server's SFU (Selective Forwarding Unit), which re-broadcasts it to
+ * each viewer via separate WebRTC connections.  Broadcaster upload is
+ * O(1) regardless of viewer count.
+ *
+ * All signaling travels over the existing Mumble TCP connection using
+ * WebRtcSignal protobuf messages (ID 120).  Media flows via WebRTC
+ * UDP between each client and the server (never client-to-client).
  *
  * SignalType enum (matches proto):
- *   START         = 0  - broadcaster announces
- *   STOP          = 1  - broadcaster stops
- *   SDP_OFFER     = 2  - viewer sends offer to broadcaster
- *   SDP_ANSWER    = 3  - broadcaster replies with answer
- *   ICE_CANDIDATE = 4  - ICE candidate exchange
+ *   START         = 0  - broadcaster announces (channel broadcast)
+ *   STOP          = 1  - broadcaster stops (channel broadcast)
+ *   SDP_OFFER     = 2  - client sends offer to server SFU
+ *   SDP_ANSWER    = 3  - server SFU replies with answer
+ *   ICE_CANDIDATE = 4  - client sends ICE candidate to server
  */
 import { useEffect, useCallback, useState, useRef } from "react";
 import { useAppStore, onWebRtcSignal } from "../../store";
@@ -23,7 +27,8 @@ const SIGNAL_SDP_OFFER = 2;
 const SIGNAL_SDP_ANSWER = 3;
 const SIGNAL_ICE_CANDIDATE = 4;
 
-// Public STUN servers for NAT traversal.
+// STUN servers for the client to discover its public address.
+// The server SFU uses ICE-lite and needs no STUN.
 const RTC_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -53,20 +58,63 @@ function broadcastSignal(signalType: number, payload: string): void {
 /** Active local media stream from getDisplayMedia. */
 let localStream: MediaStream | null = null;
 
-/** Peer connections from broadcaster to each viewer, keyed by viewer session. */
-const viewerPeers = new Map<number, RTCPeerConnection>();
+/** Single peer connection from broadcaster to the server SFU. */
+let broadcasterPc: RTCPeerConnection | null = null;
 
-/** Pending ICE candidates received before the peer connection was ready. */
-const pendingIceCandidates = new Map<number, RTCIceCandidateInit[]>();
+/** ICE candidates received before the broadcaster peer had a remote description. */
+let broadcasterPendingIce: RTCIceCandidateInit[] = [];
 
-/** Clean up a single viewer peer connection. */
-function closeViewerPeer(viewerSession: number): void {
-  const pc = viewerPeers.get(viewerSession);
-  if (pc) {
-    pc.close();
-    viewerPeers.delete(viewerSession);
+/** Flush queued ICE candidates after remote description is set. */
+function flushBroadcasterIce(): void {
+  if (!broadcasterPc) return;
+  for (const c of broadcasterPendingIce) {
+    broadcasterPc.addIceCandidate(c).catch((e) =>
+      console.error("[sfu] broadcaster addIceCandidate error:", e),
+    );
   }
-  pendingIceCandidates.delete(viewerSession);
+  broadcasterPendingIce = [];
+}
+
+/** Send our screen stream to the server SFU via a single WebRTC connection. */
+async function connectBroadcasterToServer(): Promise<void> {
+  if (!localStream) return;
+
+  // Close any stale broadcaster peer.
+  if (broadcasterPc) {
+    broadcasterPc.close();
+    broadcasterPc = null;
+  }
+  broadcasterPendingIce = [];
+
+  const pc = new RTCPeerConnection(RTC_CONFIG);
+  broadcasterPc = pc;
+
+  // Add screen tracks (video + optional audio).
+  for (const track of localStream.getTracks()) {
+    pc.addTrack(track, localStream);
+  }
+
+  // Send our ICE candidates to the server (target=0).
+  pc.onicecandidate = (e) => {
+    if (e.candidate) {
+      sendSignal(0, SIGNAL_ICE_CANDIDATE, JSON.stringify(e.candidate.toJSON()));
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (pc !== broadcasterPc) return; // stale closure
+    if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+      console.warn("[sfu] broadcaster connection to server lost");
+    }
+  };
+
+  const offer = await pc.createOffer();
+  if (broadcasterPc !== pc) return; // replaced while awaiting
+  await pc.setLocalDescription(offer);
+  if (broadcasterPc !== pc) return; // replaced while awaiting
+
+  // Send offer to the server SFU (target=0 tells server this is our broadcast offer).
+  sendSignal(0, SIGNAL_SDP_OFFER, offer.sdp!);
 }
 
 /** Clean up all broadcaster state. */
@@ -75,46 +123,11 @@ function stopBroadcasting(): void {
     for (const track of localStream.getTracks()) track.stop();
     localStream = null;
   }
-  for (const session of [...viewerPeers.keys()]) {
-    closeViewerPeer(session);
+  if (broadcasterPc) {
+    broadcasterPc.close();
+    broadcasterPc = null;
   }
-}
-
-/** Handle an offer from a viewer who wants to watch our broadcast. */
-async function handleViewerOffer(viewerSession: number, sdp: string): Promise<void> {
-  if (!localStream) return;
-
-  // Close any existing connection from this viewer (renegotiation).
-  closeViewerPeer(viewerSession);
-
-  const pc = new RTCPeerConnection(RTC_CONFIG);
-  viewerPeers.set(viewerSession, pc);
-
-  // Add our screen tracks to the connection.
-  for (const track of localStream.getTracks()) {
-    pc.addTrack(track, localStream);
-  }
-
-  // Forward ICE candidates to the viewer.
-  pc.onicecandidate = (e) => {
-    if (e.candidate) {
-      sendSignal(viewerSession, SIGNAL_ICE_CANDIDATE, JSON.stringify(e.candidate.toJSON()));
-    }
-  };
-
-  await pc.setRemoteDescription({ type: "offer", sdp });
-
-  // Flush any ICE candidates that arrived before we had the peer.
-  const queued = pendingIceCandidates.get(viewerSession);
-  if (queued) {
-    for (const c of queued) await pc.addIceCandidate(c);
-    pendingIceCandidates.delete(viewerSession);
-  }
-
-  const answer = await pc.createAnswer();
-  await pc.setLocalDescription(answer);
-
-  sendSignal(viewerSession, SIGNAL_SDP_ANSWER, answer.sdp!);
+  broadcasterPendingIce = [];
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +135,7 @@ async function handleViewerOffer(viewerSession: number, sdp: string): Promise<vo
 // ---------------------------------------------------------------------------
 
 let viewerPc: RTCPeerConnection | null = null;
+let viewerPendingIce: RTCIceCandidateInit[] = [];
 let viewerRemoteStream: MediaStream | null = null;
 /** Callbacks registered by the ScreenShareViewer component to receive the remote stream. */
 const remoteStreamListeners = new Set<(stream: MediaStream | null) => void>();
@@ -130,16 +144,28 @@ function notifyRemoteStreamListeners(stream: MediaStream | null): void {
   for (const cb of remoteStreamListeners) cb(stream);
 }
 
+/** Flush queued ICE candidates after viewer remote description is set. */
+function flushViewerIce(): void {
+  if (!viewerPc) return;
+  for (const c of viewerPendingIce) {
+    viewerPc.addIceCandidate(c).catch((e) =>
+      console.error("[sfu] viewer addIceCandidate error:", e),
+    );
+  }
+  viewerPendingIce = [];
+}
+
 function closeViewer(): void {
   if (viewerPc) {
     viewerPc.close();
     viewerPc = null;
   }
+  viewerPendingIce = [];
   viewerRemoteStream = null;
   notifyRemoteStreamListeners(null);
 }
 
-/** Start watching a broadcaster. Creates an RTCPeerConnection and sends an offer. */
+/** Connect to the server SFU to watch a broadcaster's stream. */
 async function startWatching(broadcasterSession: number): Promise<void> {
   closeViewer();
 
@@ -156,6 +182,7 @@ async function startWatching(broadcasterSession: number): Promise<void> {
     notifyRemoteStreamListeners(stream);
   };
 
+  // Send our ICE candidates to the server (routed via broadcaster session).
   pc.onicecandidate = (e) => {
     if (e.candidate) {
       sendSignal(broadcasterSession, SIGNAL_ICE_CANDIDATE, JSON.stringify(e.candidate.toJSON()));
@@ -163,56 +190,39 @@ async function startWatching(broadcasterSession: number): Promise<void> {
   };
 
   pc.onconnectionstatechange = () => {
+    if (pc !== viewerPc) return; // stale closure
     if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
       closeViewer();
+      useAppStore.setState({ watchingSession: null });
     }
   };
 
   const offer = await pc.createOffer();
+  if (viewerPc !== pc) return; // replaced while awaiting
   await pc.setLocalDescription(offer);
+  if (viewerPc !== pc) return; // replaced while awaiting
 
+  // Send offer to server, targeting the broadcaster session.
+  // The server intercepts this and creates an SFU outbound peer.
   sendSignal(broadcasterSession, SIGNAL_SDP_OFFER, offer.sdp!);
 }
 
-/** Handle an answer from the broadcaster to our offer. */
-async function handleBroadcasterAnswer(sdp: string): Promise<void> {
-  if (!viewerPc) return;
-  await viewerPc.setRemoteDescription({ type: "answer", sdp });
-}
-
-/** Handle an ICE candidate from a peer (either broadcaster or viewer). */
-async function handleIceCandidate(
-  senderSession: number,
-  candidate: RTCIceCandidateInit | null,
-): Promise<void> {
-  if (!candidate) return;
-
-  // Check if this is for our broadcaster connection (we are a viewer).
-  if (viewerPc && viewerPc.remoteDescription) {
-    await viewerPc.addIceCandidate(candidate);
-    return;
-  }
-
-  // Check if this is for one of our viewer connections (we are broadcasting).
-  const pc = viewerPeers.get(senderSession);
-  if (pc && pc.remoteDescription) {
-    await pc.addIceCandidate(candidate);
-    return;
-  }
-
-  // Queue the candidate - the peer connection may not be ready yet.
-  const existing = pendingIceCandidates.get(senderSession) ?? [];
-  existing.push(candidate);
-  pendingIceCandidates.set(senderSession, existing);
+/** Handle an SDP answer from the server SFU. */
+async function handleServerAnswer(pc: RTCPeerConnection, sdp: string): Promise<void> {
+  await pc.setRemoteDescription({ type: "answer", sdp });
 }
 
 // ---------------------------------------------------------------------------
 // Incoming signal dispatcher
 // ---------------------------------------------------------------------------
 
-function handleSignal(senderSession: number, signalType: number, payload: string): void {
+function handleSignal(senderSession: number, targetSession: number | null, signalType: number, payload: string): void {
   const ownSession = useAppStore.getState().ownSession;
   if (senderSession === ownSession) return; // ignore own echoes
+
+  // Ignore signals targeted at other sessions (e.g. SDP answers the server
+  // broadcasts to all channel members but only one session should process).
+  if (targetSession !== null && targetSession !== 0 && targetSession !== ownSession) return;
 
   switch (signalType) {
     case SIGNAL_START:
@@ -238,32 +248,58 @@ function handleSignal(senderSession: number, signalType: number, payload: string
       }
       break;
 
-    case SIGNAL_SDP_OFFER:
-      // Someone wants to watch our broadcast.
-      handleViewerOffer(senderSession, payload).catch((e) =>
-        console.error("[screenshare] failed to handle viewer offer:", e),
-      );
-      break;
-
     case SIGNAL_SDP_ANSWER:
-      // The broadcaster answered our watch request.
-      handleBroadcasterAnswer(payload).catch((e) =>
-        console.error("[screenshare] failed to handle answer:", e),
-      );
+      // Server SFU answered our offer.
+      // Route to the peer that is actually waiting for an answer.
+      // Use signalingState instead of remoteDescription to avoid races
+      // where a new PC was created but hasn't sent its offer yet.
+      if (broadcasterPc?.signalingState === "have-local-offer") {
+        handleServerAnswer(broadcasterPc, payload)
+          .then(flushBroadcasterIce)
+          .catch((e) => console.error("[sfu] broadcaster setRemoteDescription error:", e));
+      } else if (viewerPc?.signalingState === "have-local-offer") {
+        handleServerAnswer(viewerPc, payload)
+          .then(flushViewerIce)
+          .catch((e) => console.error("[sfu] viewer setRemoteDescription error:", e));
+      } else {
+        console.warn(
+          "[sfu] SDP answer received but no peer is expecting one",
+          "broadcaster:", broadcasterPc?.signalingState,
+          "viewer:", viewerPc?.signalingState,
+        );
+      }
       break;
 
     case SIGNAL_ICE_CANDIDATE: {
+      // Server sent us an ICE candidate (only if server is not using ICE-lite).
       let candidate: RTCIceCandidateInit | null = null;
       try {
         candidate = JSON.parse(payload) as RTCIceCandidateInit;
       } catch {
-        // ignore malformed ICE
+        break;
       }
-      handleIceCandidate(senderSession, candidate).catch((e) =>
-        console.error("[screenshare] failed to handle ICE candidate:", e),
-      );
+      if (!candidate) break;
+
+      // Route to active peer. Prefer broadcaster if both exist.
+      if (broadcasterPc) {
+        if (broadcasterPc.remoteDescription) {
+          broadcasterPc.addIceCandidate(candidate).catch(console.error);
+        } else {
+          broadcasterPendingIce.push(candidate);
+        }
+      } else if (viewerPc) {
+        if (viewerPc.remoteDescription) {
+          viewerPc.addIceCandidate(candidate).catch(console.error);
+        } else {
+          viewerPendingIce.push(candidate);
+        }
+      }
       break;
     }
+
+    // SDP_OFFER is not expected from the server in the SFU model.
+    default:
+      break;
   }
 }
 
@@ -304,9 +340,9 @@ export function useScreenShare(): ScreenShareHook {
 
   // Register the WebRTC signal handler for screen share signaling.
   useEffect(() => {
-    const unregister = onWebRtcSignal((senderSession, signalType, payload) => {
+    const unregister = onWebRtcSignal((senderSession, targetSession, signalType, payload) => {
       if (senderSession === null) return;
-      handleSignal(senderSession, signalType, payload);
+      handleSignal(senderSession, targetSession, signalType, payload);
     });
     return unregister;
   }, []);
@@ -338,6 +374,13 @@ export function useScreenShare(): ScreenShareHook {
   const startSharing = useCallback(async () => {
     if (localStream) return; // already broadcasting
 
+    const { serverConfig } = useAppStore.getState();
+    if (serverConfig.webrtc_sfu_available) {
+      console.info("[screen-share] server has WebRTC SFU - media will be relayed via server");
+    } else {
+      console.warn("[screen-share] server does NOT have WebRTC SFU - screen sharing may not work");
+    }
+
     try {
       const mediaStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
@@ -354,6 +397,9 @@ export function useScreenShare(): ScreenShareHook {
 
       // Announce to all channel members.
       broadcastSignal(SIGNAL_START, "");
+
+      // Connect to the server SFU (single WebRTC connection).
+      await connectBroadcasterToServer();
 
       // Listen for the user stopping via the browser's built-in "Stop sharing" button.
       const videoTrack = mediaStream.getVideoTracks()[0];
