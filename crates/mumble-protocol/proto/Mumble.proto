@@ -614,6 +614,10 @@ message PchatOfflineQueueDrain {
 	optional uint32 channel_id = 1;
 	// Queued messages, each as a PchatMessageDeliver.
 	repeated PchatMessageDeliver messages = 2;
+	// Sender key distributions needed to decrypt the queued messages.
+	// The client MUST process these before attempting to decrypt
+	// the messages above.
+	repeated PchatSenderKeyDistribution distributions = 3;
 }
 
 // ---------------------------------------------------------------------------
@@ -721,4 +725,20 @@ message WebRtcSignal {
 
 	// SDP or ICE candidate string (JSON-encoded for ICE).
 	optional string payload = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Signal sender key distribution (Fancy Mumble extension, ID 121)
+// ---------------------------------------------------------------------------
+
+// Client sends its Signal sender key distribution to the server for
+// relay to channel members and storage for offline delivery.
+// Replaces the previous PluginData-based distribution mechanism.
+// Wire type ID = 121.
+message PchatSenderKeyDistribution {
+optional uint32 channel_id = 1;
+// TLS certificate hash of the sender (server fills on relay).
+optional string sender_hash = 2;
+// Sender Key Distribution Message bytes (libsignal SKDM).
+optional bytes distribution = 3;
 }

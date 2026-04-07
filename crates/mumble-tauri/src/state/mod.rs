@@ -607,6 +607,13 @@ impl AppState {
                         if let (Some(ref mut pchat_state), Some(client)) =
                             (&mut state.pchat, client)
                         {
+                            if protocol == PchatProtocol::SignalV1
+                                && pchat_state.signal_bridge.is_none()
+                                && !pchat_state.signal_bridge_load_failed
+                            {
+                                tracing::info!("send_message: lazy-loading signal bridge");
+                                let _ = pchat_state.ensure_signal_bridge();
+                            }
                             match pchat_state.build_encrypted_message(
                                 &pchat::OutboundMessage {
                                     channel_id,

@@ -36,6 +36,7 @@ pub struct WorkQueueSender {
     udp_tx: mpsc::Sender<UdpMessage>,
     tcp_tx: mpsc::Sender<ControlMessage>,
     cmd_tx: mpsc::Sender<BoxedCommand>,
+    audio_out_tx: mpsc::Sender<UdpMessage>,
 }
 
 impl WorkQueueSender {
@@ -62,6 +63,18 @@ impl WorkQueueSender {
             .await
             .map_err(|_| Error::QueueClosed)
     }
+
+    /// Submit an outbound audio packet (bypasses command queue).
+    pub fn try_send_audio(&self, msg: UdpMessage) -> Result<()> {
+        self.audio_out_tx
+            .try_send(msg)
+            .map_err(|_| Error::QueueClosed)
+    }
+
+    /// Clone the outbound audio sender for use by `ClientHandle`.
+    pub fn audio_sender(&self) -> mpsc::Sender<UdpMessage> {
+        self.audio_out_tx.clone()
+    }
 }
 
 /// Receiver-side handle consumed by the client event loop.
@@ -78,7 +91,9 @@ impl WorkQueueReceiver {
     /// Uses biased `select!` to ensure audio packets are processed first.
     pub async fn recv(&mut self) -> WorkItem {
         // Biased select: try UDP first, then TCP, then commands.
-        // This guarantees low-latency audio processing.
+        // This guarantees low-latency inbound audio processing.
+        // Outbound audio is polled separately at the event-loop level
+        // to avoid starvation by constant inbound UDP traffic.
         tokio::select! {
             biased;
 
@@ -105,24 +120,32 @@ impl WorkQueueReceiver {
 const UDP_CHANNEL_SIZE: usize = 256;
 const TCP_CHANNEL_SIZE: usize = 64;
 const CMD_CHANNEL_SIZE: usize = 32;
+const AUDIO_OUT_CHANNEL_SIZE: usize = 128;
 
-/// Create a linked (sender, receiver) pair for the work queue.
-pub fn create() -> (WorkQueueSender, WorkQueueReceiver) {
+/// Create work queue handles and a separate outbound audio receiver.
+///
+/// The outbound audio receiver is returned independently so the event
+/// loop can poll it at the top level of its `select!`, preventing
+/// starvation by constant inbound UDP traffic.
+pub fn create() -> (WorkQueueSender, WorkQueueReceiver, mpsc::Receiver<UdpMessage>) {
     let (udp_tx, udp_rx) = mpsc::channel(UDP_CHANNEL_SIZE);
     let (tcp_tx, tcp_rx) = mpsc::channel(TCP_CHANNEL_SIZE);
     let (cmd_tx, cmd_rx) = mpsc::channel(CMD_CHANNEL_SIZE);
+    let (audio_out_tx, audio_out_rx) = mpsc::channel(AUDIO_OUT_CHANNEL_SIZE);
 
     (
         WorkQueueSender {
             udp_tx,
             tcp_tx,
             cmd_tx,
+            audio_out_tx,
         },
         WorkQueueReceiver {
             udp_rx,
             tcp_rx,
             cmd_rx,
         },
+        audio_out_rx,
     )
 }
 
@@ -135,7 +158,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_and_receive_tcp_message() {
-        let (sender, mut receiver) = create();
+        let (sender, mut receiver, _audio_out_rx) = create();
         let ping = ControlMessage::Ping(mumble_tcp::Ping {
             timestamp: Some(123),
             ..Default::default()
@@ -153,7 +176,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_and_receive_udp_message() {
-        let (sender, mut receiver) = create();
+        let (sender, mut receiver, _audio_out_rx) = create();
         let udp_ping = UdpMessage::Ping(mumble_udp::Ping {
             timestamp: 456,
             ..Default::default()
@@ -171,7 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_and_receive_command() {
-        let (sender, mut receiver) = create();
+        let (sender, mut receiver, _audio_out_rx) = create();
         let cmd: BoxedCommand = Box::new(Disconnect);
         sender.send_command(cmd).await.unwrap();
 
@@ -184,7 +207,7 @@ mod tests {
 
     #[tokio::test]
     async fn udp_has_priority_over_tcp() {
-        let (sender, mut receiver) = create();
+        let (sender, mut receiver, _audio_out_rx) = create();
 
         // Send TCP first, then UDP
         let tcp_msg = ControlMessage::Ping(mumble_tcp::Ping {
@@ -222,7 +245,7 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_when_all_senders_dropped() {
-        let (sender, mut receiver) = create();
+        let (sender, mut receiver, _audio_out_rx) = create();
         drop(sender);
 
         let item = receiver.recv().await;
@@ -231,7 +254,7 @@ mod tests {
 
     #[tokio::test]
     async fn sender_is_cloneable() {
-        let (sender, mut receiver) = create();
+        let (sender, mut receiver, _audio_out_rx) = create();
         let sender2 = sender.clone();
 
         sender
@@ -256,7 +279,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_fails_when_receiver_dropped() {
-        let (sender, receiver) = create();
+        let (sender, receiver, _audio_out_rx) = create();
         drop(receiver);
 
         let result = sender

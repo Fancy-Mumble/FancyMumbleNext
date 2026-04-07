@@ -1138,6 +1138,11 @@ pub struct PchatOfflineQueueDrain {
     /// Queued messages, each as a PchatMessageDeliver.
     #[prost(message, repeated, tag = "2")]
     pub messages: ::prost::alloc::vec::Vec<PchatMessageDeliver>,
+    /// Sender key distributions needed to decrypt the queued messages.
+    /// The client MUST process these before attempting to decrypt
+    /// the messages above.
+    #[prost(message, repeated, tag = "3")]
+    pub distributions: ::prost::alloc::vec::Vec<PchatSenderKeyDistribution>,
 }
 /// A standard Unicode emoji (grapheme cluster, e.g. "\xF0\x9F\x91\x8D").
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -1322,6 +1327,21 @@ pub mod web_rtc_signal {
             }
         }
     }
+}
+/// Client sends its Signal sender key distribution to the server for
+/// relay to channel members and storage for offline delivery.
+/// Replaces the previous PluginData-based distribution mechanism.
+/// Wire type ID = 121.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatSenderKeyDistribution {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    /// TLS certificate hash of the sender (server fills on relay).
+    #[prost(string, optional, tag = "2")]
+    pub sender_hash: ::core::option::Option<::prost::alloc::string::String>,
+    /// Sender Key Distribution Message bytes (libsignal SKDM).
+    #[prost(bytes = "vec", optional, tag = "3")]
+    pub distribution: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 /// Unified pchat protocol indicator.
 /// Each value identifies both the E2EE protocol implementation

@@ -61,6 +61,10 @@ enum DeferredEvent {
         body: String,
     },
     DmUnreads,
+    NewMessage {
+        channel_id: u32,
+    },
+    RequestUserAttention,
     ChannelMessage {
         channel_id: u32,
         sender_name: String,
@@ -105,6 +109,12 @@ impl<'a> DeferredEmitter<'a> {
                     self.emit_direct_message(*sender_session, sender_name, body);
                 }
                 DeferredEvent::DmUnreads => self.emit_dm_unreads(),
+                DeferredEvent::NewMessage { channel_id } => {
+                    self.ctx.emit("new-message", NewMessagePayload { channel_id: *channel_id });
+                }
+                DeferredEvent::RequestUserAttention => {
+                    self.ctx.request_user_attention();
+                }
                 DeferredEvent::ChannelMessage {
                     channel_id,
                     sender_name,
@@ -333,7 +343,6 @@ fn handle_direct_message(
 fn handle_channel_message(
     tm: &mumble_tcp::TextMessage,
     state: &mut SharedState,
-    ctx: &HandlerContext,
     deferred: &mut DeferredEmitter,
 ) {
     let target_channels: Vec<u32> = if tm.channel_id.is_empty() {
@@ -391,12 +400,12 @@ fn handle_channel_message(
             unreads_changed = true;
         }
 
-        ctx.emit("new-message", NewMessagePayload { channel_id: ch_id });
+        deferred.push(DeferredEvent::NewMessage { channel_id: ch_id });
 
         // Flash the taskbar when a permanently-listened channel gets a
         // message while it is not the viewed channel.
         if state.permanently_listened.contains(&ch_id) && selected != Some(ch_id) {
-            ctx.request_user_attention();
+            deferred.push(DeferredEvent::RequestUserAttention);
         }
 
         // Native notification for messages arriving in non-viewed channels,
@@ -437,7 +446,7 @@ impl HandleMessage for mumble_tcp::TextMessage {
                     handle_direct_message(self, &mut state, &mut deferred);
                 }
                 MessageKind::Channel => {
-                    handle_channel_message(self, &mut state, ctx, &mut deferred);
+                    handle_channel_message(self, &mut state, &mut deferred);
                 }
             }
         }

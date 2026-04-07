@@ -859,6 +859,43 @@ fn text_message_channel_message() {
     assert!(names.contains(&"unread-changed".to_string()));
 }
 
+/// Regression test: `new-message` and `request_user_attention` must be
+/// emitted via the `DeferredEmitter` (i.e. AFTER the `SharedState` lock
+/// is released).  Prior to the fix, these were emitted while the lock was
+/// held, causing a deadlock when the Tauri IPC handler tried to re-acquire
+/// the lock from the webview thread.
+#[test]
+fn channel_message_emits_attention_for_permanently_listened() {
+    let (ctx, emitter) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.own_session = Some(1);
+        let _ = state.users.insert(10, make_user(10, "Bob"));
+        // Select channel 0 so channel 5 counts as "not viewed".
+        state.selected_channel = Some(0);
+        // Mark channel 5 as permanently listened.
+        let _ = state.permanently_listened.insert(5);
+    }
+
+    let tm = mumble_tcp::TextMessage {
+        actor: Some(10),
+        channel_id: vec![5],
+        message: "Ping!".into(),
+        ..Default::default()
+    };
+    tm.handle(&ctx);
+
+    let names = emitter.event_names();
+    assert!(
+        names.contains(&"new-message".to_string()),
+        "new-message must be emitted (deferred) for channel messages"
+    );
+    assert!(
+        emitter.attention_count() > 0,
+        "request_user_attention must be called (deferred) for permanently-listened non-viewed channels"
+    );
+}
+
 #[test]
 fn text_message_own_message_ignored() {
     let (ctx, emitter) = make_ctx();
@@ -2051,4 +2088,158 @@ fn key_holders_empty_server_name_uses_resolver() {
         "fallback name should be 'Adjective Animal', got: {}",
         holders[0].name
     );
+}
+
+// -- Source-code lint: no emit-under-lock --------------------------
+
+/// Scan all Rust source files in the `mumble-tauri` crate to ensure
+/// that `app.emit(` (Tauri IPC) is never called while a `SharedState`
+/// or `inner` mutex lock guard is alive.
+///
+/// Background: calling `app.emit()` while holding a `std::sync::Mutex`
+/// causes a cross-thread deadlock - the webview dispatches the JS event
+/// synchronously, and if the JS handler invokes a Tauri command that
+/// re-locks the same mutex, both threads block forever.
+///
+/// The heuristic is intentionally conservative: it tracks brace-depth
+/// from the line where `.lock()` is called and flags any `.emit(`
+/// before the brace scope closes.  Known-safe patterns (e.g. emitting
+/// inside `flush()` which runs after lock release) can be annotated
+/// with `// lint:allow-emit-under-lock` on the same line.
+#[test]
+fn no_emit_under_lock_in_sources() {
+    let crate_src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut violations = Vec::new();
+
+    for entry in walkdir(&crate_src) {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let contents = std::fs::read_to_string(path).unwrap();
+        check_emit_under_lock(path, &contents, &mut violations);
+    }
+
+    assert!(
+        violations.is_empty(),
+        "emit-under-lock violations found (calling app.emit() while holding a mutex \
+         causes a deadlock with Tauri IPC):\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Recursively collect all file entries under `dir`.
+fn walkdir(dir: &std::path::Path) -> Vec<DirEntry> {
+    let mut entries = Vec::new();
+    walk_recursive(dir, &mut entries);
+    entries
+}
+
+struct DirEntry {
+    path: std::path::PathBuf,
+}
+
+impl DirEntry {
+    fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+fn walk_recursive(dir: &std::path::Path, out: &mut Vec<DirEntry>) {
+    let Ok(read_dir) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_recursive(&path, out);
+        } else {
+            out.push(DirEntry { path });
+        }
+    }
+}
+
+fn check_emit_under_lock(
+    path: &std::path::Path,
+    contents: &str,
+    violations: &mut Vec<String>,
+) {
+    let lock_patterns = [".lock()", "shared.lock()", "inner.lock()"];
+
+    // Track nested brace depth for each active lock scope.
+    // Each entry: (line_number_of_lock, brace_depth_at_lock)
+    let mut active_locks: Vec<(usize, i32)> = Vec::new();
+    let mut brace_depth: i32 = 0;
+
+    for (line_idx, line) in contents.lines().enumerate() {
+        let line_num = line_idx + 1;
+        let trimmed = line.trim();
+
+        // Skip comments and test code.
+        if trimmed.starts_with("//") || trimmed.starts_with("* ") || trimmed.starts_with("/*") {
+            continue;
+        }
+
+        // Count braces (rough: doesn't handle strings/comments perfectly,
+        // but good enough for this heuristic).
+        for ch in line.chars() {
+            match ch {
+                '{' => brace_depth += 1,
+                '}' => {
+                    brace_depth -= 1;
+                    // Close any lock scopes that have ended.
+                    active_locks.retain(|&(_, depth)| brace_depth >= depth);
+                }
+                _ => {}
+            }
+        }
+
+        // Detect lock acquisitions where the guard survives beyond the statement.
+        // Patterns like `.lock().map(...)` or `.lock().ok()` (single-line or
+        // multi-line chain) consume the guard immediately and are safe.
+        //
+        // The dangerous pattern stores the guard in a variable:
+        //   `let mut state = shared.lock()...;`
+        //   `let Ok(mut state) = shared.lock()...`
+        //   `if let Ok(mut state) = shared.lock() { ... }`
+        //
+        // We detect these by checking for `let` before `.lock()` on the same
+        // line, while filtering out consuming chains that also have .map/.ok.
+        if lock_patterns.iter().any(|p| line.contains(p)) {
+            let has_let_binding = trimmed.starts_with("let ") || trimmed.contains("if let ");
+            let guard_consumed_immediately = line.contains(".lock().map(")
+                || line.contains(".lock().ok()")
+                || line.contains(".lock().unwrap().");
+            if has_let_binding && !guard_consumed_immediately {
+                let rel = path
+                    .strip_prefix(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"))
+                    .unwrap_or(path);
+                if rel.to_string_lossy().contains("tests") {
+                    continue;
+                }
+                active_locks.push((line_num, brace_depth));
+            }
+        }
+
+        // Detect emit calls while locks are active.
+        if !active_locks.is_empty()
+            && (line.contains(".emit(") || line.contains("ctx.emit("))
+            && !line.contains("lint:allow-emit-under-lock")
+        {
+            let rel = path
+                .strip_prefix(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"))
+                .unwrap_or(path);
+            // Exclude test files.
+            if rel.to_string_lossy().contains("tests") {
+                continue;
+            }
+            let lock_lines: Vec<usize> = active_locks.iter().map(|(l, _)| *l).collect();
+            violations.push(format!(
+                "  {}:{} - .emit() called with lock held (acquired at line(s) {:?})",
+                rel.display(),
+                line_num,
+                lock_lines,
+            ));
+        }
+    }
 }

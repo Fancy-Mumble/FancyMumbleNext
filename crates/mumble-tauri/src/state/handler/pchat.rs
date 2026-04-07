@@ -91,7 +91,7 @@ impl HandleMessage for mumble_tcp::PchatKeyHoldersList {
         debug!("received PchatKeyHoldersList");
         let channel_id = self.channel_id.unwrap_or(0);
 
-        let holders = {
+        let (holders, share_requests_payload) = {
             let Ok(mut state) = ctx.shared.lock() else {
                 return;
             };
@@ -160,28 +160,35 @@ impl HandleMessage for mumble_tcp::PchatKeyHoldersList {
                 !(p.channel_id == channel_id && holder_hashes.contains(p.peer_cert_hash.as_str()))
             });
 
-            // Notify the frontend so it drops the stale "Share Key" banner.
-            if state.pending_key_shares.len() != before_len {
-                if let Some(ref app) = state.tauri_app_handle {
-                    use tauri::Emitter;
+            // Collect payload for deferred emit outside the lock.
+            let share_requests_payload = if state.pending_key_shares.len() != before_len {
+                state.tauri_app_handle.as_ref().map(|app| {
                     let remaining: Vec<_> = state
                         .pending_key_shares
                         .iter()
                         .filter(|p| p.channel_id == channel_id)
                         .cloned()
                         .collect();
-                    let _ = app.emit(
-                        "pchat-key-share-requests-changed",
+                    (
+                        app.clone(),
                         crate::state::types::KeyShareRequestsChangedPayload {
                             channel_id,
                             pending: remaining,
                         },
-                    );
-                }
-            }
+                    )
+                })
+            } else {
+                None
+            };
 
-            holders
+            (holders, share_requests_payload)
         };
+
+        // Emit outside the lock to avoid deadlock with Tauri IPC.
+        if let Some((app, payload)) = share_requests_payload {
+            use tauri::Emitter;
+            let _ = app.emit("pchat-key-share-requests-changed", payload);
+        }
 
         ctx.emit(
             "pchat-key-holders-changed",
@@ -224,6 +231,19 @@ impl HandleMessage for mumble_tcp::PchatOfflineQueueDrain {
         pchat::handle_proto_offline_queue_drain(&ctx.shared, self);
         ctx.emit("new-message", NewMessagePayload { channel_id });
         ctx.emit_empty("state-changed");
+    }
+}
+
+impl HandleMessage for mumble_tcp::PchatSenderKeyDistribution {
+    fn handle(&self, ctx: &HandlerContext) {
+        debug!("received PchatSenderKeyDistribution");
+        let sender_hash = self.sender_hash.clone().unwrap_or_default();
+        let channel_id = self.channel_id.unwrap_or(0);
+        let data = self.distribution.clone().unwrap_or_default();
+
+        if pchat::handle_signal_sender_key_by_hash(&ctx.shared, &sender_hash, channel_id, &data) {
+            ctx.emit_empty("state-changed");
+        }
     }
 }
 

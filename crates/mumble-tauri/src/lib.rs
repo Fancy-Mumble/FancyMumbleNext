@@ -1382,7 +1382,7 @@ async fn approve_key_share(
     use std::time::{SystemTime, UNIX_EPOCH};
 
     // Extract everything we need while holding the lock, then release it.
-    let (handle, exchange) = {
+    let (handle, exchange, share_requests_emit) = {
         let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
 
         // Remove the pending entry and capture its request_id.
@@ -1394,23 +1394,22 @@ async fn approve_key_share(
         let removed = shared.pending_key_shares.remove(idx);
         let request_id = removed.request_id;
 
-        // Emit updated pending list so frontend can remove the banner.
-        if let Some(ref app) = shared.tauri_app_handle {
-            use tauri::Emitter;
+        // Collect payload for deferred emit outside the lock.
+        let share_requests_emit = shared.tauri_app_handle.as_ref().map(|app| {
             let remaining: Vec<_> = shared
                 .pending_key_shares
                 .iter()
                 .filter(|p| p.channel_id == channel_id)
                 .cloned()
                 .collect();
-            let _ = app.emit(
-                "pchat-key-share-requests-changed",
+            (
+                app.clone(),
                 state::types::KeyShareRequestsChangedPayload {
                     channel_id,
                     pending: remaining,
                 },
-            );
-        }
+            )
+        });
 
         let pchat = shared.pchat.as_ref().ok_or("pchat not initialised")?;
 
@@ -1448,8 +1447,14 @@ async fn approve_key_share(
             .clone()
             .ok_or("not connected")?;
 
-        (handle, proto)
+        (handle, proto, share_requests_emit)
     };
+
+    // Emit outside the lock to avoid deadlock with Tauri IPC.
+    if let Some((app, payload)) = share_requests_emit {
+        use tauri::Emitter;
+        let _ = app.emit("pchat-key-share-requests-changed", payload);
+    }
 
     // Send the key exchange to the peer.
     handle
@@ -1487,28 +1492,35 @@ fn dismiss_key_share(
     channel_id: u32,
     peer_cert_hash: String,
 ) -> Result<(), String> {
-    let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
+    let share_requests_emit = {
+        let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
 
-    shared
-        .pending_key_shares
-        .retain(|p| !(p.channel_id == channel_id && p.peer_cert_hash == peer_cert_hash));
-
-    // Emit updated pending list so frontend can remove the banner.
-    if let Some(ref app) = shared.tauri_app_handle {
-        use tauri::Emitter;
-        let remaining: Vec<_> = shared
+        shared
             .pending_key_shares
-            .iter()
-            .filter(|p| p.channel_id == channel_id)
-            .cloned()
-            .collect();
-        let _ = app.emit(
-            "pchat-key-share-requests-changed",
-            state::types::KeyShareRequestsChangedPayload {
-                channel_id,
-                pending: remaining,
-            },
-        );
+            .retain(|p| !(p.channel_id == channel_id && p.peer_cert_hash == peer_cert_hash));
+
+        // Collect payload for deferred emit outside the lock.
+        shared.tauri_app_handle.as_ref().map(|app| {
+            let remaining: Vec<_> = shared
+                .pending_key_shares
+                .iter()
+                .filter(|p| p.channel_id == channel_id)
+                .cloned()
+                .collect();
+            (
+                app.clone(),
+                state::types::KeyShareRequestsChangedPayload {
+                    channel_id,
+                    pending: remaining,
+                },
+            )
+        })
+    };
+
+    // Emit outside the lock to avoid deadlock with Tauri IPC.
+    if let Some((app, payload)) = share_requests_emit {
+        use tauri::Emitter;
+        let _ = app.emit("pchat-key-share-requests-changed", payload);
     }
 
     Ok(())

@@ -35,6 +35,10 @@ pub struct CpalCapture {
     hw_channels: u16,
     /// Live input volume multiplier (`f32` bits in `AtomicU32`).
     volume: Arc<AtomicU32>,
+    /// Suppresses repeated overflow warnings from the cpal callback.
+    /// Set to `true` on first overflow, cleared when the consumer
+    /// catches up in `read_frame`.
+    overflow_warned: Arc<AtomicBool>,
 }
 
 // SAFETY: On Windows / WASAPI the underlying COM objects use the MTA
@@ -86,6 +90,7 @@ impl CpalCapture {
             device,
             hw_channels,
             volume,
+            overflow_warned: Arc::new(AtomicBool::new(false)),
         })
     }
 }
@@ -120,6 +125,8 @@ impl AudioCapture for CpalCapture {
             let _ = buf.drain(..excess);
         }
 
+        self.overflow_warned.store(false, Ordering::Relaxed);
+
         let vol = f32::from_bits(self.volume.load(Ordering::Relaxed));
         let samples: Vec<f32> = buf
             .drain(..self.frame_size)
@@ -142,6 +149,7 @@ impl AudioCapture for CpalCapture {
     fn start(&mut self) -> Result<()> {
         let buffer = self.buffer.clone();
         let hw_channels = self.hw_channels;
+        let overflow_warned = self.overflow_warned.clone();
 
         let stream_config = cpal::StreamConfig {
             channels: hw_channels,
@@ -168,7 +176,9 @@ impl AudioCapture for CpalCapture {
                         // avoid accumulating stale audio when the
                         // encoding loop is throttled.
                         if buf.len() > 9_600 {
-                            warn!("cpal capture buffer overflow, discarding oldest samples");
+                            if !overflow_warned.swap(true, Ordering::Relaxed) {
+                                warn!("cpal capture buffer overflow, discarding oldest samples");
+                            }
                             let excess = buf.len() - 9_600;
                             let _ = buf.drain(..excess);
                         }

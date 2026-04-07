@@ -200,7 +200,7 @@ mod voice_pipeline {
 
         /// Stop all running audio pipelines and tasks.
         pub(in crate::state) fn stop_audio(&self) {
-            if let Ok(mut state) = self.inner.lock() {
+            let stopped_sessions: Vec<(u32, tauri::AppHandle)> = if let Ok(mut state) = self.inner.lock() {
                 if let Some(handle) = state.outbound_task_handle.take() {
                     handle.abort();
                 }
@@ -217,16 +217,29 @@ mod voice_pipeline {
                 state.input_volume_handle = None;
                 state.output_volume_handle = None;
 
-                // Clear talking indicators: once audio is stopped no
-                // terminators will arrive, so reset all tracked sessions.
-                if !state.talking_sessions.is_empty() {
+                // Collect sessions to notify OUTSIDE the lock.
+                let sessions: Vec<(u32, tauri::AppHandle)> = if !state.talking_sessions.is_empty() {
                     if let Some(ref app) = state.tauri_app_handle {
-                        for &session in &state.talking_sessions {
-                            let _ = app.emit("user-talking", (session, false));
-                        }
+                        state
+                            .talking_sessions
+                            .iter()
+                            .map(|&s| (s, app.clone()))
+                            .collect()
+                    } else {
+                        Vec::new()
                     }
-                    state.talking_sessions.clear();
-                }
+                } else {
+                    Vec::new()
+                };
+                state.talking_sessions.clear();
+                sessions
+            } else {
+                Vec::new()
+            };
+
+            // Emit outside the lock to avoid deadlock with Tauri IPC.
+            for (session, app) in stopped_sessions {
+                let _ = app.emit("user-talking", (session, false));
             }
         }
 
@@ -365,12 +378,15 @@ mod voice_pipeline {
                 audio_settings.vad_threshold,
             );
 
-            let mut outbound = OutboundPipeline::new(
+            let outbound = OutboundPipeline::new(
                 capture,
                 outbound_filters,
                 Box::new(encoder),
             );
-            outbound.start().map_err(|e| format!("Capture start: {e}"))?;
+            // capture.start() is deferred to outbound_audio_loop so the
+            // cpal stream only begins producing samples once the encoding
+            // loop is ready to consume them, avoiding buffer overflow on
+            // startup.
 
             let outbound_handle = if let Some(ref client) = client_handle {
                 let client = client.clone();

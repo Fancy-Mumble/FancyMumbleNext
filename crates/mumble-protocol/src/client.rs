@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, watch};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::command::{BoxedCommand, CommandAction};
 use crate::error::{Error, Result};
@@ -98,6 +98,7 @@ impl Default for ClientConfig {
 pub struct ClientHandle {
     cmd_tx: mpsc::Sender<BoxedCommand>,
     force_tcp_tx: watch::Sender<bool>,
+    audio_out_tx: mpsc::Sender<UdpMessage>,
 }
 
 impl ClientHandle {
@@ -110,6 +111,21 @@ impl ClientHandle {
             .send(Box::new(cmd))
             .await
             .map_err(|_| Error::QueueClosed)
+    }
+
+    /// Submit an outbound audio packet on the high-priority audio channel.
+    ///
+    /// Unlike [`send`], this bypasses the command queue and is drained at
+    /// the same priority as inbound UDP, so audio is never starved by
+    /// control traffic.  Non-blocking: drops the packet if the channel is
+    /// full.
+    pub fn send_audio(&self, msg: UdpMessage) -> Result<()> {
+        self.audio_out_tx.try_send(msg).map_err(|e| match e {
+            mpsc::error::TrySendError::Full(_) => {
+                Error::InvalidState("audio channel full".into())
+            }
+            mpsc::error::TrySendError::Closed(_) => Error::QueueClosed,
+        })
     }
 
     /// Toggle force-TCP mode at runtime.
@@ -193,7 +209,7 @@ pub async fn run<H: EventHandler>(
     let (tcp_reader, tcp_writer) = tcp.split();
 
     // 2. Create work queue
-    let (wq_sender, wq_receiver) = work_queue::create();
+    let (wq_sender, wq_receiver, audio_out_rx) = work_queue::create();
 
     // 3. Build client handle (for external command submission)
     let (ext_cmd_tx, ext_cmd_rx) = mpsc::channel::<BoxedCommand>(32);
@@ -201,6 +217,7 @@ pub async fn run<H: EventHandler>(
     let client_handle = ClientHandle {
         cmd_tx: ext_cmd_tx,
         force_tcp_tx,
+        audio_out_tx: wq_sender.audio_sender(),
     };
 
     // 4. Spawn the main event loop
@@ -216,6 +233,7 @@ pub async fn run<H: EventHandler>(
             force_tcp_rx,
             wq_sender,
             wq_receiver,
+            audio_out_rx,
             ext_cmd_rx,
             ping_interval,
         )
@@ -223,6 +241,7 @@ pub async fn run<H: EventHandler>(
         {
             error!("client event loop error: {e}");
         }
+        warn!("client event loop task exiting");
     });
 
     Ok((client_handle, join))
@@ -240,6 +259,7 @@ async fn event_loop<H: EventHandler>(
     mut force_tcp_rx: watch::Receiver<bool>,
     wq_sender: WorkQueueSender,
     mut wq_receiver: work_queue::WorkQueueReceiver,
+    mut audio_out_rx: mpsc::Receiver<UdpMessage>,
     ext_cmd_rx: mpsc::Receiver<BoxedCommand>,
     ping_interval: Duration,
 ) -> Result<()> {
@@ -265,13 +285,41 @@ async fn event_loop<H: EventHandler>(
     let mut force_tcp = *force_tcp_rx.borrow();
 
     // Main dispatch loop
-    debug!("entering main event loop");
+    info!("entering main event loop");
     let mut tcp_reader_alive = true;
+    let mut outbound_audio_count: u64 = 0;
+    let mut loop_iteration: u64 = 0;
+
     loop {
+        loop_iteration += 1;
+        if loop_iteration <= 20 || loop_iteration.is_multiple_of(500) {
+            debug!("event loop iter={loop_iteration} (entering select)");
+        }
+
         let item = tokio::select! {
             biased;
-            item = wq_receiver.recv() => Some(item),
+            item = wq_receiver.recv() => {
+                if loop_iteration <= 20 || loop_iteration.is_multiple_of(500) {
+                    debug!(
+                        "event loop iter={loop_iteration}: woke on work-queue",
+                    );
+                }
+                Some(item)
+            }
+            Some(msg) = audio_out_rx.recv() => {
+                if loop_iteration <= 20 || loop_iteration.is_multiple_of(500) {
+                    debug!("event loop iter={loop_iteration}: woke on audio_out");
+                }
+                send_one_audio_packet(
+                    &msg,
+                    &mut udp_sender,
+                    &outbound_tx,
+                    &mut outbound_audio_count,
+                );
+                None
+            }
             Ok(()) = force_tcp_rx.changed() => {
+                debug!("event loop iter={loop_iteration}: woke on force_tcp_rx");
                 let new_force = *force_tcp_rx.borrow_and_update();
                 if new_force != force_tcp {
                     force_tcp = new_force;
@@ -296,7 +344,12 @@ async fn event_loop<H: EventHandler>(
 
         let Some(item) = item else { continue; };
 
+        if loop_iteration <= 20 || loop_iteration.is_multiple_of(500) {
+            debug!("event loop iter={loop_iteration}: processing work item");
+        }
+
         let action = {
+            let before = tokio::time::Instant::now();
             let mut ctx = EventLoopCtx {
                 handler: &mut handler,
                 state: &mut state,
@@ -308,7 +361,7 @@ async fn event_loop<H: EventHandler>(
                 wq_sender: &wq_sender,
                 force_tcp,
             };
-            match item {
+            let action = match item {
                 WorkItem::ServerMessage(msg) => ctx.handle_server_message(msg).await,
                 WorkItem::UserCommand(cmd) => ctx.handle_user_command(cmd).await,
                 WorkItem::Shutdown => {
@@ -316,7 +369,14 @@ async fn event_loop<H: EventHandler>(
                     ctx.handler.on_disconnected();
                     LoopAction::Break
                 }
+            };
+            let elapsed = before.elapsed();
+            if elapsed.as_millis() > 50 {
+                warn!(
+                    "event loop: processing took {elapsed:?} (iter={loop_iteration})",
+                );
             }
+            action
         };
         if action == LoopAction::Break {
             break;
@@ -451,6 +511,7 @@ impl<H: EventHandler> EventLoopCtx<'_, H> {
         match &server_msg {
             ServerMessage::Control(ctrl) => {
                 if let ControlMessage::UdpTunnel(ref data) = ctrl {
+                    trace!("handle_server_message: UdpTunnel ({} bytes)", data.len());
                     match crate::transport::audio_codec::decode_tunnel_audio(data) {
                         Ok(audio) => self.handler.on_udp_message(&UdpMessage::Audio(audio)),
                         Err(e) => {
@@ -491,7 +552,9 @@ impl<H: EventHandler> EventLoopCtx<'_, H> {
                 }
             }
             ServerMessage::Udp(udp_msg) => {
+                trace!("handle_server_message: UDP message");
                 self.handler.on_udp_message(udp_msg);
+                trace!("handle_server_message: on_udp_message returned");
             }
         }
         LoopAction::Continue
@@ -628,6 +691,70 @@ impl UdpSender {
             .await
             .map_err(Error::Io)?;
         Ok(())
+    }
+
+    /// Non-blocking encrypt + send. Returns `Ok(true)` when the packet
+    /// was sent, `Ok(false)` when the OS buffer was full (packet dropped),
+    /// or `Err` for other failures.
+    fn try_send_raw(&mut self, payload: &[u8]) -> Result<bool> {
+        let encrypted = self.crypt.encrypt(payload)?;
+        match self.socket.try_send(&encrypted) {
+            Ok(_) => Ok(true),
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
+            Err(e) => Err(Error::Io(e)),
+        }
+    }
+}
+
+/// Non-blocking drain of all pending outbound audio packets.
+///
+/// Called at the top of every event-loop iteration so audio is sent
+/// Send a single outbound audio packet via UDP (preferred) or TCP tunnel
+/// (fallback).  Fully non-blocking -- uses `try_send_raw` on the UDP
+/// socket and `try_send` on the TCP channel, so this function **never
+/// awaits** and cannot stall the event loop.
+fn send_one_audio_packet(
+    msg: &UdpMessage,
+    udp_sender: &mut Option<UdpSender>,
+    outbound_tx: &mpsc::Sender<ControlMessage>,
+    counter: &mut u64,
+) {
+    let UdpMessage::Audio(audio) = msg else {
+        return;
+    };
+    *counter += 1;
+    if *counter == 1 || counter.is_multiple_of(500) {
+        debug!(
+            "event loop: outbound audio #{} (udp={})",
+            counter,
+            udp_sender.is_some(),
+        );
+    }
+
+    let sent_udp = if let Some(sender) = udp_sender.as_mut() {
+        let payload = crate::transport::udp::encode_udp_message(msg);
+        match sender.try_send_raw(&payload) {
+            Ok(true) => true,
+            Ok(false) => {
+                trace!("UDP send would block, falling back to TCP tunnel");
+                false
+            }
+            Err(e) => {
+                warn!("UDP audio send failed: {e}");
+                false
+            }
+        }
+    } else {
+        false
+    };
+
+    if !sent_udp {
+        let tunnel_data =
+            crate::transport::audio_codec::ProtobufAudioCodec::encode(audio);
+        let tunnel = ControlMessage::UdpTunnel(tunnel_data);
+        if outbound_tx.try_send(tunnel).is_err() {
+            warn!("TCP tunnel channel full, dropping audio packet");
+        }
     }
 }
 

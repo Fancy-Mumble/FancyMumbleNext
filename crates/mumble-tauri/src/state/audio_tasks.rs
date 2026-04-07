@@ -13,6 +13,8 @@ use mumble_protocol::audio::filter::automatic_gain::AutomaticGainControl;
 use mumble_protocol::audio::pipeline::{OutboundPipeline, OutboundTick};
 use mumble_protocol::client::ClientHandle;
 use mumble_protocol::command;
+use mumble_protocol::message::UdpMessage;
+use mumble_protocol::proto::mumble_udp;
 
 use super::types::MicAmplitudePayload;
 use super::SharedState;
@@ -62,13 +64,26 @@ pub(super) async fn outbound_audio_loop(
     app: Option<tauri::AppHandle>,
     own_session: Option<u32>,
 ) {
+    debug!("outbound_audio_loop: task started");
+
+    // Start the capture device inside the encoding task so the cpal
+    // stream only begins producing samples when we are ready to consume.
+    if let Err(e) = pipeline.start() {
+        warn!("outbound_audio_loop: capture start failed: {e}");
+        return;
+    }
+
     // Bounded channel: 50 packets ~ 1 second of audio at 20ms/frame.
     let (tx, rx) = tokio::sync::mpsc::channel::<AudioPacketOut>(50);
 
     let _outbound_send_task = tokio::spawn(outbound_send_task(rx, handle));
 
-    // Let the capture buffer fill before we start encoding.
-    tokio::time::sleep(Duration::from_millis(60)).await;
+    // Brief yield so the cpal callback can deliver an initial batch of
+    // samples, then drain any that accumulated during startup.
+    tokio::task::yield_now().await;
+    while pipeline.tick().is_ok_and(|t| !matches!(t, OutboundTick::NoData)) {}
+
+    debug!("outbound_audio_loop: entering encoding loop");
 
     // Poll at 5 ms instead of 20 ms. Each frame is still 960 samples
     // (20 ms @ 48 kHz), but the shorter interval reduces the chance of
@@ -216,25 +231,41 @@ fn process_outbound_tick(
 }
 
 /// Drains encoded audio packets from the channel and sends them to
-/// the server.
+/// the server via the high-priority audio path.
 async fn outbound_send_task(
     mut rx: tokio::sync::mpsc::Receiver<AudioPacketOut>,
     handle: ClientHandle,
 ) {
+    let mut sent: u64 = 0;
+    let mut dropped: u64 = 0;
     while let Some(pkt) = rx.recv().await {
-        if let Err(e) = handle
-            .send(command::SendAudio {
-                opus_data: pkt.data,
-                target: 0,
-                frame_number: pkt.sequence,
-                positional_data: None,
-                is_terminator: pkt.is_terminator,
-            })
-            .await
-        {
-            warn!("outbound_audio: network send failed: {e}");
+        let audio = mumble_udp::Audio {
+            header: Some(mumble_udp::audio::Header::Target(0)),
+            sender_session: 0,
+            frame_number: pkt.sequence,
+            opus_data: pkt.data,
+            positional_data: Vec::new(),
+            volume_adjustment: 0.0,
+            is_terminator: pkt.is_terminator,
+        };
+        match handle.send_audio(UdpMessage::Audio(audio)) {
+            Ok(()) => {
+                sent += 1;
+                if sent == 1 {
+                    debug!("outbound_send_task: first packet queued to event loop");
+                }
+            }
+            Err(e) => {
+                dropped += 1;
+                if dropped == 1 || dropped.is_multiple_of(100) {
+                    warn!(
+                        "outbound_audio: send failed (dropped={dropped}, sent={sent}): {e}",
+                    );
+                }
+            }
         }
     }
+    debug!("outbound_send_task: channel closed, sent={sent}, dropped={dropped}");
 }
 
 // -----------------------------------------------------------------------
@@ -332,11 +363,18 @@ pub(super) async fn mic_test_loop(
             // Set threshold at 15x the noise floor for clear separation.
             if frame_count > 15 && frame_count.is_multiple_of(10) {
                 let threshold = (noise_floor_ema * 15.0).clamp(0.03, 0.5);
-                if let Ok(mut state) = inner.lock() {
+                let should_emit = if let Ok(mut state) = inner.lock() {
                     if (state.audio_settings.vad_threshold - threshold).abs() > 0.002 {
                         state.audio_settings.vad_threshold = threshold;
-                        let _ = app.emit("vad-threshold-updated", threshold);
+                        true
+                    } else {
+                        false
                     }
+                } else {
+                    false
+                };
+                if should_emit {
+                    let _ = app.emit("vad-threshold-updated", threshold);
                 }
             }
         }
