@@ -19,6 +19,13 @@
  */
 import { useEffect, useCallback, useState, useRef } from "react";
 import { useAppStore, onWebRtcSignal } from "../../store";
+import {
+  getPreviewPc,
+  handlePreviewAnswer,
+  handlePreviewIceCandidate,
+  clearThumbnail,
+  closePreview,
+} from "./useStreamPreview";
 
 // Proto SignalType enum values (must match Mumble.proto).
 const SIGNAL_START = 0;
@@ -214,6 +221,7 @@ function closeViewer(): void {
 
 /** Connect to the server SFU to watch a broadcaster's stream. */
 async function startWatching(broadcasterSession: number): Promise<void> {
+  closePreview();
   closeViewer();
 
   const pc = new RTCPeerConnection(RTC_CONFIG);
@@ -226,9 +234,7 @@ async function startWatching(broadcasterSession: number): Promise<void> {
     // Accumulate all tracks into one MediaStream so a late audio
     // ontrack doesn't overwrite the video stream (str0m may use
     // different MSIDs per media section).
-    if (!viewerRemoteStream) {
-      viewerRemoteStream = new MediaStream();
-    }
+    viewerRemoteStream ??= new MediaStream();
     if (!viewerRemoteStream.getTrackById(e.track.id)) {
       viewerRemoteStream.addTrack(e.track);
     }
@@ -269,12 +275,57 @@ async function handleServerAnswer(pc: RTCPeerConnection, sdp: string): Promise<v
 // Incoming signal dispatcher
 // ---------------------------------------------------------------------------
 
+/** Route an SDP answer to the peer that is waiting for one. */
+function routeSdpAnswer(payload: string): void {
+  if (broadcasterPc?.signalingState === "have-local-offer") {
+    handleServerAnswer(broadcasterPc, payload)
+      .then(flushBroadcasterIce)
+      .catch((e) => console.error("[sfu] broadcaster setRemoteDescription error:", e));
+  } else if (viewerPc?.signalingState === "have-local-offer") {
+    handleServerAnswer(viewerPc, payload)
+      .then(flushViewerIce)
+      .catch((e) => console.error("[sfu] viewer setRemoteDescription error:", e));
+  } else if (getPreviewPc()?.signalingState === "have-local-offer") {
+    handlePreviewAnswer(payload);
+  } else {
+    console.warn(
+      "[sfu] SDP answer received but no peer is expecting one",
+      "broadcaster:", broadcasterPc?.signalingState,
+      "viewer:", viewerPc?.signalingState,
+    );
+  }
+}
+
+/** Route an ICE candidate to the correct peer (broadcaster > viewer > preview). */
+function routeIceCandidate(payload: string): void {
+  let candidate: RTCIceCandidateInit | null = null;
+  try {
+    candidate = JSON.parse(payload) as RTCIceCandidateInit;
+  } catch {
+    return;
+  }
+  if (!candidate) return;
+
+  if (broadcasterPc) {
+    if (broadcasterPc.remoteDescription) {
+      broadcasterPc.addIceCandidate(candidate).catch(console.error);
+    } else {
+      broadcasterPendingIce.push(candidate);
+    }
+  } else if (viewerPc) {
+    if (viewerPc.remoteDescription) {
+      viewerPc.addIceCandidate(candidate).catch(console.error);
+    } else {
+      viewerPendingIce.push(candidate);
+    }
+  } else if (getPreviewPc()) {
+    handlePreviewIceCandidate(candidate);
+  }
+}
+
 function handleSignal(senderSession: number, targetSession: number | null, signalType: number, payload: string): void {
   const ownSession = useAppStore.getState().ownSession;
-  if (senderSession === ownSession) return; // ignore own echoes
-
-  // Ignore signals targeted at other sessions (e.g. SDP answers the server
-  // broadcasts to all channel members but only one session should process).
+  if (senderSession === ownSession) return;
   if (targetSession !== null && targetSession !== 0 && targetSession !== ownSession) return;
 
   switch (signalType) {
@@ -292,65 +343,23 @@ function handleSignal(senderSession: number, targetSession: number | null, signa
         next.delete(senderSession);
         return {
           broadcastingSessions: next,
-          // Auto-stop watching if we were watching this person.
           watchingSession: s.watchingSession === senderSession ? null : s.watchingSession,
         };
       });
+      clearThumbnail(senderSession);
       if (useAppStore.getState().watchingSession === null) {
         closeViewer();
       }
       break;
 
     case SIGNAL_SDP_ANSWER:
-      // Server SFU answered our offer.
-      // Route to the peer that is actually waiting for an answer.
-      // Use signalingState instead of remoteDescription to avoid races
-      // where a new PC was created but hasn't sent its offer yet.
-      if (broadcasterPc?.signalingState === "have-local-offer") {
-        handleServerAnswer(broadcasterPc, payload)
-          .then(flushBroadcasterIce)
-          .catch((e) => console.error("[sfu] broadcaster setRemoteDescription error:", e));
-      } else if (viewerPc?.signalingState === "have-local-offer") {
-        handleServerAnswer(viewerPc, payload)
-          .then(flushViewerIce)
-          .catch((e) => console.error("[sfu] viewer setRemoteDescription error:", e));
-      } else {
-        console.warn(
-          "[sfu] SDP answer received but no peer is expecting one",
-          "broadcaster:", broadcasterPc?.signalingState,
-          "viewer:", viewerPc?.signalingState,
-        );
-      }
+      routeSdpAnswer(payload);
       break;
 
-    case SIGNAL_ICE_CANDIDATE: {
-      // Server sent us an ICE candidate (only if server is not using ICE-lite).
-      let candidate: RTCIceCandidateInit | null = null;
-      try {
-        candidate = JSON.parse(payload) as RTCIceCandidateInit;
-      } catch {
-        break;
-      }
-      if (!candidate) break;
-
-      // Route to active peer. Prefer broadcaster if both exist.
-      if (broadcasterPc) {
-        if (broadcasterPc.remoteDescription) {
-          broadcasterPc.addIceCandidate(candidate).catch(console.error);
-        } else {
-          broadcasterPendingIce.push(candidate);
-        }
-      } else if (viewerPc) {
-        if (viewerPc.remoteDescription) {
-          viewerPc.addIceCandidate(candidate).catch(console.error);
-        } else {
-          viewerPendingIce.push(candidate);
-        }
-      }
+    case SIGNAL_ICE_CANDIDATE:
+      routeIceCandidate(payload);
       break;
-    }
 
-    // SDP_OFFER is not expected from the server in the SFU model.
     default:
       break;
   }

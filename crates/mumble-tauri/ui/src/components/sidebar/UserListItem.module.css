@@ -233,6 +233,35 @@
   padding-bottom: 12px;
 }
 
+/* --- Stream Preview Thumbnail ----------------------------------- */
+
+.streamPreview {
+  width: 260px;
+  border-radius: 8px 8px 0 0;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.streamPreview img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.streamPreviewPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 146px;
+  color: var(--color-text-muted, #888);
+  animation: previewPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes previewPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
 /* --- Mobile ----------------------------------------------------- */
 
 @media (max-width: 768px) {
