@@ -64,6 +64,38 @@ let broadcasterPc: RTCPeerConnection | null = null;
 /** ICE candidates received before the broadcaster peer had a remote description. */
 let broadcasterPendingIce: RTCIceCandidateInit[] = [];
 
+/** Interval handle for periodic WebRTC stats logging. */
+let broadcasterStatsInterval: ReturnType<typeof setInterval> | null = null;
+
+/** Log outbound video stats from the broadcaster PC for diagnostics. */
+function startBroadcasterStatsLog(pc: RTCPeerConnection): void {
+  stopBroadcasterStatsLog();
+  broadcasterStatsInterval = setInterval(async () => {
+    if (pc.connectionState !== "connected") return;
+    const stats = await pc.getStats();
+    stats.forEach((report) => {
+      if (report.type === "outbound-rtp" && report.kind === "video") {
+        console.log(
+          `[sfu] outbound-rtp: qualityLimitationReason=${report.qualityLimitationReason}` +
+            ` targetBitrate=${report.targetBitrate}` +
+            ` bytesSent=${report.bytesSent}` +
+            ` packetsSent=${report.packetsSent}` +
+            ` framesPerSecond=${report.framesPerSecond}` +
+            ` frameWidth=${report.frameWidth}x${report.frameHeight}` +
+            ` encoderImplementation=${report.encoderImplementation}`,
+        );
+      }
+    });
+  }, 2000);
+}
+
+function stopBroadcasterStatsLog(): void {
+  if (broadcasterStatsInterval !== null) {
+    clearInterval(broadcasterStatsInterval);
+    broadcasterStatsInterval = null;
+  }
+}
+
 /** Flush queued ICE candidates after remote description is set. */
 function flushBroadcasterIce(): void {
   if (!broadcasterPc) return;
@@ -94,6 +126,17 @@ async function connectBroadcasterToServer(): Promise<void> {
     pc.addTrack(track, localStream);
   }
 
+  // Tell Chrome to prefer framerate over resolution when bandwidth is limited.
+  // Without this, Chrome's default "balanced" degradation drops both framerate
+  // and resolution, often resulting in <1fps screen shares through the SFU.
+  for (const sender of pc.getSenders()) {
+    if (sender.track?.kind === "video") {
+      const params = sender.getParameters();
+      params.degradationPreference = "maintain-framerate";
+      await sender.setParameters(params);
+    }
+  }
+
   // Send our ICE candidates to the server (target=0).
   pc.onicecandidate = (e) => {
     if (e.candidate) {
@@ -103,8 +146,11 @@ async function connectBroadcasterToServer(): Promise<void> {
 
   pc.onconnectionstatechange = () => {
     if (pc !== broadcasterPc) return; // stale closure
-    if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+    if (pc.connectionState === "connected") {
+      startBroadcasterStatsLog(pc);
+    } else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
       console.warn("[sfu] broadcaster connection to server lost");
+      stopBroadcasterStatsLog();
     }
   };
 
@@ -119,6 +165,7 @@ async function connectBroadcasterToServer(): Promise<void> {
 
 /** Clean up all broadcaster state. */
 function stopBroadcasting(): void {
+  stopBroadcasterStatsLog();
   if (localStream) {
     for (const track of localStream.getTracks()) track.stop();
     localStream = null;
@@ -176,10 +223,16 @@ async function startWatching(broadcasterSession: number): Promise<void> {
   pc.addTransceiver("audio", { direction: "recvonly" });
 
   pc.ontrack = (e) => {
-    // Use the first stream from the track event.
-    const stream = e.streams[0] ?? new MediaStream([e.track]);
-    viewerRemoteStream = stream;
-    notifyRemoteStreamListeners(stream);
+    // Accumulate all tracks into one MediaStream so a late audio
+    // ontrack doesn't overwrite the video stream (str0m may use
+    // different MSIDs per media section).
+    if (!viewerRemoteStream) {
+      viewerRemoteStream = new MediaStream();
+    }
+    if (!viewerRemoteStream.getTrackById(e.track.id)) {
+      viewerRemoteStream.addTrack(e.track);
+    }
+    notifyRemoteStreamListeners(viewerRemoteStream);
   };
 
   // Send our ICE candidates to the server (routed via broadcaster session).

@@ -47,13 +47,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     let unlisteners: (() => void)[] = [];
 
     initEventListeners(navigate).then((fns) => {
+      if (cancelled) {
+        fns.forEach((fn) => fn());
+        return;
+      }
       unlisteners = fns;
     });
 
     return () => {
+      cancelled = true;
       unlisteners.forEach((fn) => fn());
     };
   }, [navigate]);

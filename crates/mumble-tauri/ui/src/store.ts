@@ -1102,6 +1102,9 @@ export async function initEventListeners(
     await invoke("set_disable_dual_path", {
       disabled: prefs.disableDualPath ?? false,
     });
+    if (prefs.debugLogging) {
+      await invoke("set_log_level", { filter: "debug" });
+    }
   } catch {
     // Preference store may not be ready yet - backend defaults to enabled.
   }

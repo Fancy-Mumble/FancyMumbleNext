@@ -174,6 +174,8 @@ export interface UserPreferences {
   /** When true, encrypted channels send a placeholder instead of the real
    *  message body in the plain TextMessage (disabling dual-path sending). */
   disableDualPath?: boolean;
+  /** Enable verbose debug logging in the Rust backend. */
+  debugLogging?: boolean;
   /** Collapsed/expanded state of sidebar sections. */
   sidebarSections?: SidebarSections;
 }

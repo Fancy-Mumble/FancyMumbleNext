@@ -95,6 +95,7 @@ export default function SettingsPage() {
   const [klipyApiKey, setKlipyApiKeyState] = useState("");
   const [enableNotifications, setEnableNotifications] = useState(true);
   const [disableDualPath, setDisableDualPath] = useState(false);
+  const [debugLogging, setDebugLogging] = useState(false);
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("auto");
   const [convertToLocalTime, setConvertToLocalTime] = useState(true);
 
@@ -153,6 +154,7 @@ export default function SettingsPage() {
         setKlipyApiKey(prefs.klipyApiKey);
         setEnableNotifications(prefs.enableNotifications ?? true);
         setDisableDualPath(prefs.disableDualPath ?? false);
+        setDebugLogging(prefs.debugLogging ?? false);
         setTimeFormat(prefs.timeFormat);
         setConvertToLocalTime(prefs.convertToLocalTime);
       } catch {
@@ -377,6 +379,18 @@ export default function SettingsPage() {
     await updatePreferences({ userMode: next });
   }, [userMode]);
 
+  const handleToggleDebugLogging = useCallback(async () => {
+    const next = !debugLogging;
+    const filter = next ? "debug" : "info";
+    try {
+      await invoke("set_log_level", { filter });
+      setDebugLogging(next);
+      await updatePreferences({ debugLogging: next });
+    } catch (e) {
+      console.error("Failed to set log level:", e);
+    }
+  }, [debugLogging]);
+
   const refreshIdentities = useCallback(async () => {
     try {
       const certs = await invoke<string[]>("list_certificates");
@@ -510,12 +524,14 @@ export default function SettingsPage() {
               klipyApiKey={klipyApiKey}
               enableNotifications={enableNotifications}
               disableDualPath={disableDualPath}
+              debugLogging={debugLogging}
               timeFormat={timeFormat}
               convertToLocalTime={convertToLocalTime}
               onToggleMode={handleToggleMode}
               onKlipyApiKeyChange={handleKlipyApiKeyChange}
               onToggleNotifications={handleToggleNotifications}
               onToggleDualPath={handleToggleDualPath}
+              onToggleDebugLogging={handleToggleDebugLogging}
               onTimeFormatChange={handleTimeFormatChange}
               onConvertToLocalTimeChange={handleConvertToLocalTimeChange}
               onToggleDeveloperMode={handleToggleDeveloperMode}

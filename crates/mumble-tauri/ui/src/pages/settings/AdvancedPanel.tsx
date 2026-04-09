@@ -1,5 +1,4 @@
 ﻿import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import type { UserMode, TimeFormat } from "../../types";
 import { Toggle } from "./SharedControls";
 import styles from "./SettingsPage.module.css";
@@ -15,12 +14,14 @@ export function AdvancedPanel({
   klipyApiKey,
   enableNotifications,
   disableDualPath,
+  debugLogging,
   timeFormat,
   convertToLocalTime,
   onToggleMode,
   onKlipyApiKeyChange,
   onToggleNotifications,
   onToggleDualPath,
+  onToggleDebugLogging,
   onTimeFormatChange,
   onConvertToLocalTimeChange,
   onToggleDeveloperMode,
@@ -30,30 +31,20 @@ export function AdvancedPanel({
   klipyApiKey: string;
   enableNotifications: boolean;
   disableDualPath: boolean;
+  debugLogging: boolean;
   timeFormat: TimeFormat;
   convertToLocalTime: boolean;
   onToggleMode: () => void;
   onKlipyApiKeyChange: (key: string) => void;
   onToggleNotifications: () => void;
   onToggleDualPath: () => void;
+  onToggleDebugLogging: () => void;
   onTimeFormatChange: (fmt: TimeFormat) => void;
   onConvertToLocalTimeChange: () => void;
   onToggleDeveloperMode: () => void;
   onReset: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const [debugLogging, setDebugLogging] = useState(false);
-
-  const toggleDebugLogging = async () => {
-    const next = !debugLogging;
-    const filter = next ? "debug" : "info";
-    try {
-      await invoke("set_log_level", { filter });
-      setDebugLogging(next);
-    } catch (e) {
-      console.error("Failed to set log level:", e);
-    }
-  };
 
   return (
     <>
@@ -125,11 +116,10 @@ export function AdvancedPanel({
               <h3 className={styles.sectionTitle}>Debug Logging</h3>
               <p className={styles.fieldHint}>
                 Enable verbose debug logging in the Rust backend. Useful for
-                diagnosing protocol and connection issues. Resets to info level
-                on app restart.
+                diagnosing protocol and connection issues.
               </p>
             </div>
-            <Toggle checked={debugLogging} onChange={toggleDebugLogging} />
+            <Toggle checked={debugLogging} onChange={onToggleDebugLogging} />
           </div>
         </section>
       )}

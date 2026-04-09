@@ -204,6 +204,9 @@ function RemoteViewer() {
     const video = videoRef.current;
     if (!video) return;
     video.srcObject = remoteStream;
+    if (remoteStream) {
+      video.play().catch(() => {});
+    }
     return () => { video.srcObject = null; };
   }, [remoteStream]);
 
@@ -222,6 +225,7 @@ function RemoteViewer() {
         ref={videoRef}
         autoPlay
         playsInline
+        muted
         className={styles.videoElement}
         style={{ display: remoteStream ? "block" : "none" }}
       />
