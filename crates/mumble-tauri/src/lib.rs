@@ -1092,7 +1092,7 @@ fn set_log_level(filter: String) -> Result<String, String> {
 async fn reset_app_data(app: tauri::AppHandle) -> Result<(), String> {
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     // Remove known data files.
-    for name in &["preferences.json", "servers.json"] {
+    for name in &["preferences.json", "servers.json", "passwords.json"] {
         let path = data_dir.join(name);
         if path.exists() {
             std::fs::remove_file(&path).map_err(|e| e.to_string())?;
