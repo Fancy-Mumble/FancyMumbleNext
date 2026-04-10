@@ -9,9 +9,11 @@
  * - Drag-and-drop reordering of both the drawer strip and grid panes.
  *   Dropping onto the primary pane switches the focused stream.
  */
-import { useState, useEffect, useRef, useCallback, memo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import ScreenShareViewer from "./ScreenShareViewer";
+import { useRemoteStream } from "./useScreenShare";
 import { useStreamThumbnail } from "./useStreamPreview";
+import { useAppStore } from "../../store";
 import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
 import ChevronDownIcon from "../../assets/icons/navigation/chevron-down.svg?react";
 import styles from "./StreamFocusView.module.css";
@@ -119,10 +121,23 @@ interface SecondaryPanelProps extends PointerDragItemProps {
   readonly session: number;
   readonly name: string;
   readonly className?: string;
+  readonly ownBroadcastStream?: MediaStream | null;
 }
 
-const SecondaryPanel = memo(function SecondaryPanel({ session, name, className, isDragOver, onItemPointerDown, onItemClick }: SecondaryPanelProps) {
-  const thumbnail = useStreamThumbnail(session, true);
+const SecondaryPanel = memo(function SecondaryPanel({ session, name, className, isDragOver, onItemPointerDown, onItemClick, ownBroadcastStream }: SecondaryPanelProps) {
+  const remoteStream = useRemoteStream(session);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const stream = ownBroadcastStream ?? remoteStream;
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.srcObject = stream;
+    if (stream) {
+      video.play().catch(() => {});
+    }
+    return () => { video.srcObject = null; };
+  }, [stream]);
 
   return (
     <button
@@ -134,8 +149,16 @@ const SecondaryPanel = memo(function SecondaryPanel({ session, name, className, 
       style={{ touchAction: "none" }}
       aria-label={`Switch to ${name}'s stream`}
     >
-      {thumbnail
-        ? <img src={thumbnail} alt="" className={styles.secondaryImg} />
+      {stream
+        ? (
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className={styles.secondaryImg}
+          />
+        )
         : (
           <div className={styles.secondaryPlaceholder}>
             <ScreenShareIcon width={28} height={28} />
@@ -346,15 +369,20 @@ interface LayoutSecondaryPanesProps {
   readonly secondaries: Broadcaster[];
   readonly dragOverTarget: number | "primary" | null;
   readonly dragHandlers: PointerDragHandlers;
+  readonly ownBroadcastStream?: MediaStream | null;
+  readonly ownSession: number | null;
 }
 
-function LayoutSecondaryPanes({ layout, secondaries, dragOverTarget, dragHandlers }: LayoutSecondaryPanesProps) {
+function LayoutSecondaryPanes({ layout, secondaries, dragOverTarget, dragHandlers, ownBroadcastStream, ownSession }: LayoutSecondaryPanesProps) {
+  const ownStreamFor = (session: number) =>
+    session === ownSession ? (ownBroadcastStream ?? undefined) : undefined;
   if (layout === "side-by-side" && secondaries[0]) {
     return (
       <SecondaryPanel
         session={secondaries[0].session}
         name={secondaries[0].name}
         isDragOver={dragOverTarget === secondaries[0].session}
+        ownBroadcastStream={ownStreamFor(secondaries[0].session)}
         {...dragHandlers}
       />
     );
@@ -366,6 +394,7 @@ function LayoutSecondaryPanes({ layout, secondaries, dragOverTarget, dragHandler
         name={secondaries[0].name}
         className={styles.pipPanel}
         isDragOver={dragOverTarget === secondaries[0].session}
+        ownBroadcastStream={ownStreamFor(secondaries[0].session)}
         {...dragHandlers}
       />
     );
@@ -379,6 +408,7 @@ function LayoutSecondaryPanes({ layout, secondaries, dragOverTarget, dragHandler
             session={b.session}
             name={b.name}
             isDragOver={dragOverTarget === b.session}
+            ownBroadcastStream={ownStreamFor(b.session)}
             {...dragHandlers}
           />
         ))}
@@ -394,6 +424,7 @@ function LayoutSecondaryPanes({ layout, secondaries, dragOverTarget, dragHandler
             session={b.session}
             name={b.name}
             isDragOver={dragOverTarget === b.session}
+            ownBroadcastStream={ownStreamFor(b.session)}
             {...dragHandlers}
           />
         ))}
@@ -414,6 +445,8 @@ interface StreamFocusViewProps {
   readonly session?: number;
   readonly otherBroadcasters: Broadcaster[];
   readonly onWatch: (session: number) => void;
+  /** The local broadcast MediaStream, passed to SecondaryPanel for own-session display. */
+  readonly ownBroadcastStream?: MediaStream | null;
 }
 
 export default function StreamFocusView({
@@ -422,9 +455,11 @@ export default function StreamFocusView({
   session,
   otherBroadcasters,
   onWatch,
+  ownBroadcastStream,
 }: StreamFocusViewProps) {
   const [layout, setLayout] = useState<GridLayout>("solo");
   const pickerRef = useRef<HTMLDivElement>(null);
+  const ownSession = useAppStore((s) => s.ownSession);
 
   const { orderedList, reorder } = useBroadcasterOrder(otherBroadcasters);
   const { dragOverTarget, dragHandlers } = useDragStream(onWatch, reorder);
@@ -434,7 +469,23 @@ export default function StreamFocusView({
   // changes, so orderedList is transiently empty during the transition and
   // would wrongly trigger the layout reset to "solo".
   const hasOthers = otherBroadcasters.length > 0;
-  const secondaries = orderedList.slice(0, layout === "main+2" ? 2 : 3);
+
+  // Number of secondary panes the current layout actually renders.
+  const secondarySlots = layout === "solo" ? 0
+    : layout === "side-by-side" || layout === "pip" ? 1
+    : layout === "main+2" ? 2
+    : 3; // 2x2, main+3
+  const secondaries = orderedList.slice(0, secondarySlots);
+
+  // Drawer only shows streams not already visible in the layout panes.
+  const visibleSessions = useMemo(() => {
+    const set = new Set(secondaries.map((b) => b.session));
+    return set;
+  }, [secondaries]);
+  const drawerBroadcasters = useMemo(
+    () => orderedList.filter((b) => !visibleSessions.has(b.session)),
+    [orderedList, visibleSessions],
+  );
 
   useEffect(() => {
     if (!hasOthers) setLayout("solo");
@@ -458,6 +509,8 @@ export default function StreamFocusView({
           secondaries={secondaries}
           dragOverTarget={dragOverTarget}
           dragHandlers={dragHandlers}
+          ownBroadcastStream={ownBroadcastStream ?? localStream}
+          ownSession={ownSession}
         />
       </div>
 
@@ -469,10 +522,10 @@ export default function StreamFocusView({
         />
       )}
 
-      {hasOthers && (
+      {drawerBroadcasters.length > 0 && (
         <StreamDrawer
-          broadcasters={otherBroadcasters}
-          orderedList={orderedList}
+          broadcasters={drawerBroadcasters}
+          orderedList={drawerBroadcasters}
           dragOverTarget={dragOverTarget}
           dragHandlers={dragHandlers}
         />

@@ -133,6 +133,7 @@
   height: 100%;
   object-fit: cover;
   display: block;
+  pointer-events: none;
 }
 
 .secondaryPlaceholder {
@@ -509,6 +510,7 @@
   height: 63px; /* 16:9 */
   background: #111;
   overflow: hidden;
+  pointer-events: none;
 }
 
 .drawerThumbImgEl {
@@ -516,6 +518,7 @@
   height: 100%;
   object-fit: cover;
   display: block;
+  pointer-events: none;
 }
 
 .drawerThumbPlaceholder {

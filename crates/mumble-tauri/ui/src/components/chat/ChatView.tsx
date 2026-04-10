@@ -280,6 +280,36 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
       .map((u) => ({ session: u.session, name: u.name }));
   }, [users, selectedChannel, screenShare.broadcastingSessions, ownSession]);
 
+  // Show StreamFocusView when watching someone, or broadcasting with others.
+  // Using a single instance keeps layout state stable across swap transitions.
+  const showFocusView = activeScreenShare !== null && (
+    !activeScreenShare.isOwn || channelBroadcasters.length > 0
+  );
+
+  // Secondary panels for the unified focus view.
+  const focusViewSecondaries = useMemo(() => {
+    if (!activeScreenShare) return [];
+    const secondaries: { session: number; name: string }[] = [];
+    if (!activeScreenShare.isOwn && screenShare.isBroadcasting && ownSession !== null) {
+      const ownName = users.find((u) => u.session === ownSession)?.name ?? "You";
+      secondaries.push({ session: ownSession, name: `${ownName} (you)` });
+    }
+    for (const b of channelBroadcasters) {
+      if (b.session !== activeScreenShare.session) {
+        secondaries.push(b);
+      }
+    }
+    return secondaries;
+  }, [activeScreenShare, screenShare.isBroadcasting, ownSession, users, channelBroadcasters]);
+
+  const handleFocusWatch = useCallback((session: number) => {
+    if (session === ownSession) {
+      screenShare.stopWatching();
+    } else {
+      screenShare.watchBroadcast(session);
+    }
+  }, [ownSession, screenShare.stopWatching, screenShare.watchBroadcast]);
+
   // Compute header values before any early returns (hooks can't be conditional).
   const [headerName, headerMemberCount] = computeHeader(
     isGroupMode, activeGroup, isDmMode, dmPartner, channel, memberCount,
@@ -354,44 +384,28 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
       <MobileCallControls />
 
-      {/* Own broadcast preview */}
-      {activeScreenShare?.isOwn && activeScreenShare.stream && (
+      {/* Solo own broadcast preview (no other broadcasters) */}
+      {activeScreenShare?.isOwn && activeScreenShare.stream && !showFocusView && (
         <ScreenShareViewer
           isOwnBroadcast
           localStream={activeScreenShare.stream}
         />
       )}
 
-      {/* Focused view when watching someone else's stream */}
-      {activeScreenShare && !activeScreenShare.isOwn && (
+      {/* Unified focus view: single instance keeps layout stable across swaps */}
+      {showFocusView && activeScreenShare && (
         <StreamFocusView
-          isOwnBroadcast={false}
-          localStream={null}
-          session={activeScreenShare.session}
-          otherBroadcasters={[
-            // When we are also broadcasting, inject our own stream as the
-            // first secondary panel so the user can see it alongside the
-            // watched stream (mirrors the multi-stream grid experience).
-            ...(screenShare.isBroadcasting && ownSession !== null
-              ? [{ session: ownSession, name: `${users.find((u) => u.session === ownSession)?.name ?? "You"} (you)` }]
-              : []),
-            ...channelBroadcasters.filter(
-              (b) => b.session !== screenShare.watchingSession,
-            ),
-          ]}
-          onWatch={(session) => {
-            // Clicking own stream tile stops watching and returns to own-broadcast view.
-            if (session === ownSession) {
-              screenShare.stopWatching();
-            } else {
-              screenShare.watchBroadcast(session);
-            }
-          }}
+          isOwnBroadcast={activeScreenShare.isOwn}
+          localStream={activeScreenShare.isOwn ? activeScreenShare.stream : null}
+          session={activeScreenShare.isOwn ? undefined : activeScreenShare.session}
+          ownBroadcastStream={screenShare.isBroadcasting ? screenShare.localStream : null}
+          otherBroadcasters={focusViewSecondaries}
+          onWatch={handleFocusWatch}
         />
       )}
 
-      {/* Multi-stream grid: shown when 2+ broadcasters and not watching someone else */}
-      {(!activeScreenShare || activeScreenShare.isOwn) && channelBroadcasters.length > 1 && (
+      {/* Multi-stream grid: shown when 2+ broadcasters and we are not sharing or watching */}
+      {!activeScreenShare && channelBroadcasters.length > 1 && (
         <MultiStreamGrid
           broadcasters={channelBroadcasters}
           onWatch={screenShare.watchBroadcast}
@@ -399,7 +413,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
       )}
 
       {/* Single broadcaster notification banner */}
-      {(!activeScreenShare || activeScreenShare.isOwn) && channelBroadcasters.length === 1 && (
+      {!activeScreenShare && channelBroadcasters.length === 1 && (
         <BroadcastBanner
           broadcasters={channelBroadcasters}
           onWatch={screenShare.watchBroadcast}
