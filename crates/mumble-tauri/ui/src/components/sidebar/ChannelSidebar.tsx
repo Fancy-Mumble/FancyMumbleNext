@@ -9,7 +9,6 @@ import { UserListItem, colorFor, avatarUrl } from "./UserListItem";
 import { UserContextMenu } from "./UserContextMenu";
 import type { UserContextMenuState } from "./UserContextMenu";
 import ChannelEditorDialog, { canEditChannel, canCreateChannel, canOnlyCreateTemp, canDeleteChannel } from "./ChannelEditorDialog";
-import { PchatBadge } from "./PchatBadge";
 import styles from "./ChannelSidebar.module.css";
 import CheckIcon from "../../assets/icons/status/check.svg?react";
 import ListenBadgeIcon from "../../assets/icons/audio/listen-badge.svg?react";
@@ -32,7 +31,9 @@ import EditIcon from "../../assets/icons/action/edit.svg?react";
 import { isMobile } from "../../utils/platform";
 import { loadPersonalization } from "../../personalizationStorage";
 import type { ChannelViewerStyle } from "../../personalizationStorage";
-import ModernChannelList from "./ModernChannelList";
+import ModernChannelList from "./flat/ModernChannelList";
+import ChannelIconList from "./modern/ChannelIconList";
+import ClassicChannelList from "./classic/ClassicChannelList";
 import TrashIcon from "../../assets/icons/action/trash.svg?react";
 import BellIcon from "../../assets/icons/status/bell.svg?react";
 import BellOffIcon from "../../assets/icons/status/bell-off.svg?react";
@@ -52,117 +53,6 @@ function canListen(channel: ChannelEntry | undefined): boolean {
   if (!channel) return true; // channel not found - allow optimistically
   if (channel.permissions == null) return true; // not yet queried - allow optimistically
   return (channel.permissions & PERM_LISTEN) !== 0;
-}
-
-const MAX_STACKED = 3;
-
-// --- Stacked avatar component -------------------------------------
-
-function StackedAvatars({ users }: Readonly<{ users: UserEntry[] }>) {
-  const [showTooltip, setShowTooltip] = useState(false);
-  if (users.length === 0) return null;
-
-  const visible = users.slice(0, MAX_STACKED);
-  const overflow = users.length - MAX_STACKED;
-
-  return (
-    <div
-      aria-hidden="true"
-      className={styles.stackedAvatars}
-      onMouseEnter={() => setShowTooltip(true)}
-      onMouseLeave={() => setShowTooltip(false)}
-    >
-      {visible.map((u, i) => {
-        const url = avatarUrl(u);
-        return (
-          <div
-            key={u.session}
-            className={styles.stackedAvatar}
-            style={{
-              background: url ? "transparent" : colorFor(u.name),
-              zIndex: MAX_STACKED - i,
-            }}
-          >
-            {url ? (
-              <img src={url} alt={u.name} className={styles.stackedAvatarImg} />
-            ) : (
-              u.name.charAt(0).toUpperCase()
-            )}
-          </div>
-        );
-      })}
-      {overflow > 0 && (
-        <div className={`${styles.stackedAvatar} ${styles.overflowBadge}`}>
-          +{overflow}
-        </div>
-      )}
-      {showTooltip && (
-        <div className={styles.avatarTooltip}>
-          {users.map((u) => {
-            const url = avatarUrl(u);
-            return (
-              <div key={u.session} className={styles.tooltipUser}>
-                {url ? (
-                  <img src={url} alt={u.name} className={styles.tooltipAvatarImg} />
-                ) : (
-                  <div
-                    className={styles.tooltipAvatar}
-                    style={{ background: colorFor(u.name) }}
-                  >
-                    {u.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <span>{u.name}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// --- Build tree helpers -------------------------------------------
-
-// --- Build tree helpers (continued) ------------------------------
-
-interface ChannelGroup {
-  folder: ChannelEntry;
-  /** All channels recursively under this folder, flattened. */
-  children: ChannelEntry[];
-}
-
-function buildGroups(channels: ChannelEntry[]): {
-  root: ChannelEntry | null;
-  groups: ChannelGroup[];
-} {
-  // Find the root channel (parent_id === null or parent is self, usually id 0).
-  const root =
-    channels.find((c) => c.parent_id === null || c.parent_id === c.id) ?? null;
-  const rootId = root?.id ?? 0;
-
-  // Direct children of root are "main folders".
-  const topLevel = channels.filter(
-    (c) => c.parent_id === rootId && c.id !== rootId,
-  );
-
-  // For each top-level folder, collect ALL descendants recursively, flattened.
-  function collectDescendants(parentId: number): ChannelEntry[] {
-    const result: ChannelEntry[] = [];
-    for (const ch of channels) {
-      if (ch.parent_id === parentId && ch.id !== parentId) {
-        result.push(ch, ...collectDescendants(ch.id));
-      }
-    }
-    return result;
-  }
-
-  const groups: ChannelGroup[] = topLevel.map((folder) => ({
-    folder,
-    children: collectDescendants(folder.id),
-  }));
-
-  return { root, groups };
 }
 
 // --- Group creation modal -----------------------------------------
@@ -414,7 +304,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
   const selectUser = useAppStore((s) => s.selectUser);
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
 
-  const [channelViewerStyle, setChannelViewerStyle] = useState<ChannelViewerStyle>("modern");
+  const [channelViewerStyle, setChannelViewerStyle] = useState<ChannelViewerStyle>("flat");
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -429,7 +319,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
 
   // Load channel viewer style preference.
   useEffect(() => {
-    loadPersonalization().then((p) => setChannelViewerStyle(p.channelViewerStyle ?? "modern"));
+    loadPersonalization().then((p) => setChannelViewerStyle(p.channelViewerStyle ?? "flat"));
   }, []);
 
   // -- Channel editor dialog state --------------------------------
@@ -520,8 +410,6 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
     [],
   );
 
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
-
   // -- Context menu state ------------------------------------------
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
@@ -570,132 +458,11 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
     [],
   );
 
-  const { root, groups } = useMemo(() => buildGroups(channels), [channels]);
-
-  const usersByChannel = useMemo(() => {
-    const map = new Map<number, UserEntry[]>();
-    for (const u of users) {
-      const list = map.get(u.channel_id) ?? [];
-      list.push(u);
-      map.set(u.channel_id, list);
-    }
-    return map;
-  }, [users]);
-
-  /** Count all users in a folder and its descendants. */
-  const groupUserCount = useCallback(
-    (group: ChannelGroup) => {
-      let count = usersByChannel.get(group.folder.id)?.length ?? 0;
-      for (const ch of group.children) {
-        count += usersByChannel.get(ch.id)?.length ?? 0;
-      }
-      return count;
-    },
-    [usersByChannel],
-  );
-
-  /** Collect all users from a folder and its descendants for stacked avatars. */
-  const groupUsers = useCallback(
-    (group: ChannelGroup) => {
-      const all: UserEntry[] = [];
-      const folderUsers = usersByChannel.get(group.folder.id);
-      if (folderUsers) all.push(...folderUsers);
-      for (const ch of group.children) {
-        const chUsers = usersByChannel.get(ch.id);
-        if (chUsers) all.push(...chUsers);
-      }
-      return all;
-    },
-    [usersByChannel],
-  );
-
-  // Sort groups: populated first, then alphabetical within each tier.
-  const sortedGroups = useMemo(() => {
-    return [...groups].sort((a, b) => {
-      const aCount = groupUserCount(a);
-      const bCount = groupUserCount(b);
-      // Populated channels first.
-      if (aCount > 0 && bCount === 0) return -1;
-      if (aCount === 0 && bCount > 0) return 1;
-      // Same tier -> alphabetical.
-      return a.folder.name.localeCompare(b.folder.name);
-    });
-  }, [groups, groupUserCount]);
-
-  /** Sort a group's children so channels with users appear first. */
-  const sortedChildren = useCallback(
-    (children: ChannelEntry[]) =>
-      [...children].sort((a, b) => {
-        const aUsers = usersByChannel.get(a.id)?.length ?? 0;
-        const bUsers = usersByChannel.get(b.id)?.length ?? 0;
-        if (aUsers > 0 && bUsers === 0) return -1;
-        if (aUsers === 0 && bUsers > 0) return 1;
-        return a.name.localeCompare(b.name);
-      }),
-    [usersByChannel],
-  );
-
-  /** Find the ChannelEntry for the user's current channel. */
-  const currentChannelEntry = useMemo(
-    () => (currentChannel == null ? null : channels.find((c) => c.id === currentChannel) ?? null),
-    [channels, currentChannel],
-  );
-
   /** Get the channel name for a user's current channel. */
   const channelName = (channelId: number) => {
     const ch = channels.find((c) => c.id === channelId);
     return ch?.name || "Root";
   };
-
-  const toggleExpand = (id: number) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  // -- Channel item renderer ---------------------------------------
-
-  function renderChannelItem(
-    channel: ChannelEntry,
-    indent = false,
-    highlight = false,
-  ) {
-    const chUsers = usersByChannel.get(channel.id) ?? [];
-    const unread = unreadCounts[channel.id] ?? 0;
-    const isListened = listenedChannels.has(channel.id);
-    return (
-      <button
-        key={channel.id}
-        className={`${styles.channelItem} ${indent ? styles.indented : ""} ${
-          selectedChannel === channel.id ? styles.active : ""
-        } ${highlight ? styles.currentChannel : ""}`}
-        onClick={() => { selectChannel(channel.id); onChannelSelect?.(); }}
-        onDoubleClick={() => { joinChannel(channel.id); onChannelSelect?.(); }}
-        onContextMenu={(e) => openCtxMenu(e, channel.id)}
-      >
-        <div className={styles.channelInfo}>
-          <span className={styles.channelName}>
-            {channel.name || "Root"}
-            {isListened && (
-              <span className={styles.listenIndicator} title="Listening">
-                <ListenBadgeIcon width={12} height={12} />
-              </span>
-            )}
-            <PchatBadge protocol={channel.pchat_protocol} />
-          </span>
-        </div>
-        {unread > 0 && (
-          <span className={styles.unreadBadge}>
-            {unread > 99 ? "99+" : unread}
-          </span>
-        )}
-        <StackedAvatars users={chUsers} />
-      </button>
-    );
-  }
 
   return (
     <aside className={styles.sidebar}>
@@ -755,13 +522,6 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
         />
       ) : (<>
 
-      {/* Sticky current channel (hidden in modern view) */}
-      {channelViewerStyle !== "modern" && currentChannelEntry && (
-        <div className={styles.stickyCurrentChannel}>
-          {renderChannelItem(currentChannelEntry, false, true)}
-        </div>
-      )}
-
       {/* Channel list header (always visible) */}
       <div className={styles.sectionHeaderBar}>
         <button
@@ -781,7 +541,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
       {/* Channel list */}
       <div className={`${styles.channelList} ${channelsOpen ? "" : styles.sectionCollapsed}`}>
 
-        {channelsOpen && channelViewerStyle === "modern" && (
+        {channelsOpen && channelViewerStyle === "flat" && (
           <ModernChannelList
             channels={channels}
             users={users}
@@ -799,82 +559,37 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
           />
         )}
 
-        {channelsOpen && channelViewerStyle !== "modern" && (<>
-        {/* Root channel */}
-        {root && root.id !== currentChannel && renderChannelItem(root)}
+        {channelsOpen && channelViewerStyle === "modern" && (
+          <ChannelIconList
+            channels={channels}
+            users={users}
+            selectedChannel={selectedChannel}
+            currentChannel={currentChannel}
+            listenedChannels={listenedChannels}
+            unreadCounts={unreadCounts}
+            talkingSessions={talkingSessions}
+            broadcastingSessions={broadcastingSessions}
+            onSelectChannel={(id) => { selectChannel(id); onChannelSelect?.(); }}
+            onJoinChannel={(id) => { joinChannel(id); selectChannel(id); onChannelSelect?.(); }}
+            onContextMenu={openCtxMenu}
+            onUserContextMenu={openUserCtxMenu}
+            onUserClick={(session) => { selectDmUser(session); onChannelSelect?.(); }}
+          />
+        )}
 
-        {/* Grouped main folders - sorted: populated first */}
-        {sortedGroups.map((group) => {
-          const isOpen = expanded.has(group.folder.id);
-          const totalUsers = groupUserCount(group);
-          const allGroupUsers = groupUsers(group);
-          const folderUnread = unreadCounts[group.folder.id] ?? 0;
-          const isFolderListened = listenedChannels.has(group.folder.id);
-          const isCurrent = group.folder.id === currentChannel;
-
-          return (
-            <div key={group.folder.id} className={styles.folderGroup}>
-              <div
-                className={`${styles.folderHeader} ${
-                  selectedChannel === group.folder.id ? styles.active : ""
-                } ${isCurrent ? styles.currentChannel : ""}`}
-                role="toolbar"
-                onContextMenu={(e) => openCtxMenu(e, group.folder.id)}
-              >
-                {group.children.length > 0 && (
-                  <button
-                    className={styles.expandBtn}
-                    onClick={() => toggleExpand(group.folder.id)}
-                    aria-label={isOpen ? "Collapse" : "Expand"}
-                  >
-                    <ChevronRightIcon
-                      className={`${styles.chevron} ${isOpen ? styles.chevronOpen : ""}`}
-                      width={14}
-                      height={14}
-                    />
-                  </button>
-                )}
-                <button
-                  className={styles.folderSelect}
-                  onClick={() => selectChannel(group.folder.id)}
-                  onDoubleClick={() => joinChannel(group.folder.id)}
-                >
-                  <span className={styles.channelName}>
-                    {group.folder.name || "Unnamed"}
-                    {isFolderListened && (
-                      <span className={styles.listenIndicator} title="Listening">
-                        <ListenBadgeIcon width={12} height={12} />
-                      </span>
-                    )}
-                    <PchatBadge protocol={group.folder.pchat_protocol} />
-                  </span>
-                  <span className={styles.channelMeta}>
-                    {totalUsers} {totalUsers === 1 ? "member" : "members"}
-                  </span>
-                </button>
-                {folderUnread > 0 && (
-                  <span className={styles.unreadBadge}>
-                    {folderUnread > 99 ? "99+" : folderUnread}
-                  </span>
-                )}
-                <StackedAvatars users={allGroupUsers} />
-              </div>
-
-              {isOpen && group.children.length > 0 && (
-                <div className={styles.folderChildren}>
-                  {sortedChildren(group.children).map((ch) =>
-                    renderChannelItem(
-                      ch,
-                      true,
-                      ch.id === currentChannel,
-                    ),
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        </>)}
+        {channelsOpen && channelViewerStyle === "classic" && (
+          <ClassicChannelList
+            channels={channels}
+            users={users}
+            selectedChannel={selectedChannel}
+            currentChannel={currentChannel}
+            listenedChannels={listenedChannels}
+            unreadCounts={unreadCounts}
+            onSelectChannel={(id) => { selectChannel(id); onChannelSelect?.(); }}
+            onJoinChannel={(id) => { joinChannel(id); selectChannel(id); onChannelSelect?.(); }}
+            onContextMenu={openCtxMenu}
+          />
+        )}
       </div>
 
       {!isMobile && <>

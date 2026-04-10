@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import ModernChannelList from "../sidebar/ModernChannelList";
+import ModernChannelList from "../sidebar/flat/ModernChannelList";
 import type { ChannelEntry, UserEntry } from "../../types";
 
 // Allow tests to toggle the mobile flag.

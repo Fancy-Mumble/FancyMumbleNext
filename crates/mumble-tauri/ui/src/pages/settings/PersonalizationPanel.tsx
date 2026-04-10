@@ -28,6 +28,7 @@ const BG_FIT_OPTIONS: { id: BgFit; label: string; icon: string }[] = [
 
 const CHANNEL_VIEWER_STYLES: { id: ChannelViewerStyle; label: string; icon: string }[] = [
   { id: "classic", label: "Classic", icon: "🏛️" },
+  { id: "flat", label: "Flat", icon: "📋" },
   { id: "modern", label: "Modern", icon: "✨" },
 ];
 
