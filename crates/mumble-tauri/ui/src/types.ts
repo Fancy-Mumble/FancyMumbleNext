@@ -178,6 +178,33 @@ export interface UserPreferences {
   debugLogging?: boolean;
   /** Collapsed/expanded state of sidebar sections. */
   sidebarSections?: SidebarSections;
+  /** Per-event notification sound configuration. */
+  notificationSounds?: NotificationSoundSettings;
+}
+
+/** Identifiers for events that can trigger a notification sound. */
+export type NotificationEvent =
+  | "chatMessage"
+  | "directMessage"
+  | "userJoin"
+  | "userLeave"
+  | "userJoinChannel"
+  | "userLeaveChannel"
+  | "streamStart"
+  | "voiceActivity"
+  | "selfMuted";
+
+/** Configuration for a single notification event. */
+export interface NotificationEventConfig {
+  enabled: boolean;
+  sound: string;
+  volume: number;
+}
+
+/** Per-event notification sound settings with a master toggle. */
+export interface NotificationSoundSettings {
+  masterEnabled: boolean;
+  events: Record<NotificationEvent, NotificationEventConfig>;
 }
 
 /** Persisted open/closed state for each sidebar section. */

@@ -4,7 +4,7 @@
  */
 
 import { load } from "@tauri-apps/plugin-store";
-import type { AudioSettings, UserPreferences, UserMode } from "./types";
+import type { AudioSettings, UserPreferences, UserMode, NotificationSoundSettings } from "./types";
 
 const STORE_FILE = "preferences.json";
 const KEY = "preferences";
@@ -227,4 +227,25 @@ export async function setMutedPushChannel(
   map[serverKey] = updated;
   await store.set(MUTED_PUSH_CHANNELS_KEY, map);
   return updated;
+}
+
+// -- Notification sound settings -----------------------------------
+
+const NOTIFICATION_SOUNDS_KEY = "notificationSounds";
+
+/** Return persisted notification sound settings, or null if not configured. */
+export async function getNotificationSounds(): Promise<NotificationSoundSettings | null> {
+  const store = await getStore();
+  return (await store.get<NotificationSoundSettings>(NOTIFICATION_SOUNDS_KEY)) ?? null;
+}
+
+/** Persist notification sound settings. */
+export async function saveNotificationSounds(
+  settings: NotificationSoundSettings,
+): Promise<void> {
+  const store = await getStore();
+  await store.set(NOTIFICATION_SOUNDS_KEY, settings);
+  window.dispatchEvent(
+    new CustomEvent("notification-sounds-changed", { detail: settings }),
+  );
 }

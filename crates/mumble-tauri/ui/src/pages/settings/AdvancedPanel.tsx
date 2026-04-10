@@ -12,14 +12,12 @@ const TIME_FORMAT_OPTIONS: { value: TimeFormat; label: string }[] = [
 export function AdvancedPanel({
   userMode,
   klipyApiKey,
-  enableNotifications,
   disableDualPath,
   debugLogging,
   timeFormat,
   convertToLocalTime,
   onToggleMode,
   onKlipyApiKeyChange,
-  onToggleNotifications,
   onToggleDualPath,
   onToggleDebugLogging,
   onTimeFormatChange,
@@ -29,14 +27,12 @@ export function AdvancedPanel({
 }: {
   userMode: UserMode;
   klipyApiKey: string;
-  enableNotifications: boolean;
   disableDualPath: boolean;
   debugLogging: boolean;
   timeFormat: TimeFormat;
   convertToLocalTime: boolean;
   onToggleMode: () => void;
   onKlipyApiKeyChange: (key: string) => void;
-  onToggleNotifications: () => void;
   onToggleDualPath: () => void;
   onToggleDebugLogging: () => void;
   onTimeFormatChange: (fmt: TimeFormat) => void;
@@ -123,22 +119,6 @@ export function AdvancedPanel({
           </div>
         </section>
       )}
-
-      <section className={styles.section}>
-        <div className={styles.toggleRow}>
-          <div className={styles.toggleInfo}>
-            <h3 className={styles.sectionTitle}>Notifications</h3>
-            <p className={styles.fieldHint}>
-              Show native notifications for new messages when the app is in the
-              background.
-            </p>
-          </div>
-          <Toggle
-            checked={enableNotifications}
-            onChange={onToggleNotifications}
-          />
-        </div>
-      </section>
 
       <section className={styles.section}>
         <div className={styles.toggleRow}>
