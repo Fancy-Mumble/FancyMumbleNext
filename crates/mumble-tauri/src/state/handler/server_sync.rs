@@ -141,14 +141,11 @@ impl HandlerContext {
             warn!("FCM: no client handle, cannot send push registration");
             return;
         };
-        let payload = serde_json::json!({ "token": token });
-        let data = serde_json::to_vec(&payload).unwrap_or_default();
         let _push_register_task = tokio::spawn(async move {
             match handle
-                .send(command::SendPluginData {
-                    receiver_sessions: vec![],
-                    data,
-                    data_id: "fancy-push-register".to_string(),
+                .send(command::SendFancyPushRegister {
+                    token,
+                    muted_channels: vec![],
                 })
                 .await
             {

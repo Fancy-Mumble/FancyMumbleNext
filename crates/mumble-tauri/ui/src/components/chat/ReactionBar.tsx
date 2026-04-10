@@ -13,8 +13,7 @@ import styles from "./ReactionBar.module.css";
 
 interface ReactionBarProps {
   readonly reactions: readonly ReactionSummary[];
-  readonly ownSession: number | null;
-  /** Own cert hash (for persistent channel reaction tracking). */
+  /** Own cert hash for tracking which reactions are ours. */
   readonly ownHash?: string;
   /** Whether this message is from the current user (controls alignment). */
   readonly isOwn?: boolean;
@@ -26,7 +25,6 @@ interface ReactionBarProps {
 
 export default function ReactionBar({
   reactions,
-  ownSession,
   ownHash,
   isOwn,
   onToggle,
@@ -37,10 +35,7 @@ export default function ReactionBar({
   const handleMouseEnter = useCallback(
     (e: React.MouseEvent, reaction: ReactionSummary) => {
       if (isMobile) return;
-      const names = [
-        ...reaction.reactorNames.values(),
-        ...reaction.reactorHashNames.values(),
-      ];
+      const names = [...reaction.reactorHashNames.values()];
       const unique = [...new Set(names)];
       const text =
         unique.length <= 3
@@ -59,10 +54,8 @@ export default function ReactionBar({
   return (
     <div className={`${styles.reactions} ${isOwn ? styles.reactionsOwn : ""}`}>
       {reactions.map((r) => {
-        const totalCount = r.reactors.size + r.reactorHashes.size;
-        const activeSession = ownSession !== null && r.reactors.has(ownSession);
-        const activeHash = !!ownHash && r.reactorHashes.has(ownHash);
-        const active = activeSession || activeHash;
+        const totalCount = r.reactorHashes.size;
+        const active = !!ownHash && r.reactorHashes.has(ownHash);
         return (
           <button
             key={r.emoji}

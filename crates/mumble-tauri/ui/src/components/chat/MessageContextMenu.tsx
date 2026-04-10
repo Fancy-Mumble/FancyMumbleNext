@@ -52,8 +52,6 @@ interface MessageContextMenuProps {
   readonly onCopyText?: (msg: ChatMessage) => void;
   /** Reactions on the context-menu's target message. */
   readonly reactions?: readonly ReactionSummary[];
-  /** Avatar data-URLs keyed by session ID. */
-  readonly avatarBySession?: ReadonlyMap<number, string>;
   /** Avatar data-URLs keyed by cert hash. */
   readonly avatarByHash?: ReadonlyMap<string, string>;
 }
@@ -71,7 +69,6 @@ export default function MessageContextMenu({
   onCite,
   onCopyText,
   reactions,
-  avatarBySession,
   avatarByHash,
 }: MessageContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -106,17 +103,12 @@ export default function MessageContextMenu({
     if (!reactions || reactions.length === 0) return [];
     const entries: { emoji: string; name: string; avatarUrl?: string }[] = [];
     for (const r of reactions) {
-      for (const [session, name] of r.reactorNames) {
-        entries.push({ emoji: r.emoji, name, avatarUrl: avatarBySession?.get(session) });
-      }
-      const seenNames = new Set([...r.reactorNames.values()]);
       for (const [hash, name] of r.reactorHashNames) {
-        if (seenNames.has(name)) continue;
         entries.push({ emoji: r.emoji, name, avatarUrl: avatarByHash?.get(hash) });
       }
     }
     return entries;
-  }, [reactions, avatarBySession, avatarByHash]);
+  }, [reactions, avatarByHash]);
 
   return createPortal(
     <>

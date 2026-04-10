@@ -109,6 +109,12 @@ pub enum TcpMessageType {
     WebRtcSignal = 120,
     /// Fancy Mumble: Signal sender key distribution (replaces `PluginData` relay).
     PchatSenderKeyDistribution = 121,
+    /// Fancy Mumble: FCM push notification registration.
+    FancyPushRegister = 122,
+    /// Fancy Mumble: push notification mute preferences update.
+    FancyPushUpdate = 123,
+    /// Fancy Mumble: server broadcasts custom reaction/emoji config.
+    FancyCustomReactionsConfig = 124,
 }
 
 impl TryFrom<u16> for TcpMessageType {
@@ -165,6 +171,9 @@ impl TryFrom<u16> for TcpMessageType {
             119 => Ok(Self::PchatReactionFetchResponse),
             120 => Ok(Self::WebRtcSignal),
             121 => Ok(Self::PchatSenderKeyDistribution),
+            122 => Ok(Self::FancyPushRegister),
+            123 => Ok(Self::FancyPushUpdate),
+            124 => Ok(Self::FancyCustomReactionsConfig),
             other => Err(crate::error::Error::UnknownMessageType(other)),
         }
     }
@@ -269,6 +278,12 @@ pub enum ControlMessage {
     WebRtcSignal(mumble_tcp::WebRtcSignal),
     /// Fancy Mumble: Signal sender key distribution.
     PchatSenderKeyDistribution(mumble_tcp::PchatSenderKeyDistribution),
+    /// Fancy Mumble: FCM push notification registration.
+    FancyPushRegister(mumble_tcp::FancyPushRegister),
+    /// Fancy Mumble: push notification mute preferences update.
+    FancyPushUpdate(mumble_tcp::FancyPushUpdate),
+    /// Fancy Mumble: server broadcasts custom reaction/emoji config.
+    FancyCustomReactionsConfig(mumble_tcp::FancyCustomReactionsConfig),
     /// UDP audio tunneled through TCP (fallback path).
     UdpTunnel(Vec<u8>),
 }
@@ -399,13 +414,18 @@ mod tests {
             let msg_type = TcpMessageType::try_from(121u16).unwrap();
             assert_eq!(msg_type as u16, 121);
         }
+        // FancyPushRegister (122), FancyPushUpdate (123), FancyCustomReactionsConfig (124)
+        for id in 122..=124u16 {
+            let msg_type = TcpMessageType::try_from(id).unwrap();
+            assert_eq!(msg_type as u16, id);
+        }
     }
 
     #[test]
     fn tcp_message_type_invalid_returns_error() {
         assert!(TcpMessageType::try_from(27u16).is_err());
         assert!(TcpMessageType::try_from(99u16).is_err());
-        assert!(TcpMessageType::try_from(123u16).is_err());
+        assert!(TcpMessageType::try_from(125u16).is_err());
         assert!(TcpMessageType::try_from(199u16).is_err());
         assert!(TcpMessageType::try_from(203u16).is_err());
         assert!(TcpMessageType::try_from(u16::MAX).is_err());

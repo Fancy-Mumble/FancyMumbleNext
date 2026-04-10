@@ -904,6 +904,15 @@ async fn send_plugin_data(
     state.send_plugin_data(receiver_sessions, data, data_id).await
 }
 
+/// Update the per-channel push notification mute preferences on the server.
+#[tauri::command]
+async fn send_push_update(
+    state: tauri::State<'_, AppState>,
+    muted_channels: Vec<u32>,
+) -> Result<(), String> {
+    state.send_push_update(muted_channels).await
+}
+
 /// Send a WebRTC screen-sharing signaling message.
 ///
 /// `target_session` of 0 broadcasts to all channel members.
@@ -1856,6 +1865,7 @@ pub fn run() {
             set_user_texture,
             get_own_session,
             send_plugin_data,
+            send_push_update,
             send_webrtc_signal,
             send_reaction,
             delete_pchat_messages,

@@ -62,7 +62,7 @@ pub(crate) use key_sharing::{
 // Signal bridge
 pub(crate) use signal_bridge::{
     ensure_signal_bridge_unlocked,
-    send_signal_distribution, handle_signal_sender_key,
+    send_signal_distribution,
     handle_signal_sender_key_by_hash,
 };
 

@@ -387,41 +387,9 @@ fn retry_stashed_signal_envelopes(
 
 // -- Handle incoming sender key --------------------------------------
 
-/// Process a received Signal sender key distribution from a peer.
-///
-/// Returns `true` if stashed envelopes were decrypted and placeholder
-/// messages replaced (caller should emit `state-changed`).
-pub(crate) fn handle_signal_sender_key(
-    shared: &Arc<Mutex<SharedState>>,
-    sender_session: u32,
-    data: &[u8],
-) -> bool {
-    let (sender_hash, sender_channel) = {
-        let Ok(state) = shared.lock() else {
-            return false;
-        };
-        let sender_hash = state
-            .users
-            .get(&sender_session)
-            .and_then(|u| u.hash.clone());
-        let Some(sender_hash) = sender_hash else {
-            warn!(sender_session, "signal sender key from unknown session");
-            return false;
-        };
-        let sender_channel = state
-            .users
-            .get(&sender_session)
-            .map(|u| u.channel_id)
-            .unwrap_or(0);
-        (sender_hash, sender_channel)
-    };
-
-    handle_signal_sender_key_by_hash(shared, &sender_hash, sender_channel, data)
-}
-
 /// Process a Signal sender key distribution identified by hash and channel.
 ///
-/// Used by the new `PchatSenderKeyDistribution` handler where the server
+/// Used by the `PchatSenderKeyDistribution` handler where the server
 /// already provides `sender_hash` and `channel_id`.
 /// Returns `true` if stashed envelopes were decrypted.
 pub(crate) fn handle_signal_sender_key_by_hash(

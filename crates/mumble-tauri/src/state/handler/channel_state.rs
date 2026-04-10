@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
 use mumble_protocol::command;
-use mumble_protocol::persistent::PchatProtocol;
-use mumble_protocol::persistent::wire::{MsgPackCodec, WireCodec};
-use mumble_protocol::persistent::{DATA_ID_FETCH, KeyTrustLevel};
+use mumble_protocol::persistent::{KeyTrustLevel, PchatProtocol};
 use mumble_protocol::proto::mumble_tcp;
 use tracing::{debug, info};
 
@@ -200,23 +198,16 @@ impl HandleMessage for mumble_tcp::ChannelState {
                             let _ = p.fetched_channels.insert(id);
                         }
                     }
-                    let codec = MsgPackCodec;
-                    let fetch = mumble_protocol::persistent::wire::PchatFetch {
-                        channel_id: id,
+                    let fetch = mumble_tcp::PchatFetch {
+                        channel_id: Some(id),
                         before_id: None,
-                        limit: 50,
+                        limit: Some(50),
                         after_id: None,
                     };
-                    if let Ok(data) = codec.encode(&fetch) {
-                        let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
-                        if let Some(handle) = handle {
-                            let _ = handle.send(command::SendPluginData {
-                                receiver_sessions: vec![],
-                                data,
-                                data_id: DATA_ID_FETCH.to_string(),
-                            }).await;
-                            debug!(channel_id = id, "sent pchat-fetch after mode change");
-                        }
+                    let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
+                    if let Some(handle) = handle {
+                        let _ = handle.send(command::SendPchatFetch { fetch }).await;
+                        debug!(channel_id = id, "sent pchat-fetch after mode change");
                     }
                 }
             });

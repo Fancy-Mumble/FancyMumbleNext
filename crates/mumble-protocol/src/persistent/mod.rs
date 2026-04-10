@@ -1,8 +1,9 @@
 //! Persistent encrypted chat for Fancy Mumble.
 //!
 //! This module implements the client-side architecture for persistent,
-//! end-to-end encrypted chat history. All communication flows through
-//! `PluginDataTransmission` with `dataID` values prefixed `fancy-pchat-`.
+//! end-to-end encrypted chat history. Communication uses native
+//! protobuf messages (`PchatMessage`, `PchatFetch`, etc.) defined in
+//! `Mumble.proto`.
 //!
 //! Core types: [`PchatProtocol`], [`StoredMessage`], [`MessageRange`].
 //! Provider trait: [`MessageProvider`] (in [`provider`]).
@@ -15,29 +16,6 @@ pub mod provider;
 pub mod wire;
 
 use serde::{Deserialize, Serialize};
-
-// ---- Data ID constants for PluginDataTransmission -------------------
-
-/// `dataID` for encrypted message storage.
-pub const DATA_ID_MSG: &str = "fancy-pchat-msg";
-/// `dataID` for stored message delivery (server to client).
-pub const DATA_ID_MSG_DELIVER: &str = "fancy-pchat-msg-deliver";
-/// `dataID` for fetch history request.
-pub const DATA_ID_FETCH: &str = "fancy-pchat-fetch";
-/// `dataID` for fetch history response.
-pub const DATA_ID_FETCH_RESP: &str = "fancy-pchat-fetch-resp";
-/// `dataID` for peer-to-peer key exchange.
-pub const DATA_ID_KEY_EXCHANGE: &str = "fancy-pchat-key-exchange";
-/// `dataID` for public key announcement.
-pub const DATA_ID_KEY_ANNOUNCE: &str = "fancy-pchat-key-announce";
-/// `dataID` for server-broadcast key request.
-pub const DATA_ID_KEY_REQUEST: &str = "fancy-pchat-key-request";
-/// `dataID` for key custodian countersignature.
-pub const DATA_ID_EPOCH_COUNTERSIG: &str = "fancy-pchat-epoch-countersig";
-/// `dataID` for server storage acknowledgement.
-pub const DATA_ID_ACK: &str = "fancy-pchat-ack";
-/// `dataID` for Signal sender key distribution message.
-pub const DATA_ID_SIGNAL_SENDER_KEY: &str = "fancy-pchat-signal-sender-key";
 
 // ---- Core domain types ----------------------------------------------
 

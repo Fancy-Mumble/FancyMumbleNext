@@ -211,7 +211,6 @@ export default function ChatMessageList({
                             return reactions.length > 0 ? (
                               <ReactionBar
                                 reactions={reactions}
-                                ownSession={ownSession}
                                 ownHash={ownHash}
                                 isOwn={group.isOwn}
                                 onToggle={(emoji) => onToggleReaction(msg, emoji)}

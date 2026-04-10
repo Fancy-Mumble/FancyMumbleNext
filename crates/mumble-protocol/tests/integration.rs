@@ -1389,6 +1389,136 @@ async fn test_channel_description_blob_request() {
     drop(su);
 }
 
+// -- TextMessage message_id preservation tests ----------------------
+
+/// Regression test: the server must preserve a client-provided `message_id`
+/// in `TextMessage` rather than replacing it with a server-generated UUID.
+///
+/// Without this, each user ends up with a different `message_id` for the
+/// same message, causing reactions (keyed by `message_id`) to be invisible
+/// across users.
+#[tokio::test]
+async fn test_text_message_preserves_client_message_id() {
+    if !ensure_server_available().await {
+        return;
+    }
+
+    let (mut t1, state1) = connect_and_authenticate("MsgIdUser1").await;
+    let (mut t2, _state2) = connect_and_authenticate("MsgIdUser2").await;
+
+    // Drain any pending messages on t2 so we start clean.
+    let drain_deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+    while tokio::time::Instant::now() < drain_deadline {
+        if tokio::time::timeout(Duration::from_millis(200), t2.recv())
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
+
+    // User1 sends a TextMessage with a client-provided message_id.
+    let client_message_id = "client-uuid-deadbeef-1234";
+    let client_timestamp = 1_700_000_000_000_u64;
+    let cmd = SendTextMessage {
+        channel_ids: vec![0],
+        user_sessions: vec![],
+        tree_ids: vec![],
+        message: "hello with id".into(),
+        message_id: Some(client_message_id.to_owned()),
+        timestamp: Some(client_timestamp),
+    };
+    for msg in &cmd.execute(&state1).tcp_messages {
+        t1.send(msg).await.unwrap();
+    }
+
+    // User2 should receive the TextMessage with the SAME message_id.
+    let mut received_id: Option<String> = None;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_secs(3), t2.recv()).await {
+            Ok(Ok(ControlMessage::TextMessage(tm))) => {
+                if tm.message.contains("hello with id") {
+                    received_id = tm.message_id;
+                    break;
+                }
+            }
+            Ok(Ok(_)) => continue,
+            Ok(Err(e)) => panic!("recv error: {e}"),
+            Err(_) => break,
+        }
+    }
+
+    let received_id = received_id.expect("User2 should receive the TextMessage");
+    assert_eq!(
+        received_id, client_message_id,
+        "server must preserve client-provided message_id, got {received_id}"
+    );
+
+    drop(t1);
+    drop(t2);
+}
+
+/// Verify the server still generates a `message_id` when the client omits it
+/// (legacy client compatibility).
+#[tokio::test]
+async fn test_text_message_generates_id_when_omitted() {
+    if !ensure_server_available().await {
+        return;
+    }
+
+    let (mut t1, state1) = connect_and_authenticate("MsgIdGen1").await;
+    let (mut t2, _state2) = connect_and_authenticate("MsgIdGen2").await;
+
+    let drain_deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+    while tokio::time::Instant::now() < drain_deadline {
+        if tokio::time::timeout(Duration::from_millis(200), t2.recv())
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
+
+    // Send without message_id (legacy client behaviour).
+    let cmd = SendTextMessage {
+        channel_ids: vec![0],
+        user_sessions: vec![],
+        tree_ids: vec![],
+        message: "hello no id".into(),
+        message_id: None,
+        timestamp: None,
+    };
+    for msg in &cmd.execute(&state1).tcp_messages {
+        t1.send(msg).await.unwrap();
+    }
+
+    let mut received_id: Option<String> = None;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_secs(3), t2.recv()).await {
+            Ok(Ok(ControlMessage::TextMessage(tm))) => {
+                if tm.message.contains("hello no id") {
+                    received_id = tm.message_id;
+                    break;
+                }
+            }
+            Ok(Ok(_)) => continue,
+            Ok(Err(e)) => panic!("recv error: {e}"),
+            Err(_) => break,
+        }
+    }
+
+    let received_id = received_id.expect("User2 should receive the TextMessage");
+    assert!(
+        !received_id.is_empty(),
+        "server should generate a message_id when the client omits it"
+    );
+
+    drop(t1);
+    drop(t2);
+}
+
 // -- Helpers --------------------------------------------------------
 
 /// Minimal base64 encoder (avoids adding a `base64` dependency just for tests).

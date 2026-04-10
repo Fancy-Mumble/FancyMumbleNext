@@ -777,6 +777,23 @@ impl AppState {
         Ok(())
     }
 
+    /// Send a push notification mute update to the server.
+    pub async fn send_push_update(&self, muted_channels: Vec<u32>) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+
+        let handle = handle.ok_or("Not connected")?;
+
+        handle
+            .send(command::SendFancyPushUpdate { muted_channels })
+            .await
+            .map_err(|e| format!("Failed to send push update: {e}"))?;
+
+        Ok(())
+    }
+
     // -- WebRTC signaling -------------------------------------------
 
     /// Send a WebRTC screen-sharing signal to the server.

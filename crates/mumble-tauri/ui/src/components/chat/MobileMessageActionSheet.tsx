@@ -129,11 +129,7 @@ export default function MobileMessageActionSheet({
       {reactions && reactions.length > 0 && (
         <div className={styles.reactorList}>
           {reactions.map((r) => {
-            const names = [
-              ...r.reactorNames.values(),
-              ...r.reactorHashNames.values(),
-            ];
-            const unique = [...new Set(names)];
+            const unique = [...new Set(r.reactorHashNames.values())];
             if (unique.length === 0) return null;
             return (
               <div key={r.emoji} className={styles.reactorRow}>

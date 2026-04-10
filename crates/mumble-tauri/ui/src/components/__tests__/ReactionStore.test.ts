@@ -13,25 +13,7 @@ import {
   resetReactions,
   setServerCustomReactions,
   getServerCustomReactions,
-  REACTION_DATA_ID,
-  CUSTOM_REACTIONS_DATA_ID,
-  type ReactionPayload,
 } from "../chat/reactionStore";
-
-// -- Helpers -------------------------------------------------------
-
-function makeReaction(overrides: Partial<ReactionPayload> = {}): ReactionPayload {
-  return {
-    type: "reaction",
-    messageId: "msg-1",
-    emoji: "\u{1F44D}",
-    action: "add",
-    reactor: 1,
-    reactorName: "Alice",
-    channelId: 0,
-    ...overrides,
-  };
-}
 
 // -- Tests ---------------------------------------------------------
 
@@ -39,37 +21,30 @@ beforeEach(() => {
   resetReactions();
 });
 
-describe("reactionStore constants", () => {
-  it("exports the expected data IDs", () => {
-    expect(REACTION_DATA_ID).toBe("fancy-reaction");
-    expect(CUSTOM_REACTIONS_DATA_ID).toBe("fancy-custom-reactions");
-  });
-});
-
 describe("applyReaction + getReactions", () => {
   it("registers a single reaction and returns it", () => {
-    applyReaction(makeReaction());
+    applyReaction("msg-1", "\u{1F44D}", "add", "hash-alice", "Alice");
     const reactions = getReactions("msg-1");
     expect(reactions).toHaveLength(1);
     expect(reactions[0].emoji).toBe("\u{1F44D}");
-    expect(reactions[0].reactors.size).toBe(1);
-    expect(reactions[0].reactors.has(1)).toBe(true);
-    expect(reactions[0].reactorNames.get(1)).toBe("Alice");
+    expect(reactions[0].reactorHashes.size).toBe(1);
+    expect(reactions[0].reactorHashes.has("hash-alice")).toBe(true);
+    expect(reactions[0].reactorHashNames.get("hash-alice")).toBe("Alice");
   });
 
   it("aggregates multiple users on the same emoji", () => {
-    applyReaction(makeReaction({ reactor: 1, reactorName: "Alice" }));
-    applyReaction(makeReaction({ reactor: 2, reactorName: "Bob" }));
-    applyReaction(makeReaction({ reactor: 3, reactorName: "Charlie" }));
+    applyReaction("msg-1", "\u{1F44D}", "add", "hash-alice", "Alice");
+    applyReaction("msg-1", "\u{1F44D}", "add", "hash-bob", "Bob");
+    applyReaction("msg-1", "\u{1F44D}", "add", "hash-charlie", "Charlie");
 
     const reactions = getReactions("msg-1");
     expect(reactions).toHaveLength(1);
-    expect(reactions[0].reactors.size).toBe(3);
+    expect(reactions[0].reactorHashes.size).toBe(3);
   });
 
   it("tracks different emojis separately", () => {
-    applyReaction(makeReaction({ emoji: "\u{1F44D}", reactor: 1 }));
-    applyReaction(makeReaction({ emoji: "\u{2764}\u{FE0F}", reactor: 2 }));
+    applyReaction("msg-1", "\u{1F44D}", "add", "hash-alice", "Alice");
+    applyReaction("msg-1", "\u{2764}\u{FE0F}", "add", "hash-bob", "Bob");
 
     const reactions = getReactions("msg-1");
     expect(reactions).toHaveLength(2);
@@ -84,57 +59,56 @@ describe("applyReaction + getReactions", () => {
 
 describe("remove action", () => {
   it("removes a specific reactor", () => {
-    applyReaction(makeReaction({ reactor: 1 }));
-    applyReaction(makeReaction({ reactor: 2, reactorName: "Bob" }));
-    applyReaction(makeReaction({ reactor: 1, action: "remove" }));
+    applyReaction("msg-1", "\u{1F44D}", "add", "hash-alice", "Alice");
+    applyReaction("msg-1", "\u{1F44D}", "add", "hash-bob", "Bob");
+    applyReaction("msg-1", "\u{1F44D}", "remove", "hash-alice", "Alice");
 
     const reactions = getReactions("msg-1");
     expect(reactions).toHaveLength(1);
-    expect(reactions[0].reactors.has(1)).toBe(false);
-    expect(reactions[0].reactors.has(2)).toBe(true);
+    expect(reactions[0].reactorHashes.has("hash-alice")).toBe(false);
+    expect(reactions[0].reactorHashes.has("hash-bob")).toBe(true);
   });
 
   it("cleans up empty emoji entries after last reactor removed", () => {
-    applyReaction(makeReaction({ reactor: 1 }));
-    applyReaction(makeReaction({ reactor: 1, action: "remove" }));
+    applyReaction("msg-1", "\u{1F44D}", "add", "hash-alice", "Alice");
+    applyReaction("msg-1", "\u{1F44D}", "remove", "hash-alice", "Alice");
 
     const reactions = getReactions("msg-1");
     expect(reactions).toHaveLength(0);
   });
 
   it("does not fail when removing a non-existent reaction", () => {
-    // Should not throw.
-    applyReaction(makeReaction({ action: "remove" }));
+    applyReaction("msg-1", "\u{1F44D}", "remove", "hash-alice", "Alice");
     expect(getReactions("msg-1")).toHaveLength(0);
   });
 });
 
 describe("hasReacted", () => {
-  it("returns true when the session has reacted", () => {
-    applyReaction(makeReaction({ reactor: 42 }));
-    expect(hasReacted("msg-1", "\u{1F44D}", 42)).toBe(true);
+  it("returns true when the hash has reacted", () => {
+    applyReaction("msg-1", "\u{1F44D}", "add", "hash-alice", "Alice");
+    expect(hasReacted("msg-1", "\u{1F44D}", "hash-alice")).toBe(true);
   });
 
-  it("returns false for a different session", () => {
-    applyReaction(makeReaction({ reactor: 42 }));
-    expect(hasReacted("msg-1", "\u{1F44D}", 99)).toBe(false);
+  it("returns false for a different hash", () => {
+    applyReaction("msg-1", "\u{1F44D}", "add", "hash-alice", "Alice");
+    expect(hasReacted("msg-1", "\u{1F44D}", "hash-bob")).toBe(false);
   });
 
   it("returns false after removal", () => {
-    applyReaction(makeReaction({ reactor: 42 }));
-    applyReaction(makeReaction({ reactor: 42, action: "remove" }));
-    expect(hasReacted("msg-1", "\u{1F44D}", 42)).toBe(false);
+    applyReaction("msg-1", "\u{1F44D}", "add", "hash-alice", "Alice");
+    applyReaction("msg-1", "\u{1F44D}", "remove", "hash-alice", "Alice");
+    expect(hasReacted("msg-1", "\u{1F44D}", "hash-alice")).toBe(false);
   });
 
   it("returns false for unknown message", () => {
-    expect(hasReacted("nope", "\u{1F44D}", 1)).toBe(false);
+    expect(hasReacted("nope", "\u{1F44D}", "hash-alice")).toBe(false);
   });
 });
 
 describe("resetReactions", () => {
   it("clears all reactions", () => {
-    applyReaction(makeReaction({ messageId: "a" }));
-    applyReaction(makeReaction({ messageId: "b" }));
+    applyReaction("a", "\u{1F44D}", "add", "hash-alice", "Alice");
+    applyReaction("b", "\u{1F44D}", "add", "hash-bob", "Bob");
     resetReactions();
     expect(getReactions("a")).toHaveLength(0);
     expect(getReactions("b")).toHaveLength(0);
@@ -167,8 +141,8 @@ describe("server custom reactions", () => {
 
 describe("multi-message isolation", () => {
   it("reactions on different messages do not interfere", () => {
-    applyReaction(makeReaction({ messageId: "m1", emoji: "\u{1F44D}", reactor: 1 }));
-    applyReaction(makeReaction({ messageId: "m2", emoji: "\u{2764}\u{FE0F}", reactor: 2 }));
+    applyReaction("m1", "\u{1F44D}", "add", "hash-alice", "Alice");
+    applyReaction("m2", "\u{2764}\u{FE0F}", "add", "hash-bob", "Bob");
 
     const r1 = getReactions("m1");
     const r2 = getReactions("m2");
@@ -181,11 +155,70 @@ describe("multi-message isolation", () => {
 
 describe("idempotence", () => {
   it("adding the same reaction twice does not duplicate", () => {
-    applyReaction(makeReaction({ reactor: 1 }));
-    applyReaction(makeReaction({ reactor: 1 }));
+    applyReaction("msg-1", "\u{1F44D}", "add", "hash-alice", "Alice");
+    applyReaction("msg-1", "\u{1F44D}", "add", "hash-alice", "Alice");
 
     const reactions = getReactions("msg-1");
     expect(reactions).toHaveLength(1);
-    expect(reactions[0].reactors.size).toBe(1);
+    expect(reactions[0].reactorHashes.size).toBe(1);
+  });
+});
+
+describe("cross-user message_id consistency (regression)", () => {
+  it("reactions keyed by the SAME message_id are visible to all users", () => {
+    // Both users must share the same message_id for a given message.
+    // The server preserves the sender's client-generated UUID so all
+    // participants reference the same ID.
+    const sharedMessageId = "shared-uuid-123";
+
+    applyReaction(sharedMessageId, "\u{1F44D}", "add", "hash-alice", "Alice");
+    applyReaction(sharedMessageId, "\u{1F44D}", "add", "hash-bob", "Bob");
+
+    const reactions = getReactions(sharedMessageId);
+    expect(reactions).toHaveLength(1);
+    expect(reactions[0].reactorHashes.size).toBe(2);
+    expect(reactions[0].reactorHashes.has("hash-alice")).toBe(true);
+    expect(reactions[0].reactorHashes.has("hash-bob")).toBe(true);
+  });
+
+  it("reactions with DIFFERENT message_ids do NOT collide", () => {
+    // If the server were to overwrite the client message_id, each user
+    // would end up with a different UUID for the same message. Reactions
+    // would then be isolated per-user and invisible to others.
+    applyReaction("uuid-from-sender", "\u{1F44D}", "add", "hash-alice", "Alice");
+    applyReaction("uuid-from-server", "\u{1F44D}", "add", "hash-bob", "Bob");
+
+    const fromSender = getReactions("uuid-from-sender");
+    const fromServer = getReactions("uuid-from-server");
+
+    // Each ID sees only one reactor - the reaction worlds are split.
+    expect(fromSender).toHaveLength(1);
+    expect(fromSender[0].reactorHashes.size).toBe(1);
+    expect(fromServer).toHaveLength(1);
+    expect(fromServer[0].reactorHashes.size).toBe(1);
+  });
+
+  it("hasReacted correctly identifies own reaction via cert hash", () => {
+    const messageId = "consistent-uuid";
+    applyReaction(messageId, "\u{1F44D}", "add", "hash-me", "Me");
+    applyReaction(messageId, "\u{1F44D}", "add", "hash-other", "Other");
+
+    expect(hasReacted(messageId, "\u{1F44D}", "hash-me")).toBe(true);
+    expect(hasReacted(messageId, "\u{1F44D}", "hash-other")).toBe(true);
+    expect(hasReacted(messageId, "\u{1F44D}", "hash-nobody")).toBe(false);
+  });
+
+  it("remove action by one user does not affect others on the same message", () => {
+    const messageId = "shared-uuid";
+    applyReaction(messageId, "\u{1F44D}", "add", "hash-alice", "Alice");
+    applyReaction(messageId, "\u{1F44D}", "add", "hash-bob", "Bob");
+    applyReaction(messageId, "\u{1F44D}", "remove", "hash-alice", "Alice");
+
+    expect(hasReacted(messageId, "\u{1F44D}", "hash-alice")).toBe(false);
+    expect(hasReacted(messageId, "\u{1F44D}", "hash-bob")).toBe(true);
+
+    const reactions = getReactions(messageId);
+    expect(reactions).toHaveLength(1);
+    expect(reactions[0].reactorHashes.size).toBe(1);
   });
 });

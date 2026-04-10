@@ -36,7 +36,7 @@ import type {
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator";
 import { registerPoll, registerVote } from "./components/chat/PollCard";
-import { applyReaction, applyPchatReaction, resetReactions, setServerCustomReactions, REACTION_DATA_ID, CUSTOM_REACTIONS_DATA_ID, type ReactionPayload, type ServerCustomReaction } from "./components/chat/reactionStore";
+import { applyReaction, resetReactions, setServerCustomReactions, type ServerCustomReaction } from "./components/chat/reactionStore";
 import { offloadManager } from "./messageOffload";
 import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume, getMutedPushChannels, setMutedPushChannel } from "./preferencesStorage";
 import { loadProfileData } from "./pages/settings/profileData";
@@ -812,11 +812,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const updated = await setMutedPushChannel(serverKey, channelId, !isMuted);
     set({ mutedPushChannels: new Set(updated) });
 
-    // Sync the muted list to the server via fancy-push-update.
+    // Sync the muted list to the server via native proto message.
     try {
-      const payload = JSON.stringify({ muted: updated });
-      const data = new TextEncoder().encode(payload);
-      await get().sendPluginData([], data, "fancy-push-update");
+      await invoke("send_push_update", { mutedChannels: updated });
     } catch (e) {
       console.error("Failed to sync push mute to server:", e);
     }
@@ -1425,33 +1423,6 @@ export async function initEventListeners(
           }
         }
 
-        // Handle emoji reactions.
-        if (data_id === REACTION_DATA_ID) {
-          try {
-            const json = new TextDecoder().decode(bytes);
-            const payload = JSON.parse(json) as ReactionPayload;
-            if (payload.type === "reaction" && payload.messageId && payload.emoji) {
-              applyReaction(payload);
-              useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
-            }
-          } catch (e) {
-            console.error("plugin-data reaction processing error:", e);
-          }
-        }
-
-        // Handle server-advertised custom reactions.
-        if (data_id === CUSTOM_REACTIONS_DATA_ID) {
-          try {
-            const json = new TextDecoder().decode(bytes);
-            const reactions = JSON.parse(json) as ServerCustomReaction[];
-            if (Array.isArray(reactions)) {
-              setServerCustomReactions(reactions);
-            }
-          } catch (e) {
-            console.error("plugin-data custom-reactions processing error:", e);
-          }
-        }
-
         // Also dispatch to legacy registered handlers for extensibility.
         for (const handler of pluginDataHandlers) {
           handler(data_id, bytes, sender_session);
@@ -1469,6 +1440,20 @@ export async function initEventListeners(
         const { sender_session, target_session, signal_type, payload } = event.payload;
         for (const handler of webRtcSignalHandlers) {
           handler(sender_session, target_session, signal_type, payload);
+        }
+      },
+    ),
+  );
+
+  // -- Custom reactions config event --------------------------------
+
+  unlisteners.push(
+    await listen<ServerCustomReaction[]>(
+      "custom-reactions-config",
+      (event) => {
+        const reactions = event.payload;
+        if (Array.isArray(reactions)) {
+          setServerCustomReactions(reactions);
         }
       },
     ),
@@ -1675,9 +1660,8 @@ export async function initEventListeners(
       "pchat-reaction-deliver",
       (event) => {
         const { message_id, emoji, action, sender_hash, sender_name } = event.payload;
-        // Resolve actual display name from the user list (server may send the hash as fallback).
         const resolvedName = useAppStore.getState().users.find((u) => u.hash === sender_hash)?.name ?? sender_name;
-        applyPchatReaction(message_id, emoji, action as "add" | "remove", sender_hash, resolvedName);
+        applyReaction(message_id, emoji, action as "add" | "remove", sender_hash, resolvedName);
         useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
       },
     ),
@@ -1689,7 +1673,7 @@ export async function initEventListeners(
         const { users } = useAppStore.getState();
         for (const r of event.payload.reactions) {
           const resolvedName = users.find((u) => u.hash === r.sender_hash)?.name ?? r.sender_name;
-          applyPchatReaction(r.message_id, r.emoji, "add", r.sender_hash, resolvedName);
+          applyReaction(r.message_id, r.emoji, "add", r.sender_hash, resolvedName);
         }
         useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
       },

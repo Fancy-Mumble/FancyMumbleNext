@@ -1343,6 +1343,52 @@ pub struct PchatSenderKeyDistribution {
     #[prost(bytes = "vec", optional, tag = "3")]
     pub distribution: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
+/// Client registers its FCM device token with the server for push
+/// notifications. Sent once after ServerSync on Android.
+/// Wire type ID = 122.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FancyPushRegister {
+    /// FCM device registration token.
+    #[prost(string, optional, tag = "1")]
+    pub token: ::core::option::Option<::prost::alloc::string::String>,
+    /// Channel IDs the client has muted for push notifications.
+    #[prost(uint32, repeated, tag = "2")]
+    pub muted_channels: ::prost::alloc::vec::Vec<u32>,
+}
+/// Client updates its per-channel push notification mute preferences.
+/// Sent when the user toggles push mute on a channel.
+/// Wire type ID = 123.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FancyPushUpdate {
+    /// Complete list of channel IDs muted for push notifications.
+    #[prost(uint32, repeated, tag = "1")]
+    pub muted_channels: ::prost::alloc::vec::Vec<u32>,
+}
+/// Server broadcasts its custom emoji/reaction configuration to clients
+/// after connect. Replaces the previous PluginData-based delivery.
+/// Wire type ID = 124.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FancyCustomReactionsConfig {
+    #[prost(message, repeated, tag = "1")]
+    pub reactions: ::prost::alloc::vec::Vec<
+        fancy_custom_reactions_config::CustomReaction,
+    >,
+}
+/// Nested message and enum types in `FancyCustomReactionsConfig`.
+pub mod fancy_custom_reactions_config {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct CustomReaction {
+        /// Short-code identifier without colons (e.g. "mumble_parrot").
+        #[prost(string, optional, tag = "1")]
+        pub shortcode: ::core::option::Option<::prost::alloc::string::String>,
+        /// Display string (emoji char, image URL, or unicode).
+        #[prost(string, optional, tag = "2")]
+        pub display: ::core::option::Option<::prost::alloc::string::String>,
+        /// Optional human-readable label.
+        #[prost(string, optional, tag = "3")]
+        pub label: ::core::option::Option<::prost::alloc::string::String>,
+    }
+}
 /// Unified pchat protocol indicator.
 /// Each value identifies both the E2EE protocol implementation
 /// and the persistence behaviour for a channel.

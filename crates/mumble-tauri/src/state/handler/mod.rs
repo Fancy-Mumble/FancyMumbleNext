@@ -9,6 +9,7 @@ mod ban_list;
 mod channel_remove;
 mod channel_state;
 mod codec_version;
+mod custom_reactions_config;
 mod pchat;
 mod permission_denied;
 mod permission_query;
@@ -151,6 +152,7 @@ pub(crate) fn dispatch(msg: &ControlMessage, ctx: &HandlerContext) {
         ControlMessage::PchatReactionDeliver(m) => m.handle(ctx),
         ControlMessage::PchatReactionFetchResponse(m) => m.handle(ctx),
         ControlMessage::WebRtcSignal(m) => m.handle(ctx),
+        ControlMessage::FancyCustomReactionsConfig(m) => m.handle(ctx),
         ControlMessage::BanList(m) => m.handle(ctx),
         ControlMessage::UserList(m) => m.handle(ctx),
         ControlMessage::Acl(m) => m.handle(ctx),

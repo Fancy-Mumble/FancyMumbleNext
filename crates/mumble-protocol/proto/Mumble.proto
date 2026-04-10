@@ -742,3 +742,44 @@ optional string sender_hash = 2;
 // Sender Key Distribution Message bytes (libsignal SKDM).
 optional bytes distribution = 3;
 }
+
+// ---------------------------------------------------------------------------
+// Push notification registration (Fancy Mumble extension, IDs 122-123)
+// ---------------------------------------------------------------------------
+
+// Client registers its FCM device token with the server for push
+// notifications. Sent once after ServerSync on Android.
+// Wire type ID = 122.
+message FancyPushRegister {
+	// FCM device registration token.
+	optional string token = 1;
+	// Channel IDs the client has muted for push notifications.
+	repeated uint32 muted_channels = 2 [packed = true];
+}
+
+// Client updates its per-channel push notification mute preferences.
+// Sent when the user toggles push mute on a channel.
+// Wire type ID = 123.
+message FancyPushUpdate {
+	// Complete list of channel IDs muted for push notifications.
+	repeated uint32 muted_channels = 1 [packed = true];
+}
+
+// ---------------------------------------------------------------------------
+// Server custom reactions config (Fancy Mumble extension, ID 124)
+// ---------------------------------------------------------------------------
+
+// Server broadcasts its custom emoji/reaction configuration to clients
+// after connect. Replaces the previous PluginData-based delivery.
+// Wire type ID = 124.
+message FancyCustomReactionsConfig {
+	message CustomReaction {
+		// Short-code identifier without colons (e.g. "mumble_parrot").
+		optional string shortcode = 1;
+		// Display string (emoji char, image URL, or unicode).
+		optional string display = 2;
+		// Optional human-readable label.
+		optional string label = 3;
+	}
+	repeated CustomReaction reactions = 1;
+}
