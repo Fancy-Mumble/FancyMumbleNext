@@ -195,10 +195,10 @@ function OwnBroadcastPreview({ stream }: OwnPreviewProps) {
 // Remote viewer - displays the WebRTC stream from the broadcaster
 // ---------------------------------------------------------------------------
 
-function RemoteViewer() {
+function RemoteViewer({ session }: { readonly session: number }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const remoteStream = useRemoteStream();
+  const remoteStream = useRemoteStream(session);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -243,17 +243,20 @@ function RemoteViewer() {
 interface ScreenShareViewerProps {
   readonly isOwnBroadcast: boolean;
   readonly localStream: MediaStream | null;
+  /** Session ID of the broadcaster (required when isOwnBroadcast is false). */
+  readonly session?: number;
 }
 
 export default function ScreenShareViewer({
   isOwnBroadcast,
   localStream,
+  session,
 }: ScreenShareViewerProps) {
   return (
     <div className={styles.broadcastArea}>
       {isOwnBroadcast && localStream
         ? <OwnBroadcastPreview stream={localStream} />
-        : <RemoteViewer />}
+        : <RemoteViewer session={session ?? 0} />}
     </div>
   );
 }

@@ -30,6 +30,8 @@ import { isMobile } from "../../utils/platform";
 import type { MessageScope } from "../../messageOffload";
 import { useScreenShare } from "./useScreenShare";
 import ScreenShareViewer, { BroadcastBanner } from "./ScreenShareViewer";
+import StreamFocusView from "./StreamFocusView";
+import MultiStreamGrid from "./MultiStreamGrid";
 import styles from "./ChatView.module.css";
 import { Lightbox, type LightboxHandle } from "../elements/Lightbox";
 
@@ -261,10 +263,11 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   const screenShare = useScreenShare();
 
   // Determine which screen share panel to show (own broadcast or watching someone).
-  const activeScreenShare = screenShare.isBroadcasting
-    ? { session: ownSession!, isOwn: true, stream: screenShare.localStream }
-    : screenShare.watchingSession !== null
-      ? { session: screenShare.watchingSession, isOwn: false, stream: null }
+  // watchingSession takes priority: a broadcaster can watch another stream.
+  const activeScreenShare = screenShare.watchingSession !== null
+    ? { session: screenShare.watchingSession, isOwn: false, stream: null }
+    : screenShare.isBroadcasting
+      ? { session: ownSession!, isOwn: true, stream: screenShare.localStream }
       : null;
 
   // Other users broadcasting in the current channel (for the notification banner).
@@ -351,16 +354,52 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
       <MobileCallControls />
 
-      {/* Screen share viewer panel */}
-      {activeScreenShare && (
+      {/* Own broadcast preview */}
+      {activeScreenShare?.isOwn && activeScreenShare.stream && (
         <ScreenShareViewer
-          isOwnBroadcast={activeScreenShare.isOwn}
+          isOwnBroadcast
           localStream={activeScreenShare.stream}
         />
       )}
 
-      {/* Notification banner when someone in the channel is sharing */}
-      {!activeScreenShare && channelBroadcasters.length > 0 && (
+      {/* Focused view when watching someone else's stream */}
+      {activeScreenShare && !activeScreenShare.isOwn && (
+        <StreamFocusView
+          isOwnBroadcast={false}
+          localStream={null}
+          session={activeScreenShare.session}
+          otherBroadcasters={[
+            // When we are also broadcasting, inject our own stream as the
+            // first secondary panel so the user can see it alongside the
+            // watched stream (mirrors the multi-stream grid experience).
+            ...(screenShare.isBroadcasting && ownSession !== null
+              ? [{ session: ownSession, name: `${users.find((u) => u.session === ownSession)?.name ?? "You"} (you)` }]
+              : []),
+            ...channelBroadcasters.filter(
+              (b) => b.session !== screenShare.watchingSession,
+            ),
+          ]}
+          onWatch={(session) => {
+            // Clicking own stream tile stops watching and returns to own-broadcast view.
+            if (session === ownSession) {
+              screenShare.stopWatching();
+            } else {
+              screenShare.watchBroadcast(session);
+            }
+          }}
+        />
+      )}
+
+      {/* Multi-stream grid: shown when 2+ broadcasters and not watching someone else */}
+      {(!activeScreenShare || activeScreenShare.isOwn) && channelBroadcasters.length > 1 && (
+        <MultiStreamGrid
+          broadcasters={channelBroadcasters}
+          onWatch={screenShare.watchBroadcast}
+        />
+      )}
+
+      {/* Single broadcaster notification banner */}
+      {(!activeScreenShare || activeScreenShare.isOwn) && channelBroadcasters.length === 1 && (
         <BroadcastBanner
           broadcasters={channelBroadcasters}
           onWatch={screenShare.watchBroadcast}

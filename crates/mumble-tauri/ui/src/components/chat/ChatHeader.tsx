@@ -206,7 +206,7 @@ export default function ChatHeader({
             <FolderIcon width={18} height={18} />
           </button>
         )}
-        {onToggleScreenShare && !privateBadge && !isStreaming && (
+        {onToggleScreenShare && !privateBadge && !broadcastInfo?.isOwnBroadcast && (
           <button
             className={`${styles.serverInfoBtn} ${isScreenSharing ? styles.screenShareActive : ""}`}
             onClick={onToggleScreenShare}

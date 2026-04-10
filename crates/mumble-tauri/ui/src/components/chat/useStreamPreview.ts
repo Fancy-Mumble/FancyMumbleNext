@@ -217,6 +217,16 @@ export function clearThumbnail(session: number): void {
   thumbnailCache.delete(session);
 }
 
+/** Capture a frame from a local MediaStream and store it in the thumbnail cache. */
+export async function storeLocalThumbnail(session: number, stream: MediaStream): Promise<void> {
+  const track = stream.getVideoTracks()[0];
+  if (!track) return;
+  const url = await captureFrame(track);
+  if (url) {
+    thumbnailCache.set(session, { dataUrl: url, capturedAt: Date.now() });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // React hook
 // ---------------------------------------------------------------------------
@@ -227,6 +237,7 @@ export function clearThumbnail(session: number): void {
  */
 export function useStreamThumbnail(session: number, isHovering: boolean): string | null {
   const isBroadcasting = useAppStore((s) => s.broadcastingSessions.has(session));
+  const ownSession = useAppStore((s) => s.ownSession);
   const [thumbnail, setThumbnail] = useState<string | null>(() => {
     const cached = thumbnailCache.get(session);
     return cached ? cached.dataUrl : null;
@@ -245,6 +256,9 @@ export function useStreamThumbnail(session: number, isHovering: boolean): string
         setThumbnail(cached.dataUrl);
         return;
       }
+      // Never attempt a WebRTC preview fetch for the local session - the
+      // thumbnail is populated directly via storeLocalThumbnail.
+      if (session === ownSession) return;
       inFlight.current = true;
       requestThumbnail(session).then((url) => {
         inFlight.current = false;
@@ -260,7 +274,7 @@ export function useStreamThumbnail(session: number, isHovering: boolean): string
       clearInterval(interval);
       closePreview();
     };
-  }, [session, isHovering, isBroadcasting]);
+  }, [session, isHovering, isBroadcasting, ownSession]);
 
   if (!isBroadcasting) return null;
   return thumbnail;

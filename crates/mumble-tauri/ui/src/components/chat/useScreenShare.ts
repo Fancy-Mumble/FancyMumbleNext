@@ -25,6 +25,7 @@ import {
   handlePreviewIceCandidate,
   clearThumbnail,
   closePreview,
+  storeLocalThumbnail,
 } from "./useStreamPreview";
 
 // Proto SignalType enum values (must match Mumble.proto).
@@ -185,60 +186,74 @@ function stopBroadcasting(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Viewer state (module-level - one active watch at a time)
+// Viewer state (module-level - one WebRTC connection per broadcaster)
 // ---------------------------------------------------------------------------
 
-let viewerPc: RTCPeerConnection | null = null;
-let viewerPendingIce: RTCIceCandidateInit[] = [];
-let viewerRemoteStream: MediaStream | null = null;
-/** Callbacks registered by the ScreenShareViewer component to receive the remote stream. */
-const remoteStreamListeners = new Set<(stream: MediaStream | null) => void>();
-
-function notifyRemoteStreamListeners(stream: MediaStream | null): void {
-  for (const cb of remoteStreamListeners) cb(stream);
+interface ViewerState {
+  pc: RTCPeerConnection;
+  pendingIce: RTCIceCandidateInit[];
+  stream: MediaStream | null;
 }
 
-/** Flush queued ICE candidates after viewer remote description is set. */
-function flushViewerIce(): void {
-  if (!viewerPc) return;
-  for (const c of viewerPendingIce) {
-    viewerPc.addIceCandidate(c).catch((e) =>
+const viewerPcs = new Map<number, ViewerState>();
+const remoteStreamListeners = new Map<number, Set<(stream: MediaStream | null) => void>>();
+
+function notifyStreamListeners(session: number, stream: MediaStream | null): void {
+  const listeners = remoteStreamListeners.get(session);
+  if (listeners) {
+    for (const cb of listeners) cb(stream);
+  }
+}
+
+function flushViewerIce(session: number): void {
+  const state = viewerPcs.get(session);
+  if (!state) return;
+  for (const c of state.pendingIce) {
+    state.pc.addIceCandidate(c).catch((e) =>
       console.error("[sfu] viewer addIceCandidate error:", e),
     );
   }
-  viewerPendingIce = [];
+  state.pendingIce = [];
 }
 
-function closeViewer(): void {
-  if (viewerPc) {
-    viewerPc.close();
-    viewerPc = null;
+function closeViewer(session?: number): void {
+  if (session !== undefined) {
+    const state = viewerPcs.get(session);
+    if (state) {
+      state.pc.close();
+      viewerPcs.delete(session);
+      notifyStreamListeners(session, null);
+    }
+  } else {
+    for (const [sess, state] of viewerPcs) {
+      state.pc.close();
+      notifyStreamListeners(sess, null);
+    }
+    viewerPcs.clear();
   }
-  viewerPendingIce = [];
-  viewerRemoteStream = null;
-  notifyRemoteStreamListeners(null);
 }
 
-/** Connect to the server SFU to watch a broadcaster's stream. */
+/** Connect to the server SFU to watch a broadcaster's stream. Returns immediately if already connected. */
 async function startWatching(broadcasterSession: number): Promise<void> {
+  if (viewerPcs.has(broadcasterSession)) return;
+
   closePreview();
-  closeViewer();
 
   const pc = new RTCPeerConnection(RTC_CONFIG);
-  viewerPc = pc;
+  const state: ViewerState = { pc, pendingIce: [], stream: null };
+  viewerPcs.set(broadcasterSession, state);
 
   pc.addTransceiver("video", { direction: "recvonly" });
   pc.addTransceiver("audio", { direction: "recvonly" });
 
   pc.ontrack = (e) => {
-    // Accumulate all tracks into one MediaStream so a late audio
-    // ontrack doesn't overwrite the video stream (str0m may use
-    // different MSIDs per media section).
-    viewerRemoteStream ??= new MediaStream();
-    if (!viewerRemoteStream.getTrackById(e.track.id)) {
-      viewerRemoteStream.addTrack(e.track);
+    const s = viewerPcs.get(broadcasterSession);
+    if (!s) return;
+    s.stream ??= new MediaStream();
+    if (!s.stream.getTrackById(e.track.id)) {
+      s.stream.addTrack(e.track);
     }
-    notifyRemoteStreamListeners(viewerRemoteStream);
+    notifyStreamListeners(broadcasterSession, s.stream);
   };
 
   // Send our ICE candidates to the server (routed via broadcaster session).
@@ -249,17 +264,20 @@ async function startWatching(broadcasterSession: number): Promise<void> {
   };
 
   pc.onconnectionstatechange = () => {
-    if (pc !== viewerPc) return; // stale closure
+    if (viewerPcs.get(broadcasterSession)?.pc !== pc) return; // stale closure
     if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
-      closeViewer();
-      useAppStore.setState({ watchingSession: null });
+      closeViewer(broadcasterSession);
+      const { watchingSession } = useAppStore.getState();
+      if (watchingSession === broadcasterSession) {
+        useAppStore.setState({ watchingSession: null });
+      }
     }
   };
 
   const offer = await pc.createOffer();
-  if (viewerPc !== pc) return; // replaced while awaiting
+  if (viewerPcs.get(broadcasterSession)?.pc !== pc) return; // replaced while awaiting
   await pc.setLocalDescription(offer);
-  if (viewerPc !== pc) return; // replaced while awaiting
+  if (viewerPcs.get(broadcasterSession)?.pc !== pc) return; // replaced while awaiting
 
   // Send offer to server, targeting the broadcaster session.
   // The server intercepts this and creates an SFU outbound peer.
@@ -276,28 +294,40 @@ async function handleServerAnswer(pc: RTCPeerConnection, sdp: string): Promise<v
 // ---------------------------------------------------------------------------
 
 /** Route an SDP answer to the peer that is waiting for one. */
-function routeSdpAnswer(payload: string): void {
-  if (broadcasterPc?.signalingState === "have-local-offer") {
+function routeSdpAnswer(senderSession: number, payload: string): void {
+  const ownSession = useAppStore.getState().ownSession;
+
+  // Answer for our broadcaster PC: the SFU echoes back our own session as
+  // the broadcaster context, so senderSession equals our session ID.
+  if (senderSession === ownSession && broadcasterPc?.signalingState === "have-local-offer") {
     handleServerAnswer(broadcasterPc, payload)
       .then(flushBroadcasterIce)
       .catch((e) => console.error("[sfu] broadcaster setRemoteDescription error:", e));
-  } else if (viewerPc?.signalingState === "have-local-offer") {
-    handleServerAnswer(viewerPc, payload)
-      .then(flushViewerIce)
-      .catch((e) => console.error("[sfu] viewer setRemoteDescription error:", e));
-  } else if (getPreviewPc()?.signalingState === "have-local-offer") {
-    handlePreviewAnswer(payload);
-  } else {
-    console.warn(
-      "[sfu] SDP answer received but no peer is expecting one",
-      "broadcaster:", broadcasterPc?.signalingState,
-      "viewer:", viewerPc?.signalingState,
-    );
+    return;
   }
+
+  // Answer for a viewer PC: senderSession is the broadcaster's session.
+  const state = viewerPcs.get(senderSession);
+  if (state?.pc.signalingState === "have-local-offer") {
+    handleServerAnswer(state.pc, payload)
+      .then(() => flushViewerIce(senderSession))
+      .catch((e) => console.error("[sfu] viewer setRemoteDescription error:", e));
+    return;
+  }
+
+  if (getPreviewPc()?.signalingState === "have-local-offer") {
+    handlePreviewAnswer(payload);
+    return;
+  }
+
+  console.warn(
+    "[sfu] SDP answer received but no peer is expecting one",
+    { senderSession, viewerSessions: [...viewerPcs.keys()] },
+  );
 }
 
-/** Route an ICE candidate to the correct peer (broadcaster > viewer > preview). */
-function routeIceCandidate(payload: string): void {
+/** Route an ICE candidate to the correct peer (broadcaster > viewer by sender session > preview). */
+function routeIceCandidate(senderSession: number, payload: string): void {
   let candidate: RTCIceCandidateInit | null = null;
   try {
     candidate = JSON.parse(payload) as RTCIceCandidateInit;
@@ -312,20 +342,29 @@ function routeIceCandidate(payload: string): void {
     } else {
       broadcasterPendingIce.push(candidate);
     }
-  } else if (viewerPc) {
-    if (viewerPc.remoteDescription) {
-      viewerPc.addIceCandidate(candidate).catch(console.error);
+    return;
+  }
+
+  const viewerState = viewerPcs.get(senderSession);
+  if (viewerState) {
+    if (viewerState.pc.remoteDescription) {
+      viewerState.pc.addIceCandidate(candidate).catch(console.error);
     } else {
-      viewerPendingIce.push(candidate);
+      viewerState.pendingIce.push(candidate);
     }
-  } else if (getPreviewPc()) {
+    return;
+  }
+
+  if (getPreviewPc()) {
     handlePreviewIceCandidate(candidate);
   }
 }
 
 function handleSignal(senderSession: number, targetSession: number | null, signalType: number, payload: string): void {
   const ownSession = useAppStore.getState().ownSession;
-  if (senderSession === ownSession) return;
+  // SDP_ANSWER sender_session is the broadcaster context (not the human sender),
+  // so skip the own-session filter for that signal type.
+  if (signalType !== SIGNAL_SDP_ANSWER && senderSession === ownSession) return;
   if (targetSession !== null && targetSession !== 0 && targetSession !== ownSession) return;
 
   switch (signalType) {
@@ -347,17 +386,15 @@ function handleSignal(senderSession: number, targetSession: number | null, signa
         };
       });
       clearThumbnail(senderSession);
-      if (useAppStore.getState().watchingSession === null) {
-        closeViewer();
-      }
+      closeViewer(senderSession);
       break;
 
     case SIGNAL_SDP_ANSWER:
-      routeSdpAnswer(payload);
+      routeSdpAnswer(senderSession, payload);
       break;
 
     case SIGNAL_ICE_CANDIDATE:
-      routeIceCandidate(payload);
+      routeIceCandidate(senderSession, payload);
       break;
 
     default:
@@ -433,6 +470,21 @@ export function useScreenShare(): ScreenShareHook {
     }
   }, [ownSession]);
 
+  // Maintain a live thumbnail of the own stream so it can appear as a
+  // secondary panel in StreamFocusView while watching another broadcaster.
+  // Refreshes every 55 s (well within the 60 s TTL) to prevent stale cache.
+  useEffect(() => {
+    if (!isBroadcasting || !stream || !ownSession) return;
+    storeLocalThumbnail(ownSession, stream).catch(console.error);
+    const interval = setInterval(() => {
+      if (localStream) storeLocalThumbnail(ownSession, localStream).catch(console.error);
+    }, 55_000);
+    return () => {
+      clearInterval(interval);
+      clearThumbnail(ownSession);
+    };
+  }, [isBroadcasting, stream, ownSession]);
+
   const startSharing = useCallback(async () => {
     if (localStream) return; // already broadcasting
 
@@ -497,15 +549,34 @@ export function useScreenShare(): ScreenShareHook {
     }
   }, [ownSession]);
 
+  // Auto-connect to all active broadcasters in our channel so streams are
+  // ready before the user clicks into focus view, and disconnect from
+  // sessions that stopped broadcasting.
+  useEffect(() => {
+    if (!ownSession) return;
+    for (const session of broadcastingSessions) {
+      if (session !== ownSession && !viewerPcs.has(session)) {
+        startWatching(session).catch((e) =>
+          console.error("[screenshare] auto-connect failed for session", session, e),
+        );
+      }
+    }
+    for (const [session] of viewerPcs) {
+      if (!broadcastingSessions.has(session)) {
+        closeViewer(session);
+      }
+    }
+  }, [broadcastingSessions, ownSession]);
+
   const watchBroadcast = useCallback((session: number) => {
     useAppStore.setState({ watchingSession: session });
+    // startWatching is a no-op if already connected (auto-connect effect above).
     startWatching(session).catch((e) =>
       console.error("[screenshare] startWatching failed:", e),
     );
   }, []);
 
   const stopWatchingCb = useCallback(() => {
-    closeViewer();
     useAppStore.setState({ watchingSession: null });
   }, []);
 
@@ -526,19 +597,32 @@ export function useScreenShare(): ScreenShareHook {
 // ---------------------------------------------------------------------------
 
 /**
- * Subscribe to the remote MediaStream when watching a broadcast.
- * Returns the current remote stream (or null).
+ * Subscribe to the remote MediaStream for a specific broadcaster.
+ * Returns the current stream for that session (or null while connecting).
  */
-export function useRemoteStream(): MediaStream | null {
-  const [stream, setStream] = useState<MediaStream | null>(viewerRemoteStream);
+export function useRemoteStream(session: number): MediaStream | null {
+  const [stream, setStream] = useState<MediaStream | null>(
+    () => viewerPcs.get(session)?.stream ?? null,
+  );
 
   useEffect(() => {
     const handler = (s: MediaStream | null) => setStream(s);
-    remoteStreamListeners.add(handler);
-    // In case the stream was already set before we subscribed.
-    setStream(viewerRemoteStream);
-    return () => { remoteStreamListeners.delete(handler); };
-  }, []);
+    let listeners = remoteStreamListeners.get(session);
+    if (!listeners) {
+      listeners = new Set();
+      remoteStreamListeners.set(session, listeners);
+    }
+    listeners.add(handler);
+    // Sync in case the stream arrived before we subscribed.
+    setStream(viewerPcs.get(session)?.stream ?? null);
+    return () => {
+      const ls = remoteStreamListeners.get(session);
+      if (ls) {
+        ls.delete(handler);
+        if (ls.size === 0) remoteStreamListeners.delete(session);
+      }
+    };
+  }, [session]);
 
   return stream;
 }
