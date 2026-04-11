@@ -85,6 +85,11 @@ export interface GroupChat {
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
+export interface ServerLogEntry {
+  timestamp_ms: number;
+  message: string;
+}
+
 export interface MumbleServerConfig {
   max_message_length: number;
   max_image_message_length: number;

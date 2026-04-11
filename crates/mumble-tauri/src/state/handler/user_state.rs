@@ -8,18 +8,27 @@ use tracing::info;
 
 use super::{HandleMessage, HandlerContext};
 use crate::state::{pchat, SharedState};
-use crate::state::types::{CurrentChannelPayload, UserEntry};
+use crate::state::types::{CurrentChannelPayload, ServerLogEntry, UserEntry};
 
 impl HandleMessage for mumble_tcp::UserState {
     #[allow(clippy::too_many_lines, reason = "user state handler covers channel moves, profile updates, pchat key exchange, and history fetch")]
     fn handle(&self, ctx: &HandlerContext) {
         let Some(session) = self.session else { return };
 
-        let (is_synced, own_channel_changed, remote_channel_move) = {
+        let (is_synced, own_channel_changed, remote_channel_move, is_new_user, user_name, old_snapshot, new_snapshot, move_channel_name) = {
             let mut state_guard = ctx.shared.lock().ok();
             if let Some(ref mut state) = state_guard {
                 let resolver = state.hash_name_resolver.clone();
                 let is_new_user = !state.users.contains_key(&session);
+
+                // Snapshot mute/deaf/channel state before applying changes.
+                let old_snapshot = state.users.get(&session).map(|u| MuteDeafSnapshot {
+                    mute: u.mute,
+                    deaf: u.deaf,
+                    self_mute: u.self_mute,
+                    self_deaf: u.self_deaf,
+                });
+
                 let user = state.users.entry(session).or_insert_with(|| UserEntry {
                     session,
                     name: String::new(),
@@ -78,6 +87,13 @@ impl HandleMessage for mumble_tcp::UserState {
                     maybe_record_name(&resolver, hash, name);
                 }
 
+                // Snapshot user fields before any further state borrows.
+                let user_name = user.name.clone();
+                let user_mute = user.mute;
+                let user_deaf = user.deaf;
+                let user_self_mute = user.self_mute;
+                let user_self_deaf = user.self_deaf;
+
                 let mut own_ch = false;
                 let mut remote_ch: Option<u32> = None;
                 if let Some(ch) = self.channel_id {
@@ -94,11 +110,40 @@ impl HandleMessage for mumble_tcp::UserState {
                     own_ch = o;
                     remote_ch = r;
                 }
-                (state.synced, own_ch, remote_ch)
+
+                // Capture channel name for log (if channel changed).
+                let move_channel_name = self.channel_id
+                    .filter(|_| !is_new_user)
+                    .and_then(|ch| state.channels.get(&ch))
+                    .map(|c| c.name.clone());
+
+                let new_snapshot = MuteDeafSnapshot {
+                    mute: user_mute,
+                    deaf: user_deaf,
+                    self_mute: user_self_mute,
+                    self_deaf: user_self_deaf,
+                };
+
+                (state.synced, own_ch, remote_ch, is_new_user, user_name, old_snapshot, new_snapshot, move_channel_name)
             } else {
-                (false, false, None)
+                (false, false, None, false, String::new(), None, MuteDeafSnapshot { mute: false, deaf: false, self_mute: false, self_deaf: false }, None)
             }
         };
+
+        // Build activity log entries outside the lock.
+        if is_synced && !user_name.is_empty() {
+            let mut logs: Vec<ServerLogEntry> = Vec::new();
+            if is_new_user {
+                logs.push(ServerLogEntry::now(format!("{user_name} connected")));
+            }
+            if let Some(ch_name) = move_channel_name {
+                logs.push(ServerLogEntry::now(format!("{user_name} moved to {ch_name}")));
+            }
+            build_mute_deaf_log(&user_name, old_snapshot, &new_snapshot, &mut logs);
+            for entry in logs {
+                ctx.emit("server-log", entry);
+            }
+        }
 
         // When a remote peer moves into a channel, re-evaluate whether
         // we should offer to share our channel key with them, then ask the
@@ -198,6 +243,43 @@ fn maybe_record_name(
     }
     if let Some(ref r) = resolver {
         r.record(hash, name);
+    }
+}
+
+struct MuteDeafSnapshot {
+    mute: bool,
+    deaf: bool,
+    self_mute: bool,
+    self_deaf: bool,
+}
+
+fn build_mute_deaf_log(
+    name: &str,
+    old: Option<MuteDeafSnapshot>,
+    new: &MuteDeafSnapshot,
+    logs: &mut Vec<ServerLogEntry>,
+) {
+    let Some(old) = old else { return };
+    if name.is_empty() {
+        return;
+    }
+    // Server-side mute/deaf (admin action).
+    if old.mute != new.mute {
+        let action = if new.mute { "muted" } else { "unmuted" };
+        logs.push(ServerLogEntry::now(format!("{name} was {action} by the server")));
+    }
+    if old.deaf != new.deaf {
+        let action = if new.deaf { "deafened" } else { "undeafened" };
+        logs.push(ServerLogEntry::now(format!("{name} was {action} by the server")));
+    }
+    // Self-mute/deaf.
+    if old.self_mute != new.self_mute {
+        let action = if new.self_mute { "muted" } else { "unmuted" };
+        logs.push(ServerLogEntry::now(format!("{name} self-{action}")));
+    }
+    if old.self_deaf != new.self_deaf {
+        let action = if new.self_deaf { "deafened" } else { "undeafened" };
+        logs.push(ServerLogEntry::now(format!("{name} self-{action}")));
     }
 }
 

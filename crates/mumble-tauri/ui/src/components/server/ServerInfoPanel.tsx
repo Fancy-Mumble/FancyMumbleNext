@@ -17,6 +17,7 @@ import { getPreferences, getSavedAudioSettings } from "../../preferencesStorage"
 import { formatBandwidth, formatDuration } from "../../utils/format";
 import { useAppStore } from "../../store";
 import { SafeHtml } from "../elements/SafeHtml";
+import ActivityLog from "./ActivityLog";
 import ChevronRightIcon from "../../assets/icons/navigation/chevron-right.svg?react";
 import CloseIcon from "../../assets/icons/action/close.svg?react";
 import ServerIcon from "../../assets/icons/general/server.svg?react";
@@ -328,6 +329,13 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
               </Accordion>
             </section>
           )}
+
+          {/* Activity Log */}
+          <section className={styles.section}>
+            <Accordion title="Activity Log" defaultOpen>
+              <ActivityLog />
+            </Accordion>
+          </section>
 
           {/* Developer section (developer mode only) */}
           {devMode && (

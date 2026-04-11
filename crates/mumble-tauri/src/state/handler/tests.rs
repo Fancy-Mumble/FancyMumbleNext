@@ -2096,6 +2096,136 @@ fn key_holders_empty_server_name_uses_resolver() {
 /// that `app.emit(` (Tauri IPC) is never called while a `SharedState`
 /// or `inner` mutex lock guard is alive.
 ///
+// -- Server activity log -------------------------------------------
+
+/// Helper to extract "server-log" event message strings from the emitter.
+fn server_log_messages(emitter: &MockEmitter) -> Vec<String> {
+    emitter
+        .events()
+        .iter()
+        .filter(|(name, _)| name == "server-log")
+        .filter_map(|(_, val)| val.get("message").and_then(|m| m.as_str()).map(String::from))
+        .collect()
+}
+
+fn make_synced_ctx() -> (HandlerContext, Arc<MockEmitter>) {
+    let (ctx, emitter) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.synced = true;
+        state.own_session = Some(1);
+    }
+    (ctx, emitter)
+}
+
+#[test]
+fn server_log_user_connected() {
+    let (ctx, emitter) = make_synced_ctx();
+    let us = mumble_tcp::UserState {
+        session: Some(10),
+        name: Some("Alice".into()),
+        channel_id: Some(0),
+        ..Default::default()
+    };
+    us.handle(&ctx);
+
+    let logs = server_log_messages(&emitter);
+    assert_eq!(logs, vec!["Alice connected"]);
+}
+
+#[test]
+fn server_log_user_disconnected() {
+    let (ctx, emitter) = make_synced_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let _ = state.users.insert(10, make_user(10, "Bob"));
+    }
+
+    let ur = mumble_tcp::UserRemove {
+        session: 10,
+        ..Default::default()
+    };
+    ur.handle(&ctx);
+
+    let logs = server_log_messages(&emitter);
+    assert_eq!(logs, vec!["Bob disconnected"]);
+}
+
+#[test]
+fn server_log_self_mute() {
+    let (ctx, emitter) = make_synced_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let _ = state.users.insert(10, make_user(10, "Charlie"));
+    }
+
+    let us = mumble_tcp::UserState {
+        session: Some(10),
+        self_mute: Some(true),
+        ..Default::default()
+    };
+    us.handle(&ctx);
+
+    let logs = server_log_messages(&emitter);
+    assert_eq!(logs, vec!["Charlie self-muted"]);
+}
+
+#[test]
+fn server_log_channel_move() {
+    let (ctx, emitter) = make_synced_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let _ = state.users.insert(10, make_user(10, "Dana"));
+        let _ = state.channels.insert(
+            5,
+            ChannelEntry {
+                id: 5,
+                parent_id: Some(0),
+                name: "Lobby".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_protocol: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                pchat_key_custodians: Vec::new(),
+            },
+        );
+    }
+
+    let us = mumble_tcp::UserState {
+        session: Some(10),
+        channel_id: Some(5),
+        ..Default::default()
+    };
+    us.handle(&ctx);
+
+    let logs = server_log_messages(&emitter);
+    assert_eq!(logs, vec!["Dana moved to Lobby"]);
+}
+
+#[test]
+fn server_log_no_events_before_sync() {
+    let (ctx, emitter) = make_ctx();
+    // synced is false by default.
+    let us = mumble_tcp::UserState {
+        session: Some(10),
+        name: Some("Eve".into()),
+        channel_id: Some(0),
+        ..Default::default()
+    };
+    us.handle(&ctx);
+
+    let logs = server_log_messages(&emitter);
+    assert!(logs.is_empty(), "no log events should emit before sync completes");
+}
+
+// -- Lint: no emit under lock (meta-test) --------------------------
+///
 /// Background: calling `app.emit()` while holding a `std::sync::Mutex`
 /// causes a cross-thread deadlock - the webview dispatches the JS event
 /// synchronously, and if the JS handler invokes a Tauri command that

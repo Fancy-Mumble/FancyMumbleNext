@@ -33,6 +33,7 @@ import type {
   PendingKeyShareRequest,
   KeyHolderEntry,
   ServerInfo,
+  ServerLogEntry,
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator";
 import { registerPoll, registerVote } from "./components/chat/PollCard";
@@ -179,7 +180,11 @@ interface AppState {
   mutedPushChannels: Set<number>;
 
   /** Per-user volume overrides keyed by cert hash (0-200, default 100). */
+  /** Per-user volume overrides, keyed by cert hash. */
   userVolumes: Record<string, number>;
+
+  /** Server activity log entries (connect, disconnect, mute, channel move, etc.). */
+  serverLog: ServerLogEntry[];
 
   /** Set when the server rejects with WrongUserPW/WrongServerPW - prompts the UI for a password. */
   passwordRequired: boolean;
@@ -334,6 +339,7 @@ const INITIAL: Pick<
   | "silencedChannels"
   | "mutedPushChannels"
   | "userVolumes"
+  | "serverLog"
   | "passwordRequired"
   | "passwordAttempted"
   | "pendingConnect"
@@ -388,6 +394,7 @@ const INITIAL: Pick<
   silencedChannels: new Set(),
   mutedPushChannels: new Set(),
   userVolumes: {},
+  serverLog: [],
   passwordRequired: false,
   passwordAttempted: false,
   pendingConnect: null,
@@ -1241,6 +1248,18 @@ export async function initEventListeners(
 
   // Messages, unreads, groups, connection events.
   unlisteners.push(
+    // Server activity log entry.
+    await listen<ServerLogEntry>("server-log", (event) => {
+      const MAX_LOG_ENTRIES = 200;
+      useAppStore.setState((prev) => {
+        const log = [...prev.serverLog, event.payload];
+        if (log.length > MAX_LOG_ENTRIES) {
+          log.splice(0, log.length - MAX_LOG_ENTRIES);
+        }
+        return { serverLog: log };
+      });
+    }),
+
     // New text message arrived.
     await listen<{ channel_id: number }>("new-message", async (event) => {
       const { selectedChannel } = useAppStore.getState();

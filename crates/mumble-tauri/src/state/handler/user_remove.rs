@@ -45,6 +45,13 @@ impl HandleMessage for mumble_tcp::UserRemove {
             ctx.emit("connection-rejected", RejectedPayload { reason, reject_type: None });
             ctx.emit_empty("server-disconnected");
         } else {
+            // Look up the departing user's name for the activity log.
+            let departing_name = ctx
+                .shared
+                .lock()
+                .ok()
+                .and_then(|s| s.users.get(&self.session).map(|u| u.name.clone()));
+
             let deferred_share_events: Vec<(u32, Vec<PendingKeyShare>)> =
                 if let Ok(mut state) = ctx.shared.lock() {
                     // Look up the departing user's cert hash before removing them.
@@ -86,6 +93,15 @@ impl HandleMessage for mumble_tcp::UserRemove {
                 );
             }
             ctx.emit_empty("state-changed");
+
+            if let Some(name) = departing_name {
+                if !name.is_empty() {
+                    ctx.emit(
+                        "server-log",
+                        ServerLogEntry::now(format!("{name} disconnected")),
+                    );
+                }
+            }
         }
     }
 }
