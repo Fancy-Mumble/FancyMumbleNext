@@ -170,12 +170,6 @@ impl HandleMessage for mumble_tcp::ChannelState {
                                     pchat.key_manager.set_channel_originator(id, cert.clone());
                                     info!(channel_id = id, "derived archive key after mode change");
                                 }
-                                Some(PchatProtocol::FancyV1PostJoin) => {
-                                    let key: [u8; 32] = rand::random();
-                                    pchat.key_manager.store_epoch_key(id, 0, key, KeyTrustLevel::Verified);
-                                    pchat.key_manager.set_channel_originator(id, cert.clone());
-                                    info!(channel_id = id, "generated epoch key after mode change");
-                                }
                                 _ => {}
                             }
                         }

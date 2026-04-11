@@ -51,9 +51,7 @@ use types::*;
 /// Parse a frontend pchat mode string into the protobuf i32 value.
 pub(crate) fn parse_pchat_protocol_str(s: &str) -> PchatProtocol {
     match s {
-        "fancy_v1_post_join" => PchatProtocol::FancyV1PostJoin,
         "fancy_v1_full_archive" => PchatProtocol::FancyV1FullArchive,
-        "server_managed" => PchatProtocol::ServerManaged,
         "signal_v1" => PchatProtocol::SignalV1,
         _ => PchatProtocol::None,
     }

@@ -215,8 +215,8 @@ mod tests {
     #[test]
     fn channel_key_fingerprint_differs_by_mode() {
         let key = [0xBB; 32];
-        let fp1 = channel_key_fingerprint(&key, 1, PchatProtocol::FancyV1PostJoin);
-        let fp2 = channel_key_fingerprint(&key, 1, PchatProtocol::FancyV1FullArchive);
+        let fp1 = channel_key_fingerprint(&key, 1, PchatProtocol::FancyV1FullArchive);
+        let fp2 = channel_key_fingerprint(&key, 1, PchatProtocol::SignalV1);
         assert_ne!(fp1, fp2);
     }
 }

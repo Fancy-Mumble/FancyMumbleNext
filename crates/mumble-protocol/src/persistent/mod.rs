@@ -31,9 +31,7 @@ impl PchatProtocol {
     pub fn as_wire_str(&self) -> &'static str {
         match self {
             Self::None => "NONE",
-            Self::FancyV1PostJoin => "FANCY_V1_POST_JOIN",
             Self::FancyV1FullArchive => "FANCY_V1_FULL_ARCHIVE",
-            Self::ServerManaged => "SERVER_MANAGED",
             Self::SignalV1 => "SIGNAL_V1",
         }
     }
@@ -47,9 +45,7 @@ impl PchatProtocol {
     #[must_use]
     pub fn from_wire_str(s: &str) -> Self {
         match s {
-            "FANCY_V1_POST_JOIN" | "POST_JOIN" => Self::FancyV1PostJoin,
             "FANCY_V1_FULL_ARCHIVE" | "FULL_ARCHIVE" => Self::FancyV1FullArchive,
-            "SERVER_MANAGED" => Self::ServerManaged,
             "SIGNAL_V1" => Self::SignalV1,
             _ => Self::None,
         }
@@ -124,9 +120,7 @@ mod tests {
     fn pchat_protocol_proto_roundtrip() {
         for protocol in [
             PchatProtocol::None,
-            PchatProtocol::FancyV1PostJoin,
             PchatProtocol::FancyV1FullArchive,
-            PchatProtocol::ServerManaged,
             PchatProtocol::SignalV1,
         ] {
             assert_eq!(PchatProtocol::from_proto(protocol.to_proto()), protocol);
@@ -137,9 +131,7 @@ mod tests {
     fn pchat_protocol_wire_str_roundtrip() {
         for protocol in [
             PchatProtocol::None,
-            PchatProtocol::FancyV1PostJoin,
             PchatProtocol::FancyV1FullArchive,
-            PchatProtocol::ServerManaged,
             PchatProtocol::SignalV1,
         ] {
             assert_eq!(PchatProtocol::from_wire_str(protocol.as_wire_str()), protocol);
@@ -149,9 +141,7 @@ mod tests {
     #[test]
     fn pchat_protocol_is_encrypted() {
         assert!(!PchatProtocol::None.is_encrypted());
-        assert!(PchatProtocol::FancyV1PostJoin.is_encrypted());
         assert!(PchatProtocol::FancyV1FullArchive.is_encrypted());
-        assert!(!PchatProtocol::ServerManaged.is_encrypted());
         assert!(PchatProtocol::SignalV1.is_encrypted());
     }
 
@@ -168,9 +158,7 @@ mod tests {
     #[test]
     fn protocol_version_is_correct() {
         assert_eq!(PchatProtocol::None.protocol_version(), None);
-        assert_eq!(PchatProtocol::FancyV1PostJoin.protocol_version(), Some(1));
         assert_eq!(PchatProtocol::FancyV1FullArchive.protocol_version(), Some(1));
-        assert_eq!(PchatProtocol::ServerManaged.protocol_version(), None);
         assert_eq!(PchatProtocol::SignalV1.protocol_version(), Some(2));
     }
 }

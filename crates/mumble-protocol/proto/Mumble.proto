@@ -376,9 +376,7 @@ message PluginDataTransmission {
 // and the persistence behaviour for a channel.
 enum PchatProtocol {
 	PCHAT_PROTOCOL_NONE = 0;
-	PCHAT_PROTOCOL_FANCY_V1_POST_JOIN = 1;
 	PCHAT_PROTOCOL_FANCY_V1_FULL_ARCHIVE = 2;
-	PCHAT_PROTOCOL_SERVER_MANAGED = 3;
 	PCHAT_PROTOCOL_SIGNAL_V1 = 4;
 }
 

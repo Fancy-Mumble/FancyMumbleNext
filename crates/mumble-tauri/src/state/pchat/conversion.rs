@@ -12,21 +12,17 @@ use mumble_protocol::proto::mumble_tcp;
 
 pub(crate) fn protocol_to_proto(protocol: PchatProtocol) -> i32 {
     match protocol {
-        PchatProtocol::FancyV1PostJoin => mumble_tcp::PchatProtocol::FancyV1PostJoin as i32,
         PchatProtocol::FancyV1FullArchive => mumble_tcp::PchatProtocol::FancyV1FullArchive as i32,
         PchatProtocol::SignalV1 => mumble_tcp::PchatProtocol::SignalV1 as i32,
-        PchatProtocol::ServerManaged => mumble_tcp::PchatProtocol::ServerManaged as i32,
         PchatProtocol::None => mumble_tcp::PchatProtocol::None as i32,
     }
 }
 
 pub(crate) fn proto_to_protocol(proto: Option<i32>) -> PchatProtocol {
     match proto.and_then(|v| mumble_tcp::PchatProtocol::try_from(v).ok()) {
-        Some(mumble_tcp::PchatProtocol::FancyV1PostJoin) => PchatProtocol::FancyV1PostJoin,
         Some(mumble_tcp::PchatProtocol::FancyV1FullArchive) => PchatProtocol::FancyV1FullArchive,
         Some(mumble_tcp::PchatProtocol::SignalV1) => PchatProtocol::SignalV1,
-        Some(mumble_tcp::PchatProtocol::ServerManaged) => PchatProtocol::ServerManaged,
-        _ => PchatProtocol::FancyV1PostJoin,
+        _ => PchatProtocol::None,
     }
 }
 

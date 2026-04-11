@@ -268,10 +268,8 @@ export default function ChannelEditorDialog({
               onChange={(e) => setPchatProtocol(e.target.value as PchatProtocol)}
             >
               <option value="none">None (standard volatile chat)</option>
-              <option value="fancy_v1_post_join">Post-Join (history from first join)</option>
               <option value="fancy_v1_full_archive">Full Archive (all messages)</option>
               <option value="signal_v1">Signal V1 (E2EE via Signal Protocol)</option>
-              <option value="server_managed">Server Managed</option>
             </select>
           </div>
 

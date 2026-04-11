@@ -13,9 +13,7 @@ fn serialize_pchat_protocol<S: Serializer>(protocol: &Option<PchatProtocol>, s: 
     match protocol {
         Some(p) => s.serialize_str(match p {
             PchatProtocol::None => "none",
-            PchatProtocol::FancyV1PostJoin => "fancy_v1_post_join",
             PchatProtocol::FancyV1FullArchive => "fancy_v1_full_archive",
-            PchatProtocol::ServerManaged => "server_managed",
             PchatProtocol::SignalV1 => "signal_v1",
         }),
         _ => s.serialize_none(),
@@ -903,9 +901,7 @@ mod tests {
         // Every variant the UI sends must survive a serialize -> parse roundtrip.
         let cases = [
             (PchatProtocol::None, "none"),
-            (PchatProtocol::FancyV1PostJoin, "fancy_v1_post_join"),
             (PchatProtocol::FancyV1FullArchive, "fancy_v1_full_archive"),
-            (PchatProtocol::ServerManaged, "server_managed"),
             (PchatProtocol::SignalV1, "signal_v1"),
         ];
         for (expected, input) in cases {

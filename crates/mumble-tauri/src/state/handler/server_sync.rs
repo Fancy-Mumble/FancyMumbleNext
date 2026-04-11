@@ -576,13 +576,6 @@ fn self_generate_key(shared: &Arc<Mutex<SharedState>>, ch: u32) {
                     p.key_manager.set_channel_originator(ch, cert.clone());
                     info!(channel_id = ch, cert_hash = %cert, "derived archive key on initial join");
                 }
-                Some(PchatProtocol::FancyV1PostJoin) => {
-                    let key: [u8; 32] = rand::random();
-                    p.key_manager
-                        .store_epoch_key(ch, 0, key, KeyTrustLevel::Verified);
-                    p.key_manager.set_channel_originator(ch, cert.clone());
-                    info!(channel_id = ch, cert_hash = %cert, "self-generated epoch key on initial join");
-                }
                 Some(PchatProtocol::SignalV1) => {
                     signal_bridge_failed = !p.ensure_signal_bridge();
                     info!(channel_id = ch, "signal bridge ensured on initial join (fallback)");

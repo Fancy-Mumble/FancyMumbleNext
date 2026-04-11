@@ -325,18 +325,6 @@ impl HandleMessage for mumble_tcp::UserState {
                                             info!(channel_id = ch, cert_hash = %cert, "derived archive key (originator)");
                                             pchat.identity_dir.clone().map(|dir| (dir, key, cert))
                                         }
-                                        Some(PchatProtocol::FancyV1PostJoin) => {
-                                            let key: [u8; 32] = rand::random();
-                                            pchat.key_manager.store_epoch_key(
-                                                ch,
-                                                0,
-                                                key,
-                                                KeyTrustLevel::Verified,
-                                            );
-                                            pchat.key_manager.set_channel_originator(ch, cert.clone());
-                                            info!(channel_id = ch, cert_hash = %cert, "self-generated epoch key (originator)");
-                                            None
-                                        }
                                         Some(PchatProtocol::SignalV1) => {
                                             // Bridge should already be loaded; this
                                             // is a fallback path.

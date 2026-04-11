@@ -35,6 +35,7 @@ export function useNotificationSounds(
   const prevUserCountRef = useRef<number | null>(null);
   const prevTalkingCountRef = useRef<number>(0);
   const prevChannelUsersRef = useRef<Set<number> | null>(null);
+  const prevChannelRef = useRef<number | null>(null);
   const prevVoiceStateRef = useRef<VoiceState | null>(null);
 
   useEffect(() => {
@@ -78,8 +79,8 @@ export function useNotificationSounds(
   // User join/leave (server-wide), channel join/leave, voice activity, self-mute
   useEffect(() => {
     const unsub = useAppStore.subscribe((state) => {
-      // Server-wide user join/leave
-      const userCount = state.users.length;
+      // Server-wide user join/leave (own session excluded so connecting doesn't trigger it)
+      const userCount = state.users.filter((u) => u.session !== state.ownSession).length;
       const prev = prevUserCountRef.current;
       if (prev === null) {
         prevUserCountRef.current = userCount;
@@ -101,7 +102,10 @@ export function useNotificationSounds(
             .map((u) => u.session),
         );
         const prevSet = prevChannelUsersRef.current;
-        if (prevSet !== null) {
+        const prevChannel = prevChannelRef.current;
+        // Only compare against the same channel - skip when we ourselves changed channel
+        // to avoid false join/leave sounds for the other users in the old/new channels.
+        if (prevSet !== null && prevChannel === myChannel) {
           for (const session of channelUsers) {
             if (!prevSet.has(session)) {
               playSoundForEvent(settingsRef.current, "userJoinChannel");
@@ -116,6 +120,7 @@ export function useNotificationSounds(
           }
         }
         prevChannelUsersRef.current = channelUsers;
+        prevChannelRef.current = myChannel;
       }
 
       // Voice activity

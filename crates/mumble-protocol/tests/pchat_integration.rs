@@ -357,7 +357,8 @@ fn wire_key_announce_to_proto(w: &WireKeyAnnounce) -> mumble_tcp::PchatKeyAnnoun
 fn persistence_mode_to_proto(mode: PchatProtocol) -> i32 {
     match mode {
         PchatProtocol::FancyV1FullArchive => mumble_tcp::PchatProtocol::FancyV1FullArchive as i32,
-        _ => mumble_tcp::PchatProtocol::FancyV1PostJoin as i32,
+        PchatProtocol::SignalV1 => mumble_tcp::PchatProtocol::SignalV1 as i32,
+        _ => 0,
     }
 }
 
@@ -1555,7 +1556,10 @@ fn proto_key_request_to_wire(p: &mumble_tcp::PchatKeyRequest) -> WireKeyRequest 
             Some(m) if m == mumble_tcp::PchatProtocol::FancyV1FullArchive as i32 => {
                 "FANCY_V1_FULL_ARCHIVE".to_string()
             }
-            _ => "FANCY_V1_POST_JOIN".to_string(),
+            Some(m) if m == mumble_tcp::PchatProtocol::SignalV1 as i32 => {
+                "SIGNAL_V1".to_string()
+            }
+            _ => "FANCY_V1_FULL_ARCHIVE".to_string(),
         },
         requester_hash: p.requester_hash.clone().unwrap_or_default(),
         requester_public: p.requester_public.clone().unwrap_or_default(),
@@ -2115,7 +2119,10 @@ async fn test_full_key_exchange_via_server() {
                             Some(m) if m == mumble_tcp::PchatProtocol::FancyV1FullArchive as i32 => {
                                 "FANCY_V1_FULL_ARCHIVE".to_string()
                             }
-                            _ => "FANCY_V1_POST_JOIN".to_string(),
+                            Some(m) if m == mumble_tcp::PchatProtocol::SignalV1 as i32 => {
+                                "SIGNAL_V1".to_string()
+                            }
+                            _ => "FANCY_V1_FULL_ARCHIVE".to_string(),
                         },
                         epoch: kex.epoch.unwrap_or(0),
                         encrypted_key: kex.encrypted_key.unwrap_or_default(),

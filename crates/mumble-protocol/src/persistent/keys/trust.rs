@@ -248,14 +248,6 @@ impl KeyManager {
                 }
                 Ok(())
             }
-            PchatProtocol::FancyV1PostJoin => {
-                if let Some(epochs) = self.epoch_keys.get_mut(&channel_id) {
-                    if let Some((_key, trust)) = epochs.values_mut().next_back() {
-                        *trust = KeyTrustLevel::ManuallyVerified;
-                    }
-                }
-                Ok(())
-            }
             _ => Err(Error::InvalidState(format!(
                 "cannot resolve dispute for mode {mode:?}"
             ))),
@@ -267,11 +259,6 @@ impl KeyManager {
     /// Get the trust level for a channel's current key.
     pub fn trust_level(&self, channel_id: u32, mode: PchatProtocol) -> Option<KeyTrustLevel> {
         match mode {
-            PchatProtocol::FancyV1PostJoin => self
-                .epoch_keys
-                .get(&channel_id)
-                .and_then(|epochs| epochs.values().next_back())
-                .map(|(_, trust)| *trust),
             PchatProtocol::FancyV1FullArchive => {
                 self.archive_keys.get(&channel_id).map(|(_, trust)| *trust)
             }
@@ -295,11 +282,11 @@ mod tests {
     #[test]
     fn trust_level_query() {
         let mut km = make_key_manager();
-        assert!(km.trust_level(1, PchatProtocol::FancyV1PostJoin).is_none());
+        assert!(km.trust_level(1, PchatProtocol::FancyV1FullArchive).is_none());
 
-        km.store_epoch_key(1, 0, [0; 32], KeyTrustLevel::Unverified);
+        km.store_archive_key(1, [0; 32], KeyTrustLevel::Unverified);
         assert_eq!(
-            km.trust_level(1, PchatProtocol::FancyV1PostJoin),
+            km.trust_level(1, PchatProtocol::FancyV1FullArchive),
             Some(KeyTrustLevel::Unverified)
         );
 

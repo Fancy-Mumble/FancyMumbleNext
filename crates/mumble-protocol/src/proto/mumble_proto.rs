@@ -1396,9 +1396,7 @@ pub mod fancy_custom_reactions_config {
 #[repr(i32)]
 pub enum PchatProtocol {
     None = 0,
-    FancyV1PostJoin = 1,
     FancyV1FullArchive = 2,
-    ServerManaged = 3,
     SignalV1 = 4,
 }
 impl PchatProtocol {
@@ -1409,9 +1407,7 @@ impl PchatProtocol {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::None => "PCHAT_PROTOCOL_NONE",
-            Self::FancyV1PostJoin => "PCHAT_PROTOCOL_FANCY_V1_POST_JOIN",
             Self::FancyV1FullArchive => "PCHAT_PROTOCOL_FANCY_V1_FULL_ARCHIVE",
-            Self::ServerManaged => "PCHAT_PROTOCOL_SERVER_MANAGED",
             Self::SignalV1 => "PCHAT_PROTOCOL_SIGNAL_V1",
         }
     }
@@ -1419,9 +1415,7 @@ impl PchatProtocol {
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "PCHAT_PROTOCOL_NONE" => Some(Self::None),
-            "PCHAT_PROTOCOL_FANCY_V1_POST_JOIN" => Some(Self::FancyV1PostJoin),
             "PCHAT_PROTOCOL_FANCY_V1_FULL_ARCHIVE" => Some(Self::FancyV1FullArchive),
-            "PCHAT_PROTOCOL_SERVER_MANAGED" => Some(Self::ServerManaged),
             "PCHAT_PROTOCOL_SIGNAL_V1" => Some(Self::SignalV1),
             _ => None,
         }

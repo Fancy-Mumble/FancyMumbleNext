@@ -80,7 +80,6 @@ impl SignedDataBuilder for StandardSignedDataBuilder {
         timestamp: u64,
     ) -> Vec<u8> {
         let mode_byte: u8 = match mode {
-            crate::persistent::PchatProtocol::FancyV1PostJoin => 1,
             crate::persistent::PchatProtocol::FancyV1FullArchive => 2,
             _ => 0,
         };
@@ -197,7 +196,7 @@ mod tests {
         let data = build_key_exchange_signed_data(
             1,
             42,
-            &crate::persistent::PchatProtocol::FancyV1PostJoin,
+            &crate::persistent::PchatProtocol::FancyV1FullArchive,
             5,
             &[0xAA; 48],
             "recipient",
