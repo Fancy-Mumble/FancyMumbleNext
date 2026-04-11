@@ -29,7 +29,7 @@ import { useMessageSelection } from "./useMessageSelection";
 import { isMobile } from "../../utils/platform";
 import type { MessageScope } from "../../messageOffload";
 import { useScreenShare } from "./useScreenShare";
-import ScreenShareViewer, { BroadcastBanner } from "./ScreenShareViewer";
+import ScreenShareViewer, { BroadcastBanner, WebRtcErrorBanner } from "./ScreenShareViewer";
 import StreamFocusView from "./StreamFocusView";
 import MultiStreamGrid from "./MultiStreamGrid";
 import styles from "./ChatView.module.css";
@@ -85,6 +85,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   const silencedChannels = useAppStore((s) => s.silencedChannels);
   const serverFancyVersion = useAppStore((s) => s.serverFancyVersion);
   const sfuAvailable = useAppStore((s) => s.serverConfig.webrtc_sfu_available);
+  const webrtcError = useAppStore((s) => s.webrtcError);
+  const clearWebRtcError = useCallback(() => useAppStore.setState({ webrtcError: null }), []);
 
   // DM state
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
@@ -420,6 +422,11 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         />
       )}
 
+      {/* WebRTC error inline banner - same style as broadcast banner */}
+      {webrtcError && (
+        <WebRtcErrorBanner message={webrtcError} onDismiss={clearWebRtcError} />
+      )}
+
       {/* Messages wrapper: position:relative so the key-share banner
            can overlay the scroll viewport without scrolling with it */}
       <div className={styles.messagesWrapper}>
@@ -590,8 +597,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         />
       )}
 
-      {toast && <Toast {...toast} onDismiss={clearToast} />
-      }
+      {toast && <Toast {...toast} onDismiss={clearToast} />}
 
       {/* Emoji picker overlay */}
       {emojiPicker && (

@@ -1,31 +1,38 @@
 .toast {
   position: fixed;
-  bottom: 80px;
+  top: 56px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 10000;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 18px;
-  border-radius: 20px;
-  background: var(--color-bg-secondary, #1a1a2e);
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: var(--color-glass, rgba(30, 30, 46, 0.92));
   backdrop-filter: blur(16px) saturate(150%);
   -webkit-backdrop-filter: blur(16px) saturate(150%);
   color: var(--color-text-primary, #e0e0e0);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   pointer-events: auto;
   animation: toastIn 0.2s ease-out;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  max-width: min(480px, calc(100vw - 32px));
 }
 
 .toast.fadeOut {
-  animation: toastOut 0.25s ease-in forwards;
+  animation: toastOut 0.3s ease-in forwards;
+}
+
+.message {
+  flex: 1;
+  min-width: 0;
 }
 
 .success {
-  border: 1px solid rgba(46, 160, 67, 0.4);
+  border: 1px solid rgba(46, 160, 67, 0.35);
+  background: linear-gradient(135deg, rgba(46, 160, 67, 0.12), rgba(46, 160, 67, 0.06));
 }
 
 .success .icon {
@@ -33,11 +40,12 @@
 }
 
 .error {
-  border: 1px solid rgba(248, 81, 73, 0.4);
+  border: 1px solid rgba(237, 66, 69, 0.35);
+  background: linear-gradient(135deg, rgba(237, 66, 69, 0.14), rgba(237, 66, 69, 0.06));
 }
 
 .error .icon {
-  color: var(--color-danger, #e05252);
+  color: #ed4245;
 }
 
 .icon {
@@ -45,10 +53,31 @@
   display: flex;
 }
 
+.dismissBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.dismissBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-primary);
+}
+
 @keyframes toastIn {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(12px);
+    transform: translateX(-50%) translateY(-10px);
   }
   to {
     opacity: 1;
@@ -63,6 +92,6 @@
   }
   to {
     opacity: 0;
-    transform: translateX(-50%) translateY(12px);
+    transform: translateX(-50%) translateY(-10px);
   }
 }

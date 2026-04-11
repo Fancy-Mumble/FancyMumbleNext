@@ -143,6 +143,10 @@ interface AppState {
   // -- Screen share state (in-memory) ----------------------------
   /** Whether we are currently sharing our own screen. */
   isSharingOwn: boolean;
+  /** Whether the broadcaster WebRTC connection is still negotiating. */
+  webrtcConnecting: boolean;
+  /** Inline error message when a WebRTC operation fails (e.g. unreachable SFU). */
+  webrtcError: string | null;
   /** Session IDs of other users currently broadcasting. */
   broadcastingSessions: Set<number>;
   /** Session ID we are currently watching (null if not watching). */
@@ -314,6 +318,8 @@ const INITIAL: Pick<
   | "pollMessages"
   | "reactionVersion"
   | "isSharingOwn"
+  | "webrtcConnecting"
+  | "webrtcError"
   | "broadcastingSessions"
   | "watchingSession"
   | "channelPersistence"
@@ -366,6 +372,8 @@ const INITIAL: Pick<
   pollMessages: [],
   reactionVersion: 0,
   isSharingOwn: false,
+  webrtcConnecting: false,
+  webrtcError: null,
   broadcastingSessions: new Set(),
   watchingSession: null,
   channelPersistence: {},

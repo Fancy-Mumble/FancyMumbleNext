@@ -59,6 +59,11 @@ function broadcastSignal(signalType: number, payload: string): void {
   sendSignal(0, signalType, payload);
 }
 
+/** Show a WebRTC error inline banner via the Zustand store (callable from module-level callbacks). */
+function showWebRtcError(message: string): void {
+  useAppStore.setState({ webrtcError: message });
+}
+
 // ---------------------------------------------------------------------------
 // Broadcaster state (module-level singleton - only one broadcast at a time)
 // ---------------------------------------------------------------------------
@@ -104,6 +109,16 @@ function stopBroadcasterStatsLog(): void {
   }
 }
 
+/** ICE connection timeout handle - cleared on success or explicit failure. */
+let broadcasterIceTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function clearBroadcasterIceTimeout(): void {
+  if (broadcasterIceTimeout !== null) {
+    clearTimeout(broadcasterIceTimeout);
+    broadcasterIceTimeout = null;
+  }
+}
+
 /** Flush queued ICE candidates after remote description is set. */
 function flushBroadcasterIce(): void {
   if (!broadcasterPc) return;
@@ -128,6 +143,7 @@ async function connectBroadcasterToServer(): Promise<void> {
 
   const pc = new RTCPeerConnection(RTC_CONFIG);
   broadcasterPc = pc;
+  useAppStore.setState({ webrtcConnecting: true });
 
   // Add screen tracks (video + optional audio).
   for (const track of localStream.getTracks()) {
@@ -155,10 +171,23 @@ async function connectBroadcasterToServer(): Promise<void> {
   pc.onconnectionstatechange = () => {
     if (pc !== broadcasterPc) return; // stale closure
     if (pc.connectionState === "connected") {
+      clearBroadcasterIceTimeout();
+      useAppStore.setState({ webrtcConnecting: false });
       startBroadcasterStatsLog(pc);
-    } else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
-      console.warn("[sfu] broadcaster connection to server lost");
+    } else if (pc.connectionState === "failed") {
+      clearBroadcasterIceTimeout();
       stopBroadcasterStatsLog();
+      stopBroadcasting();
+      const { ownSession } = useAppStore.getState();
+      useAppStore.setState((s) => {
+        const next = new Set(s.broadcastingSessions);
+        if (ownSession) next.delete(ownSession);
+        return { isSharingOwn: false, broadcastingSessions: next };
+      });
+      if (ownSession) broadcastSignal(SIGNAL_STOP, "");
+      showWebRtcError("Screen sharing failed: unable to reach the WebRTC server. Check that the required ports are not blocked by your firewall.");
+    } else if (pc.connectionState === "disconnected") {
+      console.warn("[sfu] broadcaster connection to server temporarily disconnected");
     }
   };
 
@@ -169,11 +198,34 @@ async function connectBroadcasterToServer(): Promise<void> {
 
   // Send offer to the server SFU (target=0 tells server this is our broadcast offer).
   sendSignal(0, SIGNAL_SDP_OFFER, offer.sdp!);
+
+  // If the browser has not reached "connected" within 8s the WebRTC port is
+  // likely blocked. Trigger the same failure path as a native ICE failure to
+  // give the user immediate feedback instead of waiting ~30s for the browser.
+  clearBroadcasterIceTimeout();
+  broadcasterIceTimeout = setTimeout(() => {
+    broadcasterIceTimeout = null;
+    if (broadcasterPc !== pc) return;
+    if (pc.connectionState !== "connected") {
+      pc.close();
+      stopBroadcasting();
+      const { ownSession } = useAppStore.getState();
+      useAppStore.setState((s) => {
+        const next = new Set(s.broadcastingSessions);
+        if (ownSession) next.delete(ownSession);
+        return { isSharingOwn: false, broadcastingSessions: next };
+      });
+      if (ownSession) broadcastSignal(SIGNAL_STOP, "");
+      showWebRtcError("Screen sharing failed: unable to reach the WebRTC server. Check that the required ports are not blocked by your firewall.");
+    }
+  }, 8000);
 }
 
 /** Clean up all broadcaster state. */
 function stopBroadcasting(): void {
+  clearBroadcasterIceTimeout();
   stopBroadcasterStatsLog();
+  useAppStore.setState({ webrtcConnecting: false });
   if (localStream) {
     for (const track of localStream.getTracks()) track.stop();
     localStream = null;
@@ -493,6 +545,7 @@ export function useScreenShare(): ScreenShareHook {
       console.info("[screen-share] server has WebRTC SFU - media will be relayed via server");
     } else {
       console.warn("[screen-share] server does NOT have WebRTC SFU - screen sharing may not work");
+      showWebRtcError("This server does not have a WebRTC relay configured. Screen sharing is unlikely to work.");
     }
 
     try {
