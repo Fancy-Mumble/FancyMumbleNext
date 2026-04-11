@@ -363,6 +363,11 @@ fn get_listened_channels(state: tauri::State<'_, AppState>) -> Vec<u32> {
 }
 
 #[tauri::command]
+fn get_push_subscribed_channels(state: tauri::State<'_, AppState>) -> Vec<u32> {
+    state.push_subscribed_channels()
+}
+
+#[tauri::command]
 fn get_unread_counts(state: tauri::State<'_, AppState>) -> HashMap<u32, u32> {
     state.unread_counts()
 }
@@ -914,6 +919,15 @@ async fn send_push_update(
     muted_channels: Vec<u32>,
 ) -> Result<(), String> {
     state.send_push_update(muted_channels).await
+}
+
+/// Send a live subscribe-push registration (or update) to the server.
+#[tauri::command]
+async fn send_subscribe_push(
+    state: tauri::State<'_, AppState>,
+    muted_channels: Vec<u32>,
+) -> Result<(), String> {
+    state.send_subscribe_push(muted_channels).await
 }
 
 /// Send a WebRTC screen-sharing signaling message.
@@ -1840,6 +1854,7 @@ pub fn run() {
             get_current_channel,
             toggle_listen,
             get_listened_channels,
+            get_push_subscribed_channels,
             get_unread_counts,
             mark_channel_read,
             get_server_config,
@@ -1869,6 +1884,7 @@ pub fn run() {
             get_own_session,
             send_plugin_data,
             send_push_update,
+            send_subscribe_push,
             send_webrtc_signal,
             send_reaction,
             delete_pchat_messages,

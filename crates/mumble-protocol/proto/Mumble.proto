@@ -764,6 +764,20 @@ message FancyPushUpdate {
 }
 
 // ---------------------------------------------------------------------------
+// Live push subscribe for connected clients (Fancy Mumble extension, ID 125)
+// ---------------------------------------------------------------------------
+
+// Client requests live message delivery from channels where it has the
+// SubscribePush permission (0x2000). Analogous to FancyPushRegister but
+// for connected clients: the server computes allowed channels and routes
+// TextMessages to the subscriber without requiring ChannelListen.
+// Wire type ID = 125.
+message FancySubscribePush {
+	// Channel IDs the client wants to exclude from live delivery.
+	repeated uint32 muted_channels = 1 [packed = true];
+}
+
+// ---------------------------------------------------------------------------
 // Server custom reactions config (Fancy Mumble extension, ID 124)
 // ---------------------------------------------------------------------------
 

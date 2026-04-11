@@ -179,6 +179,9 @@ interface AppState {
   /** Channel IDs with push notifications disabled (client preference, synced to server). */
   mutedPushChannels: Set<number>;
 
+  /** Channel IDs we are push-subscribed to (have SubscribePush permission). */
+  pushSubscribedChannels: Set<number>;
+
   /** Per-user volume overrides keyed by cert hash (0-200, default 100). */
   /** Per-user volume overrides, keyed by cert hash. */
   userVolumes: Record<string, number>;
@@ -338,6 +341,7 @@ const INITIAL: Pick<
   | "signalBridgeError"
   | "silencedChannels"
   | "mutedPushChannels"
+  | "pushSubscribedChannels"
   | "userVolumes"
   | "serverLog"
   | "passwordRequired"
@@ -393,6 +397,7 @@ const INITIAL: Pick<
   signalBridgeError: null,
   silencedChannels: new Set(),
   mutedPushChannels: new Set(),
+  pushSubscribedChannels: new Set(),
   userVolumes: {},
   serverLog: [],
   passwordRequired: false,
@@ -555,9 +560,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   refreshState: async () => {
     try {
-      const [channels, users] = await Promise.all([
+      const [channels, users, pushSubscribed] = await Promise.all([
         invoke<ChannelEntry[]>("get_channels"),
         invoke<UserEntry[]>("get_users"),
+        invoke<number[]>("get_push_subscribed_channels"),
       ]);
 
       // Derive channelPersistence from channel pchat_protocol so the
@@ -577,7 +583,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           };
         }
       }
-      set({ channels, users, channelPersistence: nextPersistence });
+      set({ channels, users, channelPersistence: nextPersistence, pushSubscribedChannels: new Set(pushSubscribed) });
 
       // Clean up broadcastingSessions for users that are no longer connected.
       const currentSessions = new Set(users.map((u) => u.session));

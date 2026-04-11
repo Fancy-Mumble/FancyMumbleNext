@@ -3,6 +3,9 @@ use tracing::{debug, warn};
 
 use super::{HandleMessage, HandlerContext};
 
+/// `SubscribePush` permission bit (0x2000).
+const PERM_SUBSCRIBE_PUSH: u32 = 0x2000;
+
 impl HandleMessage for mumble_tcp::PermissionQuery {
     fn handle(&self, ctx: &HandlerContext) {
         debug!(
@@ -18,6 +21,7 @@ impl HandleMessage for mumble_tcp::PermissionQuery {
                 for ch in state.channels.values_mut() {
                     ch.permissions = None;
                 }
+                state.push_subscribed_channels.clear();
             }
         }
 
@@ -28,6 +32,12 @@ impl HandleMessage for mumble_tcp::PermissionQuery {
                     ch.permissions = Some(perms);
                 } else {
                     warn!(channel_id, "permission query for unknown channel");
+                }
+
+                if perms & PERM_SUBSCRIBE_PUSH != 0 {
+                    let _ = state.push_subscribed_channels.insert(channel_id);
+                } else {
+                    let _ = state.push_subscribed_channels.remove(&channel_id);
                 }
             }
             // Notify the frontend that channel data changed.

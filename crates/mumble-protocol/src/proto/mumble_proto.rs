@@ -1364,6 +1364,17 @@ pub struct FancyPushUpdate {
     #[prost(uint32, repeated, tag = "1")]
     pub muted_channels: ::prost::alloc::vec::Vec<u32>,
 }
+/// Client requests live message delivery from channels where it has the
+/// SubscribePush permission (0x2000). Analogous to FancyPushRegister but
+/// for connected clients: the server computes allowed channels and routes
+/// TextMessages to the subscriber without requiring ChannelListen.
+/// Wire type ID = 125.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FancySubscribePush {
+    /// Channel IDs the client wants to exclude from live delivery.
+    #[prost(uint32, repeated, tag = "1")]
+    pub muted_channels: ::prost::alloc::vec::Vec<u32>,
+}
 /// Server broadcasts its custom emoji/reaction configuration to clients
 /// after connect. Replaces the previous PluginData-based delivery.
 /// Wire type ID = 124.

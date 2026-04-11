@@ -112,6 +112,7 @@ fn serialize_control_message(msg: &ControlMessage) -> Result<(u16, Vec<u8>)> {
         FancyPushRegister(m) => (TcpMessageType::FancyPushRegister as u16, m.encode_to_vec()),
         FancyPushUpdate(m) => (TcpMessageType::FancyPushUpdate as u16, m.encode_to_vec()),
         FancyCustomReactionsConfig(m) => (TcpMessageType::FancyCustomReactionsConfig as u16, m.encode_to_vec()),
+        FancySubscribePush(m) => (TcpMessageType::FancySubscribePush as u16, m.encode_to_vec()),
         UdpTunnel(data) => (TcpMessageType::UdpTunnel as u16, data.clone()),
     };
 
@@ -175,6 +176,7 @@ fn deserialize_control_message(type_id: u16, payload: &[u8]) -> Result<ControlMe
         FancyPushRegister => ControlMessage::FancyPushRegister(mumble_tcp::FancyPushRegister::decode(payload)?),
         FancyPushUpdate => ControlMessage::FancyPushUpdate(mumble_tcp::FancyPushUpdate::decode(payload)?),
         FancyCustomReactionsConfig => ControlMessage::FancyCustomReactionsConfig(mumble_tcp::FancyCustomReactionsConfig::decode(payload)?),
+        FancySubscribePush => ControlMessage::FancySubscribePush(mumble_tcp::FancySubscribePush::decode(payload)?),
     };
     Ok(msg)
 }

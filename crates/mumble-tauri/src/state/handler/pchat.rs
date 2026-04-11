@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use fancy_utils::html::strip_html_tags;
 use mumble_protocol::proto::mumble_tcp;
 use tracing::{debug, warn};
 
@@ -9,7 +10,7 @@ use crate::state::pchat;
 use crate::state::types::{
     KeyHoldersChangedPayload, NewMessagePayload, PchatFetchCompletePayload,
     PchatHistoryLoadingPayload, ReactionDeliverPayload, ReactionFetchResponsePayload,
-    StoredReactionPayload,
+    StoredReactionPayload, UnreadPayload,
 };
 
 impl HandleMessage for mumble_tcp::PchatMessageDeliver {
@@ -17,7 +18,88 @@ impl HandleMessage for mumble_tcp::PchatMessageDeliver {
         debug!("received PchatMessageDeliver");
         let channel_id = self.channel_id.unwrap_or(0);
         pchat::handle_proto_msg_deliver(&ctx.shared, self);
+
+        let (selected, app_focused, unreads_changed, sender_name, body, sender_session) = {
+            let Ok(mut state) = ctx.shared.lock() else {
+                warn!("shared state lock poisoned in PchatMessageDeliver");
+                return;
+            };
+
+            let selected = state.selected_channel;
+            let app_focused = state.app_focused;
+
+            let unreads_changed = if selected != Some(channel_id) {
+                *state.unread_counts.entry(channel_id).or_insert(0) += 1;
+                true
+            } else {
+                false
+            };
+
+            let sender_hash = self.sender_hash.as_deref().unwrap_or_default();
+            let sender_session = state
+                .users
+                .values()
+                .find(|u| u.hash.as_deref() == Some(sender_hash))
+                .map(|u| u.session);
+            let sender_name = sender_session
+                .and_then(|sid| state.users.get(&sid))
+                .map(|u| u.name.clone())
+                .unwrap_or_else(|| "Unknown".into());
+
+            let body = state
+                .messages
+                .get(&channel_id)
+                .and_then(|msgs| msgs.last())
+                .map(|m| m.body.clone())
+                .unwrap_or_default();
+
+            (selected, app_focused, unreads_changed, sender_name, body, sender_session)
+        };
+
         ctx.emit("new-message", NewMessagePayload { channel_id });
+
+        if unreads_changed {
+            let unreads = ctx
+                .shared
+                .lock()
+                .map(|s| s.unread_counts.clone())
+                .unwrap_or_default();
+            ctx.emit("unread-changed", UnreadPayload { unreads });
+        }
+
+        if selected != Some(channel_id) || !app_focused {
+            let channel_name = ctx
+                .shared
+                .lock()
+                .ok()
+                .and_then(|s| s.channels.get(&channel_id).map(|c| c.name.clone()));
+            let title = match channel_name {
+                Some(name) => format!("{sender_name} in #{name}"),
+                None => sender_name,
+            };
+            let icon = sender_session.and_then(|sid| {
+                ctx.shared
+                    .lock()
+                    .ok()?
+                    .users
+                    .get(&sid)?
+                    .texture
+                    .clone()
+            });
+            ctx.send_notification_with_icon(
+                &title,
+                &strip_html_tags(&body),
+                icon.as_deref(),
+                Some(channel_id),
+            );
+        }
+
+        if selected != Some(channel_id)
+            && ctx.shared.lock().is_ok_and(|s| s.permanently_listened.contains(&channel_id))
+        {
+            ctx.request_user_attention();
+        }
+
         ctx.emit_empty("state-changed");
     }
 }

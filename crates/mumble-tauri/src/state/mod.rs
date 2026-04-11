@@ -107,6 +107,10 @@ pub(super) struct SharedState {
     pub opus: bool,
     /// Channels the user has permanently opted to listen to (via context menu).
     pub permanently_listened: HashSet<u32>,
+    /// Channels where the user has `SubscribePush` permission (0x2000).
+    /// Computed from `PermissionQuery` responses. The server routes
+    /// `TextMessage` from these channels to us without `ChannelListen`.
+    pub push_subscribed_channels: HashSet<u32>,
     /// The channel currently selected in the UI (viewing chat).
     pub selected_channel: Option<u32>,
     /// The channel the user is physically in (joined).
@@ -780,6 +784,8 @@ impl AppState {
     }
 
     /// Send a push notification mute update to the server.
+    /// Also re-sends the live subscribe-push registration so the server
+    /// applies the updated muted list to connected-client delivery.
     pub async fn send_push_update(&self, muted_channels: Vec<u32>) -> Result<(), String> {
         let handle = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;
@@ -789,11 +795,50 @@ impl AppState {
         let handle = handle.ok_or("Not connected")?;
 
         handle
-            .send(command::SendFancyPushUpdate { muted_channels })
+            .send(command::SendFancyPushUpdate {
+                muted_channels: muted_channels.clone(),
+            })
             .await
             .map_err(|e| format!("Failed to send push update: {e}"))?;
 
+        handle
+            .send(command::SendFancySubscribePush {
+                muted_channels,
+            })
+            .await
+            .map_err(|e| format!("Failed to send subscribe push update: {e}"))?;
+
         Ok(())
+    }
+
+    /// Send initial `FancySubscribePush` registration to the server.
+    /// The server computes which channels the user has `SubscribePush`
+    /// permission for and starts routing `TextMessage`s from those channels.
+    pub async fn send_subscribe_push(
+        &self,
+        muted_channels: Vec<u32>,
+    ) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+
+        let handle = handle.ok_or("Not connected")?;
+
+        handle
+            .send(command::SendFancySubscribePush { muted_channels })
+            .await
+            .map_err(|e| format!("Failed to send subscribe push: {e}"))?;
+
+        Ok(())
+    }
+
+    /// Get the set of channels the user is push-subscribed to.
+    pub fn push_subscribed_channels(&self) -> Vec<u32> {
+        self.inner
+            .lock()
+            .map(|s| s.push_subscribed_channels.iter().copied().collect())
+            .unwrap_or_default()
     }
 
     // -- WebRTC signaling -------------------------------------------

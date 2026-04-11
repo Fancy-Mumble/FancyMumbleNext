@@ -106,6 +106,104 @@ export default function ChatMessageList({
     }
   }
 
+  const renderMessage = (msg: ChatMessage, globalIdx: number, j: number, group: MsgGroup, senderUser: UserEntry | undefined, senderAvatar: string | undefined) => {
+    const hasMsgId = !!msg.message_id;
+    const isSelected = hasMsgId && selectedMsgIds.has(msg.message_id!);
+    return (
+      <React.Fragment key={msg.message_id ?? `${msg.channel_id}-${msg.sender_session ?? "s"}-${msg.body.slice(0, 32)}-${globalIdx}`}>
+        <div
+          className={[
+            styles.actionBarWrapper,
+            selectionMode && canDelete && hasMsgId ? styles.messageRowSelectable : "",
+            selectionMode && canDelete && hasMsgId ? styles.selectableRow : "",
+            isSelected ? styles.selectedRow : "",
+          ].join(" ")}
+          data-msg-id={msg.message_id ?? undefined}
+          data-msg-heavy={msg.message_id && isHeavyContent(msg.body) ? "" : undefined}
+          onContextMenu={hasMsgId && !selectionMode ? (e) => handleMessageContextMenu(e, msg) : undefined}
+          onClick={selectionMode && canDelete && hasMsgId ? () => toggleMsgSelection(msg.message_id!) : undefined}
+          onDoubleClick={hasMsgId && !selectionMode && !isMobile ? () => handleCite(msg) : undefined}
+          onTouchStart={hasMsgId && !selectionMode ? () => handleTouchStart(msg) : undefined}
+          onTouchEnd={selectionMode ? undefined : cancelLongPress}
+          onTouchMove={selectionMode ? undefined : cancelLongPress}
+        >
+          {!selectionMode && !isMobile && (
+            <MessageActionBar
+              message={msg}
+              isOwn={msg.is_own}
+              onReaction={handleReaction}
+              onMoreReactions={handleMoreReactions}
+              onCite={handleCite}
+              onCopyText={handleCopyText}
+              onDelete={canDelete ? handleSingleDelete : undefined}
+              canDelete={canDelete && hasMsgId}
+            />
+          )}
+          <MessageItem
+            msg={msg}
+            index={globalIdx}
+            avatarUrl={senderAvatar}
+            user={senderUser}
+            polls={polls}
+            ownSession={ownSession}
+            onVote={handlePollVote}
+            onAvatarClick={selectUser}
+            timeFormat={timeFormat}
+            convertToLocalTime={convertToLocalTime}
+            systemUses24h={systemUses24h}
+            isRestoring={msg.message_id ? restoringKeys.has(msg.message_id) : false}
+            isFirstInGroup={j === 0}
+            onScrollToMessage={handleScrollToMessage}
+            onOpenLightbox={handleOpenLightbox}
+          >
+            {msg.message_id && (() => {
+              const reactions = getMessageReactions(msg.message_id!);
+              return reactions.length > 0 ? (
+                <ReactionBar
+                  reactions={reactions}
+                  ownHash={ownHash}
+                  isOwn={group.isOwn}
+                  onToggle={(emoji) => onToggleReaction(msg, emoji)}
+                  onAdd={(e) => onAddReaction(msg, e)}
+                />
+              ) : null;
+            })()}
+          </MessageItem>
+          {selectionMode && canDelete && hasMsgId && (
+            <div className={`${styles.selectCheckbox} ${isSelected ? styles.selectCheckboxChecked : ""}`}>
+              {isSelected && (
+                <CheckIcon width={12} height={12} />
+              )}
+            </div>
+          )}
+        </div>
+      </React.Fragment>
+    );
+  };
+
+  const renderGroupBlock = (group: MsgGroup, msgs: ChatMessage[], startIdx: number, senderUser: UserEntry | undefined, senderAvatar: string | undefined, keyOverride?: string) => {
+    const firstMsg = msgs[0];
+    const key = keyOverride ?? firstMsg.message_id ?? `${firstMsg.channel_id}-${firstMsg.sender_session ?? "s"}-${startIdx}`;
+    return (
+      <div key={key} className={`${styles.messageGroup} ${group.isOwn ? styles.messageGroupOwn : ""}`}>
+        {(!group.isOwn || bubbleStyle === "flat") && (
+          <div className={styles.avatarColumn}>
+            <MessageAvatar
+              senderSession={group.senderId}
+              senderName={firstMsg.sender_name}
+              avatarUrl={senderAvatar}
+              user={senderUser}
+              onAvatarClick={selectUser}
+            />
+          </div>
+        )}
+        <div className={styles.bubbleColumn}>
+          {msgs.map((msg, j) => renderMessage(msg, startIdx + j, j, group, senderUser, senderAvatar))}
+        </div>
+      </div>
+    );
+  };
+
   let lastDay = "";
   return (
     <>
@@ -118,7 +216,6 @@ export default function ChatMessageList({
         const senderAvatar = (group.senderId !== null ? avatarBySession.get(group.senderId) : undefined)
           ?? (group.senderHash ? avatarByHash.get(group.senderHash) : undefined);
 
-        // Show date chip when the day changes.
         let dateChip: React.ReactNode = null;
         if (group.day && group.day !== lastDay) {
           const label = formatDateChip(firstMsg.timestamp!, convertToLocalTime);
@@ -130,108 +227,34 @@ export default function ChatMessageList({
           lastDay = group.day;
         }
 
+        const groupEnd = firstGlobalIdx + group.messages.length;
+        const dividerInGroup = lastReadIdx !== null && lastReadIdx >= firstGlobalIdx && lastReadIdx < groupEnd;
+        const dividerAtStart = dividerInGroup && lastReadIdx === firstGlobalIdx;
+        const dividerMidGroup = dividerInGroup && !dividerAtStart;
+
+        const unreadDivider = (
+          <div key={`unread-${lastReadIdx}`} className={styles.unreadDivider} aria-label="New messages">
+            <span className={styles.unreadDividerLabel}>New messages</span>
+          </div>
+        );
+
+        if (dividerMidGroup) {
+          const splitAt = lastReadIdx! - firstGlobalIdx;
+          return (
+            <React.Fragment key={groupKey}>
+              {dateChip}
+              {renderGroupBlock(group, group.messages.slice(0, splitAt), firstGlobalIdx, senderUser, senderAvatar, `${groupKey}-pre`)}
+              {unreadDivider}
+              {renderGroupBlock(group, group.messages.slice(splitAt), lastReadIdx!, senderUser, senderAvatar, `${groupKey}-post`)}
+            </React.Fragment>
+          );
+        }
+
         return (
           <React.Fragment key={groupKey}>
             {dateChip}
-            <div
-              className={`${styles.messageGroup} ${group.isOwn ? styles.messageGroupOwn : ""}`}
-            >
-              {/* Sticky avatar column: always shown in flat style, others-only otherwise */}
-              {(!group.isOwn || bubbleStyle === "flat") && (
-                <div className={styles.avatarColumn}>
-                  <MessageAvatar
-                    senderSession={group.senderId}
-                    senderName={firstMsg.sender_name}
-                    avatarUrl={senderAvatar}
-                    user={senderUser}
-                    onAvatarClick={selectUser}
-                  />
-                </div>
-              )}
-              {/* Bubble column */}
-              <div className={styles.bubbleColumn}>
-                {group.messages.map((msg, j) => {
-                  const globalIdx = firstGlobalIdx + j;
-                  const hasMsgId = !!msg.message_id;
-                  const isSelected = hasMsgId && selectedMsgIds.has(msg.message_id!);
-                  return (
-                    <React.Fragment key={msg.message_id ?? `${msg.channel_id}-${msg.sender_session ?? "s"}-${msg.body.slice(0, 32)}-${globalIdx}`}>
-                      {lastReadIdx !== null && globalIdx === lastReadIdx && (
-                        <div className={styles.unreadDivider} aria-label="New messages">
-                          <span className={styles.unreadDividerLabel}>New messages</span>
-                        </div>
-                      )}
-                      <div
-                        className={[
-                          styles.actionBarWrapper,
-                          selectionMode && canDelete && hasMsgId ? styles.messageRowSelectable : "",
-                          selectionMode && canDelete && hasMsgId ? styles.selectableRow : "",
-                          isSelected ? styles.selectedRow : "",
-                        ].join(" ")}
-                        data-msg-id={msg.message_id ?? undefined}
-                        data-msg-heavy={msg.message_id && isHeavyContent(msg.body) ? "" : undefined}
-                        onContextMenu={hasMsgId && !selectionMode ? (e) => handleMessageContextMenu(e, msg) : undefined}
-                        onClick={selectionMode && canDelete && hasMsgId ? () => toggleMsgSelection(msg.message_id!) : undefined}
-                        onDoubleClick={hasMsgId && !selectionMode && !isMobile ? () => handleCite(msg) : undefined}
-                        onTouchStart={hasMsgId && !selectionMode ? () => handleTouchStart(msg) : undefined}
-                        onTouchEnd={selectionMode ? undefined : cancelLongPress}
-                        onTouchMove={selectionMode ? undefined : cancelLongPress}
-                      >
-                        {!selectionMode && !isMobile && (
-                          <MessageActionBar
-                            message={msg}
-                            isOwn={msg.is_own}
-                            onReaction={handleReaction}
-                            onMoreReactions={handleMoreReactions}
-                            onCite={handleCite}
-                            onCopyText={handleCopyText}
-                            onDelete={canDelete ? handleSingleDelete : undefined}
-                            canDelete={canDelete && hasMsgId}
-                          />
-                        )}
-                        <MessageItem
-                          msg={msg}
-                          index={globalIdx}
-                          avatarUrl={senderAvatar}
-                          user={senderUser}
-                          polls={polls}
-                          ownSession={ownSession}
-                          onVote={handlePollVote}
-                          onAvatarClick={selectUser}
-                          timeFormat={timeFormat}
-                          convertToLocalTime={convertToLocalTime}
-                          systemUses24h={systemUses24h}
-                          isRestoring={msg.message_id ? restoringKeys.has(msg.message_id) : false}
-                          isFirstInGroup={j === 0}
-                          onScrollToMessage={handleScrollToMessage}
-                          onOpenLightbox={handleOpenLightbox}
-                        >
-                          {msg.message_id && (() => {
-                            const reactions = getMessageReactions(msg.message_id!);
-                            return reactions.length > 0 ? (
-                              <ReactionBar
-                                reactions={reactions}
-                                ownHash={ownHash}
-                                isOwn={group.isOwn}
-                                onToggle={(emoji) => onToggleReaction(msg, emoji)}
-                                onAdd={(e) => onAddReaction(msg, e)}
-                              />
-                            ) : null;
-                          })()}
-                        </MessageItem>
-                        {selectionMode && canDelete && hasMsgId && (
-                          <div className={`${styles.selectCheckbox} ${isSelected ? styles.selectCheckboxChecked : ""}`}>
-                            {isSelected && (
-                              <CheckIcon width={12} height={12} />
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </React.Fragment>
-                  );
-                })}
-              </div>
-            </div>
+            {dividerAtStart && unreadDivider}
+            {renderGroupBlock(group, group.messages, firstGlobalIdx, senderUser, senderAvatar)}
           </React.Fragment>
         );
       })}

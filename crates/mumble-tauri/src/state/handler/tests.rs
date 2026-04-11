@@ -1602,6 +1602,174 @@ fn permission_query_no_channel_no_event() {
     assert!(!emitter.event_names().contains(&"state-changed".to_string()));
 }
 
+// -- PermissionQuery: push subscribe tracking ----------------------
+
+#[test]
+fn permission_query_tracks_subscribe_push_channels() {
+    let (ctx, _) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let _ = state.channels.insert(
+            1,
+            ChannelEntry {
+                id: 1,
+                parent_id: Some(0),
+                name: "General".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_protocol: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                pchat_key_custodians: Vec::new(),
+            },
+        );
+        let _ = state.channels.insert(
+            2,
+            ChannelEntry {
+                id: 2,
+                parent_id: Some(0),
+                name: "AFK".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_protocol: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                pchat_key_custodians: Vec::new(),
+            },
+        );
+    }
+
+    // Channel 1 with SubscribePush permission (0x2000).
+    let pq1 = mumble_tcp::PermissionQuery {
+        channel_id: Some(1),
+        permissions: Some(0x2000),
+        ..Default::default()
+    };
+    pq1.handle(&ctx);
+
+    // Channel 2 without SubscribePush permission.
+    let pq2 = mumble_tcp::PermissionQuery {
+        channel_id: Some(2),
+        permissions: Some(0x0001),
+        ..Default::default()
+    };
+    pq2.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    assert!(
+        state.push_subscribed_channels.contains(&1),
+        "channel 1 should be push-subscribed (has 0x2000)"
+    );
+    assert!(
+        !state.push_subscribed_channels.contains(&2),
+        "channel 2 should NOT be push-subscribed (no 0x2000)"
+    );
+}
+
+#[test]
+fn permission_query_removes_subscribe_push_on_revoke() {
+    let (ctx, _) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let _ = state.channels.insert(
+            1,
+            ChannelEntry {
+                id: 1,
+                parent_id: Some(0),
+                name: "General".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_protocol: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                pchat_key_custodians: Vec::new(),
+            },
+        );
+    }
+
+    // Grant SubscribePush.
+    let grant = mumble_tcp::PermissionQuery {
+        channel_id: Some(1),
+        permissions: Some(0x2200),
+        ..Default::default()
+    };
+    grant.handle(&ctx);
+    assert!(ctx.shared.lock().unwrap().push_subscribed_channels.contains(&1));
+
+    // Revoke SubscribePush (remove 0x2000 bit).
+    let revoke = mumble_tcp::PermissionQuery {
+        channel_id: Some(1),
+        permissions: Some(0x0200),
+        ..Default::default()
+    };
+    revoke.handle(&ctx);
+    assert!(
+        !ctx.shared.lock().unwrap().push_subscribed_channels.contains(&1),
+        "channel should be removed from push_subscribed after permission revoked"
+    );
+}
+
+#[test]
+fn permission_query_flush_clears_push_subscribed() {
+    let (ctx, _) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let _ = state.push_subscribed_channels.insert(1);
+        let _ = state.push_subscribed_channels.insert(2);
+        let _ = state.channels.insert(
+            1,
+            ChannelEntry {
+                id: 1,
+                parent_id: None,
+                name: "A".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: Some(0x2000),
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_protocol: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                pchat_key_custodians: Vec::new(),
+            },
+        );
+    }
+
+    let flush_pq = mumble_tcp::PermissionQuery {
+        channel_id: Some(1),
+        permissions: Some(0x0001),
+        flush: Some(true),
+    };
+    flush_pq.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    assert!(
+        state.push_subscribed_channels.is_empty() || !state.push_subscribed_channels.contains(&2),
+        "flush should clear all push_subscribed_channels; channel 2 was not re-added"
+    );
+    assert!(
+        !state.push_subscribed_channels.contains(&1),
+        "channel 1 should not be push-subscribed after flush (perm 0x0001 has no 0x2000)"
+    );
+}
+
 // -- CodecVersion --------------------------------------------------
 
 #[test]
@@ -2090,12 +2258,12 @@ fn key_holders_empty_server_name_uses_resolver() {
     );
 }
 
-// -- Source-code lint: no emit-under-lock --------------------------
+// -- Lint: no emit under lock (meta-test) --------------------------
 
-/// Scan all Rust source files in the `mumble-tauri` crate to ensure
-/// that `app.emit(` (Tauri IPC) is never called while a `SharedState`
-/// or `inner` mutex lock guard is alive.
-///
+// Scan all Rust source files in the `mumble-tauri` crate to ensure
+// that `app.emit(` (Tauri IPC) is never called while a `SharedState`
+// or `inner` mutex lock guard is alive.
+
 // -- Server activity log -------------------------------------------
 
 /// Helper to extract "server-log" event message strings from the emitter.
