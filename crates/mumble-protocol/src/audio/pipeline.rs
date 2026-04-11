@@ -249,24 +249,9 @@ impl InboundPipeline {
     /// boundary to smooth discontinuities.
     pub fn tick(&mut self, packet: &EncodedPacket) -> Result<()> {
         // Detect and conceal gaps in the sequence.
-        if let Some(prev) = self.last_seq {
-            if let Some(step) = self.seq_step {
-                // Step is known: detect gaps as multiples of the step.
-                if step > 0 {
-                    let expected = prev + step;
-                    if packet.sequence > expected {
-                        let gap = ((packet.sequence - expected) / step).min(3);
-                        for _ in 0..gap {
-                            let _ = self.tick_lost();
-                        }
-                    }
-                }
-            } else if packet.sequence > prev {
-                // Second packet: learn the step between consecutive
-                // sequence numbers (1 for our encoder, 480/960 for
-                // the official Mumble client, etc.).
-                self.seq_step = Some(packet.sequence - prev);
-            }
+        let gap = detect_sequence_gap(self.last_seq, self.seq_step, packet.sequence, &mut self.seq_step);
+        for _ in 0..gap.unwrap_or(0) {
+            let _ = self.tick_lost();
         }
         self.last_seq = Some(packet.sequence);
 
@@ -300,18 +285,13 @@ impl InboundPipeline {
 
         if let Some(prev_val) = self.prev_last_sample {
             let samples = frame.as_f32_samples_mut();
-            if !samples.is_empty() {
-                let correction = prev_val - samples[0];
-                // Only apply if there is a meaningful discontinuity.
-                if correction.abs() > 0.002 {
-                    let cf_len = CROSSFADE_LEN.min(samples.len());
-                    for (i, sample) in samples.iter_mut().take(cf_len).enumerate() {
-                        let t = i as f32 / cf_len as f32;
-                        // Raised cosine: 1.0 at t=0, 0.0 at t=1.
-                        let decay = 0.5 * (1.0 + (std::f32::consts::PI * t).cos());
-                        *sample += correction * decay;
-                    }
-                }
+            let correction = match samples.first() {
+                Some(&first) if (prev_val - first).abs() > 0.002 => prev_val - first,
+                _ => 0.0,
+            };
+            if correction != 0.0 {
+                let cf_len = CROSSFADE_LEN.min(samples.len());
+                apply_crossfade_correction(samples, correction, cf_len);
             }
         }
 
@@ -474,6 +454,39 @@ impl InboundPipelineBuilder {
 impl Default for InboundPipelineBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn detect_sequence_gap(
+    last_seq: Option<u64>,
+    current_step: Option<u64>,
+    incoming_seq: u64,
+    seq_step: &mut Option<u64>,
+) -> Option<u64> {
+    let prev = last_seq?;
+    if let Some(step) = current_step {
+        if step == 0 {
+            return None;
+        }
+        let expected = prev + step;
+        if incoming_seq > expected {
+            Some(((incoming_seq - expected) / step).min(3))
+        } else {
+            None
+        }
+    } else {
+        if incoming_seq > prev {
+            *seq_step = Some(incoming_seq - prev);
+        }
+        None
+    }
+}
+
+fn apply_crossfade_correction(samples: &mut [f32], correction: f32, cf_len: usize) {
+    for (i, sample) in samples.iter_mut().take(cf_len).enumerate() {
+        let t = i as f32 / cf_len as f32;
+        let decay = 0.5 * (1.0 + (std::f32::consts::PI * t).cos());
+        *sample += correction * decay;
     }
 }
 

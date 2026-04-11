@@ -218,19 +218,12 @@ mod voice_pipeline {
                 state.output_volume_handle = None;
 
                 // Collect sessions to notify OUTSIDE the lock.
-                let sessions: Vec<(u32, tauri::AppHandle)> = if !state.talking_sessions.is_empty() {
-                    if let Some(ref app) = state.tauri_app_handle {
-                        state
-                            .talking_sessions
-                            .iter()
-                            .map(|&s| (s, app.clone()))
-                            .collect()
-                    } else {
-                        Vec::new()
-                    }
-                } else {
-                    Vec::new()
-                };
+                let sessions: Vec<(u32, tauri::AppHandle)> = state
+                    .tauri_app_handle
+                    .as_ref()
+                    .filter(|_| !state.talking_sessions.is_empty())
+                    .map(|app| state.talking_sessions.iter().map(|&s| (s, app.clone())).collect())
+                    .unwrap_or_default();
                 state.talking_sessions.clear();
                 sessions
             } else {
@@ -727,9 +720,7 @@ mod voice_pipeline {
                     let is_quiet = frame_count < 15
                         || rms < noise_floor_ema * 3.0
                         || noise_floor_ema < 0.0001;
-                    if is_quiet {
-                        noise_floor_ema = ema_alpha * rms + (1.0 - ema_alpha) * noise_floor_ema;
-                    }
+                    noise_floor_ema = apply_ema_if_quiet(noise_floor_ema, rms, ema_alpha, is_quiet);
                 }
             }
 
@@ -753,6 +744,14 @@ mod voice_pipeline {
             }
 
             Ok(threshold)
+        }
+    }
+
+    fn apply_ema_if_quiet(current_ema: f32, rms: f32, alpha: f32, is_quiet: bool) -> f32 {
+        if is_quiet {
+            alpha * rms + (1.0 - alpha) * current_ema
+        } else {
+            current_ema
         }
     }
 

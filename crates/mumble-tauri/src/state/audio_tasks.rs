@@ -363,16 +363,7 @@ pub(super) async fn mic_test_loop(
             // Set threshold at 15x the noise floor for clear separation.
             if frame_count > 15 && frame_count.is_multiple_of(10) {
                 let threshold = (noise_floor_ema * 15.0).clamp(0.03, 0.5);
-                let should_emit = if let Ok(mut state) = inner.lock() {
-                    if (state.audio_settings.vad_threshold - threshold).abs() > 0.002 {
-                        state.audio_settings.vad_threshold = threshold;
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
+                let should_emit = update_vad_threshold_if_changed(&inner, threshold);
                 if should_emit {
                     let _ = app.emit("vad-threshold-updated", threshold);
                 }
@@ -404,5 +395,15 @@ pub(super) async fn latency_ping_loop(client_handle: ClientHandle) {
         {
             break;
         }
+    }
+}
+
+fn update_vad_threshold_if_changed(inner: &std::sync::Mutex<SharedState>, threshold: f32) -> bool {
+    let Ok(mut state) = inner.lock() else { return false };
+    if (state.audio_settings.vad_threshold - threshold).abs() > 0.002 {
+        state.audio_settings.vad_threshold = threshold;
+        true
+    } else {
+        false
     }
 }

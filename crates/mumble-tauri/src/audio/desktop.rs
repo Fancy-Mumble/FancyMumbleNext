@@ -95,6 +95,31 @@ impl CpalCapture {
     }
 }
 
+fn handle_cpal_input(
+    buffer: &Arc<Mutex<VecDeque<f32>>>,
+    data: &[f32],
+    hw_channels: u16,
+    overflow_warned: &Arc<AtomicBool>,
+) {
+    let Ok(mut buf) = buffer.lock() else { return };
+    if hw_channels == 1 {
+        buf.extend(data.iter().copied());
+    } else {
+        for chunk in data.chunks(hw_channels as usize) {
+            let sum: f32 = chunk.iter().sum();
+            buf.push_back(sum / hw_channels as f32);
+        }
+    }
+    const MAX_SAMPLES: usize = 9_600;
+    if buf.len() > MAX_SAMPLES {
+        if !overflow_warned.swap(true, Ordering::Relaxed) {
+            warn!("cpal capture buffer overflow, discarding oldest samples");
+        }
+        let excess = buf.len() - MAX_SAMPLES;
+        let _ = buf.drain(..excess);
+    }
+}
+
 impl AudioCapture for CpalCapture {
     fn format(&self) -> AudioFormat {
         self.format
@@ -162,27 +187,7 @@ impl AudioCapture for CpalCapture {
             .build_input_stream(
                 &stream_config,
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    if let Ok(mut buf) = buffer.lock() {
-                        if hw_channels == 1 {
-                            buf.extend(data.iter().copied());
-                        } else {
-                            // Down-mix to mono.
-                            for chunk in data.chunks(hw_channels as usize) {
-                                let sum: f32 = chunk.iter().sum();
-                                buf.push_back(sum / hw_channels as f32);
-                            }
-                        }
-                        // Cap at ~200 ms (9 600 samples at 48 kHz) to
-                        // avoid accumulating stale audio when the
-                        // encoding loop is throttled.
-                        if buf.len() > 9_600 {
-                            if !overflow_warned.swap(true, Ordering::Relaxed) {
-                                warn!("cpal capture buffer overflow, discarding oldest samples");
-                            }
-                            let excess = buf.len() - 9_600;
-                            let _ = buf.drain(..excess);
-                        }
-                    }
+                    handle_cpal_input(&buffer, data, hw_channels, &overflow_warned);
                 },
                 |err| error!("cpal input error: {err}"),
                 None,
@@ -295,6 +300,88 @@ pub struct CpalMixingPlayback {
     speaker_volumes: mumble_protocol::audio::mixer::SpeakerVolumes,
 }
 
+/// Mutable per-callback underrun tracking state for `CpalMixingPlayback`.
+struct PlaybackState {
+    last_sample: f32,
+    in_underrun: bool,
+    ramp_pos: usize,
+    underrun_samples: usize,
+}
+
+/// Try to drain speaker buffers into `mixed_buf`. Returns `Some(drained)` on
+/// success, or `None` when the caller should fill zeros and return early.
+fn try_drain_speakers_checked(
+    buffers: &mumble_protocol::audio::mixer::SpeakerBuffers,
+    speaker_volumes: &mumble_protocol::audio::mixer::SpeakerVolumes,
+    primed_cb: &AtomicBool,
+    mixed_buf: &mut Vec<f32>,
+    mono_needed: usize,
+) -> Option<bool> {
+    const PRE_BUFFER_SAMPLES: usize = 2880;
+    let Ok(mut bufs) = buffers.lock() else { return None };
+    if !primed_cb.load(Ordering::Relaxed) {
+        let max_available = bufs.values().map(VecDeque::len).max().unwrap_or(0);
+        if max_available < PRE_BUFFER_SAMPLES {
+            return None;
+        }
+        primed_cb.store(true, Ordering::Relaxed);
+    }
+    let sv = speaker_volumes.lock().map(|g| g.clone()).unwrap_or_default();
+    Some(batch_drain_speakers(&mut bufs, &sv, mixed_buf, mono_needed))
+}
+
+/// Apply an anti-pop ramp when exiting an underrun, then return the output
+/// sample. Updates `state` in-place.
+fn apply_underrun_ramp(sample: f32, state: &mut PlaybackState) -> f32 {
+    const RAMP_SAMPLES: usize = 96;
+    if !state.in_underrun {
+        return sample;
+    }
+    state.ramp_pos += 1;
+    if state.ramp_pos >= RAMP_SAMPLES {
+        state.in_underrun = false;
+        state.ramp_pos = 0;
+        state.underrun_samples = 0;
+        sample
+    } else {
+        let t = state.ramp_pos as f32 / RAMP_SAMPLES as f32;
+        let gain = 0.5 * (1.0 - (std::f32::consts::PI * t).cos());
+        state.last_sample * (1.0 - gain) + sample * gain
+    }
+}
+
+/// Write one interleaved stereo chunk (2 samples) with volume and underrun
+/// decay, updating `state` in-place.
+fn write_stereo_chunk(
+    chunk: &mut [f32],
+    sample_opt: Option<f32>,
+    state: &mut PlaybackState,
+    vol: f32,
+    primed_cb: &AtomicBool,
+) {
+    const DECAY: f32 = 0.99;
+    const REPRIME_THRESHOLD: usize = 9600;
+    if let Some(raw) = sample_opt {
+        let out = apply_underrun_ramp(raw.tanh(), state);
+        state.last_sample = out;
+        chunk[0] = out * vol;
+        chunk[1] = out * vol;
+    } else {
+        state.in_underrun = true;
+        state.ramp_pos = 0;
+        state.underrun_samples += 1;
+        state.last_sample *= DECAY;
+        if state.last_sample.abs() < 1e-6 {
+            state.last_sample = 0.0;
+        }
+        if state.underrun_samples >= REPRIME_THRESHOLD {
+            primed_cb.store(false, Ordering::Relaxed);
+        }
+        chunk[0] = state.last_sample * vol;
+        chunk[1] = state.last_sample * vol;
+    }
+}
+
 // SAFETY: See CpalCapture.
 #[allow(unsafe_code, reason = "WASAPI COM objects are MTA-safe; cpal's !Send is a conservative cross-platform guard")]
 unsafe impl Send for CpalMixingPlayback {}
@@ -343,7 +430,6 @@ impl super::MixingPlayback for CpalMixingPlayback {
         // Pre-buffer: wait until at least one speaker has 60 ms
         // of decoded audio before starting output, to absorb
         // network jitter and prevent pops.
-        const PRE_BUFFER_SAMPLES: usize = 2880; // 60 ms @ 48 kHz
         let primed = Arc::new(AtomicBool::new(false));
         let primed_cb = primed.clone();
 
@@ -357,9 +443,6 @@ impl super::MixingPlayback for CpalMixingPlayback {
         let mut in_underrun = false;
         let mut ramp_pos: usize = 0;
         let mut underrun_samples: usize = 0;
-        const RAMP_SAMPLES: usize = 96;
-        const DECAY: f32 = 0.99;
-        const REPRIME_THRESHOLD: usize = 9600;
 
         // Pre-mixed mono buffer reused across callbacks to avoid
         // repeated allocation.
@@ -372,79 +455,31 @@ impl super::MixingPlayback for CpalMixingPlayback {
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     let vol = f32::from_bits(volume.load(Ordering::Relaxed));
                     let mono_needed = data.len() / 2;
-
-                    // -- Critical section: hold the mutex only for the
-                    //    batch drain, then release immediately so that
-                    //    mixer.feed() on the network thread is never
-                    //    blocked for the duration of the output fill. --
-                    let drained = {
-                        let Ok(mut bufs) = buffers.lock() else {
-                            data.fill(0.0);
-                            return;
-                        };
-
-                        // Pre-buffer: wait for enough data before playing.
-                        if !primed_cb.load(Ordering::Relaxed) {
-                            let max_available: usize =
-                                bufs.values().map(VecDeque::len).max().unwrap_or(0);
-                            if max_available < PRE_BUFFER_SAMPLES {
-                                data.fill(0.0);
-                                return;
-                            }
-                            primed_cb.store(true, Ordering::Relaxed);
-                        }
-
-                        // Snapshot per-speaker volumes (separate lock).
-                        let sv = speaker_volumes.lock()
-                            .map(|g| g.clone())
-                            .unwrap_or_default();
-
-                        batch_drain_speakers(&mut bufs, &sv, &mut mixed_buf, mono_needed)
-                        // mutex released here
+                    let mut pb_state = PlaybackState {
+                        last_sample,
+                        in_underrun,
+                        ramp_pos,
+                        underrun_samples,
                     };
-
-                    // -- Write interleaved stereo from the local mixed
-                    //    buffer without holding any lock. --
+                    let drain_result = try_drain_speakers_checked(
+                        &buffers,
+                        &speaker_volumes,
+                        &primed_cb,
+                        &mut mixed_buf,
+                        mono_needed,
+                    );
+                    let Some(drained) = drain_result else {
+                        data.fill(0.0);
+                        return;
+                    };
                     for (i, chunk) in data.chunks_exact_mut(2).enumerate() {
-                        let has_data = drained && i < mixed_buf.len();
-
-                        if has_data {
-                            let sample = mixed_buf[i].tanh();
-
-                            let out = if in_underrun {
-                                ramp_pos += 1;
-                                if ramp_pos >= RAMP_SAMPLES {
-                                    in_underrun = false;
-                                    ramp_pos = 0;
-                                    underrun_samples = 0;
-                                    sample
-                                } else {
-                                    let t = ramp_pos as f32 / RAMP_SAMPLES as f32;
-                                    let gain = 0.5
-                                        * (1.0 - (std::f32::consts::PI * t).cos());
-                                    last_sample * (1.0 - gain) + sample * gain
-                                }
-                            } else {
-                                sample
-                            };
-                            last_sample = out;
-                            chunk[0] = out * vol;
-                            chunk[1] = out * vol;
-                        } else {
-                            in_underrun = true;
-                            ramp_pos = 0;
-                            underrun_samples += 1;
-                            last_sample *= DECAY;
-                            if last_sample.abs() < 1e-6 {
-                                last_sample = 0.0;
-                            }
-                            if underrun_samples >= REPRIME_THRESHOLD {
-                                primed_cb.store(false, Ordering::Relaxed);
-                            }
-                            chunk[0] = last_sample * vol;
-                            chunk[1] = last_sample * vol;
-                        }
+                        let sample_opt = (drained && i < mixed_buf.len()).then(|| mixed_buf[i]);
+                        write_stereo_chunk(chunk, sample_opt, &mut pb_state, vol, &primed_cb);
                     }
+                    last_sample = pb_state.last_sample;
+                    in_underrun = pb_state.in_underrun;
+                    ramp_pos = pb_state.ramp_pos;
+                    underrun_samples = pb_state.underrun_samples;
                 },
                 |err| error!("cpal mixing output error: {err}"),
                 None,

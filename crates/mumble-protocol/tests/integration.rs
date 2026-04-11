@@ -909,23 +909,24 @@ async fn test_poll_multiple_senders_same_channel() {
         t_c.send(msg).await.unwrap();
     }
 
+    fn extract_poll_id(json: &str) -> Option<String> {
+        let start = json.find(r#""id":""#)?;
+        let rest = &json[start + 6..];
+        let end = rest.find('"')?;
+        Some(rest[..end].to_string())
+    }
+
     // Collect polls on each transport.
     async fn collect_polls(t: &mut TcpTransport, count: usize) -> Vec<String> {
         let mut ids = Vec::new();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         while ids.len() < count && tokio::time::Instant::now() < deadline {
             match tokio::time::timeout(Duration::from_secs(2), t.recv()).await {
-                Ok(Ok(ControlMessage::PluginDataTransmission(pd))) => {
-                    if pd.data_id.as_deref() == Some("fancy-poll") {
-                        let json = std::str::from_utf8(pd.data.as_deref().unwrap()).unwrap();
-                        // Extract the poll id.
-                        if let Some(start) = json.find(r#""id":""#) {
-                            let rest = &json[start + 6..];
-                            if let Some(end) = rest.find('"') {
-                                ids.push(rest[..end].to_string());
-                            }
-                        }
-                    }
+                Ok(Ok(ControlMessage::PluginDataTransmission(pd)))
+                    if pd.data_id.as_deref() == Some("fancy-poll") =>
+                {
+                    let json = std::str::from_utf8(pd.data.as_deref().unwrap()).unwrap();
+                    ids.extend(extract_poll_id(json));
                 }
                 Ok(Ok(_)) => continue,
                 _ => break,
@@ -1363,15 +1364,13 @@ async fn test_channel_description_blob_request() {
     while tokio::time::Instant::now() < deadline {
         match tokio::time::timeout(Duration::from_secs(3), transport.recv()).await {
             Ok(Ok(ControlMessage::ChannelState(cs))) => {
-                if cs.channel_id == Some(channel_id) {
-                    if let Some(ref desc) = cs.description {
-                        assert_eq!(
-                            desc, &large_description,
-                            "description blob should match the original"
-                        );
-                        got_description = true;
-                        break;
-                    }
+                if let Some(desc) = cs.description.filter(|_| cs.channel_id == Some(channel_id)) {
+                    assert_eq!(
+                        desc, large_description,
+                        "description blob should match the original"
+                    );
+                    got_description = true;
+                    break;
                 }
             }
             Ok(Ok(_)) => continue,

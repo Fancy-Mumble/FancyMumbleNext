@@ -75,18 +75,12 @@ impl KeyManager {
             Ok((trust, Some(key)))
         } else {
             // Disagreement - check if any custodian key is present
-            for (key_bytes, senders) in &key_groups {
-                for sender in senders {
-                    if self.is_trusted_authority_internal(sender, channel_id, key_custodians) {
-                        let mut key = [0u8; 32];
-                        key.copy_from_slice(key_bytes);
-                        let _ = self.archive_keys.insert(
-                            channel_id,
-                            (ChannelKey { key }, KeyTrustLevel::Verified),
-                        );
-                        return Ok((KeyTrustLevel::Verified, Some(key)));
-                    }
-                }
+            if let Some(key) = self.find_custodian_key_in_groups(&key_groups, channel_id, key_custodians) {
+                let _ = self.archive_keys.insert(
+                    channel_id,
+                    (ChannelKey { key }, KeyTrustLevel::Verified),
+                );
+                return Ok((KeyTrustLevel::Verified, Some(key)));
             }
 
             // No custodian resolution - mark disputed
@@ -174,6 +168,24 @@ impl KeyManager {
             .get(&channel_id)
             .and_then(|epochs| epochs.values().next_back())
             .map(|(key, _)| key.fingerprint())
+    }
+
+    fn find_custodian_key_in_groups(
+        &self,
+        key_groups: &HashMap<Vec<u8>, Vec<String>>,
+        channel_id: u32,
+        key_custodians: &[String],
+    ) -> Option<[u8; 32]> {
+        for (key_bytes, senders) in key_groups {
+            for sender in senders {
+                if self.is_trusted_authority_internal(sender, channel_id, key_custodians) {
+                    let mut key = [0u8; 32];
+                    key.copy_from_slice(key_bytes);
+                    return Some(key);
+                }
+            }
+        }
+        None
     }
 }
 

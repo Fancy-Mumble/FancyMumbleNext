@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use mumble_protocol::command;
 use mumble_protocol::persistent::{KeyTrustLevel, PchatProtocol};
@@ -6,7 +6,7 @@ use mumble_protocol::proto::mumble_tcp;
 use tracing::{debug, info};
 
 use super::{HandleMessage, HandlerContext};
-use crate::state::types::ChannelEntry;
+use crate::state::{SharedState, types::ChannelEntry};
 
 impl HandleMessage for mumble_tcp::ChannelState {
     #[allow(clippy::too_many_lines, reason = "channel state handler covers sync, description fetch, pchat mode changes, and custodian events")]
@@ -59,9 +59,7 @@ impl HandleMessage for mumble_tcp::ChannelState {
                     let new_mode = PchatProtocol::from_proto(mode);
                     let old_mode = ch.pchat_protocol;
                     ch.pchat_protocol = Some(new_mode);
-                    if old_mode != Some(new_mode) {
-                        mode_changed = true;
-                    }
+                    mode_changed = old_mode != Some(new_mode);
                 }
                 if let Some(max_hist) = self.pchat_max_history {
                     ch.pchat_max_history = Some(max_hist);
@@ -86,16 +84,10 @@ impl HandleMessage for mumble_tcp::ChannelState {
                     );
                 }
                 // Update custodian TOFU pin in key manager.
-                let cust_event = if let Some(ref mut pchat) = state.pchat {
+                let cust_event = state.pchat.as_mut().and_then(|pchat| {
                     let changed = pchat.key_manager.update_custodian_pin(id, new_custodians);
-                    if changed {
-                        pchat.key_manager.get_custodian_pin(id).cloned()
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
+                    changed.then(|| pchat.key_manager.get_custodian_pin(id).cloned()).flatten()
+                });
                 let is_current = state.current_channel == Some(id);
                 (state.synced, needs_desc, mode_changed && is_current, cust_event, is_new)
             } else {
@@ -137,74 +129,7 @@ impl HandleMessage for mumble_tcp::ChannelState {
         if pchat_changed_for_current {
             debug!(channel_id = id, "pchat: mode changed on current channel, spawning key-gen + fetch");
             let shared = Arc::clone(&ctx.shared);
-            let _pchat_key_gen_task = tokio::spawn(async move {
-                let mode = {
-                    let s = shared.lock().ok();
-                    s.and_then(|s| {
-                        s.channels.get(&id).and_then(|c| c.pchat_protocol)
-                    })
-                };
-                let Some(mode) = mode else { return };
-                if !mode.is_encrypted() { return; }
-
-                // Check if we already have a key
-                let needs_key = {
-                    let s = shared.lock().ok();
-                    if let Some(ref s) = s {
-                        s.pchat.as_ref().map(|p| !p.key_manager.has_key(id, mode)).unwrap_or(false)
-                    } else {
-                        false
-                    }
-                };
-
-                if needs_key {
-                    debug!(channel_id = id, ?mode, "pchat: generating key for channel after mode change");
-                    if let Ok(mut s) = shared.lock() {
-                        let m = s.channels.get(&id).and_then(|c| c.pchat_protocol);
-                        if let Some(ref mut pchat) = s.pchat {
-                            let cert = pchat.own_cert_hash.clone();
-                            match m {
-                                Some(PchatProtocol::FancyV1FullArchive) => {
-                                    let key = mumble_protocol::persistent::encryption::derive_archive_key(&pchat.seed, id);
-                                    pchat.key_manager.store_archive_key(id, key, KeyTrustLevel::Verified);
-                                    pchat.key_manager.set_channel_originator(id, cert.clone());
-                                    info!(channel_id = id, "derived archive key after mode change");
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-
-                // Send pchat-fetch if not already fetched
-                let should_fetch = {
-                    let s = shared.lock().ok();
-                    if let Some(ref s) = s {
-                        s.pchat.as_ref().is_some_and(|p| !p.fetched_channels.contains(&id))
-                    } else {
-                        false
-                    }
-                };
-                if should_fetch {
-                    debug!(channel_id = id, "pchat: sending fetch after mode change");
-                    if let Ok(mut s) = shared.lock() {
-                        if let Some(ref mut p) = s.pchat {
-                            let _ = p.fetched_channels.insert(id);
-                        }
-                    }
-                    let fetch = mumble_tcp::PchatFetch {
-                        channel_id: Some(id),
-                        before_id: None,
-                        limit: Some(50),
-                        after_id: None,
-                    };
-                    let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
-                    if let Some(handle) = handle {
-                        let _ = handle.send(command::SendPchatFetch { fetch }).await;
-                        debug!(channel_id = id, "sent pchat-fetch after mode change");
-                    }
-                }
-            });
+            let _pchat_key_gen_task = tokio::spawn(pchat_key_gen_and_fetch(shared, id));
         }
 
         // Request the full description blob if only a hash
@@ -212,10 +137,7 @@ impl HandleMessage for mumble_tcp::ChannelState {
         if needs_description {
             let shared = Arc::clone(&ctx.shared);
             let _description_fetch_task = tokio::spawn(async move {
-                let handle = {
-                    let state = shared.lock().ok();
-                    state.and_then(|s| s.client_handle.clone())
-                };
+                let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
                 if let Some(handle) = handle {
                     let _ = handle
                         .send(command::RequestBlob {
@@ -245,5 +167,66 @@ impl HandleMessage for mumble_tcp::ChannelState {
             });
             ctx.emit_empty("state-changed");
         }
+    }
+}
+
+async fn pchat_key_gen_and_fetch(shared: Arc<Mutex<SharedState>>, id: u32) {
+    let mode = shared
+        .lock()
+        .ok()
+        .and_then(|s| s.channels.get(&id).and_then(|c| c.pchat_protocol));
+    let Some(mode) = mode else { return };
+    if !mode.is_encrypted() {
+        return;
+    }
+
+    let needs_key = shared
+        .lock()
+        .ok()
+        .and_then(|s| s.pchat.as_ref().map(|p| !p.key_manager.has_key(id, mode)))
+        .unwrap_or(false);
+
+    if needs_key {
+        debug!(channel_id = id, ?mode, "pchat: generating key for channel after mode change");
+        derive_and_store_archive_key(&shared, id);
+    }
+
+    let should_fetch = shared
+        .lock()
+        .ok()
+        .and_then(|s| s.pchat.as_ref().map(|p| !p.fetched_channels.contains(&id)))
+        .unwrap_or(false);
+
+    if should_fetch {
+        debug!(channel_id = id, "pchat: sending fetch after mode change");
+        if let Ok(mut s) = shared.lock() {
+            if let Some(ref mut p) = s.pchat {
+                let _ = p.fetched_channels.insert(id);
+            }
+        }
+        let fetch = mumble_tcp::PchatFetch {
+            channel_id: Some(id),
+            before_id: None,
+            limit: Some(50),
+            after_id: None,
+        };
+        let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
+        if let Some(handle) = handle {
+            let _ = handle.send(command::SendPchatFetch { fetch }).await;
+            debug!(channel_id = id, "sent pchat-fetch after mode change");
+        }
+    }
+}
+
+fn derive_and_store_archive_key(shared: &Arc<Mutex<SharedState>>, id: u32) {
+    let Ok(mut s) = shared.lock() else { return };
+    let m = s.channels.get(&id).and_then(|c| c.pchat_protocol);
+    let Some(ref mut pchat) = s.pchat else { return };
+    let cert = pchat.own_cert_hash.clone();
+    if let Some(PchatProtocol::FancyV1FullArchive) = m {
+        let key = mumble_protocol::persistent::encryption::derive_archive_key(&pchat.seed, id);
+        pchat.key_manager.store_archive_key(id, key, KeyTrustLevel::Verified);
+        pchat.key_manager.set_channel_originator(id, cert.clone());
+        info!(channel_id = id, "derived archive key after mode change");
     }
 }

@@ -4,7 +4,7 @@ use mumble_protocol::proto::mumble_tcp;
 use tracing::{debug, warn};
 
 use super::{HandleMessage, HandlerContext};
-use crate::state::local_cache::CachedReaction;
+use crate::state::local_cache::{CachedReaction, LocalMessageCache};
 use crate::state::pchat;
 use crate::state::types::{
     KeyHoldersChangedPayload, NewMessagePayload, PchatFetchCompletePayload,
@@ -116,17 +116,11 @@ impl HandleMessage for mumble_tcp::PchatKeyHoldersList {
                         .values()
                         .find(|u| u.hash.as_deref() == Some(&cert_hash))
                         .map(|u| u.name.clone());
-                    let name = online_name.unwrap_or_else(|| {
-                        let server_name = entry.name.clone().unwrap_or_default();
-                        if !server_name.is_empty() && server_name != cert_hash {
-                            return server_name;
-                        }
-                        if let Some(ref resolver) = state.hash_name_resolver {
-                            resolver.resolve(&cert_hash)
-                        } else {
-                            cert_hash.clone()
-                        }
-                    });
+                    let name = online_name.unwrap_or_else(|| resolve_entry_name(
+                        &cert_hash,
+                        entry.name.as_deref().unwrap_or_default(),
+                        state.hash_name_resolver.as_deref(),
+                    ));
                     let is_online = online_hashes.contains(cert_hash.as_str());
                     crate::state::types::KeyHolderEntry {
                         cert_hash,
@@ -291,28 +285,18 @@ impl HandleMessage for mumble_tcp::PchatReactionDeliver {
 
             if let Some(ref mut pchat_state) = state.pchat {
                 if let Some(ref mut cache) = pchat_state.local_cache {
-                    if action_str == "add" {
-                        cache.insert_reaction(
-                            channel_id,
-                            CachedReaction {
-                                message_id: message_id.clone(),
-                                emoji: emoji.clone(),
-                                sender_hash: sender_hash.clone(),
-                                sender_name: resolved_name,
-                                timestamp,
-                            },
-                        );
-                    } else {
-                        cache.remove_reaction(
-                            channel_id,
-                            &message_id,
-                            &emoji,
-                            &sender_hash,
-                        );
-                    }
-                    if let Err(e) = cache.save_reactions() {
-                        warn!("failed to save reaction cache: {e}");
-                    }
+                    upsert_cached_reaction(
+                        cache,
+                        channel_id,
+                        action_str,
+                        CachedReaction {
+                            message_id: message_id.clone(),
+                            emoji: emoji.clone(),
+                            sender_hash: sender_hash.clone(),
+                            sender_name: resolved_name,
+                            timestamp,
+                        },
+                    );
                 }
             }
         }
@@ -375,25 +359,7 @@ impl HandleMessage for mumble_tcp::PchatReactionFetchResponse {
 
             if let Some(ref mut pchat_state) = state.pchat {
                 if let Some(ref mut cache) = pchat_state.local_cache {
-                    for r in &reactions {
-                        let resolved = name_by_hash
-                            .get(&r.sender_hash)
-                            .cloned()
-                            .unwrap_or_else(|| r.sender_name.clone());
-                        cache.insert_reaction(
-                            channel_id,
-                            CachedReaction {
-                                message_id: r.message_id.clone(),
-                                emoji: r.emoji.clone(),
-                                sender_hash: r.sender_hash.clone(),
-                                sender_name: resolved,
-                                timestamp: r.timestamp,
-                            },
-                        );
-                    }
-                    if let Err(e) = cache.save_reactions() {
-                        warn!("failed to save reaction cache: {e}");
-                    }
+                    bulk_insert_cached_reactions(cache, channel_id, &reactions, &name_by_hash);
                 }
             }
         }
@@ -405,5 +371,64 @@ impl HandleMessage for mumble_tcp::PchatReactionFetchResponse {
                 reactions,
             },
         );
+    }
+}
+
+fn resolve_entry_name(
+    cert_hash: &str,
+    server_name: &str,
+    resolver: Option<&dyn crate::state::hash_names::HashNameResolver>,
+) -> String {
+    if !server_name.is_empty() && server_name != cert_hash {
+        return server_name.to_owned();
+    }
+    resolver.map_or_else(|| cert_hash.to_owned(), |r| r.resolve(cert_hash))
+}
+
+fn upsert_cached_reaction(
+    cache: &mut LocalMessageCache,
+    channel_id: u32,
+    action_str: &str,
+    reaction: CachedReaction,
+) {
+    if action_str == "add" {
+        cache.insert_reaction(channel_id, reaction);
+    } else {
+        cache.remove_reaction(
+            channel_id,
+            &reaction.message_id,
+            &reaction.emoji,
+            &reaction.sender_hash,
+        );
+    }
+    if let Err(e) = cache.save_reactions() {
+        warn!("failed to save reaction cache: {e}");
+    }
+}
+
+fn bulk_insert_cached_reactions(
+    cache: &mut LocalMessageCache,
+    channel_id: u32,
+    reactions: &[StoredReactionPayload],
+    name_by_hash: &HashMap<String, String>,
+) {
+    for r in reactions {
+        let resolved = name_by_hash
+            .get(&r.sender_hash)
+            .cloned()
+            .unwrap_or_else(|| r.sender_name.clone());
+        cache.insert_reaction(
+            channel_id,
+            CachedReaction {
+                message_id: r.message_id.clone(),
+                emoji: r.emoji.clone(),
+                sender_hash: r.sender_hash.clone(),
+                sender_name: resolved,
+                timestamp: r.timestamp,
+            },
+        );
+    }
+    if let Err(e) = cache.save_reactions() {
+        warn!("failed to save reaction cache: {e}");
     }
 }

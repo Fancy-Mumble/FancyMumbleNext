@@ -40,15 +40,7 @@ impl HandleMessage for mumble_tcp::UserRemove {
                 state.opus = false;
                 // Stop audio pipelines (desktop only).
                 #[cfg(not(target_os = "android"))]
-                {
-                    if let Some(handle) = state.outbound_task_handle.take() {
-                        handle.abort();
-                    }
-                    if let Some(mut playback) = state.mixing_playback.take() {
-                        let _ = playback.stop();
-                    }
-                    state.audio_mixer = None;
-                }
+                stop_audio_pipelines(&mut state);
             }
             ctx.emit("connection-rejected", RejectedPayload { reason, reject_type: None });
             ctx.emit_empty("server-disconnected");
@@ -75,24 +67,7 @@ impl HandleMessage for mumble_tcp::UserRemove {
                         state
                             .pending_key_shares
                             .retain(|p| p.peer_cert_hash != *hash);
-                        if state.pending_key_shares.len() != before_len {
-                            let affected_channels: std::collections::HashSet<u32> =
-                                removed.into_iter().collect();
-                            affected_channels
-                                .into_iter()
-                                .map(|ch_id| {
-                                    let remaining: Vec<_> = state
-                                        .pending_key_shares
-                                        .iter()
-                                        .filter(|p| p.channel_id == ch_id)
-                                        .cloned()
-                                        .collect();
-                                    (ch_id, remaining)
-                                })
-                                .collect()
-                        } else {
-                            Vec::new()
-                        }
+                        collect_affected_channels(&state, before_len, removed)
                     } else {
                         Vec::new()
                     }
@@ -113,4 +88,38 @@ impl HandleMessage for mumble_tcp::UserRemove {
             ctx.emit_empty("state-changed");
         }
     }
+}
+
+#[cfg(not(target_os = "android"))]
+fn stop_audio_pipelines(state: &mut crate::state::SharedState) {
+    if let Some(handle) = state.outbound_task_handle.take() {
+        handle.abort();
+    }
+    if let Some(mut playback) = state.mixing_playback.take() {
+        let _ = playback.stop();
+    }
+    state.audio_mixer = None;
+}
+
+fn collect_affected_channels(
+    state: &crate::state::SharedState,
+    before_len: usize,
+    removed: Vec<u32>,
+) -> Vec<(u32, Vec<PendingKeyShare>)> {
+    if state.pending_key_shares.len() == before_len {
+        return Vec::new();
+    }
+    let affected_channels: std::collections::HashSet<u32> = removed.into_iter().collect();
+    affected_channels
+        .into_iter()
+        .map(|ch_id| {
+            let remaining: Vec<_> = state
+                .pending_key_shares
+                .iter()
+                .filter(|p| p.channel_id == ch_id)
+                .cloned()
+                .collect();
+            (ch_id, remaining)
+        })
+        .collect()
 }

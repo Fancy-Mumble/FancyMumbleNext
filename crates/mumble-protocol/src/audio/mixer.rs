@@ -114,28 +114,12 @@ impl AudioMixer {
 
         // Detect and conceal gaps in the sequence (same logic as
         // InboundPipeline but per-speaker).
-        let gap_plc = if let Some(prev) = speaker.last_seq {
-            if let Some(step) = speaker.seq_step {
-                if step > 0 {
-                    let expected = prev + step;
-                    if packet.sequence > expected {
-                        let gap = ((packet.sequence - expected) / step).min(3);
-                        Some(gap)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                if packet.sequence > prev {
-                    speaker.seq_step = Some(packet.sequence - prev);
-                }
-                None
-            }
-        } else {
-            None
-        };
+        let gap_plc = detect_sequence_gap(
+            speaker.last_seq,
+            speaker.seq_step,
+            packet.sequence,
+            &mut speaker.seq_step,
+        );
 
         // Generate PLC frames for detected gaps, then decode the
         // current packet. This two-phase approach avoids a mutable
@@ -213,6 +197,33 @@ impl AudioMixer {
 }
 
 /// Push decoded F32 samples into the shared per-speaker buffer.
+/// Detect sequence gaps between consecutive audio packets and return
+/// the number of lost frames to conceal. Updates `seq_step` on first pair.
+fn detect_sequence_gap(
+    last_seq: Option<u64>,
+    current_step: Option<u64>,
+    incoming_seq: u64,
+    seq_step: &mut Option<u64>,
+) -> Option<u64> {
+    let prev = last_seq?;
+    if let Some(step) = current_step {
+        if step == 0 {
+            return None;
+        }
+        let expected = prev + step;
+        if incoming_seq > expected {
+            Some(((incoming_seq - expected) / step).min(3))
+        } else {
+            None
+        }
+    } else {
+        if incoming_seq > prev {
+            *seq_step = Some(incoming_seq - prev);
+        }
+        None
+    }
+}
+
 fn push_samples(
     buffers: &SpeakerBuffers,
     session: u32,

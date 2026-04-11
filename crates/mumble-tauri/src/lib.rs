@@ -176,18 +176,21 @@ fn stamp_text(rgba: &mut [u8], size: usize, text: &str) {
         for (row, &bits) in g.iter().enumerate() {
             for col in 0..glyph_w {
                 if bits & (1 << (glyph_w - 1 - col)) != 0 {
-                    let px = ox + col;
-                    let py = start_y + row;
-                    if px < size && py < size {
-                        let i = (py * size + px) * 4;
-                        rgba[i] = 255;     // R
-                        rgba[i + 1] = 255; // G
-                        rgba[i + 2] = 255; // B
-                        rgba[i + 3] = 255; // A
-                    }
+                    set_pixel(rgba, size, ox + col, start_y + row);
                 }
             }
         }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn set_pixel(rgba: &mut [u8], size: usize, px: usize, py: usize) {
+    if px < size && py < size {
+        let i = (py * size + px) * 4;
+        rgba[i] = 255;
+        rgba[i + 1] = 255;
+        rgba[i + 2] = 255;
+        rgba[i + 3] = 255;
     }
 }
 

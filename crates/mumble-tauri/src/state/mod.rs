@@ -210,6 +210,45 @@ pub struct AppState {
 }
 
 impl AppState {
+    async fn build_and_send_pchat_encrypted(
+        &self,
+        outbound: &pchat::OutboundMessage<'_>,
+    ) -> Result<(), String> {
+        let send_result = {
+            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            let client = state.client_handle.clone();
+            if let (Some(ref mut pchat_state), Some(client)) = (&mut state.pchat, client) {
+                if outbound.protocol == PchatProtocol::SignalV1
+                    && pchat_state.signal_bridge.is_none()
+                    && !pchat_state.signal_bridge_load_failed
+                {
+                    tracing::info!("send_message: lazy-loading signal bridge");
+                    let _ = pchat_state.ensure_signal_bridge();
+                }
+                match pchat_state.build_encrypted_message(outbound) {
+                    Ok(proto_msg) => Some((proto_msg, client)),
+                    Err(e) => {
+                        tracing::warn!("pchat encrypt failed: {e}");
+                        return Err(format!("Encryption failed: {e}"));
+                    }
+                }
+            } else {
+                None
+            }
+        };
+        if let Some((proto_msg, client)) = send_result {
+            if let Err(e) = client
+                .send(command::SendPchatMessage { message: proto_msg })
+                .await
+            {
+                tracing::warn!("send pchat-msg failed: {e}");
+            }
+        }
+        Ok(())
+    }
+}
+
+impl AppState {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(SharedState { notifications_enabled: true, app_focused: true, ..Default::default() })),
@@ -261,9 +300,7 @@ impl AppState {
                 // per-channel replies).
                 if let Some(fallback) = root_perms {
                     for ch in &mut channels {
-                        if ch.permissions.is_none() {
-                            ch.permissions = Some(fallback);
-                        }
+                        ch.permissions = ch.permissions.or(Some(fallback));
                     }
                 }
                 channels.sort_by_key(|c| c.id);
@@ -594,55 +631,19 @@ impl AppState {
             now_ms,
             "send_message: checking pchat path"
         );
-        if let Some(protocol) = pchat_protocol {
-            if protocol.is_encrypted() {
-                if let Some(ref msg_id) = message_id {
-                    let session = own_session.unwrap_or(0);
-                    // Build encrypted payload inside the lock, then send outside.
-                    let send_result = {
-                        let mut state = self.inner.lock().map_err(|e| e.to_string())?;
-                        let client = state.client_handle.clone();
-                        if let (Some(ref mut pchat_state), Some(client)) =
-                            (&mut state.pchat, client)
-                        {
-                            if protocol == PchatProtocol::SignalV1
-                                && pchat_state.signal_bridge.is_none()
-                                && !pchat_state.signal_bridge_load_failed
-                            {
-                                tracing::info!("send_message: lazy-loading signal bridge");
-                                let _ = pchat_state.ensure_signal_bridge();
-                            }
-                            match pchat_state.build_encrypted_message(
-                                &pchat::OutboundMessage {
-                                    channel_id,
-                                    protocol,
-                                    message_id: msg_id,
-                                    body: &body,
-                                    sender_name: &own_name,
-                                    sender_session: session,
-                                    timestamp: now_ms,
-                                },
-                            ) {
-                                Ok(proto_msg) => Some((proto_msg, client)),
-                                Err(e) => {
-                                    tracing::warn!("pchat encrypt failed: {e}");
-                                    return Err(format!("Encryption failed: {e}"));
-                                }
-                            }
-                        } else {
-                            None
-                        }
-                    };
-                    // Send outside the lock
-                    if let Some((proto_msg, client)) = send_result {
-                        if let Err(e) = client
-                            .send(command::SendPchatMessage { message: proto_msg })
-                            .await
-                        {
-                            tracing::warn!("send pchat-msg failed: {e}");
-                        }
-                    }
-                }
+        if let Some(protocol) = pchat_protocol.filter(PchatProtocol::is_encrypted) {
+            if let Some(ref msg_id) = message_id {
+                let session = own_session.unwrap_or(0);
+                self.build_and_send_pchat_encrypted(&pchat::OutboundMessage {
+                    channel_id,
+                    protocol,
+                    message_id: msg_id,
+                    body: &body,
+                    sender_name: &own_name,
+                    sender_session: session,
+                    timestamp: now_ms,
+                })
+                .await?;
             }
         }
 
@@ -665,18 +666,21 @@ impl AppState {
 
             // Cache own messages locally for SignalV1 channels.
             if pchat_protocol.is_some_and(|p| p == PchatProtocol::SignalV1) {
-                if let Some(ref mut pchat_state) = state.pchat {
-                    if let Some(ref mut cache) = pchat_state.local_cache {
-                        cache.insert(local_cache::CachedMessage {
-                            message_id: msg.message_id.clone().unwrap_or_default(),
-                            channel_id,
-                            timestamp: msg.timestamp.unwrap_or(0),
-                            sender_hash: pchat_state.own_cert_hash.clone(),
-                            sender_name: msg.sender_name.clone(),
-                            body: msg.body.clone(),
-                            is_own: true,
-                        });
-                    }
+                let own_cert_hash = state
+                    .pchat
+                    .as_ref()
+                    .map(|ps| ps.own_cert_hash.clone())
+                    .unwrap_or_default();
+                if let Some(cache) = state.pchat.as_mut().and_then(|ps| ps.local_cache.as_mut()) {
+                    cache.insert(local_cache::CachedMessage {
+                        message_id: msg.message_id.clone().unwrap_or_default(),
+                        channel_id,
+                        timestamp: msg.timestamp.unwrap_or(0),
+                        sender_hash: own_cert_hash,
+                        sender_name: msg.sender_name.clone(),
+                        body: msg.body.clone(),
+                        is_own: true,
+                    });
                 }
             }
 
@@ -1012,15 +1016,15 @@ impl AppState {
             // If permissions have been fetched and the Listen bit (0x800)
             // is NOT set, reject the request immediately.
             if !state.permanently_listened.contains(&channel_id) {
-                if let Some(ch) = state.channels.get(&channel_id) {
-                    if let Some(perms) = ch.permissions {
-                        const LISTEN_BIT: u32 = 0x800;
-                        if perms & LISTEN_BIT == 0 {
-                            return Err(
-                                "You do not have permission to listen to this channel".into(),
-                            );
-                        }
-                    }
+                let no_listen_perm = state
+                    .channels
+                    .get(&channel_id)
+                    .and_then(|ch| ch.permissions)
+                    .is_some_and(|p| p & 0x800 == 0);
+                if no_listen_perm {
+                    return Err(
+                        "You do not have permission to listen to this channel".into(),
+                    );
                 }
             }
 
@@ -1592,15 +1596,11 @@ impl AppState {
                 // have to wait for the server echo (which may only carry
                 // a comment_hash for large comments).
                 if let Some(session) = own_session {
-                    if let Ok(mut state) = self.inner.lock() {
-                        if let Some(user) = state.users.get_mut(&session) {
-                            user.comment = if comment.is_empty() {
-                                None
-                            } else {
-                                Some(comment)
-                            };
-                        }
-                    }
+                    let _ = self.inner.lock().ok().and_then(|mut state| {
+                        let user = state.users.get_mut(&session)?;
+                        user.comment = (!comment.is_empty()).then_some(comment);
+                        Some(())
+                    });
                     if let Some(app) = self.app_handle() {
                         let _ = app.emit("state-changed", ());
                     }
@@ -1631,15 +1631,11 @@ impl AppState {
                 // Update local state immediately so the profile card
                 // reflects the new avatar without waiting for the server echo.
                 if let Some(session) = own_session {
-                    if let Ok(mut state) = self.inner.lock() {
-                        if let Some(user) = state.users.get_mut(&session) {
-                            user.texture = if texture.is_empty() {
-                                None
-                            } else {
-                                Some(texture)
-                            };
-                        }
-                    }
+                    let _ = self.inner.lock().ok().and_then(|mut state| {
+                        let user = state.users.get_mut(&session)?;
+                        user.texture = (!texture.is_empty()).then_some(texture);
+                        Some(())
+                    });
                     if let Some(app) = self.app_handle() {
                         let _ = app.emit("state-changed", ());
                     }

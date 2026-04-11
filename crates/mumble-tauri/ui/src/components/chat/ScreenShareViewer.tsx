@@ -196,7 +196,7 @@ function OwnBroadcastPreview({ stream }: OwnPreviewProps) {
             <span className={styles.connectingDot} />
             <span className={styles.connectingDot} />
           </div>
-          <span className={styles.connectingText}>Connecting to relay...</span>
+          <span className={styles.connectingText}>Setting up stream...</span>
         </div>
       )}
       <StreamControls videoRef={videoRef} containerRef={containerRef} isOwnPreview />
@@ -230,7 +230,7 @@ function RemoteViewer({ session }: { readonly session: number }) {
           <ScreenShareIcon className={styles.streamPlaceholderIcon} />
           <div className={styles.streamPlaceholderText}>
             <strong>Connecting...</strong>
-            Establishing peer connection
+            Waiting for stream
           </div>
         </div>
       )}

@@ -124,14 +124,7 @@ impl AudioFilter for NoiseGate {
                     // Using a Hann curve: gain = 0.5 * (1 - cos(PI * i / n))
                     // produces a smooth S-shape with no sharp corners.
                     let attack = self.config.attack_samples.min(n);
-                    if attack > 0 {
-                        let samples_mut = frame.as_f32_samples_mut();
-                        let inv = 1.0 / attack as f32;
-                        for (i, sample) in samples_mut.iter_mut().enumerate().take(attack) {
-                            let gain = 0.5 * (1.0 - (PI * i as f32 * inv).cos());
-                            *sample *= gain;
-                        }
-                    }
+                    apply_hann_fade_in(frame.as_f32_samples_mut(), attack);
                 } else {
                     // silence the frame
                     frame.data.fill(0);
@@ -152,15 +145,7 @@ impl AudioFilter for NoiseGate {
                         );
                         // Raised-cosine fade-out to avoid a click.
                         let release = self.config.release_samples.min(n);
-                        if release > 0 {
-                            let samples_mut = frame.as_f32_samples_mut();
-                            let start = n - release;
-                            let inv = 1.0 / release as f32;
-                            for i in 0..release {
-                                let gain = 0.5 * (1.0 + (PI * i as f32 * inv).cos());
-                                samples_mut[start + i] *= gain;
-                            }
-                        }
+                        apply_hann_fade_out(frame.as_f32_samples_mut(), release);
                         frame.is_silent = true;
                     }
                 } else {
@@ -184,6 +169,30 @@ impl AudioFilter for NoiseGate {
 
     fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
+    }
+}
+
+fn apply_hann_fade_in(samples: &mut [f32], attack: usize) {
+    if attack == 0 {
+        return;
+    }
+    let inv = 1.0 / attack as f32;
+    for (i, sample) in samples.iter_mut().enumerate().take(attack) {
+        let gain = 0.5 * (1.0 - (PI * i as f32 * inv).cos());
+        *sample *= gain;
+    }
+}
+
+fn apply_hann_fade_out(samples: &mut [f32], release: usize) {
+    if release == 0 {
+        return;
+    }
+    let n = samples.len();
+    let start = n - release;
+    let inv = 1.0 / release as f32;
+    for i in 0..release {
+        let gain = 0.5 * (1.0 + (PI * i as f32 * inv).cos());
+        samples[start + i] *= gain;
     }
 }
 

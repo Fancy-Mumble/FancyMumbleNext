@@ -1984,6 +1984,30 @@ fn test_key_exchange_via_consensus_resolves_key() {
 
 /// Integration test: full key-exchange flow between two clients via the server.
 ///
+fn assert_kex_processed_by_b(
+    km_b: &mut KeyManager,
+    wire_kex: &WireKeyExchange,
+    req_timestamp: u64,
+    cert_hash_a: &str,
+    channel_id: u32,
+    archive_key: &[u8],
+) {
+    let recv_result = km_b.receive_key_exchange(wire_kex, Some(req_timestamp));
+    if let Err(ref e) = recv_result {
+        eprintln!("B failed to process key-exchange: {e}");
+        eprintln!("  B has A's peer key: {}", km_b.get_peer(cert_hash_a).is_some());
+    }
+    assert!(recv_result.is_ok(), "B should process key-exchange successfully");
+    if let Some(ref rid) = wire_kex.request_id {
+        let (trust, key_out) = km_b
+            .evaluate_consensus(rid, channel_id, &[])
+            .expect("consensus should succeed");
+        assert!(key_out.is_some(), "consensus should yield a key");
+        assert_eq!(key_out.unwrap(), archive_key, "consensus key should match A's archive key");
+        eprintln!("B evaluated consensus: trust={trust:?}");
+    }
+}
+
 /// This is the end-to-end test that exercises the actual server relay:
 ///   1. `SuperUser` sets channel to `FullArchive`
 ///   2. Client A connects, announces key, stores archive key, sends a message
@@ -2116,12 +2140,8 @@ async fn test_full_key_exchange_via_server() {
                     let wire_kex = WireKeyExchange {
                         channel_id: kex.channel_id.unwrap_or(0),
                         protocol: match kex.protocol {
-                            Some(m) if m == mumble_tcp::PchatProtocol::FancyV1FullArchive as i32 => {
-                                "FANCY_V1_FULL_ARCHIVE".to_string()
-                            }
-                            Some(m) if m == mumble_tcp::PchatProtocol::SignalV1 as i32 => {
-                                "SIGNAL_V1".to_string()
-                            }
+                            Some(m) if m == mumble_tcp::PchatProtocol::FancyV1FullArchive as i32 => "FANCY_V1_FULL_ARCHIVE".to_string(),
+                            Some(m) if m == mumble_tcp::PchatProtocol::SignalV1 as i32 => "SIGNAL_V1".to_string(),
                             _ => "FANCY_V1_FULL_ARCHIVE".to_string(),
                         },
                         epoch: kex.epoch.unwrap_or(0),
@@ -2138,30 +2158,14 @@ async fn test_full_key_exchange_via_server() {
                         countersigner_hash: kex.countersigner_hash,
                     };
 
-                    let recv_result = km_b.receive_key_exchange(
+                    assert_kex_processed_by_b(
+                        &mut km_b,
                         &wire_kex,
-                        Some(req.timestamp.unwrap_or(0)),
+                        req.timestamp.unwrap_or(0),
+                        &cert_hash_a,
+                        channel_id,
+                        &archive_key,
                     );
-
-                    if let Err(ref e) = recv_result {
-                        eprintln!("B failed to process key-exchange: {e}");
-                        eprintln!("  B has A's peer key: {}", km_b.get_peer(&cert_hash_a).is_some());
-                    }
-                    assert!(recv_result.is_ok(), "B should process key-exchange successfully");
-
-                    // If the exchange had a request_id, evaluate consensus.
-                    if let Some(ref rid) = kex.request_id {
-                        let (trust, key_out) = km_b
-                            .evaluate_consensus(rid, channel_id, &[])
-                            .expect("consensus should succeed");
-                        assert!(key_out.is_some(), "consensus should yield a key");
-                        assert_eq!(
-                            key_out.unwrap(),
-                            archive_key,
-                            "consensus key should match A's archive key"
-                        );
-                        eprintln!("B evaluated consensus: trust={trust:?}");
-                    }
                 } else {
                     eprintln!("WARNING: B did not receive key-exchange from server");
                 }

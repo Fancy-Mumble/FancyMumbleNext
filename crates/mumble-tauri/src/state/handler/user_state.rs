@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use mumble_protocol::command;
 use mumble_protocol::persistent::PchatProtocol;
@@ -7,7 +7,7 @@ use mumble_protocol::proto::mumble_tcp;
 use tracing::info;
 
 use super::{HandleMessage, HandlerContext};
-use crate::state::pchat;
+use crate::state::{pchat, SharedState};
 use crate::state::types::{CurrentChannelPayload, UserEntry};
 
 impl HandleMessage for mumble_tcp::UserState {
@@ -40,18 +40,10 @@ impl HandleMessage for mumble_tcp::UserState {
                     user.name = name.clone();
                 }
                 if let Some(ref texture) = self.texture {
-                    user.texture = if texture.is_empty() {
-                        None
-                    } else {
-                        Some(texture.clone())
-                    };
+                    user.texture = (!texture.is_empty()).then(|| texture.clone());
                 }
                 if let Some(ref comment) = self.comment {
-                    user.comment = if comment.is_empty() {
-                        None
-                    } else {
-                        Some(comment.clone())
-                    };
+                    user.comment = (!comment.is_empty()).then(|| comment.clone());
                 }
                 if let Some(mute) = self.mute {
                     user.mute = mute;
@@ -83,11 +75,7 @@ impl HandleMessage for mumble_tcp::UserState {
 
                 // Persist cert_hash -> username mapping for offline display.
                 if let (Some(ref hash), name) = (&user.hash, &user.name) {
-                    if !hash.is_empty() && !name.is_empty() {
-                        if let Some(ref resolver) = resolver {
-                            resolver.record(hash, name);
-                        }
-                    }
+                    maybe_record_name(&resolver, hash, name);
                 }
 
                 let mut own_ch = false;
@@ -95,15 +83,16 @@ impl HandleMessage for mumble_tcp::UserState {
                 if let Some(ch) = self.channel_id {
                     let prev_channel = user.channel_id;
                     user.channel_id = ch;
-                    // Track when our own user moves channels.
-                    if state.own_session == Some(session) {
-                        state.current_channel = Some(ch);
-                        own_ch = true;
-                    } else if is_new_user || ch != prev_channel {
-                        // Trigger re-evaluation when a new remote peer appears
-                        // or when one moves to a different channel.
-                        remote_ch = Some(ch);
-                    }
+                    let (o, r) = set_channel_outcome(
+                        state.own_session,
+                        session,
+                        ch,
+                        prev_channel,
+                        is_new_user,
+                        &mut state.current_channel,
+                    );
+                    own_ch = o;
+                    remote_ch = r;
                 }
                 (state.synced, own_ch, remote_ch)
             } else {
@@ -169,233 +158,12 @@ impl HandleMessage for mumble_tcp::UserState {
                 }
 
                 // Send pchat-fetch for persistent channels (if not yet fetched).
-                let should_fetch = {
-                    let state = ctx.shared.lock().ok();
-                    if let Some(ref s) = state {
-                        let mode = s
-                            .channels
-                            .get(&ch)
-                            .and_then(|c| c.pchat_protocol);
-                        let has_pchat = s.pchat.is_some();
-                        let already_fetched = s
-                            .pchat
-                            .as_ref()
-                            .is_some_and(|p| p.fetched_channels.contains(&ch));
-                        has_pchat
-                            && mode.is_some_and(|m| m.is_encrypted())
-                            && !already_fetched
-                    } else {
-                        false
-                    }
-                };
+                let should_fetch = should_fetch_pchat_history(&ctx.shared, ch);
 
                 if should_fetch {
-                    // Mark as fetched and send the request
-                    if let Ok(mut state) = ctx.shared.lock() {
-                        if let Some(ref mut pchat) = state.pchat {
-                            let _ = pchat.fetched_channels.insert(ch);
-                        }
-                    }
-
+                    mark_channel_fetched(&ctx.shared, ch);
                     let shared = Arc::clone(&ctx.shared);
-                    let _pchat_init_task = tokio::spawn(async move {
-                        // Notify frontend that history loading has started.
-                        pchat::emit_history_loading(&shared, ch, true);
-
-                        // For FullArchive, derive the key immediately (deterministic
-                        // from seed) so we can skip the 2-second peer-exchange wait.
-                        // If an archive key was restored from disk on init,
-                        // has_key() will already be true and derivation is skipped.
-                        {
-                            let mode = {
-                                let s = shared.lock().ok();
-                                s.as_ref().and_then(|s| {
-                                    s.channels.get(&ch).and_then(|c| c.pchat_protocol)
-                                })
-                            };
-                            if mode == Some(PchatProtocol::FancyV1FullArchive) {
-                                use mumble_protocol::persistent::KeyTrustLevel;
-                                let persist_info = {
-                                    if let Ok(mut s) = shared.lock() {
-                                        if let Some(ref mut p) = s.pchat {
-                                            if !p.key_manager.has_key(ch, PchatProtocol::FancyV1FullArchive) {
-                                                let cert = p.own_cert_hash.clone();
-                                                let key = mumble_protocol::persistent::encryption::derive_archive_key(&p.seed, ch);
-                                                p.key_manager.store_archive_key(ch, key, KeyTrustLevel::Verified);
-                                                p.key_manager.set_channel_originator(ch, cert.clone());
-                                                info!(channel_id = ch, cert_hash = %cert, "derived archive key immediately on join");
-                                                p.identity_dir.clone().map(|dir| (dir, key, cert))
-                                            } else {
-                                                None
-                                            }
-                                        } else {
-                                            None
-                                        }
-                                    } else {
-                                        None
-                                    }
-                                };
-                                if let Some((dir, key, cert)) = persist_info {
-                                    pchat::persist_archive_key(&dir, ch, &key, Some(&cert));
-                                }
-                                pchat::send_key_holder_report_async(&shared, ch).await;
-                            }
-
-                            // For SignalV1, load the bridge and create our sender
-                            // key distribution immediately.
-                            if mode == Some(PchatProtocol::SignalV1) {
-                                let bridge_ok = pchat::ensure_signal_bridge_unlocked(&shared);
-                                if bridge_ok {
-                                    pchat::send_signal_distribution(&shared, ch);
-                                    pchat::send_key_holder_report_async(&shared, ch).await;
-                                } else {
-                                    pchat::emit_signal_bridge_error(
-                                        &shared,
-                                        "Signal bridge library could not be loaded. End-to-end encryption is unavailable.",
-                                    );
-                                    // Cannot decrypt without the bridge -- clear
-                                    // loading and skip the rest of the init flow.
-                                    pchat::emit_history_loading(&shared, ch, false);
-                                    return;
-                                }
-                            }
-                        }
-
-                        // Check if we already have a key for this channel.
-                        let already_has_key = {
-                            let s = shared.lock().ok();
-                            if let Some(ref s) = s {
-                                let mode = s
-                                    .channels
-                                    .get(&ch)
-                                    .and_then(|c| c.pchat_protocol);
-                                if let Some(ref pchat) = s.pchat {
-                                    mode.is_some_and(|m| pchat.key_manager.has_key(ch, m))
-                                } else {
-                                    false
-                                }
-                            } else {
-                                false
-                            }
-                        };
-
-                        if already_has_key {
-                            tracing::debug!(channel_id = ch, "pchat: key already exists, skipping 2s wait");
-                        } else {
-                            // Wait for potential key-exchange responses from other
-                            // members, then self-generate the channel key if nobody
-                            // sent us one (we are the originator).
-                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                        }
-
-                        let needs_key = {
-                            let s = shared.lock().ok();
-                            if let Some(ref s) = s {
-                                let mode = s
-                                    .channels
-                                    .get(&ch)
-                                    .and_then(|c| c.pchat_protocol);
-                                if let Some(ref pchat) = s.pchat {
-                                    mode.map(|m| !pchat.key_manager.has_key(ch, m))
-                                        .unwrap_or(false)
-                                } else {
-                                    false
-                                }
-                            } else {
-                                false
-                            }
-                        };
-                        if needs_key {
-                            let persist_info = if let Ok(mut s) = shared.lock() {
-                                let mode = s
-                                    .channels
-                                    .get(&ch)
-                                    .and_then(|c| c.pchat_protocol);
-                                if let Some(ref mut pchat) = s.pchat {
-                                    let cert = pchat.own_cert_hash.clone();
-                                    match mode {
-                                        Some(PchatProtocol::FancyV1FullArchive) => {
-                                            let key = mumble_protocol::persistent::encryption::derive_archive_key(&pchat.seed, ch);
-                                            pchat.key_manager.store_archive_key(
-                                                ch,
-                                                key,
-                                                KeyTrustLevel::Verified,
-                                            );
-                                            pchat.key_manager.set_channel_originator(ch, cert.clone());
-                                            info!(channel_id = ch, cert_hash = %cert, "derived archive key (originator)");
-                                            pchat.identity_dir.clone().map(|dir| (dir, key, cert))
-                                        }
-                                        Some(PchatProtocol::SignalV1) => {
-                                            // Bridge should already be loaded; this
-                                            // is a fallback path.
-                                            if !pchat.ensure_signal_bridge() {
-                                                pchat::emit_signal_bridge_error(
-                                                    &shared,
-                                                    "Signal bridge library could not be loaded. End-to-end encryption is unavailable.",
-                                                );
-                                            }
-                                            info!(channel_id = ch, "signal bridge ensured on join (fallback)");
-                                            None
-                                        }
-                                        _ => None,
-                                    }
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            };
-                            if let Some((dir, key, cert)) = persist_info {
-                                pchat::persist_archive_key(&dir, ch, &key, Some(&cert));
-                            }
-                            pchat::send_key_holder_report_async(&shared, ch).await;
-                        }
-
-                        // NOW send fetch -- key is guaranteed to exist
-                        // (either from exchange or self-generation).
-                        let handle = {
-                            let state = shared.lock().ok();
-                            state.as_ref().and_then(|s| s.client_handle.clone())
-                        };
-
-                        let fetch_sent = if let Some(handle) = handle {
-                            let fetch = mumble_tcp::PchatFetch {
-                                channel_id: Some(ch),
-                                before_id: None,
-                                limit: Some(50),
-                                after_id: None,
-                            };
-                            if let Err(e) = handle
-                                .send(command::SendPchatFetch { fetch })
-                                .await
-                            {
-                                tracing::warn!("send pchat-fetch failed: {e}");
-                                false
-                            } else {
-                                info!(channel_id = ch, "sent pchat-fetch on join");
-                                true
-                            }
-                        } else {
-                            false
-                        };
-
-                        // Safety-net timeout: if the server never replies with a
-                        // PchatFetchResponse (e.g. the channel has no stored messages
-                        // yet), the loading indicator would be stuck forever.
-                        // The PchatFetchResponse handler clears it immediately when
-                        // the server does respond, making this a no-op in that case.
-                        if fetch_sent {
-                            let shared_timeout = Arc::clone(&shared);
-                            let _timeout_task = tokio::spawn(async move {
-                                tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-                                pchat::emit_history_loading(&shared_timeout, ch, false);
-                            });
-                        } else {
-                            // Fetch could not be sent -- clear immediately so the
-                            // UI is not stuck on "Loading message history...".
-                            pchat::emit_history_loading(&shared, ch, false);
-                        }
-                    });
+                    let _pchat_init_task = tokio::spawn(pchat_init_task(shared, ch));
                 }
             }
         }
@@ -409,18 +177,7 @@ impl HandleMessage for mumble_tcp::UserState {
             if need_texture || need_comment {
                 let shared = Arc::clone(&ctx.shared);
                 let sess = session;
-                let _blob_task = tokio::spawn(async move {
-                    let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
-                    if let Some(handle) = handle {
-                        let _ = handle
-                            .send(command::RequestBlob {
-                                session_texture: if need_texture { vec![sess] } else { Vec::new() },
-                                session_comment: if need_comment { vec![sess] } else { Vec::new() },
-                                channel_description: Vec::new(),
-                            })
-                            .await;
-                    }
-                });
+                let _blob_task = tokio::spawn(request_user_blob(shared, sess, need_texture, need_comment));
             }
         }
 
@@ -429,4 +186,207 @@ impl HandleMessage for mumble_tcp::UserState {
             ctx.emit_empty("state-changed");
         }
     }
+}
+
+fn maybe_record_name(
+    resolver: &Option<Arc<dyn crate::state::hash_names::HashNameResolver>>,
+    hash: &str,
+    name: &str,
+) {
+    if hash.is_empty() || name.is_empty() {
+        return;
+    }
+    if let Some(ref r) = resolver {
+        r.record(hash, name);
+    }
+}
+
+fn set_channel_outcome(
+    own_session: Option<u32>,
+    session: u32,
+    ch: u32,
+    prev_channel: u32,
+    is_new_user: bool,
+    current_channel: &mut Option<u32>,
+) -> (bool, Option<u32>) {
+    if own_session == Some(session) {
+        *current_channel = Some(ch);
+        (true, None)
+    } else if is_new_user || ch != prev_channel {
+        (false, Some(ch))
+    } else {
+        (false, None)
+    }
+}
+
+fn should_fetch_pchat_history(shared: &Arc<Mutex<SharedState>>, ch: u32) -> bool {
+    let Ok(s) = shared.lock() else { return false };
+    let mode = s.channels.get(&ch).and_then(|c| c.pchat_protocol);
+    let already_fetched = s.pchat.as_ref().is_some_and(|p| p.fetched_channels.contains(&ch));
+    s.pchat.is_some() && mode.is_some_and(|m| m.is_encrypted()) && !already_fetched
+}
+
+fn mark_channel_fetched(shared: &Arc<Mutex<SharedState>>, ch: u32) {
+    let Ok(mut state) = shared.lock() else { return };
+    if let Some(ref mut pchat) = state.pchat {
+        let _ = pchat.fetched_channels.insert(ch);
+    }
+}
+
+fn maybe_derive_archive_key_for_join(
+    shared: &Arc<Mutex<SharedState>>,
+    ch: u32,
+) -> Option<(std::path::PathBuf, [u8; 32], String)> {
+    let Ok(mut s) = shared.lock() else { return None };
+    let p = s.pchat.as_mut()?;
+    if p.key_manager.has_key(ch, PchatProtocol::FancyV1FullArchive) {
+        return None;
+    }
+    let cert = p.own_cert_hash.clone();
+    let key = mumble_protocol::persistent::encryption::derive_archive_key(&p.seed, ch);
+    p.key_manager.store_archive_key(ch, key, KeyTrustLevel::Verified);
+    p.key_manager.set_channel_originator(ch, cert.clone());
+    info!(channel_id = ch, cert_hash = %cert, "derived archive key immediately on join");
+    p.identity_dir.clone().map(|dir| (dir, key, cert))
+}
+
+fn derive_channel_key_as_originator(
+    shared: &Arc<Mutex<SharedState>>,
+    ch: u32,
+) -> Option<(std::path::PathBuf, [u8; 32], String)> {
+    let Ok(mut s) = shared.lock() else { return None };
+    let mode = s.channels.get(&ch).and_then(|c| c.pchat_protocol);
+    let p = s.pchat.as_mut()?;
+    let cert = p.own_cert_hash.clone();
+    match mode {
+        Some(PchatProtocol::FancyV1FullArchive) => {
+            let key = mumble_protocol::persistent::encryption::derive_archive_key(&p.seed, ch);
+            p.key_manager.store_archive_key(ch, key, KeyTrustLevel::Verified);
+            p.key_manager.set_channel_originator(ch, cert.clone());
+            info!(channel_id = ch, cert_hash = %cert, "derived archive key (originator)");
+            p.identity_dir.clone().map(|dir| (dir, key, cert))
+        }
+        Some(PchatProtocol::SignalV1) => {
+            if !p.ensure_signal_bridge() {
+                pchat::emit_signal_bridge_error(
+                    shared,
+                    "Signal bridge library could not be loaded. End-to-end encryption is unavailable.",
+                );
+            }
+            info!(channel_id = ch, "signal bridge ensured on join (fallback)");
+            None
+        }
+        _ => None,
+    }
+}
+
+async fn pchat_init_task(shared: Arc<Mutex<SharedState>>, ch: u32) {
+    pchat::emit_history_loading(&shared, ch, true);
+
+    let mode = shared
+        .lock()
+        .ok()
+        .and_then(|s| s.channels.get(&ch).and_then(|c| c.pchat_protocol));
+
+    if mode == Some(PchatProtocol::FancyV1FullArchive) {
+        let persist_info = maybe_derive_archive_key_for_join(&shared, ch);
+        if let Some((dir, key, cert)) = persist_info {
+            pchat::persist_archive_key(&dir, ch, &key, Some(&cert));
+        }
+        pchat::send_key_holder_report_async(&shared, ch).await;
+    }
+
+    if mode == Some(PchatProtocol::SignalV1) {
+        let bridge_ok = pchat::ensure_signal_bridge_unlocked(&shared);
+        if bridge_ok {
+            pchat::send_signal_distribution(&shared, ch);
+            pchat::send_key_holder_report_async(&shared, ch).await;
+        } else {
+            pchat::emit_signal_bridge_error(
+                &shared,
+                "Signal bridge library could not be loaded. End-to-end encryption is unavailable.",
+            );
+            pchat::emit_history_loading(&shared, ch, false);
+            return;
+        }
+    }
+
+    let already_has_key = {
+        let s = shared.lock().ok();
+        if let Some(ref s) = s {
+            let pchat_mode = s.channels.get(&ch).and_then(|c| c.pchat_protocol);
+            s.pchat.as_ref().is_some_and(|p| pchat_mode.is_some_and(|m| p.key_manager.has_key(ch, m)))
+        } else {
+            false
+        }
+    };
+
+    if already_has_key {
+        tracing::debug!(channel_id = ch, "pchat: key already exists, skipping 2s wait");
+    } else {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
+
+    let needs_key = {
+        let s = shared.lock().ok();
+        if let Some(ref s) = s {
+            let pchat_mode = s.channels.get(&ch).and_then(|c| c.pchat_protocol);
+            s.pchat.as_ref().map(|p| pchat_mode.map(|m| !p.key_manager.has_key(ch, m)).unwrap_or(false)).unwrap_or(false)
+        } else {
+            false
+        }
+    };
+
+    if needs_key {
+        let persist_info = derive_channel_key_as_originator(&shared, ch);
+        if let Some((dir, key, cert)) = persist_info {
+            pchat::persist_archive_key(&dir, ch, &key, Some(&cert));
+        }
+        pchat::send_key_holder_report_async(&shared, ch).await;
+    }
+
+    let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
+    let fetch_sent = if let Some(handle) = handle {
+        let fetch = mumble_tcp::PchatFetch {
+            channel_id: Some(ch),
+            before_id: None,
+            limit: Some(50),
+            after_id: None,
+        };
+        if let Err(e) = handle.send(command::SendPchatFetch { fetch }).await {
+            tracing::warn!("send pchat-fetch failed: {e}");
+            false
+        } else {
+            info!(channel_id = ch, "sent pchat-fetch on join");
+            true
+        }
+    } else {
+        false
+    };
+
+    if fetch_sent {
+        let shared_timeout = Arc::clone(&shared);
+        let _timeout_task = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+            pchat::emit_history_loading(&shared_timeout, ch, false);
+        });
+    } else {
+        pchat::emit_history_loading(&shared, ch, false);
+    }
+}
+
+async fn request_user_blob(
+    shared: Arc<Mutex<SharedState>>,
+    sess: u32,
+    need_texture: bool,
+    need_comment: bool,
+) {
+    let Some(handle) = shared.lock().ok().and_then(|s| s.client_handle.clone()) else { return };
+    let _ = handle
+        .send(command::RequestBlob {
+            session_texture: if need_texture { vec![sess] } else { Vec::new() },
+            session_comment: if need_comment { vec![sess] } else { Vec::new() },
+            channel_description: Vec::new(),
+        })
+        .await;
 }
