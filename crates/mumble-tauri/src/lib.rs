@@ -1739,25 +1739,17 @@ fn running_in_appimage() -> bool {
     std::env::var_os("APPIMAGE").is_some() || std::env::var_os("APPDIR").is_some()
 }
 
-/// Point GStreamer at the host system's plugin directories.
+/// Ensure GStreamer can find plugins from the host system.
 ///
-/// AppImages bundle GStreamer core libraries but typically not the plugin
-/// shared objects (e.g. `libgstapp.so` that provides the `appsink`
-/// element).  Without plugins, WebKit hits a `RELEASE_ASSERT` during
-/// media backend initialization.  Setting `GST_PLUGIN_SYSTEM_PATH` tells
-/// GStreamer to scan the host's standard plugin directories instead of
-/// the (non-existent) path compiled into the bundled library.
+/// AppImage launchers set `GST_PLUGIN_SYSTEM_PATH` / `_1_0` pointing at
+/// the bundled (and typically empty) plugin directory.  WebKit then hits
+/// a `RELEASE_ASSERT` because elements like `appsink` are missing.
 ///
-/// Skipped if the user or launcher already set the variable.
+/// This function appends the host's standard plugin directories so
+/// GStreamer scans both the bundled and system locations.
 #[cfg(target_os = "linux")]
 fn ensure_gstreamer_plugins_discoverable() {
-    if std::env::var_os("GST_PLUGIN_SYSTEM_PATH").is_some()
-        || std::env::var_os("GST_PLUGIN_SYSTEM_PATH_1_0").is_some()
-    {
-        return;
-    }
-
-    let existing: Vec<&str> = [
+    let system_dirs: Vec<&str> = [
         "/usr/lib/gstreamer-1.0",
         "/usr/lib/x86_64-linux-gnu/gstreamer-1.0",
         "/usr/lib64/gstreamer-1.0",
@@ -1768,9 +1760,18 @@ fn ensure_gstreamer_plugins_discoverable() {
     .filter(|d| std::path::Path::new(d).is_dir())
     .collect();
 
-    if !existing.is_empty() {
-        let path = existing.join(":");
-        std::env::set_var("GST_PLUGIN_SYSTEM_PATH", &path);
+    if system_dirs.is_empty() {
+        return;
+    }
+
+    let extra = system_dirs.join(":");
+
+    for var in ["GST_PLUGIN_SYSTEM_PATH", "GST_PLUGIN_SYSTEM_PATH_1_0"] {
+        let merged = match std::env::var(var) {
+            Ok(current) if !current.is_empty() => format!("{current}:{extra}"),
+            _ => extra.clone(),
+        };
+        std::env::set_var(var, &merged);
     }
 }
 
