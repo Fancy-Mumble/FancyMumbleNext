@@ -129,7 +129,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--color-overlay-heavy);
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
 }
@@ -141,5 +141,5 @@
   padding: 20px 24px;
   width: 360px;
   max-width: 90vw;
-  box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.3));
+  box-shadow: var(--shadow-lg, 0 8px 32px var(--color-overlay-medium));
 }

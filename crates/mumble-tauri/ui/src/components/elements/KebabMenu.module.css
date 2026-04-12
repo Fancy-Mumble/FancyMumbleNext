@@ -21,15 +21,15 @@
 }
 
 .trigger:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-glass-hover);
   color: var(--color-text-primary);
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: var(--color-glass-heavy);
 }
 
 .triggerOpen {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-glass-hover);
   color: var(--color-text-primary);
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: var(--color-glass-heavy);
 }
 
 .menu {

@@ -31,8 +31,8 @@
 }
 
 .headerStreaming {
-  background: var(--color-surface-1, #111);
-  border-bottom-color: rgba(237, 66, 69, 0.2);
+  background: var(--color-surface-1);
+  border-bottom-color: var(--color-danger-alt-border);
 }
 
 /* --- Broadcaster info (shown when streaming) -------------------- */
@@ -97,7 +97,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #ed4245;
+  background: var(--color-danger-alt);
   animation: liveDotPulse 1.5s ease-in-out infinite;
 }
 
@@ -122,15 +122,15 @@
   height: 28px;
   border: none;
   border-radius: 6px;
-  background: rgba(237, 66, 69, 0.12);
-  color: #ed4245;
+  background: var(--color-danger-alt-light);
+  color: var(--color-danger-alt);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
 
 .streamCloseBtn:hover {
-  background: rgba(237, 66, 69, 0.25);
-  color: #ed4245;
+  background: var(--color-danger-alt-strong);
+  color: var(--color-danger-alt);
 }
 
 .headerInfo {
@@ -149,7 +149,7 @@
   display: inline-block;
   vertical-align: -2px;
   margin-left: 6px;
-  color: var(--color-text-muted, #888);
+  color: var(--color-text-muted);
   opacity: 0.7;
 }
 
@@ -182,27 +182,27 @@
 }
 
 .serverInfoBtn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-glass-hover);
   color: var(--color-text);
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: var(--color-glass-heavy);
 }
 
 .screenShareActive {
-  color: #ed4245;
-  border-color: rgba(237, 66, 69, 0.35);
-  background: rgba(237, 66, 69, 0.12);
+  color: var(--color-danger-alt);
+  border-color: var(--color-danger-alt-border-strong);
+  background: var(--color-danger-alt-light);
 }
 
 .screenShareActive:hover {
-  background: rgba(237, 66, 69, 0.2);
-  color: #ed4245;
+  background: var(--color-danger-alt-border);
+  color: var(--color-danger-alt);
 }
 
 .joinBtn {
   padding: 8px 18px;
   border-radius: 8px;
-  border: 1px solid rgba(42, 171, 238, 0.35);
-  background: linear-gradient(135deg, rgba(42, 171, 238, 0.15), rgba(34, 158, 217, 0.10));
+  border: 1px solid var(--color-accent-border-strong);
+  background: linear-gradient(135deg, var(--color-accent-medium), var(--color-accent-gradient-end));
   color: var(--color-accent);
   font-size: 13px;
   font-weight: 600;
@@ -212,7 +212,7 @@
 }
 
 .joinBtn:hover {
-  background: linear-gradient(135deg, rgba(42, 171, 238, 0.25), rgba(34, 158, 217, 0.18));
+  background: linear-gradient(135deg, var(--color-accent-fill), rgba(34, 158, 217, 0.18));
   border-color: rgba(42, 171, 238, 0.55);
 }
 
@@ -322,14 +322,14 @@
   content: "";
   flex: 1;
   height: 1px;
-  background: #ef4444;
+  background: var(--color-danger);
   opacity: 0.55;
 }
 
 .unreadDividerLabel {
   font-size: 11px;
   font-weight: 600;
-  color: #ef4444;
+  color: var(--color-danger);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -349,15 +349,15 @@
 .dateDivider::after {
   content: "";
   flex: 1;
-  border-top: 2px dashed var(--color-glass-border, rgba(255, 255, 255, 0.12));
+  border-top: 2px dashed var(--color-glass-border);
 }
 
 .dateDividerLabel {
   font-size: 11px;
   font-weight: 600;
-  color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
-  background: var(--color-glass-hover, rgba(255, 255, 255, 0.06));
-  border: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.1));
+  color: var(--color-text-secondary);
+  background: var(--color-glass-hover);
+  border: 1px solid var(--color-glass-border);
   border-radius: 12px;
   padding: 3px 12px;
   white-space: nowrap;
@@ -377,9 +377,9 @@
   gap: 6px;
   padding: 8px 18px;
   border-radius: 20px;
-  border: 1px solid rgba(42, 171, 238, 0.35);
+  border: 1px solid var(--color-accent-border-strong);
   background: var(--color-bg-secondary, #1a1a2e);
-  color: var(--color-accent, #2aabee);
+  color: var(--color-accent);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -389,7 +389,7 @@
 }
 
 .newMessagesPill:hover {
-  background: var(--color-glass-hover, rgba(255, 255, 255, 0.08));
+  background: var(--color-glass-hover);
 }
 
 .newMessagesPill:active {
@@ -550,8 +550,8 @@
 .bubble.ownBubble {
   background: linear-gradient(
     135deg,
-    rgba(45, 90, 138, 0.55) 0%,
-    rgba(56, 108, 158, 0.55) 100%
+    var(--color-own-bubble-start) 0%,
+    var(--color-own-bubble-end) 100%
   );
   border: none;
   border-radius: var(--radius-md) var(--radius-md) 4px var(--radius-md);
@@ -599,19 +599,18 @@
   white-space: nowrap;
 }
 
-/* Own-bubble sender name and timestamp need contrast against the accent gradient */
 .ownBubble .messageTime {
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--color-own-bubble-time);
 }
 
 .ownBubble .messageBody {
-  color: white;
+  color: var(--color-own-bubble-text);
 }
 
 /* --- Legacy (non-E2EE) message indicator ------------------------ */
 
 .legacyBubble {
-  border-left: 3px solid var(--color-warning, #e8a838);
+  border-left: 3px solid var(--color-warning);
 }
 
 .legacyBadge {
@@ -620,9 +619,9 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--color-warning, #e8a838);
-  background: color-mix(in srgb, var(--color-warning, #e8a838) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-warning, #e8a838) 30%, transparent);
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
   border-radius: 4px;
   padding: 0 4px;
   margin-left: 6px;
@@ -814,14 +813,14 @@
 }
 
 .composerInput:focus {
-  border-color: rgba(42, 171, 238, 0.3);
+  border-color: var(--color-accent-glow);
 }
 
 .sendBtn {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--color-accent), #229ed9);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-hover));
   border: none;
   color: white;
   cursor: pointer;
@@ -875,7 +874,7 @@
   gap: 6px;
   padding: 6px 12px;
   background: var(--color-glass, rgba(30, 30, 30, 0.6));
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--color-glass-hover);
 }
 
 .quotePreviewItem {
@@ -883,7 +882,7 @@
   align-items: stretch;
   gap: 0;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--color-glass-border);
   max-width: 300px;
   overflow: hidden;
 }
@@ -928,7 +927,7 @@
   flex-shrink: 0;
   background: none;
   border: none;
-  color: var(--color-text-secondary, #888);
+  color: var(--color-text-secondary);
   cursor: pointer;
   font-size: 16px;
   padding: 0;
@@ -936,7 +935,7 @@
 
 .quotePreviewRemove:hover {
   color: var(--color-text-primary, #fff);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-glass-hover);
 }
 
 /* --- Quote scroll highlight ------------------------------------- */
@@ -952,7 +951,7 @@
 
 .attachBtn:hover:not(:disabled) {
   color: var(--color-accent);
-  border-color: rgba(42, 171, 238, 0.3);
+  border-color: var(--color-accent-glow);
   background: var(--color-glass-hover);
 }
 
@@ -963,7 +962,7 @@
 
 .attachBtnActive {
   color: var(--color-accent);
-  border-color: rgba(42, 171, 238, 0.3);
+  border-color: var(--color-accent-glow);
   background: var(--color-glass-hover);
 }
 
@@ -1039,7 +1038,7 @@
 }
 
 .selectableRow:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-glass);
 }
 
 .selectedRow {
@@ -1065,12 +1064,12 @@
 }
 
 .selectCheckbox:hover {
-  border-color: var(--color-accent, #5865f2);
+  border-color: var(--color-accent);
 }
 
 .selectCheckboxChecked {
-  background: var(--color-accent, #5865f2);
-  border-color: var(--color-accent, #5865f2);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
 }
 
 .selectCheckboxChecked svg {

@@ -45,12 +45,12 @@
   }
 
   .btnActive {
-    color: var(--color-online, #22c55e);
+    color: var(--color-online);
     background: rgba(34, 197, 94, 0.06);
   }
 
   .btnActive:hover {
-    color: var(--color-danger, #ef4444);
+    color: var(--color-danger);
     background: rgba(239, 68, 68, 0.06);
   }
 

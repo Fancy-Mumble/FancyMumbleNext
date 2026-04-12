@@ -7,10 +7,12 @@
   right: 0;
   max-width: 440px;
   height: 420px;
-  background: var(--color-surface, #1e1e2e);
+  background: var(--color-glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
   border: 1px solid var(--color-glass-border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 32px var(--color-overlay-strong);
   display: flex;
   flex-direction: column;
   z-index: 100;
@@ -30,7 +32,7 @@
 .tabs {
   display: flex;
   gap: 2px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--color-glass-subtle);
   border-radius: 8px;
   padding: 2px;
 }
@@ -52,7 +54,7 @@
 }
 
 .tab.active {
-  background: rgba(42, 171, 238, 0.2);
+  background: var(--color-accent-strong);
   color: var(--color-accent);
 }
 
@@ -72,7 +74,7 @@
 }
 
 .closeBtn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-glass-hover);
   color: var(--color-text-primary);
 }
 
@@ -141,7 +143,7 @@
   border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--color-glass-subtle);
   transition: transform 0.12s;
 }
 
@@ -161,7 +163,7 @@
   left: 0;
   right: 0;
   padding: 3px 6px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+  background: linear-gradient(transparent, var(--color-overlay-dark));
   color: white;
   font-size: 11px;
   font-weight: 600;
@@ -178,7 +180,7 @@
 
 .gifCard {
   border: none;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-glass);
   border-radius: 6px;
   overflow: hidden;
   cursor: pointer;

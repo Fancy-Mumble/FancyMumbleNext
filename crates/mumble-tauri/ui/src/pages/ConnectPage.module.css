@@ -42,7 +42,7 @@
   height: 64px;
   margin: 0 auto 16px;
   border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--color-accent), #7c3aed);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-purple));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -72,10 +72,10 @@
   gap: 10px;
   padding: 12px 16px;
   margin-bottom: 20px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: var(--color-danger-bg);
+  border: 1px solid var(--color-danger-border);
   border-radius: var(--radius-md);
-  color: #fca5a5;
+  color: var(--color-danger-light);
   font-size: 13px;
   line-height: 1.4;
 }
@@ -165,7 +165,7 @@
 .button {
   width: 100%;
   padding: 12px;
-  background: linear-gradient(135deg, var(--color-accent), #229ed9);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-hover));
   border: none;
   border-radius: var(--radius-md);
   color: white;
@@ -257,7 +257,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--color-glass-strong);
   transition: background 0.3s, transform 0.3s, box-shadow 0.3s;
 }
 
@@ -284,8 +284,8 @@
   align-items: flex-start;
   gap: 10px;
   padding: 12px 14px;
-  background: rgba(42, 171, 238, 0.06);
-  border: 1px solid rgba(42, 171, 238, 0.12);
+  background: var(--color-accent-soft);
+  border: 1px solid var(--color-accent-light);
   border-radius: var(--radius-md);
   font-size: 12.5px;
   line-height: 1.5;
@@ -309,8 +309,8 @@
 .buttonGhost {
   flex: 0 0 auto;
   padding: 12px 18px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-glass-border);
+  border: 1px solid var(--color-glass-medium);
   border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   font-size: 14px;
@@ -320,7 +320,7 @@
 }
 
 .buttonGhost:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--color-glass-medium);
   border-color: rgba(255, 255, 255, 0.18);
   color: var(--color-text-primary);
 }
@@ -347,8 +347,8 @@
   align-items: center;
   gap: 12px;
   padding: 14px 16px;
-  background: rgba(42, 171, 238, 0.08);
-  border: 1px solid rgba(42, 171, 238, 0.2);
+  background: var(--color-accent-subtle);
+  border: 1px solid var(--color-accent-strong);
   border-radius: var(--radius-md);
 }
 

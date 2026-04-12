@@ -47,7 +47,7 @@
   width: 38px;
   height: 38px;
   border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, var(--color-accent), #7c3aed);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-purple));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -70,17 +70,17 @@
 }
 
 .dotGreat {
-  background: #22c55e;
-  box-shadow: 0 0 5px rgba(34, 197, 94, 0.5);
+  background: var(--color-online);
+  box-shadow: 0 0 5px var(--color-online-glow);
 }
 
 .dotOkay {
-  background: #eab308;
+  background: var(--color-warning);
   box-shadow: 0 0 5px rgba(234, 179, 8, 0.4);
 }
 
 .dotPoor {
-  background: #ef4444;
+  background: var(--color-danger);
   box-shadow: 0 0 5px rgba(239, 68, 68, 0.4);
 }
 
@@ -214,7 +214,7 @@
   padding: 2px 4px;
   border-radius: var(--radius-sm);
   font-size: 14px;
-  color: #f59e0b;
+  color: var(--color-warning-amber);
   line-height: 1;
   display: inline-flex;
   align-items: center;
@@ -249,7 +249,7 @@
 }
 
 .favoriteBtn:hover {
-  color: #f59e0b;
+  color: var(--color-warning-amber);
   background: var(--color-glass-hover);
 }
 
@@ -419,7 +419,7 @@
 }
 
 .cancelBtn:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--color-glass-heavy);
 }
 
 .cancelBtn:active {

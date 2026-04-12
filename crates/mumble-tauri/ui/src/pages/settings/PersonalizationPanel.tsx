@@ -1,6 +1,8 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { PersonalizationData, BubbleStyle, FontSize, BgFit, ChannelViewerStyle } from "../../personalizationStorage";
+import { THEMES, applyTheme } from "../../themes";
+import type { ThemeId } from "../../themes";
 import { ImageEditor } from "./ImageEditor";
 import { SliderField, Toggle } from "./SharedControls";
 import styles from "./SettingsPage.module.css";
@@ -211,9 +213,46 @@ export function PersonalizationPanel({ data, onChange, isExpert }: Personalizati
   // The image to show in the preview (blurred if available, otherwise original)
   const previewImage = data.chatBgBlurred ?? data.chatBgOriginal;
 
+  const handleThemeChange = useCallback(
+    (id: ThemeId) => {
+      applyTheme(id);
+      onChange({ theme: id });
+    },
+    [onChange],
+  );
+
   return (
     <>
       <h2 className={styles.panelTitle}>Personalize</h2>
+
+      {/* -- Theme ------------------------------------------------- */}
+      <section className={styles.section}>
+        <h3 className={styles.sectionTitle}>Theme</h3>
+        <p className={styles.fieldHint}>
+          Choose the visual style for the entire app.
+        </p>
+        <div className={styles.optionGrid}>
+          {THEMES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`${styles.optionCard} ${data.theme === t.id ? styles.optionCardSelected : ""}`}
+              onClick={() => handleThemeChange(t.id)}
+            >
+              <span className={styles.swatchGrid}>
+                {t.swatches.map((color) => (
+                  <span
+                    key={color}
+                    className={styles.swatch}
+                    style={{ backgroundColor: color }}
+                  />
+                ))}
+              </span>
+              <span className={styles.optionLabel}>{t.label}</span>
+            </button>
+          ))}
+        </div>
+      </section>
 
       {/* -- Chat Background --------------------------------------- */}
       <section className={styles.section}>

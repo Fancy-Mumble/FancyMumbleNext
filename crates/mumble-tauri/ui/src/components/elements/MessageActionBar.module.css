@@ -12,11 +12,13 @@
   align-items: center;
   gap: 0;
 
-  background: var(--color-glass-bg, rgba(30, 33, 40, 0.92));
-  border: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.08));
+  background: var(--color-glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--color-glass-border);
   border-radius: 6px;
   padding: 2px 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.32);
+  box-shadow: 0 2px 8px var(--color-overlay-medium);
   pointer-events: auto;
 }
 
@@ -46,12 +48,12 @@
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
-  color: var(--color-text-secondary, rgba(255, 255, 255, 0.65));
+  color: var(--color-text-secondary);
   transition: background 0.12s, transform 0.12s;
 }
 
 .actionBtn:hover {
-  background: var(--color-glass-hover, rgba(255, 255, 255, 0.1));
+  background: var(--color-glass-hover);
   transform: scale(1.15);
 }
 
@@ -64,7 +66,7 @@
   width: 1px;
   height: 18px;
   margin: 0 2px;
-  background: var(--color-glass-border, rgba(255, 255, 255, 0.12));
+  background: var(--color-glass-border);
   flex-shrink: 0;
 }
 
@@ -78,11 +80,13 @@
   top: calc(100% + 4px);
   right: 0;
   min-width: 160px;
-  background: var(--color-glass-bg, rgba(30, 33, 40, 0.96));
-  border: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.08));
+  background: var(--color-bg-elevated);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--color-glass-border-hover);
   border-radius: 6px;
   padding: 4px 0;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 16px var(--color-overlay-strong);
   z-index: 20;
 }
 
@@ -100,7 +104,7 @@
   padding: 6px 12px;
   border: none;
   background: transparent;
-  color: var(--color-text-primary, #ddd);
+  color: var(--color-text-primary);
   font-size: 13px;
   cursor: pointer;
   text-align: left;
@@ -108,11 +112,11 @@
 }
 
 .kebabItem:hover {
-  background: var(--color-glass-hover, rgba(255, 255, 255, 0.08));
+  background: var(--color-glass-hover);
 }
 
 .kebabItemIcon {
   display: flex;
   align-items: center;
-  color: var(--color-text-secondary, rgba(255, 255, 255, 0.5));
+  color: var(--color-text-secondary);
 }

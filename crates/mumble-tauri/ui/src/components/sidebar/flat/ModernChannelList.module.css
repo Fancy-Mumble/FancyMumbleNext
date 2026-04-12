@@ -18,16 +18,16 @@
 
 .channelCard.selected {
   background: var(--color-glass-active);
-  border-color: rgba(42, 171, 238, 0.15);
+  border-color: var(--color-accent-medium);
 }
 
 .channelCard.current {
   background: linear-gradient(
     135deg,
-    rgba(42, 171, 238, 0.15),
+    var(--color-accent-medium),
     rgba(122, 58, 237, 0.10)
   );
-  border-color: rgba(42, 171, 238, 0.25);
+  border-color: var(--color-accent-fill);
 }
 
 /* --- Header row ------------------------------------------------- */
@@ -90,14 +90,14 @@
 
 .listenBadge {
   margin-left: 4px;
-  color: var(--color-accent, #2aabee);
+  color: var(--color-accent);
   vertical-align: middle;
 }
 
 .memberCount {
   font-size: 11px;
-  color: var(--color-text-muted, #888);
-  background: var(--color-glass, rgba(255, 255, 255, 0.06));
+  color: var(--color-text-muted);
+  background: var(--color-glass);
   padding: 1px 6px;
   border-radius: 10px;
   flex-shrink: 0;
@@ -108,7 +108,7 @@
   height: 18px;
   padding: 0 5px;
   border-radius: 9px;
-  background: var(--color-accent, #2aabee);
+  background: var(--color-accent);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -156,7 +156,7 @@
 
 .overflowCount {
   font-size: 10px;
-  color: var(--color-text-muted, #888);
+  color: var(--color-text-muted);
   margin-left: 2px;
 }
 
@@ -224,7 +224,7 @@
 }
 
 .statusIcon {
-  color: var(--color-text-muted, #888);
+  color: var(--color-text-muted);
   flex-shrink: 0;
   opacity: 0.7;
 }
@@ -238,7 +238,7 @@
   padding: 1px 5px;
   border-radius: 4px;
   background: rgba(237, 66, 69, 0.15);
-  color: #ed4245;
+  color: var(--color-danger-alt);
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
@@ -258,9 +258,9 @@
   position: sticky;
   top: 0;
   z-index: 10;
-  background: var(--color-bg-secondary, #1e1e2e);
+  background: var(--color-bg-secondary);
   padding-bottom: 2px;
-  border-bottom: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.06));
+  border-bottom: 1px solid var(--color-glass-border);
   border-radius: var(--radius-md, 8px);
   overflow: hidden;
 }

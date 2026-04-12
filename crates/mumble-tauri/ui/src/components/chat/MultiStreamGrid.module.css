@@ -27,14 +27,14 @@
   width: 100%;
   border: none;
   background: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--color-glass-subtle);
   cursor: pointer;
   text-align: left;
   transition: background 0.15s;
 }
 
 .gridHeader:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--color-glass-border);
   color: var(--color-text-primary);
 }
 
@@ -60,10 +60,10 @@
 .card {
   display: flex;
   flex-direction: column;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--color-glass-border);
   border-radius: 10px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-glass);
   cursor: pointer;
   padding: 0;
   text-align: left;
@@ -73,7 +73,7 @@
 .card:hover {
   transform: translateY(-2px) scale(1.01);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
-  border-color: rgba(255, 255, 255, 0.12);
+  border-color: var(--color-glass-strong);
 }
 
 .card:focus-visible {
@@ -86,7 +86,7 @@
 .cardThumb {
   position: relative;
   aspect-ratio: 16 / 9;
-  background: #111;
+  background: var(--color-surface-streaming);
   overflow: hidden;
 }
 
@@ -103,7 +103,7 @@
   justify-content: center;
   width: 100%;
   height: 100%;
-  color: rgba(255, 255, 255, 0.12);
+  color: var(--color-glass-strong);
 }
 
 /* Hover overlay with play button */
@@ -129,11 +129,11 @@
   height: 52px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.92);
-  color: #111;
+  color: var(--color-surface-streaming);
   opacity: 0;
   transform: scale(0.7);
   transition: opacity 0.15s ease, transform 0.15s ease;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 16px var(--color-overlay-strong);
 }
 
 .card:hover .playBtn {
@@ -148,7 +148,7 @@
   left: 8px;
   padding: 2px 6px;
   border-radius: 4px;
-  background: #ed4245;
+  background: var(--color-danger-alt);
   color: #fff;
   font-size: 9px;
   font-weight: 700;

@@ -18,16 +18,16 @@
 }
 
 .channelRow:hover {
-  background: var(--color-glass-hover, rgba(255, 255, 255, 0.04));
+  background: var(--color-glass-hover);
 }
 
 .channelRow.selected {
-  background: var(--color-glass-active, rgba(255, 255, 255, 0.08));
+  background: var(--color-glass-active);
 }
 
 .channelRow.current {
-  background: rgba(42, 171, 238, 0.08);
-  box-shadow: inset 3px 0 0 var(--color-accent, #2aabee);
+  background: var(--color-accent-subtle);
+  box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
 /* --- Main row (icon + name + meta) ----------------------------- */
@@ -60,12 +60,12 @@
 }
 
 .channelIconCurrent {
-  border-color: var(--color-accent, #2aabee);
-  box-shadow: 0 0 0 3px rgba(42, 171, 238, 0.2);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-strong);
 }
 
 .channelIconFallback {
-  background: var(--color-glass, rgba(255, 255, 255, 0.08));
+  background: var(--color-glass);
 }
 
 .channelIconImg {
@@ -117,7 +117,7 @@
 }
 
 .listenBadge {
-  color: var(--color-accent, #2aabee);
+  color: var(--color-accent);
   display: inline-flex;
   align-items: center;
 }
@@ -137,7 +137,7 @@
   height: 18px;
   padding: 0 5px;
   border-radius: 9px;
-  background: var(--color-accent, #2aabee);
+  background: var(--color-accent);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -152,9 +152,9 @@
   height: 22px;
   padding: 0 6px;
   border-radius: 11px;
-  background: var(--color-glass, rgba(255, 255, 255, 0.06));
-  color: var(--color-text-muted, #888);
-  border: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.08));
+  background: var(--color-glass);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-glass-border);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
@@ -165,7 +165,7 @@
 }
 
 .memberCountBtn:hover {
-  background: var(--color-glass-hover, rgba(255, 255, 255, 0.1));
+  background: var(--color-glass-hover);
   color: var(--color-text-primary, #e0e0e0);
 }
 
@@ -195,7 +195,7 @@
 }
 
 .memberRow:hover {
-  background: var(--color-glass-hover, rgba(255, 255, 255, 0.05));
+  background: var(--color-glass-hover);
 }
 
 .memberTalking {
@@ -245,7 +245,7 @@
   padding: 1px 5px;
   border-radius: 4px;
   background: rgba(237, 66, 69, 0.15);
-  color: #ed4245;
+  color: var(--color-danger-alt);
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
@@ -265,7 +265,7 @@
   position: sticky;
   top: 0;
   z-index: 10;
-  background: var(--color-bg-secondary, #1e1e2e);
+  background: var(--color-bg-secondary);
   margin-bottom: 6px;
   border-radius: 10px;
   overflow: hidden;

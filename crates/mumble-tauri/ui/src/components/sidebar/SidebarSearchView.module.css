@@ -15,8 +15,8 @@
   gap: 6px;
   padding: 6px 12px;
   border-bottom: 1px solid var(--color-glass-border);
-  background: rgba(42, 171, 238, 0.06);
-  color: var(--color-accent, #2aabee);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
   font-size: 12px;
   font-weight: 500;
   flex-shrink: 0;
@@ -58,7 +58,7 @@
 }
 
 .filterTabActive {
-  color: var(--color-accent, #2aabee);
+  color: var(--color-accent);
   background: rgba(42, 171, 238, 0.1);
 }
 
@@ -137,23 +137,23 @@
 }
 
 .resultIconChannel {
-  background: rgba(42, 171, 238, 0.12);
-  color: var(--color-accent, #2aabee);
+  background: var(--color-accent-light);
+  color: var(--color-accent);
 }
 
 .resultIconUser {
-  background: rgba(76, 175, 80, 0.12);
-  color: #4caf50;
+  background: var(--color-search-user-bg);
+  color: var(--color-search-user);
 }
 
 .resultIconGroup {
-  background: rgba(171, 71, 188, 0.12);
-  color: #ab47bc;
+  background: var(--color-search-group-bg);
+  color: var(--color-search-group);
 }
 
 .resultIconMessage {
-  background: rgba(255, 167, 38, 0.12);
-  color: #ffa726;
+  background: var(--color-search-message-bg);
+  color: var(--color-search-message);
 }
 
 .resultText {

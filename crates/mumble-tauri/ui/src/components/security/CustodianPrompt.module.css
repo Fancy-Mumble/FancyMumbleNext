@@ -7,7 +7,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--color-overlay-heavy);
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
   border: none;
@@ -24,10 +24,10 @@
   max-width: 95vw;
   max-height: 80vh;
   overflow-y: auto;
-  background: var(--color-surface, #1e1e2e);
+  background: var(--color-surface);
   border: 1px solid var(--color-glass-border);
   border-radius: 14px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 20px 60px var(--color-overlay-strong);
 }
 
 .header {
@@ -59,7 +59,7 @@
 }
 
 .closeBtn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-glass-hover);
 }
 
 .body {
@@ -114,11 +114,11 @@
 /* --- Change indicators ------------------------------------------ */
 
 .changeAdded {
-  border-left: 3px solid #22c55e;
+  border-left: 3px solid var(--color-online);
 }
 
 .changeRemoved {
-  border-left: 3px solid #ef4444;
+  border-left: 3px solid var(--color-danger);
   opacity: 0.7;
 }
 
@@ -131,13 +131,13 @@
 }
 
 .badgeAdded {
-  background: rgba(34, 197, 94, 0.1);
-  color: #22c55e;
+  background: var(--color-online-bg);
+  color: var(--color-online);
 }
 
 .badgeRemoved {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
 }
 
 /* --- Warning ----------------------------------------------------- */
@@ -159,7 +159,7 @@
 .warningIcon {
   width: 16px;
   height: 16px;
-  color: #eab308;
+  color: var(--color-warning);
   flex-shrink: 0;
   margin-top: 1px;
 }
@@ -187,14 +187,14 @@
 }
 
 .btnSecondary:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--color-glass-border);
 }
 
 .btnPrimary {
   padding: 8px 18px;
   border-radius: 8px;
-  border: 1px solid rgba(42, 171, 238, 0.35);
-  background: linear-gradient(135deg, rgba(42, 171, 238, 0.15), rgba(34, 158, 217, 0.10));
+  border: 1px solid var(--color-accent-border-strong);
+  background: linear-gradient(135deg, var(--color-accent-medium), var(--color-accent-gradient-end));
   color: var(--color-accent);
   font-size: 13px;
   font-weight: 600;
@@ -203,7 +203,7 @@
 }
 
 .btnPrimary:hover {
-  background: linear-gradient(135deg, rgba(42, 171, 238, 0.25), rgba(34, 158, 217, 0.18));
+  background: linear-gradient(135deg, var(--color-accent-fill), rgba(34, 158, 217, 0.18));
 }
 
 /* --- Mobile ----------------------------------------------------- */

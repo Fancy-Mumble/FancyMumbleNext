@@ -11,6 +11,6 @@
 .cardWrap > div {
   width: 100% !important;
   border-radius: 0;
-  background: var(--color-bg-secondary, #141422);
+  background: var(--color-bg-secondary);
   border: none;
 }

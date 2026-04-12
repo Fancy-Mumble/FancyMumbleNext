@@ -28,12 +28,12 @@
 
 .cardOwn .option:hover:not(:disabled) {
   border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-glass-hover);
 }
 
 .cardOwn .option.selected {
   border-color: #fff;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--color-glass-strong);
 }
 
 .cardOwn .optionPct {
@@ -41,7 +41,7 @@
 }
 
 .cardOwn .fill {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--color-glass-heavy);
 }
 
 .cardOwn .creatorInfo {
@@ -54,7 +54,7 @@
 }
 
 .cardOwn .voterNames {
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--color-text-secondary);
 }
 
 /* --- Header ----------------------------------------------------- */
@@ -120,13 +120,13 @@
 }
 
 .option:hover:not(:disabled) {
-  border-color: rgba(42, 171, 238, 0.3);
+  border-color: var(--color-accent-glow);
   background: rgba(42, 171, 238, 0.05);
 }
 
 .option.selected {
   border-color: var(--color-accent);
-  background: rgba(42, 171, 238, 0.08);
+  background: var(--color-accent-subtle);
 }
 
 .option.voted {
@@ -143,7 +143,7 @@
   left: 0;
   top: 0;
   bottom: 0;
-  background: rgba(42, 171, 238, 0.12);
+  background: var(--color-accent-light);
   transition: width 0.4s ease-out;
   border-radius: var(--radius-md);
   pointer-events: none;
@@ -191,7 +191,7 @@
   width: 100%;
   padding: 7px;
   border: none;
-  background: linear-gradient(135deg, var(--color-accent), #229ed9);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-hover));
   color: white;
   border-radius: var(--radius-md);
   font-size: 13px;

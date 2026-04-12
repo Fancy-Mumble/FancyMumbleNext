@@ -52,13 +52,13 @@
 }
 
 .removeBtn {
-  color: var(--color-danger, #ef4444);
-  border-color: rgba(239, 68, 68, 0.2);
+  color: var(--color-danger);
+  border-color: var(--color-danger-border);
 }
 
 .removeBtn:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.3);
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger-border-strong);
 }
 
 .removeBtn:disabled {
@@ -67,13 +67,13 @@
 }
 
 .saveBtn {
-  color: var(--color-accent, #2aabee);
-  border-color: rgba(42, 171, 238, 0.3);
-  background: rgba(42, 171, 238, 0.08);
+  color: var(--color-accent);
+  border-color: var(--color-accent-glow);
+  background: var(--color-accent-subtle);
 }
 
 .saveBtn:hover {
-  background: rgba(42, 171, 238, 0.15);
+  background: var(--color-accent-medium);
   border-color: rgba(42, 171, 238, 0.4);
 }
 
@@ -216,7 +216,7 @@
 .confirmText {
   font-size: 13px;
   font-weight: 500;
-  color: var(--color-danger, #ef4444);
+  color: var(--color-danger);
 }
 
 /* --- Split view (ban list) -------------------------------------- */
@@ -256,7 +256,7 @@
 
 .listItemActive {
   background: var(--color-glass-hover);
-  border-left: 3px solid var(--color-accent, #2aabee);
+  border-left: 3px solid var(--color-accent);
 }
 
 .listItemTitle {
@@ -437,7 +437,7 @@
 }
 
 .removeSmallBtn:hover {
-  color: var(--color-danger, #ef4444);
+  color: var(--color-danger);
 }
 
 /* --- Permission grid -------------------------------------------- */
@@ -655,7 +655,7 @@ button.aclCardHeader {
   width: 100%;
   padding: 8px 10px;
   border: none;
-  background: var(--color-card-header, rgba(255, 255, 255, 0.04));
+  background: var(--color-card-header);
   color: var(--color-text);
   font-size: 0.85rem;
   cursor: pointer;
@@ -677,7 +677,7 @@ button.aclCardHeader:hover {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  background: var(--color-card-header, rgba(255, 255, 255, 0.04));
+  background: var(--color-card-header);
   border-radius: 6px 6px 0 0;
 }
 
@@ -712,7 +712,7 @@ button.aclCardHeader:hover {
   padding: 2px 8px;
   border-radius: 12px;
   font-size: 0.8rem;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-glass-hover);
   color: var(--color-text);
 }
 
@@ -728,7 +728,7 @@ button.aclCardHeader:hover {
   height: 16px;
   border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--color-glass-strong);
   color: var(--color-text-dim);
   font-size: 0.75rem;
   cursor: pointer;

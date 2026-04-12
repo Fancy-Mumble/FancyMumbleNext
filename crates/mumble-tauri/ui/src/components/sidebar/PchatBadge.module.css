@@ -15,15 +15,15 @@
 
 .fancy {
   background: rgba(177, 100, 230, 0.2);
-  color: #c88eff;
+  color: var(--color-badge-fancy);
 }
 
 .signal {
   background: rgba(58, 118, 240, 0.2);
-  color: #7aabff;
+  color: var(--color-badge-signal);
 }
 
 .server {
   background: rgba(50, 190, 140, 0.2);
-  color: #5cd6a8;
+  color: var(--color-badge-server);
 }

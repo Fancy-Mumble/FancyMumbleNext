@@ -36,7 +36,7 @@
   height: 52px;
   margin: 0 auto 12px;
   border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--color-accent), #7c3aed);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-purple));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -119,7 +119,7 @@
 .button {
   width: 100%;
   padding: 12px;
-  background: linear-gradient(135deg, var(--color-accent), #229ed9);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-hover));
   border: none;
   border-radius: var(--radius-md);
   color: white;
@@ -174,12 +174,12 @@
 }
 
 .modeOption:hover:not(.modeActive) {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--color-glass-subtle);
   color: var(--color-text-primary);
 }
 
 .modeActive {
-  background: var(--color-glass-active, rgba(255, 255, 255, 0.1));
+  background: var(--color-glass-active);
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
   color: var(--color-text-primary);
 }

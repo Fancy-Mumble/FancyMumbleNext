@@ -1,66 +1,6 @@
 /* --- Reset & Base ----------------------------------------------- */
 
-:root {
-  /* Palette */
-  --color-bg-primary: #0e0e16;
-  --color-bg-secondary: #141422;
-  --color-accent: #2aabee;
-  --color-accent-hover: #229ed9;
-  --color-accent-glow: rgba(42, 171, 238, 0.3);
-
-  --color-text-primary: #ffffff;
-  --color-text-secondary: rgba(255, 255, 255, 0.55);
-  --color-text-muted: rgba(255, 255, 255, 0.35);
-
-  --color-glass: rgba(255, 255, 255, 0.04);
-  --color-glass-hover: rgba(255, 255, 255, 0.08);
-  --color-glass-active: rgba(42, 171, 238, 0.12);
-  --color-glass-border: rgba(255, 255, 255, 0.06);
-  --color-glass-border-hover: rgba(255, 255, 255, 0.12);
-
-  --color-danger: #ef4444;
-  --color-online: #22c55e;
-
-  /* Glass effect */
-  --glass-blur: blur(24px) saturate(150%);
-
-  /* Radii */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
-
-  /* Shadows */
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.4);
-
-  /* Typography */
-  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter",
-    Roboto, sans-serif;
-
-  /* Layout */
-  --sidebar-width: 320px;
-  --titlebar-height: 40px;
-
-  /* Touch targets (minimum recommended size for mobile) */
-  --touch-target-min: 44px;
-}
-
-/*
- * Fallback for engines that parse but do not render backdrop-filter
- * (e.g. WebKitGTK on Linux). When the data attribute is set by the
- * runtime detection in platform.ts, swap the near-transparent glass
- * backgrounds for more opaque ones that look good without blur.
- */
-:root[data-no-backdrop-blur] {
-  --color-glass: rgba(20, 20, 40, 0.75);
-  --color-glass-hover: rgba(30, 30, 55, 0.8);
-  --color-glass-active: rgba(42, 171, 238, 0.2);
-  --color-glass-border: rgba(255, 255, 255, 0.1);
-  --color-glass-border-hover: rgba(255, 255, 255, 0.18);
-  --glass-blur: none;
-}
+@import "./theme.css";
 
 *,
 *::before,
@@ -100,9 +40,9 @@ body {
   display: flex;
   flex-direction: column;
   background:
-    radial-gradient(600px circle at calc(100% + 100px) -200px, rgba(42, 171, 238, 0.15), transparent 70%),
-    radial-gradient(500px circle at -100px calc(100% + 150px), rgba(124, 58, 237, 0.15), transparent 70%),
-    linear-gradient(135deg, #0e0e16 0%, #1a1a2e 50%, #16213e 100%);
+    radial-gradient(600px circle at calc(100% + 100px) -200px, var(--color-bg-app-glow-accent), transparent 70%),
+    radial-gradient(500px circle at -100px calc(100% + 150px), var(--color-bg-app-glow-purple), transparent 70%),
+    var(--color-bg-app-gradient);
   overflow: hidden;
   /* Respect mobile safe area insets (notch, home indicator, status bar) */
   padding-top: env(safe-area-inset-top, 0px);
@@ -116,7 +56,7 @@ body {
 /* Standards-based thin scrollbar (Firefox, future Chromium). */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  scrollbar-color: var(--color-scrollbar) transparent;
 }
 
 /* Webkit/Blink engines (current Chromium, Safari). */
@@ -129,12 +69,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--color-scrollbar);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--color-scrollbar-hover);
 }
 
 /* --- Input Reset ------------------------------------------------ */

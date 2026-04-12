@@ -20,7 +20,7 @@
   max-height: 85vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 16px 48px var(--color-overlay-medium);
   overflow-y: auto;
 }
 
@@ -50,7 +50,7 @@
   padding: 8px 12px;
   border: 1px solid var(--color-glass-border);
   border-radius: var(--radius-sm);
-  background: var(--color-bg-secondary, rgba(255, 255, 255, 0.05));
+  background: var(--color-bg-secondary);
   color: inherit;
   font: inherit;
   font-size: 14px;
@@ -59,7 +59,7 @@
 }
 
 .input:focus {
-  border-color: var(--color-accent, #2AABEE);
+  border-color: var(--color-accent);
 }
 
 .textarea {
@@ -93,7 +93,7 @@
 .checkbox {
   width: 18px;
   height: 18px;
-  accent-color: var(--color-accent, #2AABEE);
+  accent-color: var(--color-accent);
   cursor: pointer;
 }
 
@@ -155,7 +155,7 @@
   padding: 8px 20px;
   border-radius: var(--radius-sm);
   border: none;
-  background: var(--color-accent, #2AABEE);
+  background: var(--color-accent);
   color: #fff;
   cursor: pointer;
   font: inherit;

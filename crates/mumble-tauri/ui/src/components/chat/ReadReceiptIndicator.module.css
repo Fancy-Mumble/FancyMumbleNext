@@ -8,5 +8,5 @@
 }
 
 .read {
-  color: var(--color-accent-bright, #53bdeb);
+  color: var(--color-accent-bright);
 }

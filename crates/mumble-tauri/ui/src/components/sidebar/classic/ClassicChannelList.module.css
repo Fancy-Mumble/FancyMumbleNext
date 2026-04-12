@@ -17,10 +17,10 @@
 .currentChannel {
   background: linear-gradient(
     135deg,
-    rgba(42, 171, 238, 0.15),
+    var(--color-accent-medium),
     rgba(122, 58, 237, 0.10)
   );
-  border-color: rgba(42, 171, 238, 0.25);
+  border-color: var(--color-accent-fill);
 }
 
 .currentChannel:hover {
@@ -53,7 +53,7 @@
 
 .channelItem.active {
   background: var(--color-glass-active);
-  border-color: rgba(42, 171, 238, 0.15);
+  border-color: var(--color-accent-medium);
 }
 
 .channelInfo {
@@ -99,7 +99,7 @@
 
 .folderHeader.active {
   background: var(--color-glass-active);
-  border-color: rgba(42, 171, 238, 0.15);
+  border-color: var(--color-accent-medium);
 }
 
 .expandBtn {
@@ -260,7 +260,7 @@
   font-weight: 700;
   line-height: 1;
   color: #fff;
-  background: var(--color-accent, #2aabee);
+  background: var(--color-accent);
   box-shadow: 0 0 6px rgba(42, 171, 238, 0.4);
 }
 
@@ -268,7 +268,7 @@
   display: inline-flex;
   align-items: center;
   margin-left: 4px;
-  color: var(--color-accent, #2aabee);
+  color: var(--color-accent);
   opacity: 0.8;
   vertical-align: middle;
 }

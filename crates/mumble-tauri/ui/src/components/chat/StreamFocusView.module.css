@@ -110,7 +110,7 @@
   min-width: 0;
   position: relative;
   overflow: hidden;
-  background: #111;
+  background: var(--color-surface-streaming);
   border: none;
   padding: 0;
   cursor: pointer;
@@ -142,13 +142,13 @@
   justify-content: center;
   width: 100%;
   height: 100%;
-  color: rgba(255, 255, 255, 0.12);
+  color: var(--color-glass-strong);
 }
 
 .secondaryOverlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--color-overlay-heavy);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -162,12 +162,12 @@
   font-size: 13px;
   font-weight: 600;
   color: #fff;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  text-shadow: 0 1px 4px var(--color-overlay-dark);
 }
 
 .secondaryHint {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--color-text-button);
 }
 
 /* Picture-in-picture floating pane */
@@ -178,7 +178,7 @@
   width: 220px;
   height: 124px; /* 16:9 */
   border-radius: 8px;
-  border: 2px solid rgba(255, 255, 255, 0.15);
+  border: 2px solid var(--color-glass-heavy);
   z-index: 10;
   overflow: hidden;
   flex: none;
@@ -215,7 +215,7 @@
   padding: 0 10px;
   border: none;
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--color-overlay-heavy);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   color: rgba(255, 255, 255, 0.75);
@@ -227,7 +227,7 @@
 
 .layoutBtn:hover,
 .layoutBtnActive {
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--color-overlay-dark);
   color: #fff;
 }
 
@@ -237,7 +237,7 @@
   background: rgba(22, 22, 28, 0.95);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--color-glass-medium);
   border-radius: 12px;
   padding: 12px;
   min-width: 220px;
@@ -255,7 +255,7 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-text-muted, rgba(255, 255, 255, 0.35));
+  color: var(--color-text-muted);
   margin-bottom: 8px;
   padding: 0 2px;
 }
@@ -274,7 +274,7 @@
   padding: 9px 6px 7px;
   border: 1px solid transparent;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-glass);
   color: var(--color-text-muted, rgba(255, 255, 255, 0.4));
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, color 0.12s;
@@ -286,9 +286,9 @@
 }
 
 .layoutOptionActive {
-  border-color: var(--color-accent, #5865f2);
+  border-color: var(--color-accent);
   background: rgba(88, 101, 242, 0.15);
-  color: var(--color-accent, #5865f2);
+  color: var(--color-accent);
 }
 
 .layoutOptionLabel {
@@ -363,7 +363,7 @@
 
 /* Secondary pane highlighted when a dragged item is over it */
 .dragOver {
-  outline: 2px solid var(--color-accent, #5865f2);
+  outline: 2px solid var(--color-accent);
   outline-offset: -2px;
 }
 
@@ -387,7 +387,7 @@
 
 .primaryDropZoneActive {
   background: rgba(88, 101, 242, 0.2);
-  border: 2px dashed var(--color-accent, #5865f2);
+  border: 2px dashed var(--color-accent);
 }
 
 .primaryDropLabel {
@@ -397,14 +397,14 @@
   background: rgba(88, 101, 242, 0.8);
   padding: 6px 14px;
   border-radius: 20px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 2px 12px var(--color-overlay-heavy);
   pointer-events: none;
 }
 
 /* Drawer thumbnail highlighted when dragged over */
 .drawerThumbDragOver {
-  border-color: var(--color-accent, #5865f2);
-  box-shadow: 0 0 0 2px var(--color-accent, #5865f2);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent);
   transform: translateY(-3px);
 }
 
@@ -424,7 +424,7 @@
 .drawer {
   flex-shrink: 0;
   background: rgba(0, 0, 0, 0.72);
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--color-glass-border);
   overflow: hidden;
   transition: max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   max-height: 44px;
@@ -443,7 +443,7 @@
   height: 44px;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--color-text-secondary);
   cursor: pointer;
   font-size: 12px;
   transition: color 0.15s, background 0.15s;
@@ -451,7 +451,7 @@
 }
 
 .drawerToggle:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--color-glass-subtle);
   color: rgba(255, 255, 255, 0.9);
 }
 
@@ -491,7 +491,7 @@
   align-items: center;
   gap: 0;
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--color-glass-medium);
   border-radius: 6px;
   overflow: hidden;
   cursor: pointer;
@@ -508,7 +508,7 @@
   position: relative;
   width: 112px;
   height: 63px; /* 16:9 */
-  background: #111;
+  background: var(--color-surface-streaming);
   overflow: hidden;
   pointer-events: none;
 }
@@ -527,7 +527,7 @@
   justify-content: center;
   width: 100%;
   height: 100%;
-  color: rgba(255, 255, 255, 0.15);
+  color: var(--color-glass-heavy);
 }
 
 .drawerLiveBadge {
@@ -536,7 +536,7 @@
   left: 4px;
   padding: 1px 4px;
   border-radius: 3px;
-  background: #ed4245;
+  background: var(--color-danger-alt);
   color: #fff;
   font-size: 8px;
   font-weight: 700;
@@ -548,7 +548,7 @@
 .drawerThumbName {
   font-size: 10px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--color-text-button);
   padding: 3px 6px 4px;
   width: 112px;
   overflow: hidden;

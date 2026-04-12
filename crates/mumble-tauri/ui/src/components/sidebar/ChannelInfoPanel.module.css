@@ -33,7 +33,7 @@
 }
 
 .closeBtn:hover {
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--color-overlay-dark);
   color: var(--color-text-primary);
 }
 
@@ -55,7 +55,7 @@
   height: 48px;
   border-radius: 12px;
   background: var(--color-glass-hover);
-  color: var(--color-accent, #2aabee);
+  color: var(--color-accent);
   flex-shrink: 0;
 }
 
@@ -115,9 +115,9 @@
 }
 
 .editBtn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-glass-hover);
   color: var(--color-text-primary);
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: var(--color-glass-heavy);
 }
 
 /* -- Info grid --------------------------------------------------- */
@@ -174,7 +174,7 @@
 }
 
 .descriptionContent a {
-  color: #60a5fa;
+  color: var(--color-link);
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
@@ -215,7 +215,7 @@
 }
 
 .editInput:focus {
-  border-color: var(--color-accent, #2aabee);
+  border-color: var(--color-accent);
 }
 
 .editTextarea {
@@ -233,7 +233,7 @@
 }
 
 .editTextarea:focus {
-  border-color: var(--color-accent, #2aabee);
+  border-color: var(--color-accent);
 }
 
 .editActions {
@@ -255,16 +255,16 @@
 }
 
 .cancelBtn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-glass-hover);
   color: var(--color-text-primary);
 }
 
 .saveBtn {
   padding: 6px 14px;
-  border: 1px solid rgba(42, 171, 238, 0.35);
+  border: 1px solid var(--color-accent-border-strong);
   border-radius: 6px;
-  background: linear-gradient(135deg, rgba(42, 171, 238, 0.15), rgba(34, 158, 217, 0.10));
-  color: var(--color-accent, #2aabee);
+  background: linear-gradient(135deg, var(--color-accent-medium), var(--color-accent-gradient-end));
+  color: var(--color-accent);
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -273,7 +273,7 @@
 }
 
 .saveBtn:hover {
-  background: linear-gradient(135deg, rgba(42, 171, 238, 0.25), rgba(34, 158, 217, 0.18));
+  background: linear-gradient(135deg, var(--color-accent-fill), rgba(34, 158, 217, 0.18));
   border-color: rgba(42, 171, 238, 0.55);
 }
 
@@ -293,7 +293,7 @@
 }
 
 .welcomeText a {
-  color: var(--color-accent, #2aabee);
+  color: var(--color-accent);
   text-decoration: none;
 }
 
@@ -327,12 +327,12 @@
 
 .memberKeyIcon {
   flex-shrink: 0;
-  color: var(--color-success, #22c55e);
+  color: var(--color-success);
 }
 
 .memberWarningIcon {
   flex-shrink: 0;
-  color: var(--color-warning, #f59e0b);
+  color: var(--color-warning);
 }
 
 .emptyMembers {
@@ -416,14 +416,13 @@
 }
 
 .permBitOn {
-  background: rgba(76, 175, 80, 0.2);
-  color: #8cee8c;
+  background: var(--color-online-bg);
+  color: var(--color-online);
 }
 
 .permBitOff {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--color-text-secondary);
-  opacity: 0.5;
+  background: var(--color-glass-subtle);
+  color: var(--color-text-muted);
 }
 
 /* -- Key ownership takeover ------------------------------------- */
@@ -441,8 +440,8 @@
   padding: 6px 14px;
   border: 1px solid rgba(239, 68, 68, 0.35);
   border-radius: 6px;
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(220, 38, 38, 0.10));
-  color: #ef4444;
+  background: linear-gradient(135deg, var(--color-danger-strong), rgba(220, 38, 38, 0.10));
+  color: var(--color-danger);
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -486,7 +485,7 @@
 }
 
 .keyTakeoverOption input[type="radio"] {
-  accent-color: #ef4444;
+  accent-color: var(--color-danger);
 }
 
 .keyTakeoverHint {

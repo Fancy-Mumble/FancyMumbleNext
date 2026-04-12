@@ -4,6 +4,7 @@
  */
 
 import { load } from "@tauri-apps/plugin-store";
+import type { ThemeId } from "./themes";
 
 export type BubbleStyle = "bubbles" | "flat" | "compact";
 export type FontSize = "small" | "medium" | "large";
@@ -32,8 +33,12 @@ export interface PersonalizationData {
   /** Font family for chat messages. */
   fontFamily: string;
   /** Compact mode — hide avatars and tighten spacing. */
-  compactMode: boolean;  /** Channel sidebar viewer style. */
-  channelViewerStyle: ChannelViewerStyle;}
+  compactMode: boolean;
+  /** Channel sidebar viewer style. */
+  channelViewerStyle: ChannelViewerStyle;
+  /** Active color theme. */
+  theme: ThemeId;
+}
 
 const STORE_FILE = "personalization.json";
 const KEY = "data";
@@ -51,6 +56,7 @@ const DEFAULTS: PersonalizationData = {
   fontFamily: "system",
   compactMode: false,
   channelViewerStyle: "flat",
+  theme: "dark",
 };
 
 async function getStore() {
