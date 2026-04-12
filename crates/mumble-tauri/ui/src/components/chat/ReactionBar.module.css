@@ -16,8 +16,8 @@
   gap: 4px;
   padding: 2px 8px;
   border-radius: 12px;
-  border: 1px solid var(--border-color, #3f4147);
-  background: var(--bg-secondary, #2b2d31);
+  border: 1px solid var(--color-glass-border);
+  background: var(--color-glass-subtle);
   font-size: 0.8rem;
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s;
@@ -26,12 +26,12 @@
 }
 
 .pill:hover {
-  background: var(--bg-hover, #35373c);
+  background: var(--color-glass-hover);
 }
 
 .pillActive {
-  border-color: var(--accent, #5865f2);
-  background: rgba(88, 101, 242, 0.15);
+  border-color: var(--color-accent);
+  background: var(--color-accent-light);
 }
 
 .pillEmoji {
@@ -41,25 +41,25 @@
 
 .pillCount {
   font-size: 0.72rem;
-  color: var(--text-secondary, #949ba4);
+  color: var(--color-text-secondary);
   min-width: 8px;
   text-align: center;
 }
 
 .pillActive .pillCount {
-  color: var(--accent, #5865f2);
+  color: var(--color-accent);
 }
 
 .addBtn {
   composes: pill;
   padding: 2px 6px;
-  color: var(--text-secondary, #949ba4);
+  color: var(--color-text-secondary);
   border-style: dashed;
 }
 
 .addBtn:hover {
-  color: var(--text-primary, #dbdee1);
-  border-color: var(--text-secondary, #949ba4);
+  color: var(--color-text-primary);
+  border-color: var(--color-text-secondary);
 }
 
 /* ---- Tooltip ---- */
@@ -67,13 +67,13 @@
 .tooltip {
   position: fixed;
   z-index: 800;
-  background: var(--bg-primary, #1e1f22);
-  color: var(--text-secondary, #949ba4);
+  background: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
   font-size: 0.7rem;
   padding: 4px 8px;
   border-radius: 6px;
   pointer-events: none;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px var(--color-overlay-medium);
   max-width: 200px;
   white-space: nowrap;
   overflow: hidden;

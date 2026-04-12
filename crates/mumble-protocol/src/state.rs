@@ -20,13 +20,8 @@ pub enum PchatProtocol {
     /// No persistence.  Standard volatile Mumble chat.
     #[default]
     None,
-    /// `FancyV1` E2EE (XChaCha20-Poly1305, X25519/Ed25519) with
-    /// post-join visibility (epoch keys + chain ratchet).
-    FancyV1PostJoin,
     /// `FancyV1` E2EE with full-archive access (shared archive key).
     FancyV1FullArchive,
-    /// Server stores messages (no client-side key management).
-    ServerManaged,
     /// Signal Protocol E2EE (Double Ratchet / Sender Keys via libsignal).
     /// Post-join visibility with per-sender forward secrecy.
     SignalV1,
@@ -37,9 +32,7 @@ impl PchatProtocol {
     #[must_use]
     pub fn from_proto(value: i32) -> Self {
         match value {
-            1 => Self::FancyV1PostJoin,
             2 => Self::FancyV1FullArchive,
-            3 => Self::ServerManaged,
             4 => Self::SignalV1,
             _ => Self::None,
         }
@@ -50,9 +43,7 @@ impl PchatProtocol {
     pub fn to_proto(self) -> i32 {
         match self {
             Self::None => 0,
-            Self::FancyV1PostJoin => 1,
             Self::FancyV1FullArchive => 2,
-            Self::ServerManaged => 3,
             Self::SignalV1 => 4,
         }
     }
@@ -60,7 +51,7 @@ impl PchatProtocol {
     /// Whether this protocol uses post-join epoch key semantics.
     #[must_use]
     pub fn is_post_join(&self) -> bool {
-        matches!(self, Self::FancyV1PostJoin | Self::SignalV1)
+        matches!(self, Self::SignalV1)
     }
 
     /// Whether this protocol uses full-archive shared key semantics.
@@ -72,10 +63,7 @@ impl PchatProtocol {
     /// Whether this protocol uses client-side E2E encryption.
     #[must_use]
     pub fn is_encrypted(&self) -> bool {
-        matches!(
-            self,
-            Self::FancyV1PostJoin | Self::FancyV1FullArchive | Self::SignalV1
-        )
+        matches!(self, Self::FancyV1FullArchive | Self::SignalV1)
     }
 
     /// The E2EE algorithm version byte, or `None` if the protocol
@@ -83,9 +71,9 @@ impl PchatProtocol {
     #[must_use]
     pub fn protocol_version(&self) -> Option<u8> {
         match self {
-            Self::FancyV1PostJoin | Self::FancyV1FullArchive => Some(1),
+            Self::FancyV1FullArchive => Some(1),
             Self::SignalV1 => Some(2),
-            _ => None,
+            Self::None => None,
         }
     }
 }
@@ -94,9 +82,7 @@ impl fmt::Display for PchatProtocol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::None => write!(f, "None"),
-            Self::FancyV1PostJoin => write!(f, "FancyV1PostJoin"),
             Self::FancyV1FullArchive => write!(f, "FancyV1FullArchive"),
-            Self::ServerManaged => write!(f, "ServerManaged"),
             Self::SignalV1 => write!(f, "SignalV1"),
         }
     }

@@ -8,11 +8,6 @@ interface PchatBadgeInfo {
 }
 
 const BADGE_MAP: Record<string, PchatBadgeInfo> = {
-  fancy_v1_post_join: {
-    label: "Fancy",
-    className: styles.fancy,
-    title: "Fancy E2EE (post-join)",
-  },
   fancy_v1_full_archive: {
     label: "Fancy",
     className: styles.fancy,
@@ -22,11 +17,6 @@ const BADGE_MAP: Record<string, PchatBadgeInfo> = {
     label: "Signal",
     className: styles.signal,
     title: "Signal Protocol encryption",
-  },
-  server_managed: {
-    label: "Server",
-    className: styles.server,
-    title: "Server-managed persistence",
   },
 };
 

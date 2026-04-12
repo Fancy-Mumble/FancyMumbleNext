@@ -107,6 +107,20 @@ pub enum TcpMessageType {
     PchatReactionFetchResponse = 119,
     /// Fancy Mumble: WebRTC screen-sharing signaling relay.
     WebRtcSignal = 120,
+    /// Fancy Mumble: Signal sender key distribution (replaces `PluginData` relay).
+    PchatSenderKeyDistribution = 121,
+    /// Fancy Mumble: FCM push notification registration.
+    FancyPushRegister = 122,
+    /// Fancy Mumble: push notification mute preferences update.
+    FancyPushUpdate = 123,
+    /// Fancy Mumble: server broadcasts custom reaction/emoji config.
+    FancyCustomReactionsConfig = 124,
+    /// Fancy Mumble: live push subscribe for connected clients.
+    FancySubscribePush = 125,
+    /// Fancy Mumble: client sends a read receipt watermark.
+    FancyReadReceipt = 126,
+    /// Fancy Mumble: server broadcasts read receipt state.
+    FancyReadReceiptDeliver = 127,
 }
 
 impl TryFrom<u16> for TcpMessageType {
@@ -162,6 +176,13 @@ impl TryFrom<u16> for TcpMessageType {
             118 => Ok(Self::PchatReactionDeliver),
             119 => Ok(Self::PchatReactionFetchResponse),
             120 => Ok(Self::WebRtcSignal),
+            121 => Ok(Self::PchatSenderKeyDistribution),
+            122 => Ok(Self::FancyPushRegister),
+            123 => Ok(Self::FancyPushUpdate),
+            124 => Ok(Self::FancyCustomReactionsConfig),
+            125 => Ok(Self::FancySubscribePush),
+            126 => Ok(Self::FancyReadReceipt),
+            127 => Ok(Self::FancyReadReceiptDeliver),
             other => Err(crate::error::Error::UnknownMessageType(other)),
         }
     }
@@ -264,6 +285,20 @@ pub enum ControlMessage {
     PchatReactionFetchResponse(mumble_tcp::PchatReactionFetchResponse),
     /// Fancy Mumble: WebRTC screen-sharing signaling relay.
     WebRtcSignal(mumble_tcp::WebRtcSignal),
+    /// Fancy Mumble: Signal sender key distribution.
+    PchatSenderKeyDistribution(mumble_tcp::PchatSenderKeyDistribution),
+    /// Fancy Mumble: FCM push notification registration.
+    FancyPushRegister(mumble_tcp::FancyPushRegister),
+    /// Fancy Mumble: push notification mute preferences update.
+    FancyPushUpdate(mumble_tcp::FancyPushUpdate),
+    /// Fancy Mumble: server broadcasts custom reaction/emoji config.
+    FancyCustomReactionsConfig(mumble_tcp::FancyCustomReactionsConfig),
+    /// Fancy Mumble: live push subscribe for connected clients.
+    FancySubscribePush(mumble_tcp::FancySubscribePush),
+    /// Fancy Mumble: client sends a read receipt watermark.
+    FancyReadReceipt(mumble_tcp::FancyReadReceipt),
+    /// Fancy Mumble: server broadcasts read receipt state.
+    FancyReadReceiptDeliver(mumble_tcp::FancyReadReceiptDeliver),
     /// UDP audio tunneled through TCP (fallback path).
     UdpTunnel(Vec<u8>),
 }
@@ -343,6 +378,7 @@ mod tests {
             (118, TcpMessageType::PchatReactionDeliver),
             (119, TcpMessageType::PchatReactionFetchResponse),
             (120, TcpMessageType::WebRtcSignal),
+            (121, TcpMessageType::PchatSenderKeyDistribution),
         ];
 
         for (id, expected_type) in &expected {
@@ -388,13 +424,23 @@ mod tests {
             let msg_type = TcpMessageType::try_from(120u16).unwrap();
             assert_eq!(msg_type as u16, 120);
         }
+        // PchatSenderKeyDistribution ID (121)
+        {
+            let msg_type = TcpMessageType::try_from(121u16).unwrap();
+            assert_eq!(msg_type as u16, 121);
+        }
+        // FancyPushRegister (122) .. FancyReadReceiptDeliver (127)
+        for id in 122..=127u16 {
+            let msg_type = TcpMessageType::try_from(id).unwrap();
+            assert_eq!(msg_type as u16, id);
+        }
     }
 
     #[test]
     fn tcp_message_type_invalid_returns_error() {
         assert!(TcpMessageType::try_from(27u16).is_err());
         assert!(TcpMessageType::try_from(99u16).is_err());
-        assert!(TcpMessageType::try_from(121u16).is_err());
+        assert!(TcpMessageType::try_from(128u16).is_err());
         assert!(TcpMessageType::try_from(199u16).is_err());
         assert!(TcpMessageType::try_from(203u16).is_err());
         assert!(TcpMessageType::try_from(u16::MAX).is_err());

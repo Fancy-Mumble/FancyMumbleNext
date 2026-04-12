@@ -78,6 +78,13 @@ export function useChatScroll({
   /** Set of message IDs currently being restored from offload storage. */
   const [restoringKeys, setRestoringKeys] = useState<Set<string>>(new Set());
 
+  /**
+   * Pending unread count captured when switching to a channel that had
+   * unread messages.  Used to position the "new messages" divider on the
+   * first message batch after the switch.
+   */
+  const pendingUnreadRef = useRef(0);
+
   /** Instant scroll-to-bottom, updating the programmatic-scroll timestamp. */
   const scrollToBottom = useCallback((el: HTMLElement) => {
     stickToBottomRef.current = true;
@@ -161,6 +168,29 @@ export function useChatScroll({
     const isInitialBatch = prevFirstId === null;
     const el = messagesContainerRef.current;
 
+    // On the first batch after a channel switch, place the "new messages"
+    // divider if there were pending unreads.
+    if (isInitialBatch && pendingUnreadRef.current > 0 && count > pendingUnreadRef.current) {
+      const pending = pendingUnreadRef.current;
+      const dividerIdx = count - pending;
+      pendingUnreadRef.current = 0;
+      setLastReadIdx(dividerIdx);
+      setNewMsgCount(pending);
+
+      stickToBottomRef.current = false;
+      requestAnimationFrame(() => {
+        if (!el) return;
+        const dividerEl = el.querySelector('[aria-label="New messages"]');
+        if (dividerEl) {
+          dividerEl.scrollIntoView({ behavior: "instant", block: "center" });
+        } else {
+          scrollToBottom(el);
+        }
+      });
+      return;
+    }
+    pendingUnreadRef.current = 0;
+
     let atBottom: boolean;
     if (isInitialBatch) {
       atBottom = stickToBottomRef.current;
@@ -235,17 +265,26 @@ export function useChatScroll({
     };
   }, []);
 
-  // On channel / DM switch, reset scroll state and jump to bottom instantly.
+  // On channel / DM switch, reset scroll state.
+  // Capture the pending unread count so the initial message batch can
+  // place the "new messages" divider at the correct position.
   useEffect(() => {
+    const { unreadCounts, dmUnreadCounts } = useAppStore.getState();
+    if (selectedChannel !== null) {
+      pendingUnreadRef.current = unreadCounts[selectedChannel] ?? 0;
+    } else if (selectedDmUser !== null) {
+      pendingUnreadRef.current = dmUnreadCounts[selectedDmUser] ?? 0;
+    } else {
+      pendingUnreadRef.current = 0;
+    }
+
     setNewMsgCount(0);
     setLastReadIdx(null);
-    prevMsgCountRef.current = allMessages.length;
-    prevFirstMsgIdRef.current = allMessages.length > 0 ? (allMessages[0].message_id ?? null) : null;
-    stickToBottomRef.current = true;
-    requestAnimationFrame(() => {
-      const el = messagesContainerRef.current;
-      if (el) scrollToBottom(el);
-    });
+    // Reset to zero/null so the next message load is detected as an
+    // initial batch (prevFirstId === null).
+    prevMsgCountRef.current = 0;
+    prevFirstMsgIdRef.current = null;
+    stickToBottomRef.current = pendingUnreadRef.current === 0;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChannel, selectedDmUser, selectedGroup]);
 

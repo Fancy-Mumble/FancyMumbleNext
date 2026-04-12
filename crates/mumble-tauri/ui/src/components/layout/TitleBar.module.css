@@ -4,10 +4,10 @@
   justify-content: space-between;
   height: 40px;
   padding: 0 8px 0 16px;
-  background: rgba(14, 14, 22, 0.85);
+  background: var(--color-surface-titlebar);
   -webkit-backdrop-filter: blur(20px) saturate(150%);
   backdrop-filter: blur(20px) saturate(150%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--color-glass-border);
   position: relative;
   z-index: 9999;
   user-select: none;
@@ -65,7 +65,7 @@
   content: "";
   position: absolute;
   inset: 0;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--color-glass-subtle);
   opacity: 0;
   transition: opacity 0.15s ease;
 }
@@ -83,7 +83,7 @@
 }
 
 .controlBtn:active::before {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-glass-hover);
 }
 
 .closeBtn:hover {

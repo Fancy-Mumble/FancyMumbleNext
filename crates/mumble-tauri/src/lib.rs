@@ -176,18 +176,21 @@ fn stamp_text(rgba: &mut [u8], size: usize, text: &str) {
         for (row, &bits) in g.iter().enumerate() {
             for col in 0..glyph_w {
                 if bits & (1 << (glyph_w - 1 - col)) != 0 {
-                    let px = ox + col;
-                    let py = start_y + row;
-                    if px < size && py < size {
-                        let i = (py * size + px) * 4;
-                        rgba[i] = 255;     // R
-                        rgba[i + 1] = 255; // G
-                        rgba[i + 2] = 255; // B
-                        rgba[i + 3] = 255; // A
-                    }
+                    set_pixel(rgba, size, ox + col, start_y + row);
                 }
             }
         }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn set_pixel(rgba: &mut [u8], size: usize, px: usize, py: usize) {
+    if px < size && py < size {
+        let i = (py * size + px) * 4;
+        rgba[i] = 255;
+        rgba[i + 1] = 255;
+        rgba[i + 2] = 255;
+        rgba[i + 3] = 255;
     }
 }
 
@@ -357,6 +360,11 @@ async fn toggle_listen(
 #[tauri::command]
 fn get_listened_channels(state: tauri::State<'_, AppState>) -> Vec<u32> {
     state.listened_channels()
+}
+
+#[tauri::command]
+fn get_push_subscribed_channels(state: tauri::State<'_, AppState>) -> Vec<u32> {
+    state.push_subscribed_channels()
 }
 
 #[tauri::command]
@@ -904,6 +912,45 @@ async fn send_plugin_data(
     state.send_plugin_data(receiver_sessions, data, data_id).await
 }
 
+/// Update the per-channel push notification mute preferences on the server.
+#[tauri::command]
+async fn send_push_update(
+    state: tauri::State<'_, AppState>,
+    muted_channels: Vec<u32>,
+) -> Result<(), String> {
+    state.send_push_update(muted_channels).await
+}
+
+/// Send a live subscribe-push registration (or update) to the server.
+#[tauri::command]
+async fn send_subscribe_push(
+    state: tauri::State<'_, AppState>,
+    muted_channels: Vec<u32>,
+) -> Result<(), String> {
+    state.send_subscribe_push(muted_channels).await
+}
+
+/// Send a read receipt watermark to the server.
+#[tauri::command]
+async fn send_read_receipt(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    last_read_message_id: String,
+) -> Result<(), String> {
+    state
+        .send_read_receipt(channel_id, last_read_message_id)
+        .await
+}
+
+/// Query all read receipt states for a channel from the server.
+#[tauri::command]
+async fn query_read_receipts(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+) -> Result<(), String> {
+    state.query_read_receipts(channel_id).await
+}
+
 /// Send a WebRTC screen-sharing signaling message.
 ///
 /// `target_session` of 0 broadcasts to all channel members.
@@ -1083,7 +1130,7 @@ fn set_log_level(filter: String) -> Result<String, String> {
 async fn reset_app_data(app: tauri::AppHandle) -> Result<(), String> {
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     // Remove known data files.
-    for name in &["preferences.json", "servers.json"] {
+    for name in &["preferences.json", "servers.json", "passwords.json"] {
         let path = data_dir.join(name);
         if path.exists() {
             std::fs::remove_file(&path).map_err(|e| e.to_string())?;
@@ -1382,7 +1429,7 @@ async fn approve_key_share(
     use std::time::{SystemTime, UNIX_EPOCH};
 
     // Extract everything we need while holding the lock, then release it.
-    let (handle, exchange) = {
+    let (handle, exchange, share_requests_emit) = {
         let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
 
         // Remove the pending entry and capture its request_id.
@@ -1394,23 +1441,22 @@ async fn approve_key_share(
         let removed = shared.pending_key_shares.remove(idx);
         let request_id = removed.request_id;
 
-        // Emit updated pending list so frontend can remove the banner.
-        if let Some(ref app) = shared.tauri_app_handle {
-            use tauri::Emitter;
+        // Collect payload for deferred emit outside the lock.
+        let share_requests_emit = shared.tauri_app_handle.as_ref().map(|app| {
             let remaining: Vec<_> = shared
                 .pending_key_shares
                 .iter()
                 .filter(|p| p.channel_id == channel_id)
                 .cloned()
                 .collect();
-            let _ = app.emit(
-                "pchat-key-share-requests-changed",
+            (
+                app.clone(),
                 state::types::KeyShareRequestsChangedPayload {
                     channel_id,
                     pending: remaining,
                 },
-            );
-        }
+            )
+        });
 
         let pchat = shared.pchat.as_ref().ok_or("pchat not initialised")?;
 
@@ -1448,8 +1494,14 @@ async fn approve_key_share(
             .clone()
             .ok_or("not connected")?;
 
-        (handle, proto)
+        (handle, proto, share_requests_emit)
     };
+
+    // Emit outside the lock to avoid deadlock with Tauri IPC.
+    if let Some((app, payload)) = share_requests_emit {
+        use tauri::Emitter;
+        let _ = app.emit("pchat-key-share-requests-changed", payload);
+    }
 
     // Send the key exchange to the peer.
     handle
@@ -1487,28 +1539,35 @@ fn dismiss_key_share(
     channel_id: u32,
     peer_cert_hash: String,
 ) -> Result<(), String> {
-    let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
+    let share_requests_emit = {
+        let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
 
-    shared
-        .pending_key_shares
-        .retain(|p| !(p.channel_id == channel_id && p.peer_cert_hash == peer_cert_hash));
-
-    // Emit updated pending list so frontend can remove the banner.
-    if let Some(ref app) = shared.tauri_app_handle {
-        use tauri::Emitter;
-        let remaining: Vec<_> = shared
+        shared
             .pending_key_shares
-            .iter()
-            .filter(|p| p.channel_id == channel_id)
-            .cloned()
-            .collect();
-        let _ = app.emit(
-            "pchat-key-share-requests-changed",
-            state::types::KeyShareRequestsChangedPayload {
-                channel_id,
-                pending: remaining,
-            },
-        );
+            .retain(|p| !(p.channel_id == channel_id && p.peer_cert_hash == peer_cert_hash));
+
+        // Collect payload for deferred emit outside the lock.
+        shared.tauri_app_handle.as_ref().map(|app| {
+            let remaining: Vec<_> = shared
+                .pending_key_shares
+                .iter()
+                .filter(|p| p.channel_id == channel_id)
+                .cloned()
+                .collect();
+            (
+                app.clone(),
+                state::types::KeyShareRequestsChangedPayload {
+                    channel_id,
+                    pending: remaining,
+                },
+            )
+        })
+    };
+
+    // Emit outside the lock to avoid deadlock with Tauri IPC.
+    if let Some((app, payload)) = share_requests_emit {
+        use tauri::Emitter;
+        let _ = app.emit("pchat-key-share-requests-changed", payload);
     }
 
     Ok(())
@@ -1652,6 +1711,81 @@ async fn process_background(
 
 // --- Application bootstrap ---------------------------------------
 
+/// Probe whether a usable EGL display is available on this system.
+///
+/// Loads `libEGL.so.1` at runtime and calls `eglGetDisplay(EGL_DEFAULT_DISPLAY)`.
+/// Returns `true` only when the call succeeds and returns a non-null display.
+/// This avoids the hard `abort()` that `WebKitGTK` triggers when hardware
+/// acceleration is forced on a system without working EGL (VMs, containers,
+/// broken GPU drivers).
+#[cfg(target_os = "linux")]
+fn egl_display_available() -> bool {
+    const EGL_DEFAULT_DISPLAY: *mut std::ffi::c_void = std::ptr::null_mut();
+    const EGL_NO_DISPLAY: *mut std::ffi::c_void = std::ptr::null_mut();
+
+    #[allow(unsafe_code, reason = "probing EGL via dlopen/dlsym is inherently unsafe FFI")]
+    unsafe {
+        let lib = libc::dlopen(
+            c"libEGL.so.1".as_ptr(),
+            libc::RTLD_NOW | libc::RTLD_NOLOAD,
+        );
+        let lib = if lib.is_null() {
+            libc::dlopen(c"libEGL.so.1".as_ptr(), libc::RTLD_NOW)
+        } else {
+            lib
+        };
+        if lib.is_null() {
+            return false;
+        }
+        let sym = libc::dlsym(lib, c"eglGetDisplay".as_ptr());
+        if sym.is_null() {
+            let _ = libc::dlclose(lib);
+            return false;
+        }
+        let get_display: extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void =
+            std::mem::transmute(sym);
+        let display = get_display(EGL_DEFAULT_DISPLAY);
+        let _ = libc::dlclose(lib);
+        display != EGL_NO_DISPLAY
+    }
+}
+
+/// Configure `WebKitGTK` hardware acceleration and `WebGL`.
+///
+/// Forces `HardwareAccelerationPolicy::Always` when a working EGL display
+/// is detected so that CSS `backdrop-filter: blur()` renders correctly.
+/// Falls back to the default `OnDemand` policy otherwise.
+#[cfg(target_os = "linux")]
+fn configure_webkitgtk(app: &tauri::App) {
+    let Some(window) = app.get_webview_window("main") else {
+        tracing::warn!("WebKitGTK: main webview window not found in setup");
+        return;
+    };
+    let has_egl = egl_display_available();
+    let result = window.with_webview(move |webview| {
+        use webkit2gtk::{SettingsExt, WebViewExt};
+        let wv = webview.inner();
+        let Some(settings) = wv.settings() else {
+            tracing::warn!("WebKitGTK: could not get webview settings");
+            return;
+        };
+        if has_egl {
+            settings.set_hardware_acceleration_policy(
+                webkit2gtk::HardwareAccelerationPolicy::Always,
+            );
+            settings.set_enable_webgl(true);
+            tracing::info!("WebKitGTK: hardware acceleration set to Always, WebGL enabled");
+        } else {
+            tracing::warn!(
+                "WebKitGTK: EGL display not available, keeping default acceleration policy"
+            );
+        }
+    });
+    if let Err(e) = result {
+        tracing::warn!("WebKitGTK: with_webview failed: {e}");
+    }
+}
+
 /// Entry point for the Tauri application.
 ///
 /// Initialises the TLS crypto provider, sets up logging, registers all
@@ -1764,31 +1898,8 @@ pub fn run() {
                 linux_desktop::start_action_listener(app.handle().clone());
             }
 
-            // On Linux (WebKitGTK), force hardware-accelerated compositing so
-            // that CSS `backdrop-filter: blur()` actually renders.
             #[cfg(target_os = "linux")]
-            {
-                if let Some(window) = app.get_webview_window("main") {
-                    let result = window.with_webview(|webview| {
-                        use webkit2gtk::{SettingsExt, WebViewExt};
-                        let wv = webview.inner();
-                        if let Some(settings) = wv.settings() {
-                            settings.set_hardware_acceleration_policy(
-                                webkit2gtk::HardwareAccelerationPolicy::Always,
-                            );
-                            settings.set_enable_webgl(true);
-                            tracing::info!("WebKitGTK: hardware acceleration set to Always, WebGL enabled");
-                        } else {
-                            tracing::warn!("WebKitGTK: could not get webview settings");
-                        }
-                    });
-                    if let Err(e) = result {
-                        tracing::warn!("WebKitGTK: with_webview failed: {e}");
-                    }
-                } else {
-                    tracing::warn!("WebKitGTK: main webview window not found in setup");
-                }
-            }
+            configure_webkitgtk(app);
 
             // System tray icon with quick actions (desktop only).
             #[cfg(not(target_os = "android"))]
@@ -1816,6 +1927,7 @@ pub fn run() {
             get_current_channel,
             toggle_listen,
             get_listened_channels,
+            get_push_subscribed_channels,
             get_unread_counts,
             mark_channel_read,
             get_server_config,
@@ -1844,6 +1956,10 @@ pub fn run() {
             set_user_texture,
             get_own_session,
             send_plugin_data,
+            send_push_update,
+            send_subscribe_push,
+            send_read_receipt,
+            query_read_receipts,
             send_webrtc_signal,
             send_reaction,
             delete_pchat_messages,

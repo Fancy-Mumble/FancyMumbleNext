@@ -8,9 +8,11 @@
  * - BroadcastBanner: notification bar shown when someone else is sharing
  */
 import { useRef, useEffect, useMemo, useState, useCallback } from "react";
+import { useAppStore } from "../../store";
 import { useRemoteStream } from "./useScreenShare";
 import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
 import CloseIcon from "../../assets/icons/action/close.svg?react";
+import ErrorCircleIcon from "../../assets/icons/status/error-circle.svg?react";
 import PlayIcon from "../../assets/icons/status/play.svg?react";
 import PauseIcon from "../../assets/icons/status/pause.svg?react";
 import VolumeIcon from "../../assets/icons/audio/volume.svg?react";
@@ -169,6 +171,7 @@ interface OwnPreviewProps {
 function OwnBroadcastPreview({ stream }: OwnPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const webrtcConnecting = useAppStore((s) => s.webrtcConnecting);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -186,6 +189,16 @@ function OwnBroadcastPreview({ stream }: OwnPreviewProps) {
         muted
         className={styles.videoElement}
       />
+      {webrtcConnecting && (
+        <div className={styles.connectingOverlay}>
+          <div className={styles.connectingDots}>
+            <span className={styles.connectingDot} />
+            <span className={styles.connectingDot} />
+            <span className={styles.connectingDot} />
+          </div>
+          <span className={styles.connectingText}>Setting up stream...</span>
+        </div>
+      )}
       <StreamControls videoRef={videoRef} containerRef={containerRef} isOwnPreview />
     </div>
   );
@@ -195,15 +208,18 @@ function OwnBroadcastPreview({ stream }: OwnPreviewProps) {
 // Remote viewer - displays the WebRTC stream from the broadcaster
 // ---------------------------------------------------------------------------
 
-function RemoteViewer() {
+function RemoteViewer({ session }: { readonly session: number }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const remoteStream = useRemoteStream();
+  const remoteStream = useRemoteStream(session);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     video.srcObject = remoteStream;
+    if (remoteStream) {
+      video.play().catch(() => {});
+    }
     return () => { video.srcObject = null; };
   }, [remoteStream]);
 
@@ -214,7 +230,7 @@ function RemoteViewer() {
           <ScreenShareIcon className={styles.streamPlaceholderIcon} />
           <div className={styles.streamPlaceholderText}>
             <strong>Connecting...</strong>
-            Establishing peer connection
+            Waiting for stream
           </div>
         </div>
       )}
@@ -222,6 +238,7 @@ function RemoteViewer() {
         ref={videoRef}
         autoPlay
         playsInline
+        muted
         className={styles.videoElement}
         style={{ display: remoteStream ? "block" : "none" }}
       />
@@ -239,17 +256,20 @@ function RemoteViewer() {
 interface ScreenShareViewerProps {
   readonly isOwnBroadcast: boolean;
   readonly localStream: MediaStream | null;
+  /** Session ID of the broadcaster (required when isOwnBroadcast is false). */
+  readonly session?: number;
 }
 
 export default function ScreenShareViewer({
   isOwnBroadcast,
   localStream,
+  session,
 }: ScreenShareViewerProps) {
   return (
     <div className={styles.broadcastArea}>
       {isOwnBroadcast && localStream
         ? <OwnBroadcastPreview stream={localStream} />
-        : <RemoteViewer />}
+        : <RemoteViewer session={session ?? 0} />}
     </div>
   );
 }
@@ -342,5 +362,32 @@ export function BroadcastBanner({ broadcasters, onWatch }: BroadcastBannerProps)
         </div>
       ))}
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// WebRTC error banner - same inline style as BroadcastBanner
+// ---------------------------------------------------------------------------
+
+interface WebRtcErrorBannerProps {
+  readonly message: string;
+  readonly onDismiss: () => void;
+}
+
+export function WebRtcErrorBanner({ message, onDismiss }: WebRtcErrorBannerProps) {
+  return (
+    <div className={styles.broadcastBanner} role="alert">
+      <ErrorCircleIcon className={styles.broadcastBannerErrorIcon} width={14} height={14} />
+      <span className={styles.broadcastBannerText}>{message}</span>
+      <button
+        type="button"
+        className={styles.broadcastBannerDismiss}
+        onClick={onDismiss}
+        title="Dismiss"
+        aria-label="Dismiss"
+      >
+        <CloseIcon width={14} height={14} />
+      </button>
+    </div>
   );
 }

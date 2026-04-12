@@ -1,15 +1,16 @@
 use std::collections::HashMap;
 
+use fancy_utils::html::strip_html_tags;
 use mumble_protocol::proto::mumble_tcp;
 use tracing::{debug, warn};
 
 use super::{HandleMessage, HandlerContext};
-use crate::state::local_cache::CachedReaction;
+use crate::state::local_cache::{CachedReaction, LocalMessageCache};
 use crate::state::pchat;
 use crate::state::types::{
     KeyHoldersChangedPayload, NewMessagePayload, PchatFetchCompletePayload,
     PchatHistoryLoadingPayload, ReactionDeliverPayload, ReactionFetchResponsePayload,
-    StoredReactionPayload,
+    StoredReactionPayload, UnreadPayload,
 };
 
 impl HandleMessage for mumble_tcp::PchatMessageDeliver {
@@ -17,7 +18,88 @@ impl HandleMessage for mumble_tcp::PchatMessageDeliver {
         debug!("received PchatMessageDeliver");
         let channel_id = self.channel_id.unwrap_or(0);
         pchat::handle_proto_msg_deliver(&ctx.shared, self);
+
+        let (selected, app_focused, unreads_changed, sender_name, body, sender_session) = {
+            let Ok(mut state) = ctx.shared.lock() else {
+                warn!("shared state lock poisoned in PchatMessageDeliver");
+                return;
+            };
+
+            let selected = state.selected_channel;
+            let app_focused = state.app_focused;
+
+            let unreads_changed = if selected != Some(channel_id) {
+                *state.unread_counts.entry(channel_id).or_insert(0) += 1;
+                true
+            } else {
+                false
+            };
+
+            let sender_hash = self.sender_hash.as_deref().unwrap_or_default();
+            let sender_session = state
+                .users
+                .values()
+                .find(|u| u.hash.as_deref() == Some(sender_hash))
+                .map(|u| u.session);
+            let sender_name = sender_session
+                .and_then(|sid| state.users.get(&sid))
+                .map(|u| u.name.clone())
+                .unwrap_or_else(|| "Unknown".into());
+
+            let body = state
+                .messages
+                .get(&channel_id)
+                .and_then(|msgs| msgs.last())
+                .map(|m| m.body.clone())
+                .unwrap_or_default();
+
+            (selected, app_focused, unreads_changed, sender_name, body, sender_session)
+        };
+
         ctx.emit("new-message", NewMessagePayload { channel_id });
+
+        if unreads_changed {
+            let unreads = ctx
+                .shared
+                .lock()
+                .map(|s| s.unread_counts.clone())
+                .unwrap_or_default();
+            ctx.emit("unread-changed", UnreadPayload { unreads });
+        }
+
+        if selected != Some(channel_id) || !app_focused {
+            let channel_name = ctx
+                .shared
+                .lock()
+                .ok()
+                .and_then(|s| s.channels.get(&channel_id).map(|c| c.name.clone()));
+            let title = match channel_name {
+                Some(name) => format!("{sender_name} in #{name}"),
+                None => sender_name,
+            };
+            let icon = sender_session.and_then(|sid| {
+                ctx.shared
+                    .lock()
+                    .ok()?
+                    .users
+                    .get(&sid)?
+                    .texture
+                    .clone()
+            });
+            ctx.send_notification_with_icon(
+                &title,
+                &strip_html_tags(&body),
+                icon.as_deref(),
+                Some(channel_id),
+            );
+        }
+
+        if selected != Some(channel_id)
+            && ctx.shared.lock().is_ok_and(|s| s.permanently_listened.contains(&channel_id))
+        {
+            ctx.request_user_attention();
+        }
+
         ctx.emit_empty("state-changed");
     }
 }
@@ -91,7 +173,7 @@ impl HandleMessage for mumble_tcp::PchatKeyHoldersList {
         debug!("received PchatKeyHoldersList");
         let channel_id = self.channel_id.unwrap_or(0);
 
-        let holders = {
+        let (holders, share_requests_payload) = {
             let Ok(mut state) = ctx.shared.lock() else {
                 return;
             };
@@ -116,17 +198,11 @@ impl HandleMessage for mumble_tcp::PchatKeyHoldersList {
                         .values()
                         .find(|u| u.hash.as_deref() == Some(&cert_hash))
                         .map(|u| u.name.clone());
-                    let name = online_name.unwrap_or_else(|| {
-                        let server_name = entry.name.clone().unwrap_or_default();
-                        if !server_name.is_empty() && server_name != cert_hash {
-                            return server_name;
-                        }
-                        if let Some(ref resolver) = state.hash_name_resolver {
-                            resolver.resolve(&cert_hash)
-                        } else {
-                            cert_hash.clone()
-                        }
-                    });
+                    let name = online_name.unwrap_or_else(|| resolve_entry_name(
+                        &cert_hash,
+                        entry.name.as_deref().unwrap_or_default(),
+                        state.hash_name_resolver.as_deref(),
+                    ));
                     let is_online = online_hashes.contains(cert_hash.as_str());
                     crate::state::types::KeyHolderEntry {
                         cert_hash,
@@ -160,28 +236,35 @@ impl HandleMessage for mumble_tcp::PchatKeyHoldersList {
                 !(p.channel_id == channel_id && holder_hashes.contains(p.peer_cert_hash.as_str()))
             });
 
-            // Notify the frontend so it drops the stale "Share Key" banner.
-            if state.pending_key_shares.len() != before_len {
-                if let Some(ref app) = state.tauri_app_handle {
-                    use tauri::Emitter;
+            // Collect payload for deferred emit outside the lock.
+            let share_requests_payload = if state.pending_key_shares.len() != before_len {
+                state.tauri_app_handle.as_ref().map(|app| {
                     let remaining: Vec<_> = state
                         .pending_key_shares
                         .iter()
                         .filter(|p| p.channel_id == channel_id)
                         .cloned()
                         .collect();
-                    let _ = app.emit(
-                        "pchat-key-share-requests-changed",
+                    (
+                        app.clone(),
                         crate::state::types::KeyShareRequestsChangedPayload {
                             channel_id,
                             pending: remaining,
                         },
-                    );
-                }
-            }
+                    )
+                })
+            } else {
+                None
+            };
 
-            holders
+            (holders, share_requests_payload)
         };
+
+        // Emit outside the lock to avoid deadlock with Tauri IPC.
+        if let Some((app, payload)) = share_requests_payload {
+            use tauri::Emitter;
+            let _ = app.emit("pchat-key-share-requests-changed", payload);
+        }
 
         ctx.emit(
             "pchat-key-holders-changed",
@@ -224,6 +307,19 @@ impl HandleMessage for mumble_tcp::PchatOfflineQueueDrain {
         pchat::handle_proto_offline_queue_drain(&ctx.shared, self);
         ctx.emit("new-message", NewMessagePayload { channel_id });
         ctx.emit_empty("state-changed");
+    }
+}
+
+impl HandleMessage for mumble_tcp::PchatSenderKeyDistribution {
+    fn handle(&self, ctx: &HandlerContext) {
+        debug!("received PchatSenderKeyDistribution");
+        let sender_hash = self.sender_hash.clone().unwrap_or_default();
+        let channel_id = self.channel_id.unwrap_or(0);
+        let data = self.distribution.clone().unwrap_or_default();
+
+        if pchat::handle_signal_sender_key_by_hash(&ctx.shared, &sender_hash, channel_id, &data) {
+            ctx.emit_empty("state-changed");
+        }
     }
 }
 
@@ -271,28 +367,18 @@ impl HandleMessage for mumble_tcp::PchatReactionDeliver {
 
             if let Some(ref mut pchat_state) = state.pchat {
                 if let Some(ref mut cache) = pchat_state.local_cache {
-                    if action_str == "add" {
-                        cache.insert_reaction(
-                            channel_id,
-                            CachedReaction {
-                                message_id: message_id.clone(),
-                                emoji: emoji.clone(),
-                                sender_hash: sender_hash.clone(),
-                                sender_name: resolved_name,
-                                timestamp,
-                            },
-                        );
-                    } else {
-                        cache.remove_reaction(
-                            channel_id,
-                            &message_id,
-                            &emoji,
-                            &sender_hash,
-                        );
-                    }
-                    if let Err(e) = cache.save_reactions() {
-                        warn!("failed to save reaction cache: {e}");
-                    }
+                    upsert_cached_reaction(
+                        cache,
+                        channel_id,
+                        action_str,
+                        CachedReaction {
+                            message_id: message_id.clone(),
+                            emoji: emoji.clone(),
+                            sender_hash: sender_hash.clone(),
+                            sender_name: resolved_name,
+                            timestamp,
+                        },
+                    );
                 }
             }
         }
@@ -355,25 +441,7 @@ impl HandleMessage for mumble_tcp::PchatReactionFetchResponse {
 
             if let Some(ref mut pchat_state) = state.pchat {
                 if let Some(ref mut cache) = pchat_state.local_cache {
-                    for r in &reactions {
-                        let resolved = name_by_hash
-                            .get(&r.sender_hash)
-                            .cloned()
-                            .unwrap_or_else(|| r.sender_name.clone());
-                        cache.insert_reaction(
-                            channel_id,
-                            CachedReaction {
-                                message_id: r.message_id.clone(),
-                                emoji: r.emoji.clone(),
-                                sender_hash: r.sender_hash.clone(),
-                                sender_name: resolved,
-                                timestamp: r.timestamp,
-                            },
-                        );
-                    }
-                    if let Err(e) = cache.save_reactions() {
-                        warn!("failed to save reaction cache: {e}");
-                    }
+                    bulk_insert_cached_reactions(cache, channel_id, &reactions, &name_by_hash);
                 }
             }
         }
@@ -385,5 +453,64 @@ impl HandleMessage for mumble_tcp::PchatReactionFetchResponse {
                 reactions,
             },
         );
+    }
+}
+
+fn resolve_entry_name(
+    cert_hash: &str,
+    server_name: &str,
+    resolver: Option<&dyn crate::state::hash_names::HashNameResolver>,
+) -> String {
+    if !server_name.is_empty() && server_name != cert_hash {
+        return server_name.to_owned();
+    }
+    resolver.map_or_else(|| cert_hash.to_owned(), |r| r.resolve(cert_hash))
+}
+
+fn upsert_cached_reaction(
+    cache: &mut LocalMessageCache,
+    channel_id: u32,
+    action_str: &str,
+    reaction: CachedReaction,
+) {
+    if action_str == "add" {
+        cache.insert_reaction(channel_id, reaction);
+    } else {
+        cache.remove_reaction(
+            channel_id,
+            &reaction.message_id,
+            &reaction.emoji,
+            &reaction.sender_hash,
+        );
+    }
+    if let Err(e) = cache.save_reactions() {
+        warn!("failed to save reaction cache: {e}");
+    }
+}
+
+fn bulk_insert_cached_reactions(
+    cache: &mut LocalMessageCache,
+    channel_id: u32,
+    reactions: &[StoredReactionPayload],
+    name_by_hash: &HashMap<String, String>,
+) {
+    for r in reactions {
+        let resolved = name_by_hash
+            .get(&r.sender_hash)
+            .cloned()
+            .unwrap_or_else(|| r.sender_name.clone());
+        cache.insert_reaction(
+            channel_id,
+            CachedReaction {
+                message_id: r.message_id.clone(),
+                emoji: r.emoji.clone(),
+                sender_hash: r.sender_hash.clone(),
+                sender_name: resolved,
+                timestamp: r.timestamp,
+            },
+        );
+    }
+    if let Err(e) = cache.save_reactions() {
+        warn!("failed to save reaction cache: {e}");
     }
 }

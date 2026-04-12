@@ -4,11 +4,12 @@
  */
 
 import { load } from "@tauri-apps/plugin-store";
+import type { ThemeId } from "./themes";
 
 export type BubbleStyle = "bubbles" | "flat" | "compact";
 export type FontSize = "small" | "medium" | "large";
 export type BgFit = "cover" | "tile";
-export type ChannelViewerStyle = "classic" | "modern";
+export type ChannelViewerStyle = "classic" | "flat" | "modern";
 
 export interface PersonalizationData {
   /** Original (un-blurred) background image as data-URL, or null if none. */
@@ -32,8 +33,12 @@ export interface PersonalizationData {
   /** Font family for chat messages. */
   fontFamily: string;
   /** Compact mode — hide avatars and tighten spacing. */
-  compactMode: boolean;  /** Channel sidebar viewer style. */
-  channelViewerStyle: ChannelViewerStyle;}
+  compactMode: boolean;
+  /** Channel sidebar viewer style. */
+  channelViewerStyle: ChannelViewerStyle;
+  /** Active color theme. */
+  theme: ThemeId;
+}
 
 const STORE_FILE = "personalization.json";
 const KEY = "data";
@@ -50,7 +55,8 @@ const DEFAULTS: PersonalizationData = {
   fontSizeCustomPx: 14,
   fontFamily: "system",
   compactMode: false,
-  channelViewerStyle: "modern",
+  channelViewerStyle: "flat",
+  theme: "dark",
 };
 
 async function getStore() {

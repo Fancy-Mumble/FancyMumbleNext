@@ -26,10 +26,13 @@ import QuotePreviewStrip from "./QuotePreviewStrip";
 import { useChatSend } from "./useChatSend";
 import { useChatScroll } from "./useChatScroll";
 import { useMessageSelection } from "./useMessageSelection";
+import { useReadReceipts } from "./useReadReceipts";
 import { isMobile } from "../../utils/platform";
 import type { MessageScope } from "../../messageOffload";
 import { useScreenShare } from "./useScreenShare";
-import ScreenShareViewer, { BroadcastBanner } from "./ScreenShareViewer";
+import ScreenShareViewer, { BroadcastBanner, WebRtcErrorBanner } from "./ScreenShareViewer";
+import StreamFocusView from "./StreamFocusView";
+import MultiStreamGrid from "./MultiStreamGrid";
 import styles from "./ChatView.module.css";
 import { Lightbox, type LightboxHandle } from "../elements/Lightbox";
 
@@ -82,6 +85,9 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   const toggleSilenceChannel = useAppStore((s) => s.toggleSilenceChannel);
   const silencedChannels = useAppStore((s) => s.silencedChannels);
   const serverFancyVersion = useAppStore((s) => s.serverFancyVersion);
+  const sfuAvailable = useAppStore((s) => s.serverConfig.webrtc_sfu_available);
+  const webrtcError = useAppStore((s) => s.webrtcError);
+  const clearWebRtcError = useCallback(() => useAppStore.setState({ webrtcError: null }), []);
 
   // DM state
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
@@ -122,6 +128,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     fontFamily: "system",
     compactMode: false,
     channelViewerStyle: "modern",
+    theme: "dark",
   });
 
   useEffect(() => {
@@ -221,6 +228,19 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     return [...messages, ...channelPolls];
   }, [isGroupMode, groupMessages, isDmMode, dmMessages, messages, pollMessages, selectedChannel]);
 
+  // Ordered message IDs for read-receipt watermark comparison.
+  const allMessageIds = useMemo(
+    () => allMessages.map((m) => m.message_id).filter((id): id is string => id != null),
+    [allMessages],
+  );
+
+  // Auto-send read receipts and query on channel switch.
+  const lastMessageId = allMessageIds[allMessageIds.length - 1];
+  useReadReceipts(
+    isDmMode || isGroupMode ? null : selectedChannel,
+    lastMessageId,
+  );
+
   // --- Extracted hooks ---------------------------------------------
 
   const {
@@ -260,10 +280,11 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   const screenShare = useScreenShare();
 
   // Determine which screen share panel to show (own broadcast or watching someone).
-  const activeScreenShare = screenShare.isBroadcasting
-    ? { session: ownSession!, isOwn: true, stream: screenShare.localStream }
-    : screenShare.watchingSession !== null
-      ? { session: screenShare.watchingSession, isOwn: false, stream: null }
+  // watchingSession takes priority: a broadcaster can watch another stream.
+  const activeScreenShare = screenShare.watchingSession !== null
+    ? { session: screenShare.watchingSession, isOwn: false, stream: null }
+    : screenShare.isBroadcasting
+      ? { session: ownSession!, isOwn: true, stream: screenShare.localStream }
       : null;
 
   // Other users broadcasting in the current channel (for the notification banner).
@@ -275,6 +296,36 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         && u.session !== ownSession)
       .map((u) => ({ session: u.session, name: u.name }));
   }, [users, selectedChannel, screenShare.broadcastingSessions, ownSession]);
+
+  // Show StreamFocusView when watching someone, or broadcasting with others.
+  // Using a single instance keeps layout state stable across swap transitions.
+  const showFocusView = activeScreenShare !== null && (
+    !activeScreenShare.isOwn || channelBroadcasters.length > 0
+  );
+
+  // Secondary panels for the unified focus view.
+  const focusViewSecondaries = useMemo(() => {
+    if (!activeScreenShare) return [];
+    const secondaries: { session: number; name: string }[] = [];
+    if (!activeScreenShare.isOwn && screenShare.isBroadcasting && ownSession !== null) {
+      const ownName = users.find((u) => u.session === ownSession)?.name ?? "You";
+      secondaries.push({ session: ownSession, name: `${ownName} (you)` });
+    }
+    for (const b of channelBroadcasters) {
+      if (b.session !== activeScreenShare.session) {
+        secondaries.push(b);
+      }
+    }
+    return secondaries;
+  }, [activeScreenShare, screenShare.isBroadcasting, ownSession, users, channelBroadcasters]);
+
+  const handleFocusWatch = useCallback((session: number) => {
+    if (session === ownSession) {
+      screenShare.stopWatching();
+    } else {
+      screenShare.watchBroadcast(session);
+    }
+  }, [ownSession, screenShare.stopWatching, screenShare.watchBroadcast]);
 
   // Compute header values before any early returns (hooks can't be conditional).
   const [headerName, headerMemberCount] = computeHeader(
@@ -343,26 +394,52 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
               ? (screenShare.isBroadcasting ? screenShare.stopSharing : screenShare.startSharing)
               : undefined
           }
+          sfuAvailable={sfuAvailable}
           broadcastInfo={broadcastInfo}
         />
       )}
 
       <MobileCallControls />
 
-      {/* Screen share viewer panel */}
-      {activeScreenShare && (
+      {/* Solo own broadcast preview (no other broadcasters) */}
+      {activeScreenShare?.isOwn && activeScreenShare.stream && !showFocusView && (
         <ScreenShareViewer
-          isOwnBroadcast={activeScreenShare.isOwn}
+          isOwnBroadcast
           localStream={activeScreenShare.stream}
         />
       )}
 
-      {/* Notification banner when someone in the channel is sharing */}
-      {!activeScreenShare && channelBroadcasters.length > 0 && (
+      {/* Unified focus view: single instance keeps layout stable across swaps */}
+      {showFocusView && activeScreenShare && (
+        <StreamFocusView
+          isOwnBroadcast={activeScreenShare.isOwn}
+          localStream={activeScreenShare.isOwn ? activeScreenShare.stream : null}
+          session={activeScreenShare.isOwn ? undefined : activeScreenShare.session}
+          ownBroadcastStream={screenShare.isBroadcasting ? screenShare.localStream : null}
+          otherBroadcasters={focusViewSecondaries}
+          onWatch={handleFocusWatch}
+        />
+      )}
+
+      {/* Multi-stream grid: shown when 2+ broadcasters and we are not sharing or watching */}
+      {!activeScreenShare && channelBroadcasters.length > 1 && (
+        <MultiStreamGrid
+          broadcasters={channelBroadcasters}
+          onWatch={screenShare.watchBroadcast}
+        />
+      )}
+
+      {/* Single broadcaster notification banner */}
+      {!activeScreenShare && channelBroadcasters.length === 1 && (
         <BroadcastBanner
           broadcasters={channelBroadcasters}
           onWatch={screenShare.watchBroadcast}
         />
+      )}
+
+      {/* WebRTC error inline banner - same style as broadcast banner */}
+      {webrtcError && (
+        <WebRtcErrorBanner message={webrtcError} onDismiss={clearWebRtcError} />
       )}
 
       {/* Messages wrapper: position:relative so the key-share banner
@@ -501,8 +578,9 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onCite={handleCite}
           onCopyText={handleCopyText}
           reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
-          avatarBySession={avatarBySession}
           avatarByHash={avatarByHash}
+          allMessageIds={allMessageIds}
+          channelId={selectedChannel ?? undefined}
         />
       )}
       {msgContextMenu && isMobile && (
@@ -517,6 +595,9 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onCite={handleCite}
           onCopyText={handleCopyText}
           reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
+          allMessageIds={allMessageIds}
+          channelId={selectedChannel ?? undefined}
+          avatarByHash={avatarByHash}
         />
       )}
 
@@ -536,8 +617,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         />
       )}
 
-      {toast && <Toast {...toast} onDismiss={clearToast} />
-      }
+      {toast && <Toast {...toast} onDismiss={clearToast} />}
 
       {/* Emoji picker overlay */}
       {emojiPicker && (

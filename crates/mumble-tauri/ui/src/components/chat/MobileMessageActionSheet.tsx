@@ -1,6 +1,8 @@
 import { useCallback, useMemo } from "react";
 import type { ChatMessage } from "../../types";
 import type { ReactionSummary } from "./reactionStore";
+import { getReadersForMessage } from "./readReceiptStore";
+import { useAppStore } from "../../store";
 import { QUICK_REACTIONS } from "../elements/MessageActionBar";
 import MobileBottomSheet from "../elements/MobileBottomSheet";
 import EmojiPlusIcon from "../../assets/icons/communication/emoji-plus.svg?react";
@@ -40,6 +42,12 @@ interface MobileMessageActionSheetProps {
   readonly onCopyText?: (msg: ChatMessage) => void;
   /** Existing reactions on this message (for showing reactor names on mobile). */
   readonly reactions?: readonly ReactionSummary[];
+  /** Ordered message IDs for read-receipt watermark comparison. */
+  readonly allMessageIds?: string[];
+  /** Channel the message belongs to. */
+  readonly channelId?: number;
+  /** Avatar data-URLs keyed by cert hash. */
+  readonly avatarByHash?: ReadonlyMap<string, string>;
 }
 
 export default function MobileMessageActionSheet({
@@ -53,6 +61,9 @@ export default function MobileMessageActionSheet({
   onCite,
   onCopyText,
   reactions,
+  allMessageIds,
+  channelId,
+  avatarByHash,
 }: MobileMessageActionSheetProps) {
   const previewText = useMemo(() => {
     const text = stripHtml(message.body);
@@ -78,6 +89,24 @@ export default function MobileMessageActionSheet({
     },
     [message, onReaction, onClose],
   );
+
+  // Build list of users who read this message
+  const readReceiptVersion = useAppStore((s) => s.readReceiptVersion);
+  const ownSession = useAppStore((s) => s.ownSession);
+  const users = useAppStore((s) => s.users);
+  const ownHash = useMemo(() => users.find((u) => u.session === ownSession)?.hash, [users, ownSession]);
+
+  const isOwnWithId = message.is_own && !!message.message_id && channelId != null && !!allMessageIds;
+
+  const readerEntries = useMemo(() => {
+    const msgId = message.message_id;
+    if (!msgId || !message.is_own || channelId == null || !allMessageIds) return [];
+    const readers = getReadersForMessage(channelId, msgId, allMessageIds);
+    return readers
+      .filter((r) => r.cert_hash !== ownHash)
+      .map((r) => ({ name: r.name, avatarUrl: avatarByHash?.get(r.cert_hash) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [message, channelId, allMessageIds, avatarByHash, ownHash, readReceiptVersion]);
 
   return (
     <MobileBottomSheet open onClose={onClose} ariaLabel="Close message actions">
@@ -129,11 +158,7 @@ export default function MobileMessageActionSheet({
       {reactions && reactions.length > 0 && (
         <div className={styles.reactorList}>
           {reactions.map((r) => {
-            const names = [
-              ...r.reactorNames.values(),
-              ...r.reactorHashNames.values(),
-            ];
-            const unique = [...new Set(names)];
+            const unique = [...new Set(r.reactorHashNames.values())];
             if (unique.length === 0) return null;
             return (
               <div key={r.emoji} className={styles.reactorRow}>
@@ -142,6 +167,29 @@ export default function MobileMessageActionSheet({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Read by list */}
+      {isOwnWithId && (
+        <div className={styles.reactorList}>
+          <div className={styles.readByLabel}>Read by</div>
+          {readerEntries.length > 0 ? (
+            readerEntries.map((entry) => (
+              <div key={entry.name} className={styles.readByRow}>
+                {entry.avatarUrl ? (
+                  <img src={entry.avatarUrl} alt="" className={styles.readByAvatar} />
+                ) : (
+                  <div className={styles.readByAvatarFallback}>
+                    {entry.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <span className={styles.reactorNames}>{entry.name}</span>
+              </div>
+            ))
+          ) : (
+            <div className={styles.readByEmpty}>No one yet</div>
+          )}
         </div>
       )}
 

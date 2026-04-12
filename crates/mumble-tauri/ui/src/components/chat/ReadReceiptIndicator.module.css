@@ -1,0 +1,12 @@
+.indicator {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  color: rgba(255, 255, 255, 0.45);
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.read {
+  color: var(--color-accent-bright);
+}

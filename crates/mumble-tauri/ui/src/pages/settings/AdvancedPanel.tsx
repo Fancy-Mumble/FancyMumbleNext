@@ -1,5 +1,4 @@
 ﻿import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import type { UserMode, TimeFormat } from "../../types";
 import { Toggle } from "./SharedControls";
 import styles from "./SettingsPage.module.css";
@@ -13,14 +12,16 @@ const TIME_FORMAT_OPTIONS: { value: TimeFormat; label: string }[] = [
 export function AdvancedPanel({
   userMode,
   klipyApiKey,
-  enableNotifications,
   disableDualPath,
+  disableReadReceipts,
+  debugLogging,
   timeFormat,
   convertToLocalTime,
   onToggleMode,
   onKlipyApiKeyChange,
-  onToggleNotifications,
   onToggleDualPath,
+  onToggleReadReceipts,
+  onToggleDebugLogging,
   onTimeFormatChange,
   onConvertToLocalTimeChange,
   onToggleDeveloperMode,
@@ -28,32 +29,22 @@ export function AdvancedPanel({
 }: {
   userMode: UserMode;
   klipyApiKey: string;
-  enableNotifications: boolean;
   disableDualPath: boolean;
+  disableReadReceipts: boolean;
+  debugLogging: boolean;
   timeFormat: TimeFormat;
   convertToLocalTime: boolean;
   onToggleMode: () => void;
   onKlipyApiKeyChange: (key: string) => void;
-  onToggleNotifications: () => void;
   onToggleDualPath: () => void;
+  onToggleReadReceipts: () => void;
+  onToggleDebugLogging: () => void;
   onTimeFormatChange: (fmt: TimeFormat) => void;
   onConvertToLocalTimeChange: () => void;
   onToggleDeveloperMode: () => void;
   onReset: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const [debugLogging, setDebugLogging] = useState(false);
-
-  const toggleDebugLogging = async () => {
-    const next = !debugLogging;
-    const filter = next ? "debug" : "info";
-    try {
-      await invoke("set_log_level", { filter });
-      setDebugLogging(next);
-    } catch (e) {
-      console.error("Failed to set log level:", e);
-    }
-  };
 
   return (
     <>
@@ -125,30 +116,13 @@ export function AdvancedPanel({
               <h3 className={styles.sectionTitle}>Debug Logging</h3>
               <p className={styles.fieldHint}>
                 Enable verbose debug logging in the Rust backend. Useful for
-                diagnosing protocol and connection issues. Resets to info level
-                on app restart.
+                diagnosing protocol and connection issues.
               </p>
             </div>
-            <Toggle checked={debugLogging} onChange={toggleDebugLogging} />
+            <Toggle checked={debugLogging} onChange={onToggleDebugLogging} />
           </div>
         </section>
       )}
-
-      <section className={styles.section}>
-        <div className={styles.toggleRow}>
-          <div className={styles.toggleInfo}>
-            <h3 className={styles.sectionTitle}>Notifications</h3>
-            <p className={styles.fieldHint}>
-              Show native notifications for new messages when the app is in the
-              background.
-            </p>
-          </div>
-          <Toggle
-            checked={enableNotifications}
-            onChange={onToggleNotifications}
-          />
-        </div>
-      </section>
 
       <section className={styles.section}>
         <div className={styles.toggleRow}>
@@ -164,6 +138,21 @@ export function AdvancedPanel({
             </p>
           </div>
           <Toggle checked={disableDualPath} onChange={onToggleDualPath} />
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.toggleRow}>
+          <div className={styles.toggleInfo}>
+            <h3 className={styles.sectionTitle}>
+              Disable read receipts
+            </h3>
+            <p className={styles.fieldHint}>
+              When enabled, other users will not see that you have read their
+              messages. You will also not see read receipts from others.
+            </p>
+          </div>
+          <Toggle checked={disableReadReceipts} onChange={onToggleReadReceipts} />
         </div>
       </section>
 

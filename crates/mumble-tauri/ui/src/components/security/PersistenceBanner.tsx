@@ -12,8 +12,6 @@ interface PersistenceBannerProps {
 
 function modeDescription(mode: PersistenceMode): string {
   switch (mode) {
-    case "FANCY_V1_POST_JOIN":
-      return "Messages are visible from the moment you first joined this channel.";
     case "FANCY_V1_FULL_ARCHIVE":
       return "All stored messages are visible to channel members.";
     case "SIGNAL_V1":

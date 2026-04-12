@@ -1,0 +1,35 @@
+.logList {
+  max-height: 250px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.logEntry {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 2px 0;
+}
+
+.logTime {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.logMessage {
+  color: var(--color-text-primary);
+  word-break: break-word;
+}
+
+.empty {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin: 0;
+  text-align: center;
+  padding: 8px 0;
+}

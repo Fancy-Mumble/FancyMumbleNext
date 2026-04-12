@@ -909,23 +909,24 @@ async fn test_poll_multiple_senders_same_channel() {
         t_c.send(msg).await.unwrap();
     }
 
+    fn extract_poll_id(json: &str) -> Option<String> {
+        let start = json.find(r#""id":""#)?;
+        let rest = &json[start + 6..];
+        let end = rest.find('"')?;
+        Some(rest[..end].to_string())
+    }
+
     // Collect polls on each transport.
     async fn collect_polls(t: &mut TcpTransport, count: usize) -> Vec<String> {
         let mut ids = Vec::new();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         while ids.len() < count && tokio::time::Instant::now() < deadline {
             match tokio::time::timeout(Duration::from_secs(2), t.recv()).await {
-                Ok(Ok(ControlMessage::PluginDataTransmission(pd))) => {
-                    if pd.data_id.as_deref() == Some("fancy-poll") {
-                        let json = std::str::from_utf8(pd.data.as_deref().unwrap()).unwrap();
-                        // Extract the poll id.
-                        if let Some(start) = json.find(r#""id":""#) {
-                            let rest = &json[start + 6..];
-                            if let Some(end) = rest.find('"') {
-                                ids.push(rest[..end].to_string());
-                            }
-                        }
-                    }
+                Ok(Ok(ControlMessage::PluginDataTransmission(pd)))
+                    if pd.data_id.as_deref() == Some("fancy-poll") =>
+                {
+                    let json = std::str::from_utf8(pd.data.as_deref().unwrap()).unwrap();
+                    ids.extend(extract_poll_id(json));
                 }
                 Ok(Ok(_)) => continue,
                 _ => break,
@@ -1152,7 +1153,7 @@ async fn test_poll_mixed_channels_only_same_channel_receives() {
     for msg in &join.execute(&s_c).tcp_messages {
         t_c.send(msg).await.unwrap();
     }
-    // Wait for C's channel change.
+    // Wait for C's channel change on C's transport.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while tokio::time::Instant::now() < deadline {
         match tokio::time::timeout(Duration::from_secs(2), t_c.recv()).await {
@@ -1166,11 +1167,26 @@ async fn test_poll_mixed_channels_only_same_channel_receives() {
         }
     }
 
-    // Drain all transports.
+    // Also wait for A to see C's channel change so the server has fully
+    // propagated state before we send PluginData.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_secs(2), t_a.recv()).await {
+            Ok(Ok(ControlMessage::UserState(us))) => {
+                if us.session == Some(sc) && us.channel_id == Some(new_ch) {
+                    break;
+                }
+            }
+            Ok(Ok(_)) => continue,
+            _ => break,
+        }
+    }
+
+    // Drain remaining messages on all transports.
     for t in [&mut t_a, &mut t_b, &mut t_c] {
         let d = tokio::time::Instant::now() + Duration::from_millis(500);
         while tokio::time::Instant::now() < d {
-            match tokio::time::timeout(Duration::from_millis(200), t.recv()).await {
+            match tokio::time::timeout(Duration::from_millis(300), t.recv()).await {
                 Ok(Ok(_)) => {}
                 _ => break,
             }
@@ -1192,9 +1208,9 @@ async fn test_poll_mixed_channels_only_same_channel_receives() {
 
     // B (same channel as A) should receive the poll.
     let mut b_got = false;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
     while tokio::time::Instant::now() < deadline {
-        match tokio::time::timeout(Duration::from_secs(2), t_b.recv()).await {
+        match tokio::time::timeout(Duration::from_secs(3), t_b.recv()).await {
             Ok(Ok(ControlMessage::PluginDataTransmission(pd))) => {
                 if pd.data_id.as_deref() == Some("fancy-poll") {
                     b_got = true;
@@ -1210,9 +1226,9 @@ async fn test_poll_mixed_channels_only_same_channel_receives() {
     // C (different channel) ALSO receives it - Mumble delivers
     // PluginData to all listed sessions regardless of channel.
     let mut c_got = false;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
     while tokio::time::Instant::now() < deadline {
-        match tokio::time::timeout(Duration::from_secs(2), t_c.recv()).await {
+        match tokio::time::timeout(Duration::from_secs(3), t_c.recv()).await {
             Ok(Ok(ControlMessage::PluginDataTransmission(pd))) => {
                 if pd.data_id.as_deref() == Some("fancy-poll") {
                     c_got = true;
@@ -1363,15 +1379,13 @@ async fn test_channel_description_blob_request() {
     while tokio::time::Instant::now() < deadline {
         match tokio::time::timeout(Duration::from_secs(3), transport.recv()).await {
             Ok(Ok(ControlMessage::ChannelState(cs))) => {
-                if cs.channel_id == Some(channel_id) {
-                    if let Some(ref desc) = cs.description {
-                        assert_eq!(
-                            desc, &large_description,
-                            "description blob should match the original"
-                        );
-                        got_description = true;
-                        break;
-                    }
+                if let Some(desc) = cs.description.filter(|_| cs.channel_id == Some(channel_id)) {
+                    assert_eq!(
+                        desc, large_description,
+                        "description blob should match the original"
+                    );
+                    got_description = true;
+                    break;
                 }
             }
             Ok(Ok(_)) => continue,
@@ -1387,6 +1401,165 @@ async fn test_channel_description_blob_request() {
 
     drop(transport);
     drop(su);
+}
+
+// -- TextMessage message_id preservation tests ----------------------
+
+/// Regression test: the server must preserve a client-provided `message_id`
+/// in `TextMessage` rather than replacing it with a server-generated UUID.
+///
+/// Without this, each user ends up with a different `message_id` for the
+/// same message, causing reactions (keyed by `message_id`) to be invisible
+/// across users.
+#[tokio::test]
+async fn test_text_message_preserves_client_message_id() {
+    if !ensure_server_available().await {
+        return;
+    }
+
+    let (mut t1, state1) = connect_and_authenticate("MsgIdUser1").await;
+    let (mut t2, _state2) = connect_and_authenticate("MsgIdUser2").await;
+
+    // Drain any pending messages on t2 so we start clean.
+    let drain_deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+    while tokio::time::Instant::now() < drain_deadline {
+        if tokio::time::timeout(Duration::from_millis(200), t2.recv())
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
+
+    // User1 sends a TextMessage with a client-provided message_id.
+    let client_message_id = "client-uuid-deadbeef-1234";
+    let client_timestamp = 1_700_000_000_000_u64;
+    let cmd = SendTextMessage {
+        channel_ids: vec![0],
+        user_sessions: vec![],
+        tree_ids: vec![],
+        message: "hello with id".into(),
+        message_id: Some(client_message_id.to_owned()),
+        timestamp: Some(client_timestamp),
+    };
+    for msg in &cmd.execute(&state1).tcp_messages {
+        t1.send(msg).await.unwrap();
+    }
+
+    // User2 should receive the TextMessage with the SAME message_id.
+    // NOTE: `message_id` is a Fancy Mumble proto extension (field 6).
+    // Standard murmur reconstructs the TextMessage and drops unknown fields,
+    // so we separate "did User2 receive the message?" from "was message_id
+    // preserved?" to avoid a misleading panic.
+    let mut received_msg = false;
+    let mut received_id: Option<String> = None;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_secs(3), t2.recv()).await {
+            Ok(Ok(ControlMessage::TextMessage(tm))) => {
+                if tm.message.contains("hello with id") {
+                    received_msg = true;
+                    received_id = tm.message_id;
+                    break;
+                }
+            }
+            Ok(Ok(_)) => continue,
+            Ok(Err(e)) => panic!("recv error: {e}"),
+            Err(_) => break,
+        }
+    }
+
+    assert!(received_msg, "User2 should receive the TextMessage");
+
+    // If the server doesn't preserve message_id (standard murmur), skip.
+    let Some(received_id) = received_id else {
+        eprintln!(
+            "NOTE: server did not preserve message_id (standard murmur). \
+             Skipping assertion."
+        );
+        return;
+    };
+    assert_eq!(
+        received_id, client_message_id,
+        "server must preserve client-provided message_id, got {received_id}"
+    );
+
+    drop(t1);
+    drop(t2);
+}
+
+/// Verify the server still generates a `message_id` when the client omits it
+/// (legacy client compatibility).
+#[tokio::test]
+async fn test_text_message_generates_id_when_omitted() {
+    if !ensure_server_available().await {
+        return;
+    }
+
+    let (mut t1, state1) = connect_and_authenticate("MsgIdGen1").await;
+    let (mut t2, _state2) = connect_and_authenticate("MsgIdGen2").await;
+
+    let drain_deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+    while tokio::time::Instant::now() < drain_deadline {
+        if tokio::time::timeout(Duration::from_millis(200), t2.recv())
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
+
+    // Send without message_id (legacy client behaviour).
+    let cmd = SendTextMessage {
+        channel_ids: vec![0],
+        user_sessions: vec![],
+        tree_ids: vec![],
+        message: "hello no id".into(),
+        message_id: None,
+        timestamp: None,
+    };
+    for msg in &cmd.execute(&state1).tcp_messages {
+        t1.send(msg).await.unwrap();
+    }
+
+    // NOTE: `message_id` generation is a Fancy Mumble extension.  Standard
+    // murmur does not add a message_id, so we separate delivery from the
+    // extension assertion.
+    let mut received_msg = false;
+    let mut received_id: Option<String> = None;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_secs(3), t2.recv()).await {
+            Ok(Ok(ControlMessage::TextMessage(tm))) => {
+                if tm.message.contains("hello no id") {
+                    received_msg = true;
+                    received_id = tm.message_id;
+                    break;
+                }
+            }
+            Ok(Ok(_)) => continue,
+            Ok(Err(e)) => panic!("recv error: {e}"),
+            Err(_) => break,
+        }
+    }
+
+    assert!(received_msg, "User2 should receive the TextMessage");
+
+    // If the server doesn't generate a message_id (standard murmur), skip.
+    let Some(received_id) = received_id else {
+        eprintln!(
+            "NOTE: server did not generate a message_id (standard murmur). \
+             Skipping assertion."
+        );
+        return;
+    };
+    assert!(
+        !received_id.is_empty(),
+        "server should generate a non-empty message_id when the client omits it"
+    );
+
+    drop(t1);
+    drop(t2);
 }
 
 // -- Helpers --------------------------------------------------------

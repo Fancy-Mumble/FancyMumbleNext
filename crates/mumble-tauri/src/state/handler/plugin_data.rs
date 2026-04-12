@@ -1,9 +1,7 @@
-use mumble_protocol::persistent::DATA_ID_SIGNAL_SENDER_KEY;
 use mumble_protocol::proto::mumble_tcp;
 use tracing::debug;
 
 use super::{HandleMessage, HandlerContext};
-use crate::state::pchat;
 use crate::state::types::{GroupChat, GroupCreatedPayload, PluginDataPayload};
 
 // -- Per-data_id handlers ------------------------------------------
@@ -57,17 +55,8 @@ impl HandleMessage for mumble_tcp::PluginDataTransmission {
             "plugin data received"
         );
 
-        if let Some(data) = &self.data {
-            match self.data_id.as_deref() {
-                Some("fancy-group") => handle_fancy_group(data, ctx),
-                Some(DATA_ID_SIGNAL_SENDER_KEY) => {
-                    let sender = self.sender_session.unwrap_or(0);
-                    if pchat::handle_signal_sender_key(&ctx.shared, sender, data) {
-                        ctx.emit_empty("state-changed");
-                    }
-                }
-                _ => {}
-            }
+        if let (Some(data), Some("fancy-group")) = (&self.data, self.data_id.as_deref()) {
+            handle_fancy_group(data, ctx);
         }
 
         ctx.emit(

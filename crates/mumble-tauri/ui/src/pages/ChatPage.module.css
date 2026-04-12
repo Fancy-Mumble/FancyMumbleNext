@@ -56,7 +56,7 @@
     right: 0;
     bottom: 0;
     z-index: 199;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--color-overlay-heavy);
     border: none;
   }
 

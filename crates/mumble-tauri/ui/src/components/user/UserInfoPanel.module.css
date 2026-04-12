@@ -88,13 +88,13 @@
 
 /* Loss indicator colours */
 .lossGood {
-  color: var(--color-success, #22c55e);
+  color: var(--color-success);
 }
 
 .lossWarn {
-  color: var(--color-warning, #eab308);
+  color: var(--color-warning);
 }
 
 .lossBad {
-  color: var(--color-error, #ef4444);
+  color: var(--color-error);
 }

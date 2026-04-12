@@ -9,11 +9,13 @@ mod ban_list;
 mod channel_remove;
 mod channel_state;
 mod codec_version;
+mod custom_reactions_config;
 mod pchat;
 mod permission_denied;
 mod permission_query;
 mod ping;
 mod plugin_data;
+mod read_receipt;
 mod reject;
 mod server_config;
 mod server_sync;
@@ -147,9 +149,12 @@ pub(crate) fn dispatch(msg: &ControlMessage, ctx: &HandlerContext) {
         ControlMessage::PchatKeyChallengeResult(m) => m.handle(ctx),
         ControlMessage::PchatDeleteMessages(m) => m.handle(ctx),
         ControlMessage::PchatOfflineQueueDrain(m) => m.handle(ctx),
+        ControlMessage::PchatSenderKeyDistribution(m) => m.handle(ctx),
         ControlMessage::PchatReactionDeliver(m) => m.handle(ctx),
         ControlMessage::PchatReactionFetchResponse(m) => m.handle(ctx),
         ControlMessage::WebRtcSignal(m) => m.handle(ctx),
+        ControlMessage::FancyCustomReactionsConfig(m) => m.handle(ctx),
+        ControlMessage::FancyReadReceiptDeliver(m) => m.handle(ctx),
         ControlMessage::BanList(m) => m.handle(ctx),
         ControlMessage::UserList(m) => m.handle(ctx),
         ControlMessage::Acl(m) => m.handle(ctx),

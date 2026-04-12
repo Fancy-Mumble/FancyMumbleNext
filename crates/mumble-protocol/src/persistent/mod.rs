@@ -1,8 +1,9 @@
 //! Persistent encrypted chat for Fancy Mumble.
 //!
 //! This module implements the client-side architecture for persistent,
-//! end-to-end encrypted chat history. All communication flows through
-//! `PluginDataTransmission` with `dataID` values prefixed `fancy-pchat-`.
+//! end-to-end encrypted chat history. Communication uses native
+//! protobuf messages (`PchatMessage`, `PchatFetch`, etc.) defined in
+//! `Mumble.proto`.
 //!
 //! Core types: [`PchatProtocol`], [`StoredMessage`], [`MessageRange`].
 //! Provider trait: [`MessageProvider`] (in [`provider`]).
@@ -15,29 +16,6 @@ pub mod provider;
 pub mod wire;
 
 use serde::{Deserialize, Serialize};
-
-// ---- Data ID constants for PluginDataTransmission -------------------
-
-/// `dataID` for encrypted message storage.
-pub const DATA_ID_MSG: &str = "fancy-pchat-msg";
-/// `dataID` for stored message delivery (server to client).
-pub const DATA_ID_MSG_DELIVER: &str = "fancy-pchat-msg-deliver";
-/// `dataID` for fetch history request.
-pub const DATA_ID_FETCH: &str = "fancy-pchat-fetch";
-/// `dataID` for fetch history response.
-pub const DATA_ID_FETCH_RESP: &str = "fancy-pchat-fetch-resp";
-/// `dataID` for peer-to-peer key exchange.
-pub const DATA_ID_KEY_EXCHANGE: &str = "fancy-pchat-key-exchange";
-/// `dataID` for public key announcement.
-pub const DATA_ID_KEY_ANNOUNCE: &str = "fancy-pchat-key-announce";
-/// `dataID` for server-broadcast key request.
-pub const DATA_ID_KEY_REQUEST: &str = "fancy-pchat-key-request";
-/// `dataID` for key custodian countersignature.
-pub const DATA_ID_EPOCH_COUNTERSIG: &str = "fancy-pchat-epoch-countersig";
-/// `dataID` for server storage acknowledgement.
-pub const DATA_ID_ACK: &str = "fancy-pchat-ack";
-/// `dataID` for Signal sender key distribution message.
-pub const DATA_ID_SIGNAL_SENDER_KEY: &str = "fancy-pchat-signal-sender-key";
 
 // ---- Core domain types ----------------------------------------------
 
@@ -53,9 +31,7 @@ impl PchatProtocol {
     pub fn as_wire_str(&self) -> &'static str {
         match self {
             Self::None => "NONE",
-            Self::FancyV1PostJoin => "FANCY_V1_POST_JOIN",
             Self::FancyV1FullArchive => "FANCY_V1_FULL_ARCHIVE",
-            Self::ServerManaged => "SERVER_MANAGED",
             Self::SignalV1 => "SIGNAL_V1",
         }
     }
@@ -69,9 +45,7 @@ impl PchatProtocol {
     #[must_use]
     pub fn from_wire_str(s: &str) -> Self {
         match s {
-            "FANCY_V1_POST_JOIN" | "POST_JOIN" => Self::FancyV1PostJoin,
             "FANCY_V1_FULL_ARCHIVE" | "FULL_ARCHIVE" => Self::FancyV1FullArchive,
-            "SERVER_MANAGED" => Self::ServerManaged,
             "SIGNAL_V1" => Self::SignalV1,
             _ => Self::None,
         }
@@ -146,9 +120,7 @@ mod tests {
     fn pchat_protocol_proto_roundtrip() {
         for protocol in [
             PchatProtocol::None,
-            PchatProtocol::FancyV1PostJoin,
             PchatProtocol::FancyV1FullArchive,
-            PchatProtocol::ServerManaged,
             PchatProtocol::SignalV1,
         ] {
             assert_eq!(PchatProtocol::from_proto(protocol.to_proto()), protocol);
@@ -159,9 +131,7 @@ mod tests {
     fn pchat_protocol_wire_str_roundtrip() {
         for protocol in [
             PchatProtocol::None,
-            PchatProtocol::FancyV1PostJoin,
             PchatProtocol::FancyV1FullArchive,
-            PchatProtocol::ServerManaged,
             PchatProtocol::SignalV1,
         ] {
             assert_eq!(PchatProtocol::from_wire_str(protocol.as_wire_str()), protocol);
@@ -171,9 +141,7 @@ mod tests {
     #[test]
     fn pchat_protocol_is_encrypted() {
         assert!(!PchatProtocol::None.is_encrypted());
-        assert!(PchatProtocol::FancyV1PostJoin.is_encrypted());
         assert!(PchatProtocol::FancyV1FullArchive.is_encrypted());
-        assert!(!PchatProtocol::ServerManaged.is_encrypted());
         assert!(PchatProtocol::SignalV1.is_encrypted());
     }
 
@@ -190,9 +158,7 @@ mod tests {
     #[test]
     fn protocol_version_is_correct() {
         assert_eq!(PchatProtocol::None.protocol_version(), None);
-        assert_eq!(PchatProtocol::FancyV1PostJoin.protocol_version(), Some(1));
         assert_eq!(PchatProtocol::FancyV1FullArchive.protocol_version(), Some(1));
-        assert_eq!(PchatProtocol::ServerManaged.protocol_version(), None);
         assert_eq!(PchatProtocol::SignalV1.protocol_version(), Some(2));
     }
 }

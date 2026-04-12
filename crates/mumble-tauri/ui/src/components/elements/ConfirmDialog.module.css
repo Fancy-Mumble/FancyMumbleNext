@@ -5,7 +5,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--color-overlay-heavy);
   animation: fadeIn 0.12s ease-out;
 }
 
@@ -36,7 +36,7 @@
 }
 
 .titleDanger {
-  color: var(--color-danger, #e05252);
+  color: var(--color-danger);
 }
 
 .body {
@@ -76,7 +76,7 @@
   padding: 8px 16px;
   border-radius: var(--radius-sm);
   border: none;
-  background: var(--color-accent, #5865f2);
+  background: var(--color-accent);
   color: #fff;
   font: inherit;
   font-size: 13px;
@@ -90,5 +90,5 @@
 }
 
 .confirmBtnDanger {
-  background: var(--color-danger, #e05252);
+  background: var(--color-danger);
 }

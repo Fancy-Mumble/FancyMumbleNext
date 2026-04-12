@@ -64,6 +64,8 @@ pub(crate) fn load_signal_bridge(
 
     candidates.push(PathBuf::from(lib_name));
 
+    info!(?candidates, "signal bridge: searching for library");
+
     #[cfg(target_os = "android")]
     {
         for candidate in &candidates {
@@ -144,8 +146,14 @@ impl PchatState {
 pub(crate) fn ensure_signal_bridge_unlocked(shared: &Arc<Mutex<SharedState>>) -> bool {
     // Fast path: already loaded or already failed.
     {
-        let s = shared.lock().ok();
-        if let Some(pchat) = s.as_ref().and_then(|s| s.pchat.as_ref()) {
+        let s = match shared.lock() {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("ensure_signal_bridge: mutex poisoned (fast path): {e}");
+                return false;
+            }
+        };
+        if let Some(pchat) = s.pchat.as_ref() {
             if pchat.signal_bridge.is_some() {
                 return true;
             }
@@ -153,13 +161,20 @@ pub(crate) fn ensure_signal_bridge_unlocked(shared: &Arc<Mutex<SharedState>>) ->
                 return false;
             }
         } else {
+            warn!("ensure_signal_bridge: pchat state not initialised");
             return false;
         }
     }
 
     let (cert_hash, identity_dir) = {
-        let s = shared.lock().ok();
-        match s.as_ref().and_then(|s| s.pchat.as_ref()) {
+        let s = match shared.lock() {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("ensure_signal_bridge: mutex poisoned (cert read): {e}");
+                return false;
+            }
+        };
+        match s.pchat.as_ref() {
             Some(p) => (p.own_cert_hash.clone(), p.identity_dir.clone()),
             None => return false,
         }
@@ -172,14 +187,19 @@ pub(crate) fn ensure_signal_bridge_unlocked(shared: &Arc<Mutex<SharedState>>) ->
     }
 
     let loaded = bridge.is_some();
-    if let Ok(mut s) = shared.lock() {
-        if let Some(ref mut pchat) = s.pchat {
-            if let Some(ref b) = bridge {
-                pchat.key_manager.set_signal_bridge(Arc::clone(b));
-            } else {
-                pchat.signal_bridge_load_failed = true;
+    match shared.lock() {
+        Ok(mut s) => {
+            if let Some(ref mut pchat) = s.pchat {
+                if let Some(ref b) = bridge {
+                    pchat.key_manager.set_signal_bridge(Arc::clone(b));
+                } else {
+                    pchat.signal_bridge_load_failed = true;
+                }
+                pchat.signal_bridge = bridge;
             }
-            pchat.signal_bridge = bridge;
+        }
+        Err(e) => {
+            warn!("ensure_signal_bridge: mutex poisoned (store): {e}");
         }
     }
     loaded
@@ -187,8 +207,12 @@ pub(crate) fn ensure_signal_bridge_unlocked(shared: &Arc<Mutex<SharedState>>) ->
 
 // -- Sender key distribution ------------------------------------------
 
-/// Create our sender key distribution for a channel and broadcast it
-/// to all channel members via `PluginDataTransmission`.
+/// Create our sender key distribution for a channel and send it to
+/// the server via `PchatSenderKeyDistribution`.
+///
+/// The server stores the latest SKDM per (sender, channel) and relays
+/// it to online members.  On offline queue drain the server bundles the
+/// relevant distributions so reconnecting clients can decrypt.
 pub(crate) fn send_signal_distribution(
     shared: &Arc<Mutex<SharedState>>,
     channel_id: u32,
@@ -204,7 +228,7 @@ pub(crate) fn send_signal_distribution(
         }
     }
 
-    let (handle, distribution, sessions) = {
+    let (handle, distribution) = {
         let Ok(mut state) = shared.lock() else { return };
 
         let Some(ref mut pchat) = state.pchat else {
@@ -227,31 +251,16 @@ pub(crate) fn send_signal_distribution(
             }
         };
 
-        let own_session = state.own_session.unwrap_or(0);
-        let receiver_sessions: Vec<u32> = state
-            .users
-            .values()
-            .filter(|u| u.channel_id == channel_id && u.session != own_session)
-            .map(|u| u.session)
-            .collect();
-
-        (state.client_handle.clone(), dist, receiver_sessions)
+        (state.client_handle.clone(), dist)
     };
-
-    if sessions.is_empty() {
-        debug!(channel_id, "no peers in channel, skipping distribution send");
-        return;
-    }
 
     let Some(handle) = handle else { return };
 
-    let data_id = mumble_protocol::persistent::DATA_ID_SIGNAL_SENDER_KEY.to_string();
     let _dist_task = tokio::spawn(async move {
         if let Err(e) = handle
-            .send(command::SendPluginData {
-                receiver_sessions: sessions,
-                data: distribution,
-                data_id,
+            .send(command::SendPchatSenderKeyDistribution {
+                channel_id,
+                distribution,
             })
             .await
         {
@@ -378,13 +387,15 @@ fn retry_stashed_signal_envelopes(
 
 // -- Handle incoming sender key --------------------------------------
 
-/// Process a received Signal sender key distribution from a peer.
+/// Process a Signal sender key distribution identified by hash and channel.
 ///
-/// Returns `true` if stashed envelopes were decrypted and placeholder
-/// messages replaced (caller should emit `state-changed`).
-pub(crate) fn handle_signal_sender_key(
+/// Used by the `PchatSenderKeyDistribution` handler where the server
+/// already provides `sender_hash` and `channel_id`.
+/// Returns `true` if stashed envelopes were decrypted.
+pub(crate) fn handle_signal_sender_key_by_hash(
     shared: &Arc<Mutex<SharedState>>,
-    sender_session: u32,
+    sender_hash: &str,
+    sender_channel: u32,
     data: &[u8],
 ) -> bool {
     {
@@ -402,21 +413,6 @@ pub(crate) fn handle_signal_sender_key(
         return false;
     };
 
-    let sender_hash = state
-        .users
-        .get(&sender_session)
-        .and_then(|u| u.hash.clone());
-    let Some(sender_hash) = sender_hash else {
-        warn!(sender_session, "signal sender key from unknown session");
-        return false;
-    };
-
-    let sender_channel = state
-        .users
-        .get(&sender_session)
-        .map(|u| u.channel_id)
-        .unwrap_or(0);
-
     {
         let Some(ref mut pchat) = state.pchat else {
             return false;
@@ -430,7 +426,7 @@ pub(crate) fn handle_signal_sender_key(
             return false;
         };
 
-        match bridge.process_distribution(&sender_hash, sender_channel, data) {
+        match bridge.process_distribution(sender_hash, sender_channel, data) {
             Ok(()) => {
                 debug!(
                     sender = %sender_hash,
@@ -449,7 +445,7 @@ pub(crate) fn handle_signal_sender_key(
         }
     }
 
-    retry_stashed_signal_envelopes(&mut state, &sender_hash, sender_channel) > 0
+    retry_stashed_signal_envelopes(&mut state, sender_hash, sender_channel) > 0
 }
 
 #[cfg(test)]

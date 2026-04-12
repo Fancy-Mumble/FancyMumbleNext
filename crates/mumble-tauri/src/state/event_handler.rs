@@ -138,28 +138,34 @@ impl EventHandler for TauriEventHandler {
                 sequence: audio.frame_number,
                 frame_samples: 960,
             };
-            if let Ok(mut state) = self.shared.lock() {
-                let mixer_active = if let Some(ref mut mixer) = state.audio_mixer {
-                    if let Err(e) = mixer.feed(session, &packet) {
-                        warn!("inbound audio decode error: {e}");
-                    }
-                    true
-                } else {
-                    false
+
+            // Determine what to emit INSIDE the lock, then emit OUTSIDE.
+            // Calling app.emit() while holding SharedState causes a deadlock:
+            // the webview dispatches the JS event synchronously, JS may invoke
+            // a Tauri command that tries to re-lock SharedState, and both
+            // threads wait on each other.
+            let emit_action: Option<bool> = 'action: {
+                let Ok(mut state) = self.shared.lock() else {
+                    break 'action None;
+                };
+                let Some(ref mut mixer) = state.audio_mixer else {
+                    break 'action None;
                 };
 
-                // Only track talking state when the mixer is active.
-                // When deafened (mixer is None), ignore incoming audio
-                // so stale indicators are never created.
-                if mixer_active {
-                    if is_terminator {
-                        if state.talking_sessions.remove(&session) {
-                            let _ = self.app.emit("user-talking", (session, false));
-                        }
-                    } else if state.talking_sessions.insert(session) {
-                        let _ = self.app.emit("user-talking", (session, true));
-                    }
+                if let Err(e) = mixer.feed(session, &packet) {
+                    warn!("inbound audio decode error: {e}");
                 }
+
+                if is_terminator {
+                    state.talking_sessions.remove(&session).then_some(false)
+                } else {
+                    state.talking_sessions.insert(session).then_some(true)
+                }
+            };
+            // SharedState lock is released here.
+
+            if let Some(talking) = emit_action {
+                let _ = self.app.emit("user-talking", (session, talking));
             }
         }
     }

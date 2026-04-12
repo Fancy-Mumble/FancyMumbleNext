@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useAppStore } from "../../store";
-import type { UserEntry } from "../../types";
+import type { UserEntry, FancyProfile } from "../../types";
 import { textureToDataUrl, parseComment } from "../../profileFormat";
 import { ProfilePreviewCard } from "../../pages/settings/ProfilePreviewCard";
 import { useUserStats } from "../../hooks/useUserStats";
@@ -13,6 +13,7 @@ import StarIcon from "../../assets/icons/status/star.svg?react";
 import ShieldCheckIcon from "../../assets/icons/status/shield-check.svg?react";
 import VolumeIcon from "../../assets/icons/audio/volume.svg?react";
 import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
+import { useStreamThumbnail } from "../chat/useStreamPreview";
 import styles from "./UserListItem.module.css";
 
 // Re-export so existing consumers (e.g. ChannelSidebar) keep working.
@@ -29,12 +30,112 @@ export function avatarUrl(user: UserEntry): string | null {
   return url;
 }
 
-// -- Constants -----------------------------------------------------
+// -- Shared hover card constants ----------------------------------
 
 const HOVER_CARD_W = 260;
 const HOVER_CARD_H = 340;
 const HOVER_CARD_MARGIN = 10;
 const HOVER_CARD_GAP = 8;
+
+// -- Shared hover card hook ---------------------------------------
+
+interface HoverCardPosition {
+  showCard: boolean;
+  cardPos: { top: number; left: number } | null;
+  itemRef: React.RefObject<HTMLButtonElement | null>;
+  handleEnter: () => void;
+  handleLeave: () => void;
+}
+
+/** Computes the hover card position relative to the hovered element. */
+export function useHoverCardPosition(isBroadcasting: boolean): HoverCardPosition {
+  const [showCard, setShowCard] = useState(false);
+  const [cardPos, setCardPos] = useState<{ top: number; left: number } | null>(null);
+  const itemRef = useRef<HTMLButtonElement>(null);
+
+  const handleEnter = useCallback(() => {
+    if (isMobile) return;
+    if (itemRef.current) {
+      const rect = itemRef.current.getBoundingClientRect();
+      const rawTop = rect.top + rect.height / 2;
+      const effectiveH = isBroadcasting ? HOVER_CARD_H + 160 : HOVER_CARD_H;
+      const top = Math.max(
+        effectiveH / 2 + HOVER_CARD_MARGIN,
+        Math.min(rawTop, window.innerHeight - effectiveH / 2 - HOVER_CARD_MARGIN),
+      );
+      const fitsRight = rect.right + HOVER_CARD_GAP + HOVER_CARD_W + HOVER_CARD_MARGIN <= window.innerWidth;
+      const left = fitsRight
+        ? rect.right + HOVER_CARD_GAP
+        : rect.left - HOVER_CARD_GAP - HOVER_CARD_W;
+      setCardPos({ top, left });
+    }
+    setShowCard(true);
+  }, [isBroadcasting]);
+
+  const handleLeave = useCallback(() => {
+    setShowCard(false);
+  }, []);
+
+  return { showCard, cardPos, itemRef, handleEnter, handleLeave };
+}
+
+// -- Shared hover card portal component ---------------------------
+
+interface UserHoverCardPortalProps {
+  readonly displayName: string;
+  readonly cardPos: { top: number; left: number };
+  readonly avatar: string | null;
+  readonly profile: FancyProfile;
+  readonly bio: string;
+  readonly onlinesecs?: number | null;
+  readonly idlesecs?: number | null;
+  readonly isRegistered: boolean;
+  readonly isBroadcasting: boolean;
+  readonly thumbnail: string | null;
+}
+
+/** Portal overlay that renders the profile card + optional stream preview thumbnail. */
+export function UserHoverCardPortal({
+  displayName,
+  cardPos,
+  avatar,
+  profile,
+  bio,
+  onlinesecs,
+  idlesecs,
+  isRegistered,
+  isBroadcasting,
+  thumbnail,
+}: Readonly<UserHoverCardPortalProps>) {
+  return createPortal(
+    <div
+      className={styles.profilePopover}
+      style={{ top: cardPos.top, left: cardPos.left }}
+    >
+      {isBroadcasting && (
+        <div className={styles.streamPreview}>
+          {thumbnail ? (
+            <img src={thumbnail} alt="Screen share preview" />
+          ) : (
+            <div className={styles.streamPreviewPlaceholder}>
+              <ScreenShareIcon width={24} height={24} />
+            </div>
+          )}
+        </div>
+      )}
+      <ProfilePreviewCard
+        profile={profile}
+        bio={bio}
+        avatar={avatar}
+        displayName={displayName}
+        onlinesecs={onlinesecs}
+        idlesecs={idlesecs}
+        isRegistered={isRegistered}
+      />
+    </div>,
+    document.body,
+  );
+}
 
 // -- SVG icons -----------------------------------------------------
 
@@ -81,13 +182,12 @@ export function UserListItem({
   onClick,
   onContextMenu,
 }: UserListItemProps) {
-  const [showCard, setShowCard] = useState(false);
-  const [cardPos, setCardPos] = useState<{ top: number; left: number } | null>(null);
-  const itemRef = useRef<HTMLButtonElement>(null);
   const dmUnread = useAppStore((s) => s.dmUnreadCounts[user.session] ?? 0);
   const volumePct = useAppStore((s) => user.hash ? (s.userVolumes[user.hash] ?? 100) : 100);
   const isBroadcasting = useAppStore((s) => s.broadcastingSessions.has(user.session));
+  const { showCard, cardPos, itemRef, handleEnter, handleLeave } = useHoverCardPosition(isBroadcasting);
   const stats = useUserStats(user.session, showCard);
+  const streamThumbnail = useStreamThumbnail(user.session, showCard && isBroadcasting);
 
   const url = useMemo(() => avatarUrl(user), [user.texture]);
   const parsed = useMemo(
@@ -99,29 +199,6 @@ export function UserListItem({
   const isDeafened = user.deaf || user.self_deaf;
   const isPriority = user.priority_speaker;
   const isRegistered = user.user_id != null && user.user_id > 0;
-
-
-  const handleEnter = useCallback(() => {
-    if (isMobile) return;
-    if (itemRef.current) {
-      const rect = itemRef.current.getBoundingClientRect();
-      const rawTop = rect.top + rect.height / 2;
-      const top = Math.max(
-        HOVER_CARD_H / 2 + HOVER_CARD_MARGIN,
-        Math.min(rawTop, window.innerHeight - HOVER_CARD_H / 2 - HOVER_CARD_MARGIN),
-      );
-      const fitsRight = rect.right + HOVER_CARD_GAP + HOVER_CARD_W + HOVER_CARD_MARGIN <= window.innerWidth;
-      const left = fitsRight
-        ? rect.right + HOVER_CARD_GAP
-        : rect.left - HOVER_CARD_GAP - HOVER_CARD_W;
-      setCardPos({ top, left });
-    }
-    setShowCard(true);
-  }, [isMobile]);
-
-  const handleLeave = useCallback(() => {
-    setShowCard(false);
-  }, []);
 
   return (
     <button
@@ -190,22 +267,19 @@ export function UserListItem({
         </span>
       )}
       {channelName && <span className={styles.channelChip}>{channelName}</span>}
-      {showCard && cardPos && createPortal(
-        <div
-          className={styles.profilePopover}
-          style={{ top: cardPos.top, left: cardPos.left }}
-        >
-          <ProfilePreviewCard
-            profile={parsed?.profile ?? {}}
-            bio={parsed?.bio ?? ""}
-            avatar={url}
-            displayName={user.name}
-            onlinesecs={stats?.onlinesecs}
-            idlesecs={stats?.idlesecs}
-            isRegistered={isRegistered}
-          />
-        </div>,
-        document.body,
+      {showCard && cardPos && (
+        <UserHoverCardPortal
+          displayName={user.name}
+          cardPos={cardPos}
+          avatar={url}
+          profile={parsed?.profile ?? {}}
+          bio={parsed?.bio ?? ""}
+          onlinesecs={stats?.onlinesecs}
+          idlesecs={stats?.idlesecs}
+          isRegistered={isRegistered}
+          isBroadcasting={isBroadcasting}
+          thumbnail={streamThumbnail}
+        />
       )}
     </button>
   );

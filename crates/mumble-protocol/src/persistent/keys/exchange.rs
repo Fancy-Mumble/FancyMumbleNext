@@ -13,10 +13,7 @@ use crate::persistent::encryption::{
 use crate::persistent::wire::{PchatKeyExchange, PchatKeyRequest};
 use crate::persistent::PchatProtocol;
 
-use super::types::{
-    ALGORITHM_VERSION, KEY_EXCHANGE_FRESHNESS_MS, ChannelKey, ConsensusCollector, EpochCandidate,
-    EpochKey,
-};
+use super::types::{ALGORITHM_VERSION, KEY_EXCHANGE_FRESHNESS_MS, ChannelKey, ConsensusCollector};
 use super::KeyManager;
 use crate::persistent::KeyTrustLevel;
 
@@ -124,28 +121,6 @@ impl KeyManager {
         let protocol = PchatProtocol::from_wire_str(&exchange.protocol);
 
         match protocol {
-            PchatProtocol::FancyV1PostJoin => {
-                // 5. Store as epoch candidate for fork resolution
-                let mut parent_fp = [0u8; 8];
-                if let Some(ref pfp) = exchange.parent_fingerprint {
-                    if pfp.len() == 8 {
-                        parent_fp.copy_from_slice(pfp);
-                    }
-                }
-
-                let candidate = EpochCandidate {
-                    sender_hash: exchange.sender_hash.clone(),
-                    epoch_key: EpochKey::new(key_bytes),
-                    parent_fingerprint: parent_fp,
-                    epoch_fingerprint: computed_fp,
-                    received_at: Instant::now(),
-                };
-
-                self.pending_epoch_candidates
-                    .entry((exchange.channel_id, exchange.epoch))
-                    .or_default()
-                    .push(candidate);
-            }
             PchatProtocol::FancyV1FullArchive => {
                 // 6. Add to consensus collector
                 if let Some(ref request_id) = exchange.request_id {
@@ -214,16 +189,6 @@ impl KeyManager {
         timestamp: u64,
     ) -> Result<PchatKeyExchange> {
         let key_bytes = match protocol {
-            PchatProtocol::FancyV1PostJoin => {
-                let epochs = self
-                    .epoch_keys
-                    .get(&channel_id)
-                    .ok_or_else(|| Error::InvalidState("no epoch keys".into()))?;
-                let (epoch_key, _) = epochs
-                    .get(&epoch)
-                    .ok_or_else(|| Error::InvalidState(format!("no key for epoch {epoch}")))?;
-                epoch_key.key
-            }
             PchatProtocol::FancyV1FullArchive => {
                 let (channel_key, _) = self
                     .archive_keys
@@ -247,17 +212,7 @@ impl KeyManager {
 
         // Compute fingerprints
         let efp = epoch_fingerprint(&key_bytes);
-        let parent_fp = if protocol == PchatProtocol::FancyV1PostJoin {
-            let prev_epoch = epoch.checked_sub(1);
-            prev_epoch.and_then(|pe| {
-                self.epoch_keys
-                    .get(&channel_id)
-                    .and_then(|epochs| epochs.get(&pe))
-                    .map(|(k, _)| k.fingerprint().to_vec())
-            })
-        } else {
-            None
-        };
+        let parent_fp = None;
 
         // Build and sign
         let signed_data = build_key_exchange_signed_data(
@@ -314,7 +269,6 @@ impl KeyManager {
 
         // Check if we hold the key for this channel
         let has_key = match protocol {
-            PchatProtocol::FancyV1PostJoin => self.epoch_keys.contains_key(&channel_id),
             PchatProtocol::FancyV1FullArchive => self.archive_keys.contains_key(&channel_id),
             _ => false,
         };
@@ -323,14 +277,7 @@ impl KeyManager {
             return Ok(None);
         }
 
-        let epoch = match protocol {
-            PchatProtocol::FancyV1PostJoin => self
-                .epoch_keys
-                .get(&channel_id)
-                .and_then(|epochs| epochs.keys().next_back().copied())
-                .unwrap_or(0),
-            _ => 0,
-        };
+        let epoch = 0;
 
         let mut requester_key_bytes = [0u8; 32];
         requester_key_bytes.copy_from_slice(&request.requester_public);

@@ -87,6 +87,7 @@ export async function setServerPassword(serverId: string, password: string | nul
     delete map[serverId];
   }
   await store.set(PASSWORD_KEY, map);
+  await store.save();
 }
 
 /** Remove any stored password for a server. */

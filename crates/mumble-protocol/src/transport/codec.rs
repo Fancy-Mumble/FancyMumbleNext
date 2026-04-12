@@ -108,6 +108,13 @@ fn serialize_control_message(msg: &ControlMessage) -> Result<(u16, Vec<u8>)> {
         PchatReactionDeliver(m) => (TcpMessageType::PchatReactionDeliver as u16, m.encode_to_vec()),
         PchatReactionFetchResponse(m) => (TcpMessageType::PchatReactionFetchResponse as u16, m.encode_to_vec()),
         WebRtcSignal(m) => (TcpMessageType::WebRtcSignal as u16, m.encode_to_vec()),
+        PchatSenderKeyDistribution(m) => (TcpMessageType::PchatSenderKeyDistribution as u16, m.encode_to_vec()),
+        FancyPushRegister(m) => (TcpMessageType::FancyPushRegister as u16, m.encode_to_vec()),
+        FancyPushUpdate(m) => (TcpMessageType::FancyPushUpdate as u16, m.encode_to_vec()),
+        FancyCustomReactionsConfig(m) => (TcpMessageType::FancyCustomReactionsConfig as u16, m.encode_to_vec()),
+        FancySubscribePush(m) => (TcpMessageType::FancySubscribePush as u16, m.encode_to_vec()),
+        FancyReadReceipt(m) => (TcpMessageType::FancyReadReceipt as u16, m.encode_to_vec()),
+        FancyReadReceiptDeliver(m) => (TcpMessageType::FancyReadReceiptDeliver as u16, m.encode_to_vec()),
         UdpTunnel(data) => (TcpMessageType::UdpTunnel as u16, data.clone()),
     };
 
@@ -167,6 +174,13 @@ fn deserialize_control_message(type_id: u16, payload: &[u8]) -> Result<ControlMe
         PchatReactionDeliver => ControlMessage::PchatReactionDeliver(mumble_tcp::PchatReactionDeliver::decode(payload)?),
         PchatReactionFetchResponse => ControlMessage::PchatReactionFetchResponse(mumble_tcp::PchatReactionFetchResponse::decode(payload)?),
         WebRtcSignal => ControlMessage::WebRtcSignal(mumble_tcp::WebRtcSignal::decode(payload)?),
+        PchatSenderKeyDistribution => ControlMessage::PchatSenderKeyDistribution(mumble_tcp::PchatSenderKeyDistribution::decode(payload)?),
+        FancyPushRegister => ControlMessage::FancyPushRegister(mumble_tcp::FancyPushRegister::decode(payload)?),
+        FancyPushUpdate => ControlMessage::FancyPushUpdate(mumble_tcp::FancyPushUpdate::decode(payload)?),
+        FancyCustomReactionsConfig => ControlMessage::FancyCustomReactionsConfig(mumble_tcp::FancyCustomReactionsConfig::decode(payload)?),
+        FancySubscribePush => ControlMessage::FancySubscribePush(mumble_tcp::FancySubscribePush::decode(payload)?),
+        FancyReadReceipt => ControlMessage::FancyReadReceipt(mumble_tcp::FancyReadReceipt::decode(payload)?),
+        FancyReadReceiptDeliver => ControlMessage::FancyReadReceiptDeliver(mumble_tcp::FancyReadReceiptDeliver::decode(payload)?),
     };
     Ok(msg)
 }
@@ -800,6 +814,7 @@ mod tests {
                     replaces_id: None,
                 },
             ],
+            distributions: vec![],
         };
         let msg = ControlMessage::PchatOfflineQueueDrain(drain);
         let encoded = encode(&msg)?;
@@ -821,6 +836,33 @@ mod tests {
                 assert_eq!(d.messages[0].envelope.as_deref(), Some(b"encrypted-payload".as_ref()));
             }
             other => panic!("expected PchatOfflineQueueDrain, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_pchat_sender_key_distribution() -> Result<()> {
+        let skd = mumble_tcp::PchatSenderKeyDistribution {
+            channel_id: Some(10),
+            sender_hash: Some("sender_abc".into()),
+            distribution: Some(b"skdm-bytes-here".to_vec()),
+        };
+        let msg = ControlMessage::PchatSenderKeyDistribution(skd);
+        let encoded = encode(&msg)?;
+
+        let type_id = u16::from_be_bytes([encoded[0], encoded[1]]);
+        assert_eq!(type_id, 121, "PchatSenderKeyDistribution must be wire type 121");
+
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::PchatSenderKeyDistribution(d) => {
+                assert_eq!(d.channel_id, Some(10));
+                assert_eq!(d.sender_hash.as_deref(), Some("sender_abc"));
+                assert_eq!(d.distribution.as_deref(), Some(b"skdm-bytes-here".as_ref()));
+            }
+            other => panic!("expected PchatSenderKeyDistribution, got {other:?}"),
         }
         Ok(())
     }

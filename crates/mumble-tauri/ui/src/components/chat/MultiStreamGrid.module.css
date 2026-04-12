@@ -1,0 +1,182 @@
+/* --- Multi-stream grid container -------------------------------- */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+/* When expanded, let the grid area scroll if needed */
+.containerExpanded {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.gridHeader {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  padding: 10px 16px;
+  flex-shrink: 0;
+  width: 100%;
+  border: none;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--color-glass-subtle);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.gridHeader:hover {
+  background: var(--color-glass-border);
+  color: var(--color-text-primary);
+}
+
+.headerChevron {
+  margin-left: auto;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.headerChevronOpen {
+  transform: rotate(180deg);
+}
+
+/* --- Stream cards ------------------------------------------------ */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-glass-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--color-glass);
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.card:hover {
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  border-color: var(--color-glass-strong);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* --- Thumbnail area ---------------------------------------------- */
+
+.cardThumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: var(--color-surface-streaming);
+  overflow: hidden;
+}
+
+.cardImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cardPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--color-glass-strong);
+}
+
+/* Hover overlay with play button */
+.cardOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0);
+  transition: background 0.15s ease;
+}
+
+.card:hover .cardOverlay {
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.playBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--color-surface-streaming);
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  box-shadow: 0 4px 16px var(--color-overlay-strong);
+}
+
+.card:hover .playBtn {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* LIVE badge */
+.liveBadge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--color-danger-alt);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+
+/* --- Card footer ------------------------------------------------- */
+
+.cardFooter {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px;
+}
+
+.footerIcon {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.cardName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

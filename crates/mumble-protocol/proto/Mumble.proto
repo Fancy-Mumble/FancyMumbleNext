@@ -350,6 +350,9 @@ message ServerConfig {
 	optional uint32 image_message_length = 5;
 	optional uint32 max_users = 6;
 	optional bool recording_allowed = 7;
+	// True when the server has a WebRTC SFU module loaded and can
+	// relay screen-share streams server-side.
+	optional bool webrtc_sfu_available = 8;
 }
 
 message SuggestConfig {
@@ -373,9 +376,7 @@ message PluginDataTransmission {
 // and the persistence behaviour for a channel.
 enum PchatProtocol {
 	PCHAT_PROTOCOL_NONE = 0;
-	PCHAT_PROTOCOL_FANCY_V1_POST_JOIN = 1;
 	PCHAT_PROTOCOL_FANCY_V1_FULL_ARCHIVE = 2;
-	PCHAT_PROTOCOL_SERVER_MANAGED = 3;
 	PCHAT_PROTOCOL_SIGNAL_V1 = 4;
 }
 
@@ -611,6 +612,10 @@ message PchatOfflineQueueDrain {
 	optional uint32 channel_id = 1;
 	// Queued messages, each as a PchatMessageDeliver.
 	repeated PchatMessageDeliver messages = 2;
+	// Sender key distributions needed to decrypt the queued messages.
+	// The client MUST process these before attempting to decrypt
+	// the messages above.
+	repeated PchatSenderKeyDistribution distributions = 3;
 }
 
 // ---------------------------------------------------------------------------
@@ -718,4 +723,99 @@ message WebRtcSignal {
 
 	// SDP or ICE candidate string (JSON-encoded for ICE).
 	optional string payload = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Signal sender key distribution (Fancy Mumble extension, ID 121)
+// ---------------------------------------------------------------------------
+
+// Client sends its Signal sender key distribution to the server for
+// relay to channel members and storage for offline delivery.
+// Replaces the previous PluginData-based distribution mechanism.
+// Wire type ID = 121.
+message PchatSenderKeyDistribution {
+optional uint32 channel_id = 1;
+// TLS certificate hash of the sender (server fills on relay).
+optional string sender_hash = 2;
+// Sender Key Distribution Message bytes (libsignal SKDM).
+optional bytes distribution = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Push notification registration (Fancy Mumble extension, IDs 122-123)
+// ---------------------------------------------------------------------------
+
+// Client registers its FCM device token with the server for push
+// notifications. Sent once after ServerSync on Android.
+// Wire type ID = 122.
+message FancyPushRegister {
+	// FCM device registration token.
+	optional string token = 1;
+	// Channel IDs the client has muted for push notifications.
+	repeated uint32 muted_channels = 2 [packed = true];
+}
+
+// Client updates its per-channel push notification mute preferences.
+// Sent when the user toggles push mute on a channel.
+// Wire type ID = 123.
+message FancyPushUpdate {
+	// Complete list of channel IDs muted for push notifications.
+	repeated uint32 muted_channels = 1 [packed = true];
+}
+
+// ---------------------------------------------------------------------------
+// Live push subscribe for connected clients (Fancy Mumble extension, ID 125)
+// ---------------------------------------------------------------------------
+
+// Client requests live message delivery from channels where it has the
+// SubscribePush permission (0x2000). Analogous to FancyPushRegister but
+// for connected clients: the server computes allowed channels and routes
+// TextMessages to the subscriber without requiring ChannelListen.
+// Wire type ID = 125.
+message FancySubscribePush {
+	// Channel IDs the client wants to exclude from live delivery.
+	repeated uint32 muted_channels = 1 [packed = true];
+}
+
+// ---------------------------------------------------------------------------
+// Server custom reactions config (Fancy Mumble extension, ID 124)
+// ---------------------------------------------------------------------------
+
+// Server broadcasts its custom emoji/reaction configuration to clients
+// after connect. Replaces the previous PluginData-based delivery.
+// Wire type ID = 124.
+message FancyCustomReactionsConfig {
+	message CustomReaction {
+		// Short-code identifier without colons (e.g. "mumble_parrot").
+		optional string shortcode = 1;
+		// Display string (emoji char, image URL, or unicode).
+		optional string display = 2;
+		// Optional human-readable label.
+		optional string label = 3;
+	}
+	repeated CustomReaction reactions = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Read receipts (Fancy Mumble extension, IDs 126-127)
+// ---------------------------------------------------------------------------
+
+message FancyReadReceipt {
+	optional uint32 channel_id = 1;
+	optional string last_read_message_id = 2;
+	optional uint64 timestamp = 3;
+	optional bool query = 4;
+	optional string query_message_id = 5;
+}
+
+message FancyReadReceiptDeliver {
+	optional uint32 channel_id = 1;
+	message ReadState {
+		optional string cert_hash = 1;
+		optional string name = 2;
+		optional string last_read_message_id = 3;
+		optional uint64 timestamp = 4;
+	}
+	repeated ReadState read_states = 2;
+	optional string query_message_id = 3;
 }

@@ -35,6 +35,7 @@ impl HandleMessage for mumble_tcp::ServerSync {
         ctx.request_user_blobs(&sessions);
         ctx.request_channel_descriptions();
         ctx.request_channel_permissions();
+        ctx.register_push_subscribe();
         ctx.init_pchat();
     }
 }
@@ -141,14 +142,11 @@ impl HandlerContext {
             warn!("FCM: no client handle, cannot send push registration");
             return;
         };
-        let payload = serde_json::json!({ "token": token });
-        let data = serde_json::to_vec(&payload).unwrap_or_default();
         let _push_register_task = tokio::spawn(async move {
             match handle
-                .send(command::SendPluginData {
-                    receiver_sessions: vec![],
-                    data,
-                    data_id: "fancy-push-register".to_string(),
+                .send(command::SendFancyPushRegister {
+                    token,
+                    muted_channels: vec![],
                 })
                 .await
             {
@@ -232,6 +230,37 @@ impl HandlerContext {
                         .send(command::PermissionQuery { channel_id: ch_id })
                         .await;
                 }
+            }
+        });
+    }
+
+    /// Register live push subscriptions so the server routes `TextMessage`
+    /// from channels with `SubscribePush` permission to this client.
+    fn register_push_subscribe(&self) {
+        let (handle, is_fancy) = {
+            let state = self.shared.lock().ok();
+            state
+                .map(|s| (s.client_handle.clone(), s.server_fancy_version.is_some()))
+                .unwrap_or_default()
+        };
+        if !is_fancy {
+            debug!("push subscribe: skipped (non-fancy server)");
+            return;
+        }
+        let Some(handle) = handle else {
+            warn!("push subscribe: no client handle");
+            return;
+        };
+        info!("push subscribe: sending FancySubscribePush registration");
+        let _subscribe_task = tokio::spawn(async move {
+            match handle
+                .send(command::SendFancySubscribePush {
+                    muted_channels: vec![],
+                })
+                .await
+            {
+                Ok(()) => info!("push subscribe: registration sent to server"),
+                Err(e) => warn!("push subscribe: failed to send registration: {e}"),
             }
         });
     }
@@ -578,13 +607,6 @@ fn self_generate_key(shared: &Arc<Mutex<SharedState>>, ch: u32) {
                         .store_archive_key(ch, key, KeyTrustLevel::Verified);
                     p.key_manager.set_channel_originator(ch, cert.clone());
                     info!(channel_id = ch, cert_hash = %cert, "derived archive key on initial join");
-                }
-                Some(PchatProtocol::FancyV1PostJoin) => {
-                    let key: [u8; 32] = rand::random();
-                    p.key_manager
-                        .store_epoch_key(ch, 0, key, KeyTrustLevel::Verified);
-                    p.key_manager.set_channel_originator(ch, cert.clone());
-                    info!(channel_id = ch, cert_hash = %cert, "self-generated epoch key on initial join");
                 }
                 Some(PchatProtocol::SignalV1) => {
                     signal_bridge_failed = !p.ensure_signal_bridge();

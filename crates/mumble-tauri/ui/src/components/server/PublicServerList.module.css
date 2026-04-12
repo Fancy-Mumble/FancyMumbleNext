@@ -44,7 +44,7 @@
 .consentButton {
   width: 100%;
   padding: 10px 16px;
-  background: linear-gradient(135deg, var(--color-accent), #229ed9);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-hover));
   border: none;
   border-radius: var(--radius-md);
   color: white;
@@ -200,15 +200,15 @@
 }
 
 .pingGood {
-  color: #22c55e;
+  color: var(--color-online);
 }
 
 .pingOkay {
-  color: #eab308;
+  color: var(--color-warning);
 }
 
 .pingPoor {
-  color: #ef4444;
+  color: var(--color-danger);
 }
 
 .pingNa {
@@ -229,7 +229,7 @@
   display: inline-block;
   width: 16px;
   height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.15);
+  border: 2px solid var(--color-glass-heavy);
   border-top-color: var(--color-accent);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;

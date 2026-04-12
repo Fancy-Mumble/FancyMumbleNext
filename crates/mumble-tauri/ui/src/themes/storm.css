@@ -1,0 +1,151 @@
+/* ================================================================
+   Storm Theme - Fancy Mumble
+   Tokyo Night Storm - muted tones on an ink-dark base.
+   ================================================================ */
+
+[data-theme="storm"] {
+  /* -- Background ------------------------------------------------ */
+  --color-bg-primary: #0f0f14;
+  --color-bg-secondary: #1a1b26;
+  --color-bg-elevated: #343b58;
+  --color-bg-deepest: #0a0a0f;
+  --color-bg-media: #050508;
+  --color-bg-app-gradient: linear-gradient(135deg, #0f0f14 0%, #1a1b26 50%, #24283b 100%);
+  --color-bg-app-glow-accent: rgba(52, 84, 138, 0.15);
+  --color-bg-app-glow-purple: rgba(90, 74, 120, 0.15);
+
+  /* -- Text ------------------------------------------------------ */
+  --color-text-primary: #9699a3;
+  --color-text-secondary: rgba(150, 153, 163, 0.6);
+  --color-text-muted: rgba(150, 153, 163, 0.38);
+  --color-text-on-accent: #ffffff;
+  --color-text-button: rgba(150, 153, 163, 0.7);
+  --color-text-placeholder: #565a6e;
+
+  /* -- Accent (muted blue) --------------------------------------- */
+  --color-accent: #34548a;
+  --color-accent-hover: #2e4a7a;
+  --color-accent-glow: rgba(52, 84, 138, 0.3);
+  --color-accent-soft: rgba(52, 84, 138, 0.06);
+  --color-accent-subtle: rgba(52, 84, 138, 0.08);
+  --color-accent-light: rgba(52, 84, 138, 0.12);
+  --color-accent-medium: rgba(52, 84, 138, 0.15);
+  --color-accent-strong: rgba(52, 84, 138, 0.2);
+  --color-accent-fill: rgba(52, 84, 138, 0.25);
+  --color-accent-border: rgba(52, 84, 138, 0.28);
+  --color-accent-selection: rgba(52, 84, 138, 0.3);
+  --color-accent-border-strong: rgba(52, 84, 138, 0.35);
+  --color-accent-gradient-end: rgba(46, 74, 122, 0.10);
+  --color-accent-bright: #4a6fa5;
+
+  /* -- Purple (gradients) ---------------------------------------- */
+  --color-purple: #5a4a78;
+
+  /* -- Glass ----------------------------------------------------- */
+  --color-glass: rgba(150, 153, 163, 0.04);
+  --color-glass-subtle: rgba(150, 153, 163, 0.05);
+  --color-glass-hover: rgba(150, 153, 163, 0.08);
+  --color-glass-medium: rgba(150, 153, 163, 0.1);
+  --color-glass-active: rgba(52, 84, 138, 0.12);
+  --color-glass-strong: rgba(150, 153, 163, 0.12);
+  --color-glass-heavy: rgba(150, 153, 163, 0.15);
+  --color-glass-border: rgba(150, 153, 163, 0.08);
+  --color-glass-border-hover: rgba(150, 153, 163, 0.14);
+
+  /* -- Danger / Error (muted red) -------------------------------- */
+  --color-danger: #8c4351;
+  --color-danger-alt: #8c4351;
+  --color-danger-light: #b06a75;
+  --color-danger-muted: #7a3a47;
+  --color-danger-soft: rgba(140, 67, 81, 0.04);
+  --color-danger-subtle: rgba(140, 67, 81, 0.08);
+  --color-danger-bg: rgba(140, 67, 81, 0.1);
+  --color-danger-medium: rgba(140, 67, 81, 0.12);
+  --color-danger-strong: rgba(140, 67, 81, 0.15);
+  --color-danger-border: rgba(140, 67, 81, 0.2);
+  --color-danger-border-strong: rgba(140, 67, 81, 0.3);
+  --color-danger-alt-light: rgba(140, 67, 81, 0.12);
+  --color-danger-alt-glow: rgba(140, 67, 81, 0.4);
+  --color-danger-alt-soft: rgba(140, 67, 81, 0.04);
+  --color-danger-alt-subtle: rgba(140, 67, 81, 0.06);
+  --color-danger-alt-border: rgba(140, 67, 81, 0.2);
+  --color-danger-alt-strong: rgba(140, 67, 81, 0.25);
+  --color-danger-alt-border-strong: rgba(140, 67, 81, 0.35);
+
+  /* -- Success / Online (muted green) ---------------------------- */
+  --color-online: #485e30;
+  --color-online-bright: #637d45;
+  --color-online-subtle: rgba(72, 94, 48, 0.08);
+  --color-online-bg: rgba(72, 94, 48, 0.1);
+  --color-online-medium: rgba(72, 94, 48, 0.12);
+  --color-online-glow: rgba(72, 94, 48, 0.5);
+  --color-success-gradient-start: rgba(72, 94, 48, 0.12);
+  --color-success-gradient-end: rgba(72, 94, 48, 0.06);
+
+  /* -- Warning / Unverified (muted amber) ------------------------ */
+  --color-warning: #8f5e15;
+  --color-warning-bright: #b07a2a;
+  --color-warning-amber: #8f5e15;
+  --color-warning-text: #a07028;
+  --color-warning-soft: rgba(143, 94, 21, 0.04);
+  --color-warning-subtle: rgba(143, 94, 21, 0.08);
+  --color-warning-amber-subtle: rgba(143, 94, 21, 0.08);
+  --color-warning-amber-glow: rgba(143, 94, 21, 0.4);
+  --color-warning-bright-bg: rgba(176, 122, 42, 0.1);
+  --color-warning-bright-medium: rgba(176, 122, 42, 0.12);
+  --color-warning-bright-border: rgba(176, 122, 42, 0.25);
+
+  /* -- Link ------------------------------------------------------ */
+  --color-link: #4a6fa5;
+
+  /* -- Discord-style palette (reactions / emoji picker) ----------- */
+  --color-discord-purple: #5a4a78;
+  --color-discord-dark: #0f0f14;
+  --color-discord-bg: #1a1b26;
+  --color-discord-border: #343b58;
+  --color-discord-hover: #24283b;
+  --color-discord-muted: #565a6e;
+  --color-discord-text: #9699a3;
+  --color-discord-active: #343b58;
+
+  /* -- Overlays / Shadows ---------------------------------------- */
+  --color-overlay-light: rgba(0, 0, 0, 0.2);
+  --color-overlay-medium: rgba(0, 0, 0, 0.3);
+  --color-overlay-heavy: rgba(0, 0, 0, 0.5);
+  --color-overlay-strong: rgba(0, 0, 0, 0.4);
+  --color-overlay-dark: rgba(0, 0, 0, 0.7);
+  --color-overlay-darkest: rgba(0, 0, 0, 0.8);
+
+  /* -- Surfaces (bars, panels, toasts) --------------------------- */
+  --color-surface-titlebar: rgba(15, 15, 20, 0.88);
+  --color-surface-action-bar: rgba(26, 27, 38, 0.92);
+  --color-surface-toast: rgba(52, 59, 88, 0.92);
+  --color-surface-streaming: #0f0f14;
+
+  /* -- Badge / specialty colors ---------------------------------- */
+  --color-badge-fancy: #5a4a78;
+  --color-badge-signal: #34548a;
+  --color-badge-server: #485e30;
+
+  /* -- Search result type icons ---------------------------------- */
+  --color-search-user: #485e30;
+  --color-search-user-bg: rgba(72, 94, 48, 0.12);
+  --color-search-group: #5a4a78;
+  --color-search-group-bg: rgba(90, 74, 120, 0.12);
+  --color-search-message: #8f5e15;
+  --color-search-message-bg: rgba(143, 94, 21, 0.12);
+
+  /* -- Own bubble (sent messages) -------------------------------- */
+  --color-own-bubble-start: rgba(40, 65, 110, 0.4);
+  --color-own-bubble-end: rgba(52, 84, 138, 0.3);
+  --color-own-bubble-text: #9699a3;
+  --color-own-bubble-time: rgba(150, 153, 163, 0.6);
+
+  /* -- Quote ----------------------------------------------------- */
+  --color-quote-gradient-start: rgba(40, 65, 110, 0.4);
+  --color-quote-gradient-end: rgba(52, 84, 138, 0.3);
+
+  /* -- Scrollbar ------------------------------------------------- */
+  --color-scrollbar: rgba(150, 153, 163, 0.1);
+  --color-scrollbar-hover: rgba(150, 153, 163, 0.2);
+}

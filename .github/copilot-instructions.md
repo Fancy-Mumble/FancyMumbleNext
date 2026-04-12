@@ -270,7 +270,7 @@ When working in any file, apply this rule proactively:
   refactor unrelated files without being asked - only clean up what you
   touch.
 - **pre-existing issues** - if you encounter an issue that predates your
-  change and is non-trivial to fix, it's okay to   leave a `TODO` comment with
+  change and is non-trivial to fix, it's okay to leave a `TODO` comment with
   a brief description of the problem and (optionally) a link to an issue or PR
   for tracking.  The key is to avoid introducing new issues and to clean up what
   you can in the files you edit. But if you can easily fix an existing issue
@@ -315,6 +315,15 @@ steps before declaring the task done:
   to the `fancy-utility` crate instead and depend on it from the consuming
   crate. Before creating a new utility function, check if one already exists
   in the `fancy-utils` crate to avoid duplication.
+- When you need to add a comment  to explain what your code is doing, ask yourself:
+  "Could I rewrite this code in a clearer way that doesn't require a comment?"
+  If the answer is yes, refactor the code to be self-explanatory instead of adding
+  a comment.  If the answer is no and a comment is truly necessary, keep it concise
+  and focused on the "why" rather than the "what".  Avoid comments that simply restate
+  what the code does or explain "how" - the code itself should make that clear.  Strive
+  for code that is clean and readable enough to minimize the need for comments. Also,
+  try to use function and variable names that convey intent clearly, which can further
+  reduce the need for explanatory comments.
 
 ### TypeScript / React
 - React 19 with function components and hooks

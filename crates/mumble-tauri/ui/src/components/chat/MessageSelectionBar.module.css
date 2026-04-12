@@ -36,7 +36,7 @@
 }
 
 .deleteBtn {
-  background: var(--color-danger, #e05252);
+  background: var(--color-danger);
   color: #fff;
 }
 

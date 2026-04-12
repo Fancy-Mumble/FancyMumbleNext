@@ -16,13 +16,13 @@
 /* Dialog box */
 .dialog {
   background: var(--color-bg-secondary, #1a1a2e);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--color-glass-medium);
   border-radius: var(--radius-lg, 12px);
   padding: 28px 28px 24px;
   width: min(480px, calc(100vw - 32px));
   box-shadow:
     0 20px 60px rgba(0, 0, 0, 0.6),
-    0 4px 16px rgba(0, 0, 0, 0.4);
+    0 4px 16px var(--color-overlay-strong);
   animation: slideUp 0.18s ease;
   display: flex;
   flex-direction: column;
@@ -47,8 +47,8 @@
 .warningIcon {
   width: 44px;
   height: 44px;
-  color: #f59e0b;
-  filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.4));
+  color: var(--color-warning-amber);
+  filter: drop-shadow(0 0 8px var(--color-warning-amber-glow));
 }
 
 /* --- Text -------------------------------------------------------- */
@@ -74,11 +74,11 @@
   margin: 0 0 14px;
   padding: 8px 14px;
   border-radius: var(--radius-sm, 6px);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-glass-subtle);
+  border: 1px solid var(--color-glass-hover);
   font-family: monospace;
   font-size: 0.8rem;
-  color: #60a5fa;
+  color: var(--color-link);
   word-break: break-all;
   text-align: center;
 }
@@ -87,7 +87,7 @@
   margin: 0 0 24px;
   padding: 10px 14px;
   border-radius: var(--radius-sm, 6px);
-  background: rgba(245, 158, 11, 0.08);
+  background: var(--color-warning-amber-subtle);
   border: 1px solid rgba(245, 158, 11, 0.2);
   font-size: 0.8rem;
   color: var(--color-text-secondary, #94a3b8);
@@ -114,7 +114,7 @@
 }
 
 .cancelBtn {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-glass-hover);
   color: var(--color-text-secondary, #94a3b8);
 }
 

@@ -114,15 +114,15 @@ mod tests {
     }
 
     #[test]
-    fn from_channel_state_post_join() {
+    fn from_channel_state_full_archive() {
         let cfg = ChannelPersistConfig::from_channel_state(
             42,
-            Some(1),
+            Some(2),
             Some(1000),
             Some(90),
             vec!["abc123".into()],
         );
-        assert_eq!(cfg.mode, PchatProtocol::FancyV1PostJoin);
+        assert_eq!(cfg.mode, PchatProtocol::FancyV1FullArchive);
         assert_eq!(cfg.max_history, 1000);
         assert_eq!(cfg.retention_days, 90);
         assert_eq!(cfg.key_custodians, vec!["abc123"]);

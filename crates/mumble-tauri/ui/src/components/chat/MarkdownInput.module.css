@@ -13,7 +13,7 @@
 }
 
 .wrapper.focused {
-  border-color: rgba(42, 171, 238, 0.3);
+  border-color: var(--color-accent-glow);
 }
 
 /* Shared positioning for both the textarea and the overlay. */
@@ -93,7 +93,7 @@
 /* --- Selection highlight --------------------------------------- */
 
 .selection {
-  background: rgba(42, 171, 238, 0.3);
+  background: var(--color-accent-glow);
   border-radius: 1px;
 }
 
@@ -118,14 +118,14 @@
 
 .mdCode {
   font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-glass-hover);
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 13px;
 }
 
 .mdLink {
-  color: var(--color-accent, #2AABEE);
+  color: var(--color-accent);
   text-decoration: underline;
   text-decoration-color: rgba(42, 171, 238, 0.4);
   text-underline-offset: 2px;

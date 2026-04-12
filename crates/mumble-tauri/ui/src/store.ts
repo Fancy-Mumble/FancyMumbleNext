@@ -33,10 +33,13 @@ import type {
   PendingKeyShareRequest,
   KeyHolderEntry,
   ServerInfo,
+  ServerLogEntry,
+  ReadReceiptDeliverPayload,
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator";
 import { registerPoll, registerVote } from "./components/chat/PollCard";
-import { applyReaction, applyPchatReaction, resetReactions, setServerCustomReactions, REACTION_DATA_ID, CUSTOM_REACTIONS_DATA_ID, type ReactionPayload, type ServerCustomReaction } from "./components/chat/reactionStore";
+import { applyReaction, resetReactions, setServerCustomReactions, type ServerCustomReaction } from "./components/chat/reactionStore";
+import { applyReadStates, clearReadReceipts } from "./components/chat/readReceiptStore";
 import { offloadManager } from "./messageOffload";
 import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume, getMutedPushChannels, setMutedPushChannel } from "./preferencesStorage";
 import { loadProfileData } from "./pages/settings/profileData";
@@ -140,9 +143,16 @@ interface AppState {
   /** Monotonic counter incremented whenever the module-level reaction store changes. */
   reactionVersion: number;
 
+  /** Monotonic counter incremented whenever the module-level read receipt store changes. */
+  readReceiptVersion: number;
+
   // -- Screen share state (in-memory) ----------------------------
   /** Whether we are currently sharing our own screen. */
   isSharingOwn: boolean;
+  /** Whether the broadcaster WebRTC connection is still negotiating. */
+  webrtcConnecting: boolean;
+  /** Inline error message when a WebRTC operation fails (e.g. unreachable SFU). */
+  webrtcError: string | null;
   /** Session IDs of other users currently broadcasting. */
   broadcastingSessions: Set<number>;
   /** Session ID we are currently watching (null if not watching). */
@@ -174,8 +184,15 @@ interface AppState {
   /** Channel IDs with push notifications disabled (client preference, synced to server). */
   mutedPushChannels: Set<number>;
 
+  /** Channel IDs we are push-subscribed to (have SubscribePush permission). */
+  pushSubscribedChannels: Set<number>;
+
   /** Per-user volume overrides keyed by cert hash (0-200, default 100). */
+  /** Per-user volume overrides, keyed by cert hash. */
   userVolumes: Record<string, number>;
+
+  /** Server activity log entries (connect, disconnect, mute, channel move, etc.). */
+  serverLog: ServerLogEntry[];
 
   /** Set when the server rejects with WrongUserPW/WrongServerPW - prompts the UI for a password. */
   passwordRequired: boolean;
@@ -313,7 +330,10 @@ const INITIAL: Pick<
   | "polls"
   | "pollMessages"
   | "reactionVersion"
+  | "readReceiptVersion"
   | "isSharingOwn"
+  | "webrtcConnecting"
+  | "webrtcError"
   | "broadcastingSessions"
   | "watchingSession"
   | "channelPersistence"
@@ -327,7 +347,9 @@ const INITIAL: Pick<
   | "signalBridgeError"
   | "silencedChannels"
   | "mutedPushChannels"
+  | "pushSubscribedChannels"
   | "userVolumes"
+  | "serverLog"
   | "passwordRequired"
   | "passwordAttempted"
   | "pendingConnect"
@@ -348,6 +370,7 @@ const INITIAL: Pick<
     max_message_length: 5000,
     max_image_message_length: 131072,
     allow_html: true,
+    webrtc_sfu_available: false,
   },
   serverFancyVersion: null,
   voiceState: "inactive" as VoiceState,
@@ -364,7 +387,10 @@ const INITIAL: Pick<
   polls: new Map(),
   pollMessages: [],
   reactionVersion: 0,
+  readReceiptVersion: 0,
   isSharingOwn: false,
+  webrtcConnecting: false,
+  webrtcError: null,
   broadcastingSessions: new Set(),
   watchingSession: null,
   channelPersistence: {},
@@ -378,7 +404,9 @@ const INITIAL: Pick<
   signalBridgeError: null,
   silencedChannels: new Set(),
   mutedPushChannels: new Set(),
+  pushSubscribedChannels: new Set(),
   userVolumes: {},
+  serverLog: [],
   passwordRequired: false,
   passwordAttempted: false,
   pendingConnect: null,
@@ -443,6 +471,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error("disconnect error:", e);
     }
     resetReactions();
+    clearReadReceipts();
     set({ ...INITIAL });
     invoke("update_badge_count", { count: null }).catch(() => {});
   },
@@ -539,9 +568,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   refreshState: async () => {
     try {
-      const [channels, users] = await Promise.all([
+      const [channels, users, pushSubscribed] = await Promise.all([
         invoke<ChannelEntry[]>("get_channels"),
         invoke<UserEntry[]>("get_users"),
+        invoke<number[]>("get_push_subscribed_channels"),
       ]);
 
       // Derive channelPersistence from channel pchat_protocol so the
@@ -561,7 +591,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           };
         }
       }
-      set({ channels, users, channelPersistence: nextPersistence });
+      set({ channels, users, channelPersistence: nextPersistence, pushSubscribedChannels: new Set(pushSubscribed) });
 
       // Clean up broadcastingSessions for users that are no longer connected.
       const currentSessions = new Set(users.map((u) => u.session));
@@ -811,11 +841,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const updated = await setMutedPushChannel(serverKey, channelId, !isMuted);
     set({ mutedPushChannels: new Set(updated) });
 
-    // Sync the muted list to the server via fancy-push-update.
+    // Sync the muted list to the server via native proto message.
     try {
-      const payload = JSON.stringify({ muted: updated });
-      const data = new TextEncoder().encode(payload);
-      await get().sendPluginData([], data, "fancy-push-update");
+      await invoke("send_push_update", { mutedChannels: updated });
     } catch (e) {
       console.error("Failed to sync push mute to server:", e);
     }
@@ -1050,7 +1078,7 @@ export function onPluginData(handler: PluginDataHandler): () => void {
 
 // --- WebRTC signal handler registry ---
 
-type WebRtcSignalHandler = (senderSession: number | null, signalType: number, payload: string) => void;
+type WebRtcSignalHandler = (senderSession: number | null, targetSession: number | null, signalType: number, payload: string) => void;
 const webRtcSignalHandlers: WebRtcSignalHandler[] = [];
 
 /** Register a handler for incoming WebRTC screen-sharing signals. */
@@ -1101,6 +1129,9 @@ export async function initEventListeners(
     await invoke("set_disable_dual_path", {
       disabled: prefs.disableDualPath ?? false,
     });
+    if (prefs.debugLogging) {
+      await invoke("set_log_level", { filter: "debug" });
+    }
   } catch {
     // Preference store may not be ready yet - backend defaults to enabled.
   }
@@ -1204,6 +1235,7 @@ export async function initEventListeners(
       // Clean up offloaded temp files.
       offloadManager.dispose().catch(() => {});
       volumeAppliedSessions.clear();
+      clearReadReceipts();
       // Preserve error / password-prompt state that was set by connection-rejected.
       const { error: currentError, passwordRequired: pwRequired, pendingConnect: pending } = useAppStore.getState();
       // If a password prompt is already pending, keep the rejection error
@@ -1231,6 +1263,18 @@ export async function initEventListeners(
 
   // Messages, unreads, groups, connection events.
   unlisteners.push(
+    // Server activity log entry.
+    await listen<ServerLogEntry>("server-log", (event) => {
+      const MAX_LOG_ENTRIES = 200;
+      useAppStore.setState((prev) => {
+        const log = [...prev.serverLog, event.payload];
+        if (log.length > MAX_LOG_ENTRIES) {
+          log.splice(0, log.length - MAX_LOG_ENTRIES);
+        }
+        return { serverLog: log };
+      });
+    }),
+
     // New text message arrived.
     await listen<{ channel_id: number }>("new-message", async (event) => {
       const { selectedChannel } = useAppStore.getState();
@@ -1421,33 +1465,6 @@ export async function initEventListeners(
           }
         }
 
-        // Handle emoji reactions.
-        if (data_id === REACTION_DATA_ID) {
-          try {
-            const json = new TextDecoder().decode(bytes);
-            const payload = JSON.parse(json) as ReactionPayload;
-            if (payload.type === "reaction" && payload.messageId && payload.emoji) {
-              applyReaction(payload);
-              useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
-            }
-          } catch (e) {
-            console.error("plugin-data reaction processing error:", e);
-          }
-        }
-
-        // Handle server-advertised custom reactions.
-        if (data_id === CUSTOM_REACTIONS_DATA_ID) {
-          try {
-            const json = new TextDecoder().decode(bytes);
-            const reactions = JSON.parse(json) as ServerCustomReaction[];
-            if (Array.isArray(reactions)) {
-              setServerCustomReactions(reactions);
-            }
-          } catch (e) {
-            console.error("plugin-data custom-reactions processing error:", e);
-          }
-        }
-
         // Also dispatch to legacy registered handlers for extensibility.
         for (const handler of pluginDataHandlers) {
           handler(data_id, bytes, sender_session);
@@ -1459,13 +1476,42 @@ export async function initEventListeners(
   // -- WebRTC signal events ----------------------------------------
 
   unlisteners.push(
-    await listen<{ sender_session: number | null; signal_type: number; payload: string }>(
+    await listen<{ sender_session: number | null; target_session: number | null; signal_type: number; payload: string }>(
       "webrtc-signal",
       (event) => {
-        const { sender_session, signal_type, payload } = event.payload;
+        const { sender_session, target_session, signal_type, payload } = event.payload;
         for (const handler of webRtcSignalHandlers) {
-          handler(sender_session, signal_type, payload);
+          handler(sender_session, target_session, signal_type, payload);
         }
+      },
+    ),
+  );
+
+  // -- Custom reactions config event --------------------------------
+
+  unlisteners.push(
+    await listen<ServerCustomReaction[]>(
+      "custom-reactions-config",
+      (event) => {
+        const reactions = event.payload;
+        if (Array.isArray(reactions)) {
+          setServerCustomReactions(reactions);
+        }
+      },
+    ),
+  );
+
+  // -- Read receipt events -----------------------------------------
+
+  unlisteners.push(
+    await listen<ReadReceiptDeliverPayload>(
+      "read-receipt-deliver",
+      (event) => {
+        const { channel_id, read_states } = event.payload;
+        applyReadStates(channel_id, read_states);
+        useAppStore.setState((prev) => ({
+          readReceiptVersion: prev.readReceiptVersion + 1,
+        }));
       },
     ),
   );
@@ -1671,9 +1717,8 @@ export async function initEventListeners(
       "pchat-reaction-deliver",
       (event) => {
         const { message_id, emoji, action, sender_hash, sender_name } = event.payload;
-        // Resolve actual display name from the user list (server may send the hash as fallback).
         const resolvedName = useAppStore.getState().users.find((u) => u.hash === sender_hash)?.name ?? sender_name;
-        applyPchatReaction(message_id, emoji, action as "add" | "remove", sender_hash, resolvedName);
+        applyReaction(message_id, emoji, action as "add" | "remove", sender_hash, resolvedName);
         useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
       },
     ),
@@ -1685,7 +1730,7 @@ export async function initEventListeners(
         const { users } = useAppStore.getState();
         for (const r of event.payload.reactions) {
           const resolvedName = users.find((u) => u.hash === r.sender_hash)?.name ?? r.sender_name;
-          applyPchatReaction(r.message_id, r.emoji, "add", r.sender_hash, resolvedName);
+          applyReaction(r.message_id, r.emoji, "add", r.sender_hash, resolvedName);
         }
         useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
       },

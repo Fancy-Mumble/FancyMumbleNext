@@ -22,6 +22,8 @@ import { ShortcutsPanel } from "./ShortcutsPanel";
 import { AdvancedPanel } from "./AdvancedPanel";
 import { IdentitiesPanel } from "./IdentitiesPanel";
 import { PersonalizationPanel } from "./PersonalizationPanel";
+import { NotificationsPanel, DEFAULT_NOTIFICATION_SOUNDS } from "./NotificationsPanel";
+import { getNotificationSounds, saveNotificationSounds } from "../../preferencesStorage";
 import { ProfilePreviewCard } from "./ProfilePreviewCard";
 import { loadPersonalization, savePersonalization, type PersonalizationData } from "../../personalizationStorage";
 import { TabbedPage, type TabDef } from "../../components/elements/TabbedPage";
@@ -29,7 +31,7 @@ import styles from "./SettingsPage.module.css";
 
 // -- Types & constants ----------------------------------------------
 
-type Tab = "profile" | "voice" | "shortcuts" | "identities" | "advanced" | "personalize";
+type Tab = "profile" | "voice" | "shortcuts" | "identities" | "advanced" | "personalize" | "notifications";
 
 const DEFAULT_AUDIO: AudioSettings = {
   selected_device: null,
@@ -62,7 +64,8 @@ const PERSONALIZATION_DEFAULTS: PersonalizationData = {
   fontSizeCustomPx: 14,
   fontFamily: "system",
   compactMode: false,
-  channelViewerStyle: "modern",
+  channelViewerStyle: "flat",
+  theme: "dark",
 };
 
 const TABS: TabDef<Tab>[] = [
@@ -70,6 +73,7 @@ const TABS: TabDef<Tab>[] = [
   { id: "voice", label: "Voice", icon: "🎙️" },
   { id: "shortcuts", label: "Shortcuts", icon: "⌨️" },
   { id: "identities", label: "Identities", icon: "🔑" },
+  { id: "notifications", label: "Notifications", icon: "🔔" },
   { id: "personalize", label: "Personalize", icon: "🎨" },
   { id: "advanced", label: "Advanced", icon: "⚙️" },
 ];
@@ -95,6 +99,8 @@ export default function SettingsPage() {
   const [klipyApiKey, setKlipyApiKeyState] = useState("");
   const [enableNotifications, setEnableNotifications] = useState(true);
   const [disableDualPath, setDisableDualPath] = useState(false);
+  const [disableReadReceipts, setDisableReadReceipts] = useState(false);
+  const [debugLogging, setDebugLogging] = useState(false);
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("auto");
   const [convertToLocalTime, setConvertToLocalTime] = useState(true);
 
@@ -115,6 +121,9 @@ export default function SettingsPage() {
 
   // Personalization
   const [personalization, setPersonalization] = useState<PersonalizationData>(PERSONALIZATION_DEFAULTS);
+
+  // Notification sounds
+  const [notificationSounds, setNotificationSounds] = useState(DEFAULT_NOTIFICATION_SOUNDS);
 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -153,6 +162,8 @@ export default function SettingsPage() {
         setKlipyApiKey(prefs.klipyApiKey);
         setEnableNotifications(prefs.enableNotifications ?? true);
         setDisableDualPath(prefs.disableDualPath ?? false);
+        setDisableReadReceipts(prefs.disableReadReceipts ?? false);
+        setDebugLogging(prefs.debugLogging ?? false);
         setTimeFormat(prefs.timeFormat);
         setConvertToLocalTime(prefs.convertToLocalTime);
       } catch {
@@ -194,6 +205,13 @@ export default function SettingsPage() {
       try {
         const pz = await loadPersonalization();
         setPersonalization(pz);
+      } catch {
+        /* keep defaults */
+      }
+
+      try {
+        const ns = await getNotificationSounds();
+        if (ns) setNotificationSounds(ns);
       } catch {
         /* keep defaults */
       }
@@ -256,6 +274,20 @@ export default function SettingsPage() {
     }, 400);
     return () => clearTimeout(timer);
   }, [personalization]);
+
+  // -- Auto-save notification sounds (debounced) -------------------
+
+  useEffect(() => {
+    if (!initialLoadDone.current) return;
+    const timer = setTimeout(async () => {
+      try {
+        await saveNotificationSounds(notificationSounds);
+      } catch (e) {
+        console.error("Auto-save notification sounds error:", e);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [notificationSounds]);
 
   // -- Auto-save profile data locally (debounced) ------------------
 
@@ -360,6 +392,13 @@ export default function SettingsPage() {
     });
   }, []);
 
+  const handleNotificationSoundsChange = useCallback(
+    (patch: Partial<typeof notificationSounds>) => {
+      setNotificationSounds((prev) => ({ ...prev, ...patch }));
+    },
+    [],
+  );
+
   const handleToggleDualPath = useCallback(async () => {
     setDisableDualPath((prev) => {
       const next = !prev;
@@ -371,11 +410,31 @@ export default function SettingsPage() {
     });
   }, []);
 
+  const handleToggleReadReceipts = useCallback(() => {
+    setDisableReadReceipts((prev) => {
+      const next = !prev;
+      updatePreferences({ disableReadReceipts: next });
+      return next;
+    });
+  }, []);
+
   const handleToggleDeveloperMode = useCallback(async () => {
     const next: UserMode = userMode === "developer" ? "expert" : "developer";
     setUserMode(next);
     await updatePreferences({ userMode: next });
   }, [userMode]);
+
+  const handleToggleDebugLogging = useCallback(async () => {
+    const next = !debugLogging;
+    const filter = next ? "debug" : "info";
+    try {
+      await invoke("set_log_level", { filter });
+      setDebugLogging(next);
+      await updatePreferences({ debugLogging: next });
+    } catch (e) {
+      console.error("Failed to set log level:", e);
+    }
+  }, [debugLogging]);
 
   const refreshIdentities = useCallback(async () => {
     try {
@@ -504,18 +563,30 @@ export default function SettingsPage() {
             />
           )}
 
+          {tab === "notifications" && (
+            <NotificationsPanel
+              settings={notificationSounds}
+              onChange={handleNotificationSoundsChange}
+              enableNativeNotifications={enableNotifications}
+              onToggleNativeNotifications={handleToggleNotifications}
+              isExpert={userMode !== "normal"}
+            />
+          )}
+
           {tab === "advanced" && (
             <AdvancedPanel
               userMode={userMode}
               klipyApiKey={klipyApiKey}
-              enableNotifications={enableNotifications}
               disableDualPath={disableDualPath}
+              disableReadReceipts={disableReadReceipts}
+              debugLogging={debugLogging}
               timeFormat={timeFormat}
               convertToLocalTime={convertToLocalTime}
               onToggleMode={handleToggleMode}
               onKlipyApiKeyChange={handleKlipyApiKeyChange}
-              onToggleNotifications={handleToggleNotifications}
               onToggleDualPath={handleToggleDualPath}
+              onToggleReadReceipts={handleToggleReadReceipts}
+              onToggleDebugLogging={handleToggleDebugLogging}
               onTimeFormatChange={handleTimeFormatChange}
               onConvertToLocalTimeChange={handleConvertToLocalTimeChange}
               onToggleDeveloperMode={handleToggleDeveloperMode}

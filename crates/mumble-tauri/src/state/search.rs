@@ -137,86 +137,31 @@ impl AppState {
 
             // Channel messages
             for (ch_id, msgs) in &state.messages {
-                if let Some(scope) = channel_id {
-                    if *ch_id != scope {
-                        continue;
-                    }
+                if channel_id.is_some_and(|scope| *ch_id != scope) {
+                    continue;
                 }
-                let ch_name = state
-                    .channels
-                    .get(ch_id)
-                    .map(|c| c.name.as_str())
-                    .unwrap_or("Unknown");
-                for msg in msgs {
-                    if filter_photos && !body_has_image(&msg.body) {
-                        continue;
-                    }
-                    if filter_links && !body_has_link(&msg.body) {
-                        continue;
-                    }
-                    if let Some(score) = fuzzy::fuzzy_score(&query_lower, &msg.body.to_lowercase(), SCORE_CUTOFF) {
-                        msg_results.push(SearchResult {
-                            category: SearchCategory::Message,
-                            score,
-                            title: fuzzy::snippet(&msg.body, query, 80),
-                            subtitle: Some(format!("{} in #{ch_name}", msg.sender_name)),
-                            id: Some(*ch_id),
-                            string_id: msg.message_id.clone(),
-                        });
-                    }
-                }
+                let ch_name = state.channels.get(ch_id).map(|c| c.name.as_str()).unwrap_or("Unknown");
+                msg_results.extend(collect_channel_message_results(
+                    msgs.iter(), *ch_id, ch_name, filter_photos, filter_links, &query_lower, query,
+                ));
             }
 
             // DM messages - skip when scoped to a channel
             if !scoped {
                 for msgs in state.dm_messages.values() {
-                    for msg in msgs {
-                        if filter_photos && !body_has_image(&msg.body) {
-                            continue;
-                        }
-                        if filter_links && !body_has_link(&msg.body) {
-                            continue;
-                        }
-                        if let Some(score) = fuzzy::fuzzy_score(&query_lower, &msg.body.to_lowercase(), SCORE_CUTOFF) {
-                            msg_results.push(SearchResult {
-                                category: SearchCategory::Message,
-                                score,
-                                title: fuzzy::snippet(&msg.body, query, 80),
-                                subtitle: Some(format!("DM with {}", msg.sender_name)),
-                                id: msg.dm_session,
-                                string_id: msg.message_id.clone(),
-                            });
-                        }
-                    }
+                    msg_results.extend(collect_dm_message_results(
+                        msgs.iter(), filter_photos, filter_links, &query_lower, query,
+                    ));
                 }
             }
 
             // Group messages - skip when scoped to a channel
             if !scoped {
                 for (group_id, msgs) in &state.group_messages {
-                    let group_name = state
-                        .group_chats
-                        .get(group_id)
-                        .map(|g| g.name.as_str())
-                        .unwrap_or("Group");
-                    for msg in msgs {
-                        if filter_photos && !body_has_image(&msg.body) {
-                            continue;
-                        }
-                        if filter_links && !body_has_link(&msg.body) {
-                            continue;
-                        }
-                        if let Some(score) = fuzzy::fuzzy_score(&query_lower, &msg.body.to_lowercase(), SCORE_CUTOFF) {
-                            msg_results.push(SearchResult {
-                                category: SearchCategory::Message,
-                                score,
-                                title: fuzzy::snippet(&msg.body, query, 80),
-                                subtitle: Some(format!("{} in {group_name}", msg.sender_name)),
-                                id: None,
-                                string_id: Some(group_id.clone()),
-                            });
-                        }
-                    }
+                    let group_name = state.group_chats.get(group_id).map(|g| g.name.as_str()).unwrap_or("Group");
+                    msg_results.extend(collect_group_message_results(
+                        msgs.iter(), group_id, group_name, filter_photos, filter_links, &query_lower, query,
+                    ));
                 }
             }
 
@@ -376,6 +321,83 @@ fn collect_photos_from_message(
             timestamp: msg.timestamp,
         });
     }
+}
+
+fn score_one_message(body: &str, filter_photos: bool, filter_links: bool, query_lower: &str) -> Option<u32> {
+    if filter_photos && !body_has_image(body) {
+        return None;
+    }
+    if filter_links && !body_has_link(body) {
+        return None;
+    }
+    fuzzy::fuzzy_score(query_lower, &body.to_lowercase(), SCORE_CUTOFF)
+}
+
+fn collect_channel_message_results<'a>(
+    msgs: impl Iterator<Item = &'a ChatMessage>,
+    ch_id: u32,
+    ch_name: &'a str,
+    filter_photos: bool,
+    filter_links: bool,
+    query_lower: &'a str,
+    query: &'a str,
+) -> Vec<SearchResult> {
+    msgs.filter_map(|msg| {
+        let score = score_one_message(&msg.body, filter_photos, filter_links, query_lower)?;
+        Some(SearchResult {
+            category: SearchCategory::Message,
+            score,
+            title: fuzzy::snippet(&msg.body, query, 80),
+            subtitle: Some(format!("{} in #{ch_name}", msg.sender_name)),
+            id: Some(ch_id),
+            string_id: msg.message_id.clone(),
+        })
+    })
+    .collect()
+}
+
+fn collect_dm_message_results<'a>(
+    msgs: impl Iterator<Item = &'a ChatMessage>,
+    filter_photos: bool,
+    filter_links: bool,
+    query_lower: &'a str,
+    query: &'a str,
+) -> Vec<SearchResult> {
+    msgs.filter_map(|msg| {
+        let score = score_one_message(&msg.body, filter_photos, filter_links, query_lower)?;
+        Some(SearchResult {
+            category: SearchCategory::Message,
+            score,
+            title: fuzzy::snippet(&msg.body, query, 80),
+            subtitle: Some(format!("DM with {}", msg.sender_name)),
+            id: msg.dm_session,
+            string_id: msg.message_id.clone(),
+        })
+    })
+    .collect()
+}
+
+fn collect_group_message_results<'a>(
+    msgs: impl Iterator<Item = &'a ChatMessage>,
+    group_id: &'a str,
+    group_name: &'a str,
+    filter_photos: bool,
+    filter_links: bool,
+    query_lower: &'a str,
+    query: &'a str,
+) -> Vec<SearchResult> {
+    msgs.filter_map(|msg| {
+        let score = score_one_message(&msg.body, filter_photos, filter_links, query_lower)?;
+        Some(SearchResult {
+            category: SearchCategory::Message,
+            score,
+            title: fuzzy::snippet(&msg.body, query, 80),
+            subtitle: Some(format!("{} in {group_name}", msg.sender_name)),
+            id: None,
+            string_id: Some(group_id.to_owned()),
+        })
+    })
+    .collect()
 }
 
 #[cfg(test)]

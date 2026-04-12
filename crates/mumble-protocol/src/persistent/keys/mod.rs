@@ -137,11 +137,8 @@ impl KeyManager {
     /// Whether we hold a key for the channel in the given mode.
     pub fn has_key(&self, channel_id: u32, protocol: PchatProtocol) -> bool {
         match protocol {
-            PchatProtocol::FancyV1PostJoin => self.epoch_keys.contains_key(&channel_id),
             PchatProtocol::FancyV1FullArchive => self.archive_keys.contains_key(&channel_id),
             PchatProtocol::SignalV1 => {
-                // SignalV1 keys live in the bridge; we have a key once
-                // we have created our own distribution for this channel.
                 self.signal_bridge.is_some()
             }
             _ => false,
@@ -435,10 +432,10 @@ mod tests {
         km.store_archive_key(1, [0; 32], crate::persistent::KeyTrustLevel::Unverified);
         km.set_channel_originator(1, "abc".into());
         km.record_key_holder(1, "abc".into());
-        assert!(km.has_key(1, crate::persistent::PchatProtocol::FancyV1PostJoin));
+        assert!(km.has_key(1, crate::persistent::PchatProtocol::FancyV1FullArchive));
 
         km.remove_channel(1);
-        assert!(!km.has_key(1, crate::persistent::PchatProtocol::FancyV1PostJoin));
+        assert!(!km.has_key(1, crate::persistent::PchatProtocol::FancyV1FullArchive));
         assert!(km.get_channel_originator(1).is_none());
         assert!(km.key_holders(1).is_empty());
     }

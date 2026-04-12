@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // In-memory store backing for the mock.
 // Keyed by store file name so servers.json and passwords.json are isolated.
 const storeFiles: Record<string, Record<string, unknown>> = {};
+const saveCalls: string[] = [];
 
 vi.mock("@tauri-apps/plugin-store", () => ({
   load: vi.fn().mockImplementation((fileName: string) => {
@@ -21,6 +22,10 @@ vi.mock("@tauri-apps/plugin-store", () => ({
       ),
       set: vi.fn().mockImplementation((key: string, value: unknown) => {
         data[key] = value;
+        return Promise.resolve();
+      }),
+      save: vi.fn().mockImplementation(() => {
+        saveCalls.push(fileName);
         return Promise.resolve();
       }),
     });
@@ -40,6 +45,7 @@ beforeEach(() => {
   for (const key of Object.keys(storeFiles)) {
     delete storeFiles[key];
   }
+  saveCalls.length = 0;
 });
 
 describe("Password storage", () => {
@@ -94,5 +100,17 @@ describe("Password storage", () => {
 
     await removeServer(server.id);
     expect(await getServerPassword(server.id)).toBeNull();
+  });
+
+  it("flushes to disk via save() after setting a password", async () => {
+    await setServerPassword("flush-test", "pw");
+    expect(saveCalls).toContain("passwords.json");
+  });
+
+  it("flushes to disk via save() after removing a password", async () => {
+    await setServerPassword("flush-test", "pw");
+    saveCalls.length = 0;
+    await removeServerPassword("flush-test");
+    expect(saveCalls).toContain("passwords.json");
   });
 });

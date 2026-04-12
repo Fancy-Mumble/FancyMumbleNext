@@ -11,30 +11,23 @@
  * - Right-clicking a member opens the user context menu.
  */
 
-import { useState, useMemo, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
-import type { ChannelEntry, UserEntry } from "../../types";
-import { colorFor, avatarUrl } from "./UserListItem";
-import { parseComment } from "../../profileFormat";
-import { ProfilePreviewCard } from "../../pages/settings/ProfilePreviewCard";
-import { useUserStats } from "../../hooks/useUserStats";
-import SwipeableCard from "../elements/SwipeableCard";
-import { isMobile } from "../../utils/platform";
-import ChevronRightIcon from "../../assets/icons/navigation/chevron-right.svg?react";
-import ListenBadgeIcon from "../../assets/icons/audio/listen-badge.svg?react";
-import { PchatBadge } from "./PchatBadge";
-import MicOffSmallIcon from "../../assets/icons/audio/mic-off-small.svg?react";
-import HeadphonesOffIcon from "../../assets/icons/audio/headphones-off.svg?react";
-import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
+import { useState, useMemo, useCallback } from "react";
+import type { ChannelEntry, UserEntry } from "../../../types";
+import { colorFor, avatarUrl, useHoverCardPosition, UserHoverCardPortal } from "../UserListItem";
+import { parseComment } from "../../../profileFormat";
+import { useUserStats } from "../../../hooks/useUserStats";
+import { useStreamThumbnail } from "../../chat/useStreamPreview";
+import SwipeableCard from "../../elements/SwipeableCard";
+import { isMobile } from "../../../utils/platform";
+import ChevronRightIcon from "../../../assets/icons/navigation/chevron-right.svg?react";
+import ListenBadgeIcon from "../../../assets/icons/audio/listen-badge.svg?react";
+import { PchatBadge } from "../PchatBadge";
+import MicOffSmallIcon from "../../../assets/icons/audio/mic-off-small.svg?react";
+import HeadphonesOffIcon from "../../../assets/icons/audio/headphones-off.svg?react";
+import ScreenShareIcon from "../../../assets/icons/communication/screen-share.svg?react";
 import styles from "./ModernChannelList.module.css";
 
 const MAX_STACKED = 3;
-
-// -- Hover profile card constants --------------------------------
-const HOVER_CARD_W = 260;
-const HOVER_CARD_H = 340;
-const HOVER_CARD_MARGIN = 10;
-const HOVER_CARD_GAP = 8;
 
 interface ModernChannelListProps {
   readonly channels: ChannelEntry[];
@@ -68,32 +61,9 @@ function MemberItem({ user, isTalking, isBroadcasting, onContextMenu, onClick }:
     () => (user.comment ? parseComment(user.comment) : null),
     [user.comment],
   );
-  const [showCard, setShowCard] = useState(false);
-  const [cardPos, setCardPos] = useState<{ top: number; left: number } | null>(null);
-  const itemRef = useRef<HTMLButtonElement>(null);
+  const { showCard, cardPos, itemRef, handleEnter, handleLeave } = useHoverCardPosition(isBroadcasting);
   const stats = useUserStats(user.session, showCard);
-
-  const handleEnter = useCallback(() => {
-    if (isMobile) return;
-    if (itemRef.current) {
-      const rect = itemRef.current.getBoundingClientRect();
-      const rawTop = rect.top + rect.height / 2;
-      const top = Math.max(
-        HOVER_CARD_H / 2 + HOVER_CARD_MARGIN,
-        Math.min(rawTop, window.innerHeight - HOVER_CARD_H / 2 - HOVER_CARD_MARGIN),
-      );
-      const fitsRight = rect.right + HOVER_CARD_GAP + HOVER_CARD_W + HOVER_CARD_MARGIN <= window.innerWidth;
-      const left = fitsRight
-        ? rect.right + HOVER_CARD_GAP
-        : rect.left - HOVER_CARD_GAP - HOVER_CARD_W;
-      setCardPos({ top, left });
-    }
-    setShowCard(true);
-  }, [isMobile]);
-
-  const handleLeave = useCallback(() => {
-    setShowCard(false);
-  }, []);
+  const streamThumbnail = useStreamThumbnail(user.session, showCard && isBroadcasting);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -139,22 +109,19 @@ function MemberItem({ user, isTalking, isBroadcasting, onContextMenu, onClick }:
           </span>
         )}
       </button>
-      {showCard && cardPos && createPortal(
-        <div
-          className={styles.profilePopover}
-          style={{ top: cardPos.top, left: cardPos.left }}
-        >
-          <ProfilePreviewCard
-            profile={parsed?.profile ?? {}}
-            bio={parsed?.bio ?? ""}
-            avatar={url}
-            displayName={user.name}
-            onlinesecs={stats?.onlinesecs}
-            idlesecs={stats?.idlesecs}
-            isRegistered={user.user_id != null && user.user_id > 0}
-          />
-        </div>,
-        document.body,
+      {showCard && cardPos && (
+        <UserHoverCardPortal
+          displayName={user.name}
+          cardPos={cardPos}
+          avatar={url}
+          profile={parsed?.profile ?? {}}
+          bio={parsed?.bio ?? ""}
+          onlinesecs={stats?.onlinesecs}
+          idlesecs={stats?.idlesecs}
+          isRegistered={user.user_id != null && user.user_id > 0}
+          isBroadcasting={isBroadcasting}
+          thumbnail={streamThumbnail}
+        />
       )}
     </>
   );

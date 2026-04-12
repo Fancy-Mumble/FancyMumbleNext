@@ -89,7 +89,7 @@ pub(crate) fn handle_proto_key_challenge_result(
         "key-possession challenge FAILED - discarding archive key"
     );
 
-    let (identity_dir, app) = {
+    let (identity_dir, app, share_requests_emit) = {
         let mut s = shared.lock().ok();
         let dir = s
             .as_ref()
@@ -99,6 +99,7 @@ pub(crate) fn handle_proto_key_challenge_result(
             .as_ref()
             .and_then(|s| s.tauri_app_handle.clone());
         // Remove all keying material for the channel from memory.
+        let mut should_emit_shares = false;
         if let Some(ref mut s) = s {
             if let Some(ref mut pchat) = s.pchat {
                 pchat.key_manager.remove_channel(channel_id);
@@ -106,21 +107,29 @@ pub(crate) fn handle_proto_key_challenge_result(
             let before_len = s.pending_key_shares.len();
             s.pending_key_shares
                 .retain(|p| p.channel_id != channel_id);
-            if s.pending_key_shares.len() != before_len {
-                if let Some(ref app) = app_handle {
-                    use tauri::Emitter;
-                    let _ = app.emit(
-                        "pchat-key-share-requests-changed",
-                        types::KeyShareRequestsChangedPayload {
-                            channel_id,
-                            pending: vec![],
-                        },
-                    );
-                }
-            }
+            should_emit_shares = s.pending_key_shares.len() != before_len;
         }
-        (dir, app_handle)
+        let share_requests_emit = if should_emit_shares {
+            app_handle.as_ref().map(|app| {
+                (
+                    app.clone(),
+                    types::KeyShareRequestsChangedPayload {
+                        channel_id,
+                        pending: vec![],
+                    },
+                )
+            })
+        } else {
+            None
+        };
+        (dir, app_handle, share_requests_emit)
     };
+
+    // Emit outside the lock to avoid deadlock with Tauri IPC.
+    if let Some((app, payload)) = share_requests_emit {
+        use tauri::Emitter;
+        let _ = app.emit("pchat-key-share-requests-changed", payload);
+    }
 
     if let Some(dir) = identity_dir {
         delete_persisted_archive_key(&dir, channel_id);

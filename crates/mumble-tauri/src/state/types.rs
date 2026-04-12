@@ -13,9 +13,7 @@ fn serialize_pchat_protocol<S: Serializer>(protocol: &Option<PchatProtocol>, s: 
     match protocol {
         Some(p) => s.serialize_str(match p {
             PchatProtocol::None => "none",
-            PchatProtocol::FancyV1PostJoin => "fancy_v1_post_join",
             PchatProtocol::FancyV1FullArchive => "fancy_v1_full_archive",
-            PchatProtocol::ServerManaged => "server_managed",
             PchatProtocol::SignalV1 => "signal_v1",
         }),
         _ => s.serialize_none(),
@@ -153,6 +151,27 @@ pub enum ConnectionStatus {
     Connected,
 }
 
+// --- Server activity log ------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerLogEntry {
+    pub timestamp_ms: u64,
+    pub message: String,
+}
+
+impl ServerLogEntry {
+    pub fn now(message: String) -> Self {
+        let timestamp_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        Self {
+            timestamp_ms,
+            message,
+        }
+    }
+}
+
 // --- Server config ------------------------------------------------
 
 #[derive(Debug, Clone, Serialize)]
@@ -160,6 +179,7 @@ pub struct ServerConfig {
     pub max_message_length: u32,
     pub max_image_message_length: u32,
     pub allow_html: bool,
+    pub webrtc_sfu_available: bool,
 }
 
 impl Default for ServerConfig {
@@ -169,6 +189,7 @@ impl Default for ServerConfig {
             max_message_length: 5000,
             max_image_message_length: 131072,
             allow_html: true,
+            webrtc_sfu_available: false,
         }
     }
 }
@@ -336,6 +357,7 @@ pub(crate) struct PluginDataPayload {
 #[derive(Clone, Serialize)]
 pub(crate) struct WebRtcSignalPayload {
     pub sender_session: Option<u32>,
+    pub target_session: Option<u32>,
     pub signal_type: i32,
     pub payload: String,
 }
@@ -900,9 +922,7 @@ mod tests {
         // Every variant the UI sends must survive a serialize -> parse roundtrip.
         let cases = [
             (PchatProtocol::None, "none"),
-            (PchatProtocol::FancyV1PostJoin, "fancy_v1_post_join"),
             (PchatProtocol::FancyV1FullArchive, "fancy_v1_full_archive"),
-            (PchatProtocol::ServerManaged, "server_managed"),
             (PchatProtocol::SignalV1, "signal_v1"),
         ];
         for (expected, input) in cases {

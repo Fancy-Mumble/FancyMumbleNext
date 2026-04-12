@@ -246,6 +246,31 @@ pub fn try_send_quick_action() -> bool {
     true
 }
 
+/// Read a single incoming connection and dispatch the action it carries.
+///
+/// Returns `true` to keep listening, `false` to stop.
+fn handle_incoming(
+    app_handle: &tauri::AppHandle,
+    stream: std::io::Result<UnixStream>,
+) -> bool {
+    let mut s = match stream {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("Quick-action listener error: {e}");
+            return false;
+        }
+    };
+    let mut buf = String::with_capacity(16);
+    let action = s
+        .read_to_string(&mut buf)
+        .ok()
+        .and_then(|_| QuickAction::from_str(&buf));
+    if let Some(action) = action {
+        dispatch_action(app_handle, action);
+    }
+    true
+}
+
 /// Start the background listener that receives quick-action commands
 /// from secondary process invocations.
 ///
@@ -272,20 +297,8 @@ pub fn start_action_listener(app_handle: tauri::AppHandle) {
             .name("gnome-action-listener".into())
             .spawn(move || {
                 for stream in listener.incoming() {
-                    match stream {
-                        Ok(mut s) => {
-                            let mut buf = String::with_capacity(16);
-                            if s.read_to_string(&mut buf).is_ok() {
-                                if let Some(action) = QuickAction::from_str(&buf) {
-                                    dispatch_action(&app_handle, action);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            // Socket was removed or app is shutting down.
-                            warn!("Quick-action listener error: {e}");
-                            break;
-                        }
+                    if !handle_incoming(&app_handle, stream) {
+                        break;
                     }
                 }
             }),

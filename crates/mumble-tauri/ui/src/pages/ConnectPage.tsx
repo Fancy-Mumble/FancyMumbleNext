@@ -220,7 +220,17 @@ export default function ConnectPage() {
 
   const handleQuickConnect = async (server: SavedServer) => {
     setConnectingServerId(server.id);
-    const storedPw = await getServerPassword(server.id);
+    let storedPw = await getServerPassword(server.id);
+    if (!storedPw) {
+      const sibling = savedServers.find(
+        (s) =>
+          s.id !== server.id &&
+          s.host === server.host &&
+          s.port === server.port &&
+          s.username === server.username,
+      );
+      if (sibling) storedPw = await getServerPassword(sibling.id);
+    }
     await connect(server.host, server.port, server.username, server.cert_label, storedPw);
   };
 
@@ -278,12 +288,13 @@ export default function ConnectPage() {
 
   const handlePasswordSubmit = useCallback(
     async (password: string, save: boolean) => {
-      if (save && matchingServerId) {
-        await setServerPassword(matchingServerId, password);
+      const targetId = connectingServerId ?? matchingServerId;
+      if (save && targetId) {
+        await setServerPassword(targetId, password);
       }
       retryWithPassword(password);
     },
-    [matchingServerId, retryWithPassword],
+    [connectingServerId, matchingServerId, retryWithPassword],
   );
 
   const handleShowWizard = () => {

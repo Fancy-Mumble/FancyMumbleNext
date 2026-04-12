@@ -1,7 +1,7 @@
 ﻿/** Lightweight value types mirroring the Rust backend structs. */
 
 /** Persistent-chat protocol for a channel. */
-export type PchatProtocol = "none" | "fancy_v1_post_join" | "fancy_v1_full_archive" | "server_managed" | "signal_v1";
+export type PchatProtocol = "none" | "fancy_v1_full_archive" | "signal_v1";
 
 export interface ChannelEntry {
   id: number;
@@ -85,10 +85,16 @@ export interface GroupChat {
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
+export interface ServerLogEntry {
+  timestamp_ms: number;
+  message: string;
+}
+
 export interface MumbleServerConfig {
   max_message_length: number;
   max_image_message_length: number;
   allow_html: boolean;
+  webrtc_sfu_available: boolean;
 }
 
 /** Aggregated server info from the backend (version, host, codec, etc.). */
@@ -173,8 +179,39 @@ export interface UserPreferences {
   /** When true, encrypted channels send a placeholder instead of the real
    *  message body in the plain TextMessage (disabling dual-path sending). */
   disableDualPath?: boolean;
+  /** Enable verbose debug logging in the Rust backend. */
+  debugLogging?: boolean;
   /** Collapsed/expanded state of sidebar sections. */
   sidebarSections?: SidebarSections;
+  /** Per-event notification sound configuration. */
+  notificationSounds?: NotificationSoundSettings;
+  /** When true, the client does not send read receipts to the server. */
+  disableReadReceipts?: boolean;
+}
+
+/** Identifiers for events that can trigger a notification sound. */
+export type NotificationEvent =
+  | "chatMessage"
+  | "directMessage"
+  | "userJoin"
+  | "userLeave"
+  | "userJoinChannel"
+  | "userLeaveChannel"
+  | "streamStart"
+  | "voiceActivity"
+  | "selfMuted";
+
+/** Configuration for a single notification event. */
+export interface NotificationEventConfig {
+  enabled: boolean;
+  sound: string;
+  volume: number;
+}
+
+/** Per-event notification sound settings with a master toggle. */
+export interface NotificationSoundSettings {
+  masterEnabled: boolean;
+  events: Record<NotificationEvent, NotificationEventConfig>;
 }
 
 /** Persisted open/closed state for each sidebar section. */
@@ -362,7 +399,7 @@ export interface FancyProfile {
 // --- Persistent Chat ----------------------------------------------
 
 /** Persistence protocol for a channel (maps to Rust PchatProtocol). */
-export type PersistenceMode = "NONE" | "FANCY_V1_POST_JOIN" | "FANCY_V1_FULL_ARCHIVE" | "SERVER_MANAGED" | "SIGNAL_V1";
+export type PersistenceMode = "NONE" | "FANCY_V1_FULL_ARCHIVE" | "SIGNAL_V1";
 
 /** Trust level for a channel's encryption key. */
 export type KeyTrustLevel = "ManuallyVerified" | "Verified" | "Unverified" | "Disputed";
@@ -514,4 +551,21 @@ export interface AclEntry {
   group?: string | null;
   grant: number;
   deny: number;
+}
+
+// -- Read receipts ------------------------------------------------
+
+/** A single user's read watermark for a channel. */
+export interface ReadState {
+  cert_hash: string;
+  name: string;
+  last_read_message_id: string;
+  timestamp: number;
+}
+
+/** Payload emitted by the backend when a read-receipt-deliver arrives. */
+export interface ReadReceiptDeliverPayload {
+  channel_id: number;
+  read_states: ReadState[];
+  query_message_id?: string | null;
 }

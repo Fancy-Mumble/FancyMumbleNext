@@ -769,6 +769,10 @@ pub struct ServerConfig {
     pub max_users: ::core::option::Option<u32>,
     #[prost(bool, optional, tag = "7")]
     pub recording_allowed: ::core::option::Option<bool>,
+    /// True when the server has a WebRTC SFU module loaded and can
+    /// relay screen-share streams server-side.
+    #[prost(bool, optional, tag = "8")]
+    pub webrtc_sfu_available: ::core::option::Option<bool>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SuggestConfig {
@@ -1134,6 +1138,11 @@ pub struct PchatOfflineQueueDrain {
     /// Queued messages, each as a PchatMessageDeliver.
     #[prost(message, repeated, tag = "2")]
     pub messages: ::prost::alloc::vec::Vec<PchatMessageDeliver>,
+    /// Sender key distributions needed to decrypt the queued messages.
+    /// The client MUST process these before attempting to decrypt
+    /// the messages above.
+    #[prost(message, repeated, tag = "3")]
+    pub distributions: ::prost::alloc::vec::Vec<PchatSenderKeyDistribution>,
 }
 /// A standard Unicode emoji (grapheme cluster, e.g. "\xF0\x9F\x91\x8D").
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -1319,6 +1328,114 @@ pub mod web_rtc_signal {
         }
     }
 }
+/// Client sends its Signal sender key distribution to the server for
+/// relay to channel members and storage for offline delivery.
+/// Replaces the previous PluginData-based distribution mechanism.
+/// Wire type ID = 121.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatSenderKeyDistribution {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    /// TLS certificate hash of the sender (server fills on relay).
+    #[prost(string, optional, tag = "2")]
+    pub sender_hash: ::core::option::Option<::prost::alloc::string::String>,
+    /// Sender Key Distribution Message bytes (libsignal SKDM).
+    #[prost(bytes = "vec", optional, tag = "3")]
+    pub distribution: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+}
+/// Client registers its FCM device token with the server for push
+/// notifications. Sent once after ServerSync on Android.
+/// Wire type ID = 122.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FancyPushRegister {
+    /// FCM device registration token.
+    #[prost(string, optional, tag = "1")]
+    pub token: ::core::option::Option<::prost::alloc::string::String>,
+    /// Channel IDs the client has muted for push notifications.
+    #[prost(uint32, repeated, tag = "2")]
+    pub muted_channels: ::prost::alloc::vec::Vec<u32>,
+}
+/// Client updates its per-channel push notification mute preferences.
+/// Sent when the user toggles push mute on a channel.
+/// Wire type ID = 123.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FancyPushUpdate {
+    /// Complete list of channel IDs muted for push notifications.
+    #[prost(uint32, repeated, tag = "1")]
+    pub muted_channels: ::prost::alloc::vec::Vec<u32>,
+}
+/// Client requests live message delivery from channels where it has the
+/// SubscribePush permission (0x2000). Analogous to FancyPushRegister but
+/// for connected clients: the server computes allowed channels and routes
+/// TextMessages to the subscriber without requiring ChannelListen.
+/// Wire type ID = 125.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FancySubscribePush {
+    /// Channel IDs the client wants to exclude from live delivery.
+    #[prost(uint32, repeated, tag = "1")]
+    pub muted_channels: ::prost::alloc::vec::Vec<u32>,
+}
+/// Server broadcasts its custom emoji/reaction configuration to clients
+/// after connect. Replaces the previous PluginData-based delivery.
+/// Wire type ID = 124.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FancyCustomReactionsConfig {
+    #[prost(message, repeated, tag = "1")]
+    pub reactions: ::prost::alloc::vec::Vec<
+        fancy_custom_reactions_config::CustomReaction,
+    >,
+}
+/// Nested message and enum types in `FancyCustomReactionsConfig`.
+pub mod fancy_custom_reactions_config {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct CustomReaction {
+        /// Short-code identifier without colons (e.g. "mumble_parrot").
+        #[prost(string, optional, tag = "1")]
+        pub shortcode: ::core::option::Option<::prost::alloc::string::String>,
+        /// Display string (emoji char, image URL, or unicode).
+        #[prost(string, optional, tag = "2")]
+        pub display: ::core::option::Option<::prost::alloc::string::String>,
+        /// Optional human-readable label.
+        #[prost(string, optional, tag = "3")]
+        pub label: ::core::option::Option<::prost::alloc::string::String>,
+    }
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FancyReadReceipt {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(string, optional, tag = "2")]
+    pub last_read_message_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint64, optional, tag = "3")]
+    pub timestamp: ::core::option::Option<u64>,
+    #[prost(bool, optional, tag = "4")]
+    pub query: ::core::option::Option<bool>,
+    #[prost(string, optional, tag = "5")]
+    pub query_message_id: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FancyReadReceiptDeliver {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(message, repeated, tag = "2")]
+    pub read_states: ::prost::alloc::vec::Vec<fancy_read_receipt_deliver::ReadState>,
+    #[prost(string, optional, tag = "3")]
+    pub query_message_id: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// Nested message and enum types in `FancyReadReceiptDeliver`.
+pub mod fancy_read_receipt_deliver {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ReadState {
+        #[prost(string, optional, tag = "1")]
+        pub cert_hash: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, optional, tag = "2")]
+        pub name: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, optional, tag = "3")]
+        pub last_read_message_id: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(uint64, optional, tag = "4")]
+        pub timestamp: ::core::option::Option<u64>,
+    }
+}
 /// Unified pchat protocol indicator.
 /// Each value identifies both the E2EE protocol implementation
 /// and the persistence behaviour for a channel.
@@ -1326,9 +1443,7 @@ pub mod web_rtc_signal {
 #[repr(i32)]
 pub enum PchatProtocol {
     None = 0,
-    FancyV1PostJoin = 1,
     FancyV1FullArchive = 2,
-    ServerManaged = 3,
     SignalV1 = 4,
 }
 impl PchatProtocol {
@@ -1339,9 +1454,7 @@ impl PchatProtocol {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::None => "PCHAT_PROTOCOL_NONE",
-            Self::FancyV1PostJoin => "PCHAT_PROTOCOL_FANCY_V1_POST_JOIN",
             Self::FancyV1FullArchive => "PCHAT_PROTOCOL_FANCY_V1_FULL_ARCHIVE",
-            Self::ServerManaged => "PCHAT_PROTOCOL_SERVER_MANAGED",
             Self::SignalV1 => "PCHAT_PROTOCOL_SIGNAL_V1",
         }
     }
@@ -1349,9 +1462,7 @@ impl PchatProtocol {
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "PCHAT_PROTOCOL_NONE" => Some(Self::None),
-            "PCHAT_PROTOCOL_FANCY_V1_POST_JOIN" => Some(Self::FancyV1PostJoin),
             "PCHAT_PROTOCOL_FANCY_V1_FULL_ARCHIVE" => Some(Self::FancyV1FullArchive),
-            "PCHAT_PROTOCOL_SERVER_MANAGED" => Some(Self::ServerManaged),
             "PCHAT_PROTOCOL_SIGNAL_V1" => Some(Self::SignalV1),
             _ => None,
         }

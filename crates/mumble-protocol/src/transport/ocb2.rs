@@ -190,12 +190,7 @@ impl CryptState for Ocb2CryptState {
             } else if iv_byte < self.decrypt_iv[0] {
                 // Overflow from 255 -> 0: carry into higher bytes
                 self.decrypt_iv[0] = iv_byte;
-                for i in 1..AES_BLOCK_SIZE {
-                    self.decrypt_iv[i] = self.decrypt_iv[i].wrapping_add(1);
-                    if self.decrypt_iv[i] != 0 {
-                        break;
-                    }
-                }
+                carry_iv_bytes(&mut self.decrypt_iv);
             } else {
                 // iv_byte == decrypt_iv[0] should not happen for +1 case
                 self.decrypt_iv[0] = iv_byte;
@@ -454,6 +449,15 @@ fn ocb_decrypt(
     s3(&mut delta);
     xor_in_place(&mut checksum, &delta);
     *tag = aes_encrypt(cipher, &checksum);
+}
+
+fn carry_iv_bytes(iv: &mut [u8]) {
+    for byte in iv.iter_mut().skip(1) {
+        *byte = byte.wrapping_add(1);
+        if *byte != 0 {
+            break;
+        }
+    }
 }
 
 #[cfg(test)]

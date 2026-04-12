@@ -9,10 +9,12 @@
   z-index: 901;
   width: 320px;
   max-height: 380px;
-  background: var(--bg-secondary, #2b2d31);
-  border: 1px solid var(--border-color, #3f4147);
+  background: var(--color-glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--color-glass-border);
   border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px var(--color-overlay-strong);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -34,17 +36,17 @@
 .searchInput {
   width: 100%;
   padding: 6px 10px;
-  border: 1px solid var(--border-color, #3f4147);
+  border: 1px solid var(--color-glass-border);
   border-radius: 8px;
-  background: var(--bg-primary, #1e1f22);
-  color: var(--text-primary, #dbdee1);
+  background: var(--color-glass-hover);
+  color: var(--color-text-primary);
   font-size: 0.82rem;
   outline: none;
   box-sizing: border-box;
 }
 
 .searchInput:focus {
-  border-color: var(--accent, #5865f2);
+  border-color: var(--color-accent);
 }
 
 /* ---- Category tabs ---- */
@@ -53,7 +55,7 @@
   display: flex;
   gap: 2px;
   padding: 2px 8px 4px;
-  border-bottom: 1px solid var(--border-color, #3f4147);
+  border-bottom: 1px solid var(--color-glass-border);
   flex-shrink: 0;
   overflow-x: auto;
   scrollbar-width: none;
@@ -68,19 +70,19 @@
   padding: 4px 6px;
   border-radius: 6px;
   font-size: 1rem;
-  color: var(--text-secondary, #949ba4);
+  color: var(--color-text-secondary);
   line-height: 1;
   flex-shrink: 0;
   transition: background 0.12s;
 }
 
 .categoryTab:hover {
-  background: var(--bg-hover, #35373c);
+  background: var(--color-glass-hover);
 }
 
 .categoryTabActive {
-  background: var(--bg-active, #404249);
-  color: var(--text-primary, #dbdee1);
+  background: var(--color-glass-medium);
+  color: var(--color-text-primary);
 }
 
 /* ---- Emoji grid ---- */
@@ -96,7 +98,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--text-secondary, #949ba4);
+  color: var(--color-text-secondary);
   padding: 6px 4px 2px;
   margin: 0;
 }
@@ -125,7 +127,7 @@
 }
 
 .emojiBtn:hover {
-  background: var(--bg-hover, #35373c);
+  background: var(--color-glass-hover);
 }
 
 .emojiBtn:active {
@@ -135,7 +137,7 @@
 .emptyState {
   padding: 24px 16px;
   text-align: center;
-  color: var(--text-secondary, #949ba4);
+  color: var(--color-text-secondary);
   font-size: 0.82rem;
 }
 
@@ -143,7 +145,7 @@
 
 .serverLabel {
   composes: categoryLabel;
-  color: var(--accent, #5865f2);
+  color: var(--color-accent);
 }
 
 /* ---- Mobile adjustments ---- */

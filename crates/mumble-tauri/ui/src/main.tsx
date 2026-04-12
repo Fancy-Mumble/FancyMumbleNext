@@ -4,6 +4,8 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { isMobile } from "./utils/platform";
 import { detectBackdropFilterSupport } from "./utils/platform";
+import { loadPersonalization } from "./personalizationStorage";
+import { applyTheme, DEFAULT_THEME } from "./themes";
 import "./global.css";
 
 if (isMobile) {
@@ -11,6 +13,10 @@ if (isMobile) {
 }
 
 detectBackdropFilterSupport();
+
+loadPersonalization()
+  .then((p) => applyTheme(p.theme))
+  .catch(() => applyTheme(DEFAULT_THEME));
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

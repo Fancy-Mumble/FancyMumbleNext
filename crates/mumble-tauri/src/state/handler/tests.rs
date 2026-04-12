@@ -859,6 +859,43 @@ fn text_message_channel_message() {
     assert!(names.contains(&"unread-changed".to_string()));
 }
 
+/// Regression test: `new-message` and `request_user_attention` must be
+/// emitted via the `DeferredEmitter` (i.e. AFTER the `SharedState` lock
+/// is released).  Prior to the fix, these were emitted while the lock was
+/// held, causing a deadlock when the Tauri IPC handler tried to re-acquire
+/// the lock from the webview thread.
+#[test]
+fn channel_message_emits_attention_for_permanently_listened() {
+    let (ctx, emitter) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.own_session = Some(1);
+        let _ = state.users.insert(10, make_user(10, "Bob"));
+        // Select channel 0 so channel 5 counts as "not viewed".
+        state.selected_channel = Some(0);
+        // Mark channel 5 as permanently listened.
+        let _ = state.permanently_listened.insert(5);
+    }
+
+    let tm = mumble_tcp::TextMessage {
+        actor: Some(10),
+        channel_id: vec![5],
+        message: "Ping!".into(),
+        ..Default::default()
+    };
+    tm.handle(&ctx);
+
+    let names = emitter.event_names();
+    assert!(
+        names.contains(&"new-message".to_string()),
+        "new-message must be emitted (deferred) for channel messages"
+    );
+    assert!(
+        emitter.attention_count() > 0,
+        "request_user_attention must be called (deferred) for permanently-listened non-viewed channels"
+    );
+}
+
 #[test]
 fn text_message_own_message_ignored() {
     let (ctx, emitter) = make_ctx();
@@ -1296,6 +1333,27 @@ fn server_config_partial_update() {
     assert!(state.server_config.allow_html); // unchanged default
 }
 
+#[test]
+fn server_config_webrtc_sfu_available() {
+    let (ctx, _) = make_ctx();
+
+    // Default should be false.
+    {
+        let state = ctx.shared.lock().unwrap();
+        assert!(!state.server_config.webrtc_sfu_available);
+    }
+
+    // Server reports SFU available.
+    let sc = mumble_tcp::ServerConfig {
+        webrtc_sfu_available: Some(true),
+        ..Default::default()
+    };
+    sc.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    assert!(state.server_config.webrtc_sfu_available);
+}
+
 // -- PermissionDenied ----------------------------------------------
 
 #[test]
@@ -1544,6 +1602,174 @@ fn permission_query_no_channel_no_event() {
     assert!(!emitter.event_names().contains(&"state-changed".to_string()));
 }
 
+// -- PermissionQuery: push subscribe tracking ----------------------
+
+#[test]
+fn permission_query_tracks_subscribe_push_channels() {
+    let (ctx, _) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let _ = state.channels.insert(
+            1,
+            ChannelEntry {
+                id: 1,
+                parent_id: Some(0),
+                name: "General".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_protocol: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                pchat_key_custodians: Vec::new(),
+            },
+        );
+        let _ = state.channels.insert(
+            2,
+            ChannelEntry {
+                id: 2,
+                parent_id: Some(0),
+                name: "AFK".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_protocol: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                pchat_key_custodians: Vec::new(),
+            },
+        );
+    }
+
+    // Channel 1 with SubscribePush permission (0x2000).
+    let pq1 = mumble_tcp::PermissionQuery {
+        channel_id: Some(1),
+        permissions: Some(0x2000),
+        ..Default::default()
+    };
+    pq1.handle(&ctx);
+
+    // Channel 2 without SubscribePush permission.
+    let pq2 = mumble_tcp::PermissionQuery {
+        channel_id: Some(2),
+        permissions: Some(0x0001),
+        ..Default::default()
+    };
+    pq2.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    assert!(
+        state.push_subscribed_channels.contains(&1),
+        "channel 1 should be push-subscribed (has 0x2000)"
+    );
+    assert!(
+        !state.push_subscribed_channels.contains(&2),
+        "channel 2 should NOT be push-subscribed (no 0x2000)"
+    );
+}
+
+#[test]
+fn permission_query_removes_subscribe_push_on_revoke() {
+    let (ctx, _) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let _ = state.channels.insert(
+            1,
+            ChannelEntry {
+                id: 1,
+                parent_id: Some(0),
+                name: "General".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_protocol: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                pchat_key_custodians: Vec::new(),
+            },
+        );
+    }
+
+    // Grant SubscribePush.
+    let grant = mumble_tcp::PermissionQuery {
+        channel_id: Some(1),
+        permissions: Some(0x2200),
+        ..Default::default()
+    };
+    grant.handle(&ctx);
+    assert!(ctx.shared.lock().unwrap().push_subscribed_channels.contains(&1));
+
+    // Revoke SubscribePush (remove 0x2000 bit).
+    let revoke = mumble_tcp::PermissionQuery {
+        channel_id: Some(1),
+        permissions: Some(0x0200),
+        ..Default::default()
+    };
+    revoke.handle(&ctx);
+    assert!(
+        !ctx.shared.lock().unwrap().push_subscribed_channels.contains(&1),
+        "channel should be removed from push_subscribed after permission revoked"
+    );
+}
+
+#[test]
+fn permission_query_flush_clears_push_subscribed() {
+    let (ctx, _) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let _ = state.push_subscribed_channels.insert(1);
+        let _ = state.push_subscribed_channels.insert(2);
+        let _ = state.channels.insert(
+            1,
+            ChannelEntry {
+                id: 1,
+                parent_id: None,
+                name: "A".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: Some(0x2000),
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_protocol: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                pchat_key_custodians: Vec::new(),
+            },
+        );
+    }
+
+    let flush_pq = mumble_tcp::PermissionQuery {
+        channel_id: Some(1),
+        permissions: Some(0x0001),
+        flush: Some(true),
+    };
+    flush_pq.handle(&ctx);
+
+    let state = ctx.shared.lock().unwrap();
+    assert!(
+        state.push_subscribed_channels.is_empty() || !state.push_subscribed_channels.contains(&2),
+        "flush should clear all push_subscribed_channels; channel 2 was not re-added"
+    );
+    assert!(
+        !state.push_subscribed_channels.contains(&1),
+        "channel 1 should not be push-subscribed after flush (perm 0x0001 has no 0x2000)"
+    );
+}
+
 // -- CodecVersion --------------------------------------------------
 
 #[test]
@@ -1628,7 +1854,7 @@ fn text_message_skipped_for_pchat_enabled_channel() {
                 temporary: false,
                 position: 0,
                 max_users: 0,
-                pchat_protocol: Some(PchatProtocol::FancyV1PostJoin),
+                pchat_protocol: Some(PchatProtocol::FancyV1FullArchive),
                 pchat_max_history: None,
                 pchat_retention_days: None,
                     pchat_key_custodians: Vec::new(),            },
@@ -1807,7 +2033,7 @@ fn text_message_mixed_pchat_and_regular_channels() {
                 temporary: false,
                 position: 0,
                 max_users: 0,
-                pchat_protocol: Some(PchatProtocol::FancyV1PostJoin),
+                pchat_protocol: Some(PchatProtocol::FancyV1FullArchive),
                 pchat_max_history: None,
                 pchat_retention_days: None,
                     pchat_key_custodians: Vec::new(),            },
@@ -2030,4 +2256,288 @@ fn key_holders_empty_server_name_uses_resolver() {
         "fallback name should be 'Adjective Animal', got: {}",
         holders[0].name
     );
+}
+
+// -- Lint: no emit under lock (meta-test) --------------------------
+
+// Scan all Rust source files in the `mumble-tauri` crate to ensure
+// that `app.emit(` (Tauri IPC) is never called while a `SharedState`
+// or `inner` mutex lock guard is alive.
+
+// -- Server activity log -------------------------------------------
+
+/// Helper to extract "server-log" event message strings from the emitter.
+fn server_log_messages(emitter: &MockEmitter) -> Vec<String> {
+    emitter
+        .events()
+        .iter()
+        .filter(|(name, _)| name == "server-log")
+        .filter_map(|(_, val)| val.get("message").and_then(|m| m.as_str()).map(String::from))
+        .collect()
+}
+
+fn make_synced_ctx() -> (HandlerContext, Arc<MockEmitter>) {
+    let (ctx, emitter) = make_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        state.synced = true;
+        state.own_session = Some(1);
+    }
+    (ctx, emitter)
+}
+
+#[test]
+fn server_log_user_connected() {
+    let (ctx, emitter) = make_synced_ctx();
+    let us = mumble_tcp::UserState {
+        session: Some(10),
+        name: Some("Alice".into()),
+        channel_id: Some(0),
+        ..Default::default()
+    };
+    us.handle(&ctx);
+
+    let logs = server_log_messages(&emitter);
+    assert_eq!(logs, vec!["Alice connected"]);
+}
+
+#[test]
+fn server_log_user_disconnected() {
+    let (ctx, emitter) = make_synced_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let _ = state.users.insert(10, make_user(10, "Bob"));
+    }
+
+    let ur = mumble_tcp::UserRemove {
+        session: 10,
+        ..Default::default()
+    };
+    ur.handle(&ctx);
+
+    let logs = server_log_messages(&emitter);
+    assert_eq!(logs, vec!["Bob disconnected"]);
+}
+
+#[test]
+fn server_log_self_mute() {
+    let (ctx, emitter) = make_synced_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let _ = state.users.insert(10, make_user(10, "Charlie"));
+    }
+
+    let us = mumble_tcp::UserState {
+        session: Some(10),
+        self_mute: Some(true),
+        ..Default::default()
+    };
+    us.handle(&ctx);
+
+    let logs = server_log_messages(&emitter);
+    assert_eq!(logs, vec!["Charlie self-muted"]);
+}
+
+#[test]
+fn server_log_channel_move() {
+    let (ctx, emitter) = make_synced_ctx();
+    {
+        let mut state = ctx.shared.lock().unwrap();
+        let _ = state.users.insert(10, make_user(10, "Dana"));
+        let _ = state.channels.insert(
+            5,
+            ChannelEntry {
+                id: 5,
+                parent_id: Some(0),
+                name: "Lobby".into(),
+                description: String::new(),
+                description_hash: None,
+                user_count: 0,
+                permissions: None,
+                temporary: false,
+                position: 0,
+                max_users: 0,
+                pchat_protocol: None,
+                pchat_max_history: None,
+                pchat_retention_days: None,
+                pchat_key_custodians: Vec::new(),
+            },
+        );
+    }
+
+    let us = mumble_tcp::UserState {
+        session: Some(10),
+        channel_id: Some(5),
+        ..Default::default()
+    };
+    us.handle(&ctx);
+
+    let logs = server_log_messages(&emitter);
+    assert_eq!(logs, vec!["Dana moved to Lobby"]);
+}
+
+#[test]
+fn server_log_no_events_before_sync() {
+    let (ctx, emitter) = make_ctx();
+    // synced is false by default.
+    let us = mumble_tcp::UserState {
+        session: Some(10),
+        name: Some("Eve".into()),
+        channel_id: Some(0),
+        ..Default::default()
+    };
+    us.handle(&ctx);
+
+    let logs = server_log_messages(&emitter);
+    assert!(logs.is_empty(), "no log events should emit before sync completes");
+}
+
+// -- Lint: no emit under lock (meta-test) --------------------------
+///
+/// Background: calling `app.emit()` while holding a `std::sync::Mutex`
+/// causes a cross-thread deadlock - the webview dispatches the JS event
+/// synchronously, and if the JS handler invokes a Tauri command that
+/// re-locks the same mutex, both threads block forever.
+///
+/// The heuristic is intentionally conservative: it tracks brace-depth
+/// from the line where `.lock()` is called and flags any `.emit(`
+/// before the brace scope closes.  Known-safe patterns (e.g. emitting
+/// inside `flush()` which runs after lock release) can be annotated
+/// with `// lint:allow-emit-under-lock` on the same line.
+#[test]
+fn no_emit_under_lock_in_sources() {
+    let crate_src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut violations = Vec::new();
+
+    for entry in walkdir(&crate_src) {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let contents = std::fs::read_to_string(path).unwrap();
+        check_emit_under_lock(path, &contents, &mut violations);
+    }
+
+    assert!(
+        violations.is_empty(),
+        "emit-under-lock violations found (calling app.emit() while holding a mutex \
+         causes a deadlock with Tauri IPC):\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Recursively collect all file entries under `dir`.
+fn walkdir(dir: &std::path::Path) -> Vec<DirEntry> {
+    let mut entries = Vec::new();
+    walk_recursive(dir, &mut entries);
+    entries
+}
+
+struct DirEntry {
+    path: std::path::PathBuf,
+}
+
+impl DirEntry {
+    fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+fn walk_recursive(dir: &std::path::Path, out: &mut Vec<DirEntry>) {
+    let Ok(read_dir) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_recursive(&path, out);
+        } else {
+            out.push(DirEntry { path });
+        }
+    }
+}
+
+fn check_emit_under_lock(
+    path: &std::path::Path,
+    contents: &str,
+    violations: &mut Vec<String>,
+) {
+    let lock_patterns = [".lock()", "shared.lock()", "inner.lock()"];
+
+    // Track nested brace depth for each active lock scope.
+    // Each entry: (line_number_of_lock, brace_depth_at_lock)
+    let mut active_locks: Vec<(usize, i32)> = Vec::new();
+    let mut brace_depth: i32 = 0;
+
+    for (line_idx, line) in contents.lines().enumerate() {
+        let line_num = line_idx + 1;
+        let trimmed = line.trim();
+
+        // Skip comments and test code.
+        if trimmed.starts_with("//") || trimmed.starts_with("* ") || trimmed.starts_with("/*") {
+            continue;
+        }
+
+        // Count braces (rough: doesn't handle strings/comments perfectly,
+        // but good enough for this heuristic).
+        for ch in line.chars() {
+            match ch {
+                '{' => brace_depth += 1,
+                '}' => {
+                    brace_depth -= 1;
+                    // Close any lock scopes that have ended.
+                    active_locks.retain(|&(_, depth)| brace_depth >= depth);
+                }
+                _ => {}
+            }
+        }
+
+        // Detect lock acquisitions where the guard survives beyond the statement.
+        // Patterns like `.lock().map(...)` or `.lock().ok()` (single-line or
+        // multi-line chain) consume the guard immediately and are safe.
+        //
+        // The dangerous pattern stores the guard in a variable:
+        //   `let mut state = shared.lock()...;`
+        //   `let Ok(mut state) = shared.lock()...`
+        //   `if let Ok(mut state) = shared.lock() { ... }`
+        //
+        // We detect these by checking for `let` before `.lock()` on the same
+        // line, while filtering out consuming chains that also have .map/.ok.
+        if lock_patterns.iter().any(|p| line.contains(p)) {
+            let has_let_binding = trimmed.starts_with("let ") || trimmed.contains("if let ");
+            let guard_consumed_immediately = line.contains(".lock().map(")
+                || line.contains(".lock().ok()")
+                || line.contains(".lock().unwrap().");
+            if has_let_binding && !guard_consumed_immediately {
+                let rel = path
+                    .strip_prefix(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"))
+                    .unwrap_or(path);
+                if rel.to_string_lossy().contains("tests") {
+                    continue;
+                }
+                active_locks.push((line_num, brace_depth));
+            }
+        }
+
+        // Detect emit calls while locks are active.
+        if !active_locks.is_empty()
+            && (line.contains(".emit(") || line.contains("ctx.emit("))
+            && !line.contains("lint:allow-emit-under-lock")
+        {
+            let rel = path
+                .strip_prefix(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"))
+                .unwrap_or(path);
+            // Exclude test files.
+            if rel.to_string_lossy().contains("tests") {
+                continue;
+            }
+            let lock_lines: Vec<usize> = active_locks.iter().map(|(l, _)| *l).collect();
+            violations.push(format!(
+                "  {}:{} - .emit() called with lock held (acquired at line(s) {:?})",
+                rel.display(),
+                line_num,
+                lock_lines,
+            ));
+        }
+    }
 }

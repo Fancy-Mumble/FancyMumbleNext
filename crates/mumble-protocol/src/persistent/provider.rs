@@ -342,7 +342,7 @@ impl std::fmt::Debug for CompositeMessageProvider {
 impl MessageProvider for CompositeMessageProvider {
     fn get_messages(&self, channel_id: u32, range: &MessageRange) -> Result<Vec<StoredMessage>> {
         match self.effective_mode(channel_id) {
-            PchatProtocol::FancyV1PostJoin | PchatProtocol::FancyV1FullArchive => {
+            PchatProtocol::FancyV1FullArchive => {
                 self.persistent.get_messages(channel_id, range)
             }
             _ => self.volatile.get_messages(channel_id, range),
@@ -351,7 +351,7 @@ impl MessageProvider for CompositeMessageProvider {
 
     fn store_message(&mut self, channel_id: u32, message: StoredMessage) -> Result<()> {
         match self.effective_mode(channel_id) {
-            PchatProtocol::FancyV1PostJoin | PchatProtocol::FancyV1FullArchive => {
+            PchatProtocol::FancyV1FullArchive => {
                 self.persistent.store_message(channel_id, message)
             }
             _ => self.volatile.store_message(channel_id, message),
@@ -379,7 +379,7 @@ impl MessageProvider for CompositeMessageProvider {
 
     fn has_more(&self, channel_id: u32) -> bool {
         match self.effective_mode(channel_id) {
-            PchatProtocol::FancyV1PostJoin | PchatProtocol::FancyV1FullArchive => {
+            PchatProtocol::FancyV1FullArchive => {
                 self.persistent.has_more(channel_id)
             }
             _ => self.volatile.has_more(channel_id),
@@ -599,8 +599,8 @@ mod tests {
         let mut backend = InMemoryPersistentBackend::new();
         assert_eq!(backend.channel_mode(1), PchatProtocol::None);
 
-        backend.set_mode(1, PchatProtocol::FancyV1PostJoin);
-        assert_eq!(backend.channel_mode(1), PchatProtocol::FancyV1PostJoin);
+        backend.set_mode(1, PchatProtocol::FancyV1FullArchive);
+        assert_eq!(backend.channel_mode(1), PchatProtocol::FancyV1FullArchive);
     }
 
     #[test]
@@ -642,7 +642,7 @@ mod tests {
     #[test]
     fn composite_routes_to_persistent_for_post_join() {
         let mut backend = InMemoryPersistentBackend::new();
-        backend.set_mode(1, PchatProtocol::FancyV1PostJoin);
+        backend.set_mode(1, PchatProtocol::FancyV1FullArchive);
 
         let mut composite = CompositeMessageProvider::new(
             VolatileMessageProvider::new(),
@@ -667,7 +667,7 @@ mod tests {
     #[test]
     fn composite_replace_searches_both_providers() {
         let mut backend = InMemoryPersistentBackend::new();
-        backend.set_mode(1, PchatProtocol::FancyV1PostJoin);
+        backend.set_mode(1, PchatProtocol::FancyV1FullArchive);
 
         let mut composite = CompositeMessageProvider::new(
             VolatileMessageProvider::new(),
@@ -680,7 +680,7 @@ mod tests {
             .store_message(1, make_message("orig", 1, "alice"))
             .unwrap();
 
-        // Replace should find it in volatile even though mode is PostJoin
+        // Replace should find it in volatile even though mode is FullArchive
         let replacement = StoredMessage {
             body: "replaced".into(),
             ..make_message("new", 1, "alice")

@@ -51,11 +51,11 @@
 }
 
 .menuItemDanger {
-  color: var(--color-danger, #ef4444);
+  color: var(--color-danger);
 }
 
 .menuItemDanger:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--color-danger-bg);
 }
 
 .menuIcon {
@@ -69,7 +69,7 @@
 }
 
 .menuItemDanger .menuIcon {
-  color: var(--color-danger, #ef4444);
+  color: var(--color-danger);
 }
 
 /* --- Section divider -------------------------------------------- */
@@ -118,7 +118,7 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--color-accent, #2AABEE);
+  background: var(--color-accent);
   border: 2px solid var(--color-bg-secondary);
   cursor: pointer;
 }
@@ -127,7 +127,7 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--color-accent, #2AABEE);
+  background: var(--color-accent);
   border: 2px solid var(--color-bg-secondary);
   cursor: pointer;
 }

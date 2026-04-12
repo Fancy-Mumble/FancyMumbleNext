@@ -5,7 +5,7 @@
 //! via the [`AudioCapture`] and [`MixingPlayback`](super::MixingPlayback) traits.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use oboe::{
@@ -25,6 +25,7 @@ use mumble_protocol::error::{Error, Result};
 /// pushes them into a shared ring buffer.
 struct CaptureCallback {
     buffer: Arc<Mutex<VecDeque<f32>>>,
+    overflow_warned: Arc<AtomicBool>,
 }
 
 impl AudioInputCallback for CaptureCallback {
@@ -41,7 +42,9 @@ impl AudioInputCallback for CaptureCallback {
             // accumulating stale audio when the encoding loop is
             // throttled (e.g. app backgrounded on Android).
             if buf.len() > 9_600 {
-                warn!("oboe capture buffer overflow, discarding oldest samples");
+                if !self.overflow_warned.swap(true, Ordering::Relaxed) {
+                    warn!("oboe capture buffer overflow, discarding oldest samples");
+                }
                 let excess = buf.len() - 9_600;
                 let _ = buf.drain(..excess);
             }
@@ -67,6 +70,7 @@ pub struct OboeCapture {
     buffer: Arc<Mutex<VecDeque<f32>>>,
     stream: Option<AudioStreamAsync<Input, CaptureCallback>>,
     volume: Arc<AtomicU32>,
+    overflow_warned: Arc<AtomicBool>,
 }
 
 // SAFETY: The oboe stream is only accessed from the pipeline thread
@@ -88,6 +92,7 @@ impl OboeCapture {
             buffer: Arc::new(Mutex::new(VecDeque::with_capacity(9_600))),
             stream: None,
             volume,
+            overflow_warned: Arc::new(AtomicBool::new(false)),
         })
     }
 }
@@ -124,6 +129,7 @@ impl AudioCapture for OboeCapture {
         }
 
         let vol = f32::from_bits(self.volume.load(Ordering::Relaxed));
+        self.overflow_warned.store(false, Ordering::Relaxed);
         let samples: Vec<f32> = buf.drain(..self.frame_size).map(|s| s * vol).collect();
         let data: Vec<u8> = samples.iter().flat_map(|s| s.to_ne_bytes()).collect();
 
@@ -139,6 +145,7 @@ impl AudioCapture for OboeCapture {
     fn start(&mut self) -> Result<()> {
         let callback = CaptureCallback {
             buffer: self.buffer.clone(),
+            overflow_warned: self.overflow_warned.clone(),
         };
 
         let mut stream = AudioStreamBuilder::default()

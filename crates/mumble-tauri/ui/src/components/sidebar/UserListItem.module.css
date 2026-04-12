@@ -33,8 +33,8 @@
 }
 
 .selfUser {
-  background: linear-gradient(135deg, rgba(42, 171, 238, 0.08), rgba(122, 58, 237, 0.06));
-  border: 1px solid rgba(42, 171, 238, 0.15);
+  background: linear-gradient(135deg, var(--color-accent-subtle), rgba(122, 58, 237, 0.06));
+  border: 1px solid var(--color-accent-medium);
   cursor: default;
 }
 
@@ -95,9 +95,9 @@
 
 .avatarTalking .avatarImg,
 .avatarTalking .avatar {
-  outline: 2px solid var(--color-online, #22c55e);
+  outline: 2px solid var(--color-online);
   outline-offset: 1px;
-  box-shadow: 0 0 8px 2px rgba(34, 197, 94, 0.5);
+  box-shadow: 0 0 8px 2px var(--color-online-glow);
   animation: talkingPulse 1.2s ease-in-out infinite;
 }
 
@@ -135,19 +135,19 @@
 }
 
 .statusIcon.muted {
-  color: var(--color-danger, #ef4444);
+  color: var(--color-danger);
 }
 
 .statusIcon.deafened {
-  color: var(--color-danger, #ef4444);
+  color: var(--color-danger);
 }
 
 .statusIcon.prioritySpeaker {
-  color: var(--color-warning, #f59e0b);
+  color: var(--color-warning);
 }
 
 .statusIcon.registered {
-  color: var(--color-success, #22c55e);
+  color: var(--color-success);
 }
 
 /* --- Live Badge (screen sharing) -------------------------------- */
@@ -159,7 +159,7 @@
   padding: 1px 6px;
   border-radius: 4px;
   background: rgba(237, 66, 69, 0.15);
-  color: #ed4245;
+  color: var(--color-danger-alt);
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -183,7 +183,7 @@
   font-size: 11px;
   font-weight: 500;
   color: var(--color-text-muted);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--color-glass-border);
   border-radius: 99px;
   padding: 2px 6px;
   white-space: nowrap;
@@ -195,7 +195,7 @@
   font-weight: 500;
   color: var(--color-accent);
   background: rgba(42, 171, 238, 0.1);
-  border: 1px solid rgba(42, 171, 238, 0.15);
+  border: 1px solid var(--color-accent-medium);
   border-radius: 99px;
   padding: 2px 8px;
   white-space: nowrap;
@@ -219,7 +219,7 @@
   font-weight: 700;
   line-height: 1;
   color: #fff;
-  background: var(--color-accent, #2AABEE);
+  background: var(--color-accent);
   box-shadow: 0 0 6px rgba(42, 171, 238, 0.4);
 }
 
@@ -231,6 +231,35 @@
   z-index: 10000;
   pointer-events: none;
   padding-bottom: 12px;
+}
+
+/* --- Stream Preview Thumbnail ----------------------------------- */
+
+.streamPreview {
+  width: 260px;
+  border-radius: 8px 8px 0 0;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.streamPreview img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.streamPreviewPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 146px;
+  color: var(--color-text-muted);
+  animation: previewPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes previewPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
 }
 
 /* --- Mobile ----------------------------------------------------- */

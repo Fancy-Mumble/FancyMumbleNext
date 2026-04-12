@@ -61,11 +61,11 @@ function EditForm({ server, onSave, onClose }: Readonly<Props>) {
     e.preventDefault();
     if (!host.trim() || !username.trim()) return;
 
-    // Handle password changes
-    if (clearPassword) {
-      await setServerPassword(server.id, null);
-    } else if (password) {
+    // Handle password changes: new password takes precedence over clear.
+    if (password) {
       await setServerPassword(server.id, password);
+    } else if (clearPassword) {
+      await setServerPassword(server.id, null);
     }
 
     onSave(server.id, {

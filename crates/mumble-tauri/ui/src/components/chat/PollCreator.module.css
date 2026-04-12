@@ -3,7 +3,7 @@
 .backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--color-overlay-heavy);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -13,10 +13,10 @@
 .modal {
   width: 400px;
   max-height: 80vh;
-  background: var(--color-surface, #1e1e2e);
+  background: var(--color-surface);
   border: 1px solid var(--color-glass-border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 40px var(--color-overlay-heavy);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -54,7 +54,7 @@
 }
 
 .closeBtn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-glass-hover);
 }
 
 /* --- Body ------------------------------------------------------- */
@@ -94,7 +94,7 @@
 }
 
 .input:focus {
-  border-color: rgba(42, 171, 238, 0.3);
+  border-color: var(--color-accent-glow);
 }
 
 /* --- Option rows ------------------------------------------------ */
@@ -130,8 +130,8 @@
 }
 
 .removeBtn:hover {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
 }
 
 .addBtn {
@@ -147,7 +147,7 @@
 
 .addBtn:hover {
   color: var(--color-accent);
-  border-color: rgba(42, 171, 238, 0.3);
+  border-color: var(--color-accent-glow);
 }
 
 /* --- Checkbox --------------------------------------------------- */
@@ -188,13 +188,13 @@
 }
 
 .cancelBtn:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--color-glass-subtle);
 }
 
 .submitBtn {
   padding: 8px 16px;
   border: none;
-  background: linear-gradient(135deg, var(--color-accent), #229ed9);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-hover));
   color: white;
   border-radius: var(--radius-md);
   font-size: 13px;

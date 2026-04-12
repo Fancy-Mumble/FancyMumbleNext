@@ -432,9 +432,22 @@ pub(crate) fn handle_proto_offline_queue_drain(
 
     debug!(
         channel_id,
-        count = msg.messages.len(),
+        distribution_count = msg.distributions.len(),
+        message_count = msg.messages.len(),
         "received offline queue drain"
     );
+
+    // Process sender key distributions BEFORE attempting to decrypt
+    // messages. The server bundles all relevant SKDMs so we can
+    // establish the sender key state necessary for decryption.
+    for dist in &msg.distributions {
+        let sender_hash = dist.sender_hash.clone().unwrap_or_default();
+        let dist_channel = dist.channel_id.unwrap_or(channel_id);
+        let data = dist.distribution.clone().unwrap_or_default();
+        if !data.is_empty() {
+            let _ = super::handle_signal_sender_key_by_hash(shared, &sender_hash, dist_channel, &data);
+        }
+    }
 
     if msg.messages.is_empty() {
         return;
