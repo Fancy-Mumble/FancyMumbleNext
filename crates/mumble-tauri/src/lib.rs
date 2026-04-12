@@ -1711,6 +1711,32 @@ async fn process_background(
 
 // --- Application bootstrap ---------------------------------------
 
+/// Force hardware-accelerated compositing in WebKitGTK so that CSS
+/// `backdrop-filter: blur()` actually renders.
+#[cfg(target_os = "linux")]
+fn configure_webkitgtk(app: &tauri::App) {
+    let Some(window) = app.get_webview_window("main") else {
+        tracing::warn!("WebKitGTK: main webview window not found in setup");
+        return;
+    };
+    let result = window.with_webview(|webview| {
+        use webkit2gtk::{SettingsExt, WebViewExt};
+        let wv = webview.inner();
+        let Some(settings) = wv.settings() else {
+            tracing::warn!("WebKitGTK: could not get webview settings");
+            return;
+        };
+        settings.set_hardware_acceleration_policy(
+            webkit2gtk::HardwareAccelerationPolicy::Always,
+        );
+        settings.set_enable_webgl(true);
+        tracing::info!("WebKitGTK: hardware acceleration set to Always, WebGL enabled");
+    });
+    if let Err(e) = result {
+        tracing::warn!("WebKitGTK: with_webview failed: {e}");
+    }
+}
+
 /// Entry point for the Tauri application.
 ///
 /// Initialises the TLS crypto provider, sets up logging, registers all
@@ -1823,31 +1849,8 @@ pub fn run() {
                 linux_desktop::start_action_listener(app.handle().clone());
             }
 
-            // On Linux (WebKitGTK), force hardware-accelerated compositing so
-            // that CSS `backdrop-filter: blur()` actually renders.
             #[cfg(target_os = "linux")]
-            {
-                if let Some(window) = app.get_webview_window("main") {
-                    let result = window.with_webview(|webview| {
-                        use webkit2gtk::{SettingsExt, WebViewExt};
-                        let wv = webview.inner();
-                        if let Some(settings) = wv.settings() {
-                            settings.set_hardware_acceleration_policy(
-                                webkit2gtk::HardwareAccelerationPolicy::Always,
-                            );
-                            settings.set_enable_webgl(true);
-                            tracing::info!("WebKitGTK: hardware acceleration set to Always, WebGL enabled");
-                        } else {
-                            tracing::warn!("WebKitGTK: could not get webview settings");
-                        }
-                    });
-                    if let Err(e) = result {
-                        tracing::warn!("WebKitGTK: with_webview failed: {e}");
-                    }
-                } else {
-                    tracing::warn!("WebKitGTK: main webview window not found in setup");
-                }
-            }
+            configure_webkitgtk(app);
 
             // System tray icon with quick actions (desktop only).
             #[cfg(not(target_os = "android"))]
