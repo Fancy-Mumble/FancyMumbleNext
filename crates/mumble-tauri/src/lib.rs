@@ -1739,35 +1739,39 @@ fn running_in_appimage() -> bool {
     std::env::var_os("APPIMAGE").is_some() || std::env::var_os("APPDIR").is_some()
 }
 
-/// Check whether a system-installed WebKitGTK 4.1 is available.
+/// Point GStreamer at the host system's plugin directories.
+///
+/// AppImages bundle GStreamer core libraries but typically not the plugin
+/// shared objects (e.g. `libgstapp.so` that provides the `appsink`
+/// element).  Without plugins, WebKit hits a `RELEASE_ASSERT` during
+/// media backend initialization.  Setting `GST_PLUGIN_SYSTEM_PATH` tells
+/// GStreamer to scan the host's standard plugin directories instead of
+/// the (non-existent) path compiled into the bundled library.
+///
+/// Skipped if the user or launcher already set the variable.
 #[cfg(target_os = "linux")]
-fn system_webkit_available() -> bool {
-    [
-        "/usr/lib/webkit2gtk-4.1/WebKitWebProcess",
-        "/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/WebKitWebProcess",
-        "/usr/lib64/webkit2gtk-4.1/WebKitWebProcess",
+fn ensure_gstreamer_plugins_discoverable() {
+    if std::env::var_os("GST_PLUGIN_SYSTEM_PATH").is_some()
+        || std::env::var_os("GST_PLUGIN_SYSTEM_PATH_1_0").is_some()
+    {
+        return;
+    }
+
+    let existing: Vec<&str> = [
+        "/usr/lib/gstreamer-1.0",
+        "/usr/lib/x86_64-linux-gnu/gstreamer-1.0",
+        "/usr/lib64/gstreamer-1.0",
+        "/usr/lib/aarch64-linux-gnu/gstreamer-1.0",
     ]
     .iter()
-    .any(|p| std::path::Path::new(p).exists())
-}
+    .copied()
+    .filter(|d| std::path::Path::new(d).is_dir())
+    .collect();
 
-/// Prepend standard system library directories to `LD_LIBRARY_PATH`.
-///
-/// When an AppImage bundles WebKit but not all its runtime dependencies
-/// (notably GStreamer plugins), the spawned `WebKitWebProcess` crashes
-/// with a `RELEASE_ASSERT`.  By putting system dirs first, child
-/// processes resolve against the host's complete library set instead of
-/// the incomplete AppImage copies.
-#[cfg(target_os = "linux")]
-fn prefer_system_libs_for_children() {
-    const SYSTEM_DIRS: &str = "/usr/lib:/usr/lib64:/usr/lib/x86_64-linux-gnu";
-    let current = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
-    let new_path = if current.is_empty() {
-        SYSTEM_DIRS.to_string()
-    } else {
-        format!("{SYSTEM_DIRS}:{current}")
-    };
-    std::env::set_var("LD_LIBRARY_PATH", &new_path);
+    if !existing.is_empty() {
+        let path = existing.join(":");
+        std::env::set_var("GST_PLUGIN_SYSTEM_PATH", &path);
+    }
 }
 
 /// Probe the GPU/EGL capability of this system.
@@ -1989,19 +1993,13 @@ pub fn run() {
                 std::env::set_var("GST_GL_PLATFORM", "none");
                 std::env::set_var("GST_GL_WINDOW", "dummy");
                 std::env::set_var("GST_GL_API", "none");
-
-                // AppImages bundle WebKit but not GStreamer plugins.
-                // The bundled WebKitWebProcess crashes with a
-                // RELEASE_ASSERT when GStreamer cannot find elements
-                // like `appsink`.  Prepend system lib dirs so child
-                // processes load the host's complete library set.
-                if running_in_appimage() && system_webkit_available() {
-                    prefer_system_libs_for_children();
-                    tracing::info!(
-                        "AppImage: child processes will prefer system libraries"
-                    );
-                }
             }
+        }
+
+        // AppImages bundle GStreamer core but usually not the plugins.
+        // Point GStreamer at the host system's plugin directories.
+        if running_in_appimage() {
+            ensure_gstreamer_plugins_discoverable();
         }
     }
 
