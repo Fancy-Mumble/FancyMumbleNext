@@ -1943,12 +1943,18 @@ pub fn run() {
             GpuCapability::HardwareAccelerated => {
                 std::env::set_var("WEBKIT_FORCE_COMPOSITING_MODE", "1");
             }
-            GpuCapability::SoftwareOnly => {
-                std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+            GpuCapability::SoftwareOnly | GpuCapability::NoEgl => {
+                if linux_gpu == GpuCapability::SoftwareOnly {
+                    std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+                }
                 std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-            }
-            GpuCapability::NoEgl => {
-                std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+                std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+                // Prevent GStreamer GL from trying to create EGL contexts.
+                // The WebKitWebProcess loads libgstgl which can abort() when
+                // EGL display creation fails on systems without a real GPU.
+                std::env::set_var("GST_GL_PLATFORM", "none");
+                std::env::set_var("GST_GL_WINDOW", "dummy");
+                std::env::set_var("GST_GL_API", "none");
             }
         }
     }
