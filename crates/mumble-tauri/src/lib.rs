@@ -1723,8 +1723,9 @@ async fn process_background(
 
 /// Probe whether a usable EGL display is available on this system.
 ///
-/// Loads `libEGL.so.1` at runtime and calls `eglGetDisplay(EGL_DEFAULT_DISPLAY)`.
-/// Returns `true` only when the call succeeds and returns a non-null display.
+/// Loads `libEGL.so.1` at runtime, calls `eglGetDisplay(EGL_DEFAULT_DISPLAY)`,
+/// and then `eglInitialize` to verify the display is actually usable.
+/// Returns `true` only when both calls succeed.
 /// This avoids the hard `abort()` that `WebKitGTK` triggers when hardware
 /// acceleration is forced on a system without working EGL (VMs, containers,
 /// broken GPU drivers).
@@ -1732,6 +1733,11 @@ async fn process_background(
 fn egl_display_available() -> bool {
     const EGL_DEFAULT_DISPLAY: *mut std::ffi::c_void = std::ptr::null_mut();
     const EGL_NO_DISPLAY: *mut std::ffi::c_void = std::ptr::null_mut();
+    const EGL_FALSE: i32 = 0;
+
+    type EglGetDisplay = extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void;
+    type EglInitialize = extern "C" fn(*mut std::ffi::c_void, *mut i32, *mut i32) -> i32;
+    type EglTerminate = extern "C" fn(*mut std::ffi::c_void) -> i32;
 
     #[allow(unsafe_code, reason = "probing EGL via dlopen/dlsym is inherently unsafe FFI")]
     unsafe {
@@ -1747,16 +1753,33 @@ fn egl_display_available() -> bool {
         if lib.is_null() {
             return false;
         }
-        let sym = libc::dlsym(lib, c"eglGetDisplay".as_ptr());
-        if sym.is_null() {
+
+        let get_display_sym = libc::dlsym(lib, c"eglGetDisplay".as_ptr());
+        let initialize_sym = libc::dlsym(lib, c"eglInitialize".as_ptr());
+        let terminate_sym = libc::dlsym(lib, c"eglTerminate".as_ptr());
+        if get_display_sym.is_null() || initialize_sym.is_null() || terminate_sym.is_null() {
             let _ = libc::dlclose(lib);
             return false;
         }
-        let get_display: extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void =
-            std::mem::transmute(sym);
+
+        let get_display: EglGetDisplay = std::mem::transmute(get_display_sym);
+        let initialize: EglInitialize = std::mem::transmute(initialize_sym);
+        let terminate: EglTerminate = std::mem::transmute(terminate_sym);
+
         let display = get_display(EGL_DEFAULT_DISPLAY);
+        if display == EGL_NO_DISPLAY {
+            let _ = libc::dlclose(lib);
+            return false;
+        }
+
+        let mut major: i32 = 0;
+        let mut minor: i32 = 0;
+        let ok = initialize(display, &mut major, &mut minor) != EGL_FALSE;
+        if ok {
+            let _ = terminate(display);
+        }
         let _ = libc::dlclose(lib);
-        display != EGL_NO_DISPLAY
+        ok
     }
 }
 
@@ -1764,14 +1787,14 @@ fn egl_display_available() -> bool {
 ///
 /// Forces `HardwareAccelerationPolicy::Always` when a working EGL display
 /// is detected so that CSS `backdrop-filter: blur()` renders correctly.
-/// Falls back to the default `OnDemand` policy otherwise.
+/// Explicitly disables hardware acceleration otherwise to prevent
+/// WebKitGTK from attempting EGL internally and aborting.
 #[cfg(target_os = "linux")]
-fn configure_webkitgtk(app: &tauri::App) {
+fn configure_webkitgtk(app: &tauri::App, has_egl: bool) {
     let Some(window) = app.get_webview_window("main") else {
         tracing::warn!("WebKitGTK: main webview window not found in setup");
         return;
     };
-    let has_egl = egl_display_available();
     let result = window.with_webview(move |webview| {
         use webkit2gtk::{SettingsExt, WebViewExt};
         let wv = webview.inner();
@@ -1786,8 +1809,11 @@ fn configure_webkitgtk(app: &tauri::App) {
             settings.set_enable_webgl(true);
             tracing::info!("WebKitGTK: hardware acceleration set to Always, WebGL enabled");
         } else {
+            settings.set_hardware_acceleration_policy(
+                webkit2gtk::HardwareAccelerationPolicy::Never,
+            );
             tracing::warn!(
-                "WebKitGTK: EGL display not available, keeping default acceleration policy"
+                "WebKitGTK: EGL display not available, hardware acceleration disabled"
             );
         }
     });
@@ -1820,11 +1846,20 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     linux_desktop::set_gtk_identifiers();
 
-    // On Linux, force WebKitGTK to use compositing mode so that CSS
-    // `backdrop-filter: blur()` is actually rendered (not just parsed).
+    // On Linux, configure WebKitGTK environment variables based on
+    // whether a usable EGL display exists.  These must be set before the
+    // WebView process is spawned.
+    #[cfg(target_os = "linux")]
+    let linux_has_egl = egl_display_available();
+
     #[cfg(target_os = "linux")]
     {
-        std::env::set_var("WEBKIT_FORCE_COMPOSITING_MODE", "1");
+        if linux_has_egl {
+            std::env::set_var("WEBKIT_FORCE_COMPOSITING_MODE", "1");
+        } else {
+            std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
     }
 
     // Set up a reloadable tracing subscriber so the log level can be changed
@@ -1909,7 +1944,7 @@ pub fn run() {
             }
 
             #[cfg(target_os = "linux")]
-            configure_webkitgtk(app);
+            configure_webkitgtk(app, linux_has_egl);
 
             // System tray icon with quick actions (desktop only).
             #[cfg(not(target_os = "android"))]
