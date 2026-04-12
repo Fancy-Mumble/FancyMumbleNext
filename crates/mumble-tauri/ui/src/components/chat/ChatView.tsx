@@ -28,6 +28,7 @@ import { useChatScroll } from "./useChatScroll";
 import { useMessageSelection } from "./useMessageSelection";
 import { useReadReceipts } from "./useReadReceipts";
 import { isMobile } from "../../utils/platform";
+import { htmlToMarkdown } from "./MarkdownInput";
 import type { MessageScope } from "../../messageOffload";
 import { useScreenShare } from "./useScreenShare";
 import ScreenShareViewer, { BroadcastBanner, WebRtcErrorBanner } from "./ScreenShareViewer";
@@ -94,6 +95,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
   const [draft, setDraft] = useState("");
   const [pendingQuotes, setPendingQuotes] = useState<ChatMessage[]>([]);
+  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const {
     polls, pollMessages, showPollCreator, openPollCreator, closePollCreator,
     handlePollCreate, handlePollVote,
@@ -239,11 +241,27 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
   const lightboxRef = useRef<LightboxHandle>(null);
 
+  const handleEdit = useCallback((msg: ChatMessage) => {
+    setEditingMessage(msg);
+    setDraft(htmlToMarkdown(msg.body));
+  }, []);
+
+  const cancelEdit = useCallback(() => {
+    setEditingMessage(null);
+    setDraft("");
+  }, []);
+
+  useEffect(() => {
+    setEditingMessage(null);
+  }, [selectedChannel, selectedDmUser, selectedGroup]);
+
   const { sending, handleSend, sendMediaFile, handlePaste, handleGifSelect } = useChatSend({
     pendingQuotes,
     clearQuotes: () => setPendingQuotes([]),
     draft,
     clearDraft: () => setDraft(""),
+    editingMessage,
+    onEditComplete: cancelEdit,
   });
 
   const {
@@ -541,6 +559,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         onGifSelect={handleGifSelect}
         disabled={sending || persistent.keyRevoked}
         hasPendingQuotes={pendingQuotes.length > 0}
+        isEditing={editingMessage !== null}
+        onCancelEdit={cancelEdit}
       />
 
       {showPollCreator && (
@@ -565,6 +585,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onMoreReactions={handleMoreReactions}
           onCite={handleCite}
           onCopyText={handleCopyText}
+          onEdit={handleEdit}
           reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
           avatarByHash={avatarByHash}
           allMessageIds={allMessageIds}
@@ -582,6 +603,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onMoreReactions={handleMoreReactions}
           onCite={handleCite}
           onCopyText={handleCopyText}
+          onEdit={handleEdit}
           reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
           allMessageIds={allMessageIds}
           channelId={selectedChannel ?? undefined}

@@ -257,6 +257,7 @@ export default function MessageItem({
             <time className={styles.messageTime} dateTime={new Date(displayTimestamp).toISOString()}>
               {formatTimestamp(displayTimestamp, timeFormat, convertToLocalTime, systemUses24h)}
             </time>
+            {msg.edited_at != null && <span className={styles.editedBadge}>(edited)</span>}
             {msg.is_own && readReceiptIndicator}
           </span>
         )}
@@ -265,6 +266,7 @@ export default function MessageItem({
             <time dateTime={new Date(displayTimestamp).toISOString()}>
               {formatTimestamp(displayTimestamp, timeFormat, convertToLocalTime, systemUses24h)}
             </time>
+            {msg.edited_at != null && <span className={styles.editedBadge}>(edited)</span>}
             {msg.is_own && readReceiptIndicator}
           </span>
         )}

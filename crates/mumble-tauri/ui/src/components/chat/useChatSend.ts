@@ -9,10 +9,13 @@ interface UseChatSendOptions {
   clearQuotes: () => void;
   draft: string;
   clearDraft: () => void;
+  editingMessage?: ChatMessage | null;
+  onEditComplete?: () => void;
 }
 
-export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft }: UseChatSendOptions) {
+export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, editingMessage, onEditComplete }: UseChatSendOptions) {
   const sendMessage = useAppStore((s) => s.sendMessage);
+  const editMessage = useAppStore((s) => s.editMessage);
   const serverConfig = useAppStore((s) => s.serverConfig);
   const selectedChannel = useAppStore((s) => s.selectedChannel);
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
@@ -28,6 +31,18 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft }: U
   const handleSend = useCallback(async () => {
     const text = draft.trim();
     if (!text && pendingQuotes.length === 0) return;
+
+    // Edit mode: update the existing message instead of sending a new one.
+    if (editingMessage?.message_id && text) {
+      const htmlBody = markdownToHtml(text);
+      const channelId = editingMessage.channel_id;
+      if (channelId != null) {
+        clearDraft();
+        onEditComplete?.();
+        await editMessage(channelId, editingMessage.message_id, htmlBody);
+      }
+      return;
+    }
 
     // Build quote markers and convert draft to HTML.
     const quoteMarkers = pendingQuotes
@@ -51,7 +66,7 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft }: U
       clearQuotes();
       await sendMessage(selectedChannel, html);
     }
-  }, [draft, pendingQuotes, isGroupMode, selectedGroup, sendGroupMessage, isDmMode, selectedDmUser, sendDm, selectedChannel, sendMessage, clearDraft, clearQuotes]);
+  }, [draft, pendingQuotes, editingMessage, editMessage, onEditComplete, isGroupMode, selectedGroup, sendGroupMessage, isDmMode, selectedDmUser, sendDm, selectedChannel, sendMessage, clearDraft, clearQuotes]);
 
   const sendMediaFile = useCallback(
     async (file: File) => {

@@ -20,6 +20,8 @@ pub struct SendTextMessage {
     /// Message timestamp as Unix epoch milliseconds (Fancy Mumble extension).
     /// Ignored by legacy servers that don't recognise the field.
     pub timestamp: Option<u64>,
+    /// When set, this message replaces the existing message with this ID.
+    pub edit_id: Option<String>,
 }
 
 impl CommandAction for SendTextMessage {
@@ -31,6 +33,7 @@ impl CommandAction for SendTextMessage {
             message: self.message.clone(),
             message_id: self.message_id.clone(),
             timestamp: self.timestamp,
+            edit_id: self.edit_id.clone(),
             ..Default::default()
         };
         CommandOutput {

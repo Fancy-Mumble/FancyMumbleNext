@@ -329,6 +329,16 @@ async fn send_message(
 }
 
 #[tauri::command]
+async fn edit_message(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    message_id: String,
+    new_body: String,
+) -> Result<(), String> {
+    state.edit_message(channel_id, message_id, new_body).await
+}
+
+#[tauri::command]
 async fn select_channel(
     state: tauri::State<'_, AppState>,
     channel_id: u32,
@@ -1922,6 +1932,7 @@ pub fn run() {
             get_users,
             get_messages,
             send_message,
+            edit_message,
             select_channel,
             join_channel,
             get_current_channel,

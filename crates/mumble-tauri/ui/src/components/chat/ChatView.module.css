@@ -628,6 +628,17 @@
   line-height: 1.5;
 }
 
+/* --- Edited message indicator ----------------------------------- */
+
+.editedBadge {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+  opacity: 0.6;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
 /* --- Offloaded message skeleton --------------------------------- */
 
 .skeleton {
@@ -782,6 +793,40 @@
 
 .composerWrapper {
   position: relative;
+}
+
+/* --- Edit mode banner ------------------------------------------- */
+
+.editBanner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 24px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface-1));
+  border-top: 1px solid color-mix(in srgb, var(--color-accent) 25%, transparent);
+}
+
+.editBannerClose {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+
+.editBannerClose:hover {
+  background: var(--color-glass-border);
+  color: var(--color-text-primary);
 }
 
 .composer {

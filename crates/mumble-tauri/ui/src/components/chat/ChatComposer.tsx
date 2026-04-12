@@ -5,6 +5,8 @@ import styles from "./ChatView.module.css";
 import AttachIcon from "../../assets/icons/action/attach.svg?react";
 import GifIcon from "../../assets/icons/communication/gif.svg?react";
 import SendIcon from "../../assets/icons/action/send.svg?react";
+import CloseIcon from "../../assets/icons/action/close.svg?react";
+import EditIcon from "../../assets/icons/action/edit.svg?react";
 import { isMobile } from "../../utils/platform";
 
 interface ChatComposerProps {
@@ -16,6 +18,8 @@ interface ChatComposerProps {
   readonly onGifSelect: (url: string, alt: string) => Promise<void>;
   readonly disabled?: boolean;
   readonly hasPendingQuotes?: boolean;
+  readonly isEditing?: boolean;
+  readonly onCancelEdit?: () => void;
 }
 
 export default function ChatComposer({
@@ -27,6 +31,8 @@ export default function ChatComposer({
   onGifSelect,
   disabled = false,
   hasPendingQuotes = false,
+  isEditing = false,
+  onCancelEdit,
 }: ChatComposerProps) {
   const [showGifPicker, setShowGifPicker] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -47,6 +53,15 @@ export default function ChatComposer({
 
   return (
     <div className={styles.composerWrapper}>
+      {isEditing && (
+        <div className={styles.editBanner}>
+          <EditIcon width={14} height={14} />
+          <span>Editing message</span>
+          <button type="button" className={styles.editBannerClose} onClick={onCancelEdit}>
+            <CloseIcon width={14} height={14} />
+          </button>
+        </div>
+      )}
       {showGifPicker && (
         <GifPicker
           onSelect={onGifSelect}

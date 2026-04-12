@@ -82,6 +82,7 @@ pub(crate) fn handle_proto_msg_deliver(
         message_id: Some(message_id.clone()),
         timestamp: Some(timestamp),
         is_legacy: false,
+        edited_at: None,
     };
 
     insert_or_replace_message(&mut state, channel_id, &message_id, replaces_id.as_deref(), chat_msg);
@@ -307,6 +308,7 @@ fn decrypt_fetched_messages(
             message_id: Some(msg_id),
             timestamp: Some(msg_timestamp),
             is_legacy: false,
+            edited_at: None,
         });
     }
 
@@ -585,6 +587,7 @@ fn insert_offline_messages(
             message_id: Some(dm.message_id.clone()),
             timestamp: Some(dm.timestamp),
             is_legacy: false,
+            edited_at: None,
         };
 
         state

@@ -622,6 +622,7 @@ impl AppState {
                 message: text_body,
                 message_id: message_id.clone(),
                 timestamp,
+                edit_id: None,
             })
             .await
             .map_err(|e| format!("Failed to send message: {e}"))?;
@@ -665,6 +666,7 @@ impl AppState {
                 message_id,
                 timestamp,
                 is_legacy: false,
+                edited_at: None,
             };
             msg.ensure_id();
 
@@ -689,6 +691,61 @@ impl AppState {
             }
 
             state.messages.entry(channel_id).or_default().push(msg);
+        }
+
+        Ok(())
+    }
+
+    /// Edit a previously sent message on a channel.
+    ///
+    /// Sends a `TextMessage` with `edit_id` set to the original `message_id`.
+    /// The server validates that only the original sender can edit.
+    /// The local message store is updated immediately (optimistic update).
+    pub async fn edit_message(
+        &self,
+        channel_id: u32,
+        message_id: String,
+        new_body: String,
+    ) -> Result<(), String> {
+        let (handle, is_fancy) = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            (
+                state.client_handle.clone(),
+                state.server_fancy_version.is_some(),
+            )
+        };
+
+        let handle = handle.ok_or("Not connected")?;
+        if !is_fancy {
+            return Err("Message editing requires a Fancy Mumble server".into());
+        }
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        handle
+            .send(command::SendTextMessage {
+                channel_ids: vec![channel_id],
+                user_sessions: vec![],
+                tree_ids: vec![],
+                message: new_body.clone(),
+                message_id: Some(uuid::Uuid::new_v4().to_string()),
+                timestamp: Some(now_ms),
+                edit_id: Some(message_id.clone()),
+            })
+            .await
+            .map_err(|e| format!("Failed to send edit: {e}"))?;
+
+        // Apply the edit locally (the server does not echo our own messages).
+        if let Ok(mut state) = self.inner.lock() {
+            if let Some(msgs) = state.messages.get_mut(&channel_id) {
+                if let Some(msg) = msgs.iter_mut().find(|m| m.message_id.as_deref() == Some(&message_id)) {
+                    msg.body = new_body;
+                    msg.edited_at = Some(now_ms);
+                }
+            }
         }
 
         Ok(())
@@ -729,6 +786,7 @@ impl AppState {
                 message: body.clone(),
                 message_id: message_id.clone(),
                 timestamp,
+                edit_id: None,
             })
             .await
             .map_err(|e| format!("Failed to send DM: {e}"))?;
@@ -747,6 +805,7 @@ impl AppState {
                 message_id,
                 timestamp,
                 is_legacy: false,
+                edited_at: None,
             };
             msg.ensure_id();
             state.dm_messages.entry(target_session).or_default().push(msg);
@@ -1411,6 +1470,7 @@ impl AppState {
                 message: wire_body,
                 message_id: message_id.clone(),
                 timestamp,
+                edit_id: None,
             })
             .await
             .map_err(|e| format!("Failed to send group message: {e}"))?;
@@ -1429,6 +1489,7 @@ impl AppState {
                 message_id,
                 timestamp,
                 is_legacy: false,
+                edited_at: None,
             };
             msg.ensure_id();
             state

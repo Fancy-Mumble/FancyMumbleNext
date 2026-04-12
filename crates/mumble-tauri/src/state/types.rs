@@ -128,6 +128,9 @@ pub struct ChatMessage {
     /// pchat-enabled channel and was therefore sent in plaintext.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub is_legacy: bool,
+    /// When set, the message was edited at this Unix-epoch-millisecond timestamp.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<u64>,
 }
 
 impl ChatMessage {

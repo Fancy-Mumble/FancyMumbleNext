@@ -69,6 +69,8 @@ export interface ChatMessage {
   timestamp?: number | null;
   /** When true the message was sent by a legacy (non-E2EE) client on a pchat channel. */
   is_legacy?: boolean;
+  /** Unix epoch millis when the message was edited. Absent if never edited. */
+  edited_at?: number | null;
 }
 
 /** A multi-member group chat, identified by a UUID. */

@@ -257,6 +257,26 @@ export function markdownToHtml(raw: string): string {
   return html;
 }
 
+/** Reverse of markdownToHtml: convert stored HTML back to editable markdown text. */
+export function htmlToMarkdown(html: string): string {
+  let text = html;
+  text = text.replaceAll(/<br\s*\/?>/gi, "\n");
+  text = text.replaceAll(/<a[^>]*>([^<]*)<\/a>/gi, "$1");
+  text = text.replaceAll(/<code>([^<]*)<\/code>/gi, "`$1`");
+  text = text.replaceAll(/<b>([^<]*)<\/b>/gi, "**$1**");
+  text = text.replaceAll(/<strong>([^<]*)<\/strong>/gi, "**$1**");
+  text = text.replaceAll(/<i>([^<]*)<\/i>/gi, "*$1*");
+  text = text.replaceAll(/<em>([^<]*)<\/em>/gi, "*$1*");
+  text = text.replaceAll(/<u>([^<]*)<\/u>/gi, "__$1__");
+  text = text.replaceAll(/<s>([^<]*)<\/s>/gi, "~~$1~~");
+  text = text.replaceAll(/<!--[\s\S]*?-->/g, "");
+  text = text.replaceAll(/<[^>]*>/g, "");
+  text = text.replaceAll("&lt;", "<");
+  text = text.replaceAll("&gt;", ">");
+  text = text.replaceAll("&amp;", "&");
+  return text;
+}
+
 // --- Component ----------------------------------------------------
 
 interface MarkdownInputProps {
