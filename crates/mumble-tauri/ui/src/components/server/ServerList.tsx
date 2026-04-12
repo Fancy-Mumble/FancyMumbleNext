@@ -3,6 +3,7 @@ import type { SavedServer, ServerPingResult } from "../../types";
 import { isMobile } from "../../utils/platform";
 import UserFilledIcon from "../../assets/icons/user/user-filled.svg?react";
 import PauseIcon from "../../assets/icons/status/pause.svg?react";
+import SearchIcon from "../../assets/icons/action/search.svg?react";
 import SwipeableCard from "../elements/SwipeableCard";
 import styles from "./ServerList.module.css";
 
@@ -189,10 +190,7 @@ export default function ServerList({
       {/* Search bar - only shown when there are saved servers */}
       {servers.length > 0 && (
         <div className={styles.searchWrap}>
-          <svg className={styles.searchIcon} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-            <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M12.5 12.5L16 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
+          <SearchIcon className={styles.searchIcon} aria-hidden="true" />
           <input
             className={styles.searchInput}
             type="text"

@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { useAppStore } from "../../store";
 import { allActiveUsersRead, getReadersForMessage } from "./readReceiptStore";
+import CheckSingleIcon from "../../assets/icons/status/check-single.svg?react";
+import CheckDoubleIcon from "../../assets/icons/status/check-double.svg?react";
 import styles from "./ReadReceiptIndicator.module.css";
 
 interface ReadReceiptIndicatorProps {
@@ -55,19 +57,10 @@ export default function ReadReceiptIndicator({
     [channelId, messageId, allMessageIds, ownHash, readReceiptVersion],
   );
 
-  const singleCheck = (
-    <path
-      d="M11.071.653a.457.457 0 0 0-.304-.102.493.493 0 0 0-.381.178l-6.19 7.636-2.405-2.272a.463.463 0 0 0-.336-.146.47.47 0 0 0-.343.146l-.311.31a.445.445 0 0 0-.14.337c0 .136.046.249.14.337l2.995 2.83a.63.63 0 0 0 .448.186h.065a.63.63 0 0 0 .416-.186l6.646-8.09a.42.42 0 0 0 .108-.299.453.453 0 0 0-.108-.298l-.3-.267z"
-      fill="currentColor"
-    />
-  );
-
   if (readerCount === 0) {
     return (
       <span className={styles.indicator} title="Sent">
-        <svg width="16" height="11" viewBox="0 0 16 11" aria-label="Sent">
-          {singleCheck}
-        </svg>
+        <CheckSingleIcon width={16} height={11} aria-label="Sent" />
       </span>
     );
   }
@@ -75,23 +68,14 @@ export default function ReadReceiptIndicator({
   if (!allRead) {
     return (
       <span className={`${styles.indicator} ${styles.read}`} title={`Read by ${readerCount}`}>
-        <svg width="16" height="11" viewBox="0 0 16 11" aria-label="Read">
-          {singleCheck}
-        </svg>
+        <CheckSingleIcon width={16} height={11} aria-label="Read" />
       </span>
     );
   }
 
   return (
     <span className={`${styles.indicator} ${styles.read}`} title="Read by everyone">
-      <svg width="16" height="11" viewBox="0 0 16 11" aria-label="Read by everyone">
-        {singleCheck}
-        <path
-          d="M15.071.653a.457.457 0 0 0-.304-.102.493.493 0 0 0-.381.178l-6.19 7.636-1.143-1.08-.255.312.695.657a.63.63 0 0 0 .448.186h.065a.63.63 0 0 0 .416-.186l6.646-8.09a.42.42 0 0 0 .108-.299.453.453 0 0 0-.108-.298l-.3-.267z"
-          fill="currentColor"
-          transform="translate(-1.5, 0)"
-        />
-      </svg>
+      <CheckDoubleIcon width={16} height={11} aria-label="Read by everyone" />
     </span>
   );
 }

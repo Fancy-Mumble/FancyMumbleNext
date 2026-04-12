@@ -5,6 +5,7 @@ import type {
   NotificationEventConfig,
 } from "../../types";
 import { Toggle } from "./SharedControls";
+import PlayIcon from "../../assets/icons/status/play.svg?react";
 import styles from "./SettingsPage.module.css";
 import ns from "./NotificationsPanel.module.css";
 
@@ -267,7 +268,7 @@ export function NotificationsPanel({
                       disabled={cfg.sound === "none"}
                       title="Preview sound"
                     >
-                      <PlayIcon />
+                      <PlayIcon width={16} height={16} />
                     </button>
                   </div>
 
@@ -296,13 +297,5 @@ export function NotificationsPanel({
           );
         })}
     </>
-  );
-}
-
-function PlayIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M4 2.5v11l9-5.5z" />
-    </svg>
   );
 }

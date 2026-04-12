@@ -16,6 +16,7 @@ import { useStreamThumbnail } from "./useStreamPreview";
 import { useAppStore } from "../../store";
 import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
 import ChevronDownIcon from "../../assets/icons/navigation/chevron-down.svg?react";
+import Grid2x2Icon from "../../assets/icons/general/grid-2x2.svg?react";
 import styles from "./StreamFocusView.module.css";
 import { useBroadcasterOrder, useDragStream } from "./useStreamDrag";
 import type { Broadcaster, PointerDragItemProps, PointerDragHandlers } from "./useStreamDrag";
@@ -99,18 +100,6 @@ function LayoutVisual({ id }: { readonly id: GridLayout }) {
         </div>
       );
   }
-}
-
-// Small 2x2 grid SVG icon for the layout picker button
-function GridIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-      <rect x="1" y="1" width="6" height="6" rx="1" />
-      <rect x="9" y="1" width="6" height="6" rx="1" />
-      <rect x="1" y="9" width="6" height="6" rx="1" />
-      <rect x="9" y="9" width="6" height="6" rx="1" />
-    </svg>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +270,7 @@ function LayoutPickerBar({ layout, onSelectLayout, pickerRef }: LayoutPickerBarP
         aria-label="Change layout"
         aria-expanded={open}
       >
-        <GridIcon />
+        <Grid2x2Icon width={16} height={16} aria-hidden="true" />
       </button>
       {open && (
         <div className={styles.layoutPicker} role="menu">
