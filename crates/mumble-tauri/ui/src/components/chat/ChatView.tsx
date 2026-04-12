@@ -557,7 +557,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         onPaste={handlePaste}
         onFileSelected={sendMediaFile}
         onGifSelect={handleGifSelect}
-        disabled={sending || persistent.keyRevoked}
+        disabled={sending || persistent.sendBlocked}
         hasPendingQuotes={pendingQuotes.length > 0}
         isEditing={editingMessage !== null}
         onCancelEdit={cancelEdit}

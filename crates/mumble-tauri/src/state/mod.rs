@@ -214,41 +214,35 @@ pub struct AppState {
 }
 
 impl AppState {
-    async fn build_and_send_pchat_encrypted(
+    /// Build an encrypted `PchatMessage` proto without sending it.
+    ///
+    /// Returns `Ok(Some((proto, client)))` when the message was encrypted
+    /// successfully, `Ok(None)` when pchat is not configured, or `Err` when
+    /// encryption fails (e.g. missing key).
+    fn build_pchat_encrypted(
         &self,
         outbound: &pchat::OutboundMessage<'_>,
-    ) -> Result<(), String> {
-        let send_result = {
-            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
-            let client = state.client_handle.clone();
-            if let (Some(ref mut pchat_state), Some(client)) = (&mut state.pchat, client) {
-                if outbound.protocol == PchatProtocol::SignalV1
-                    && pchat_state.signal_bridge.is_none()
-                    && !pchat_state.signal_bridge_load_failed
-                {
-                    tracing::info!("send_message: lazy-loading signal bridge");
-                    let _ = pchat_state.ensure_signal_bridge();
-                }
-                match pchat_state.build_encrypted_message(outbound) {
-                    Ok(proto_msg) => Some((proto_msg, client)),
-                    Err(e) => {
-                        tracing::warn!("pchat encrypt failed: {e}");
-                        return Err(format!("Encryption failed: {e}"));
-                    }
-                }
-            } else {
-                None
-            }
-        };
-        if let Some((proto_msg, client)) = send_result {
-            if let Err(e) = client
-                .send(command::SendPchatMessage { message: proto_msg })
-                .await
+    ) -> Result<Option<(mumble_protocol::proto::mumble_tcp::PchatMessage, ClientHandle)>, String> {
+        let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+        let client = state.client_handle.clone();
+        if let (Some(ref mut pchat_state), Some(client)) = (&mut state.pchat, client) {
+            if outbound.protocol == PchatProtocol::SignalV1
+                && pchat_state.signal_bridge.is_none()
+                && !pchat_state.signal_bridge_load_failed
             {
-                tracing::warn!("send pchat-msg failed: {e}");
+                tracing::info!("send_message: lazy-loading signal bridge");
+                let _ = pchat_state.ensure_signal_bridge();
             }
+            match pchat_state.build_encrypted_message(outbound) {
+                Ok(proto_msg) => Ok(Some((proto_msg, client))),
+                Err(e) => {
+                    tracing::warn!("pchat encrypt failed: {e}");
+                    Err(format!("Encryption failed: {e}"))
+                }
+            }
+        } else {
+            Ok(None)
         }
-        Ok(())
     }
 }
 
@@ -614,6 +608,38 @@ impl AppState {
         } else {
             body.clone()
         };
+
+        // If the channel has persistent chat enabled, pre-build the encrypted
+        // PchatMessage BEFORE sending the plaintext TextMessage. This ensures
+        // no plaintext leaks when the sender lacks the encryption key.
+        tracing::debug!(
+            channel_id,
+            ?pchat_protocol,
+            ?message_id,
+            now_ms,
+            "send_message: checking pchat path"
+        );
+        let prebuilt_pchat = if let Some(protocol) = pchat_protocol.filter(PchatProtocol::is_encrypted) {
+            if let Some(ref msg_id) = message_id {
+                let session = own_session.unwrap_or(0);
+                self.build_pchat_encrypted(&pchat::OutboundMessage {
+                    channel_id,
+                    protocol,
+                    message_id: msg_id,
+                    body: &body,
+                    sender_name: &own_name,
+                    sender_session: session,
+                    timestamp: now_ms,
+                })?
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Encryption verified (or channel is unencrypted) -- safe to send
+        // the plaintext TextMessage now.
         handle
             .send(command::SendTextMessage {
                 channel_ids: vec![channel_id],
@@ -627,28 +653,13 @@ impl AppState {
             .await
             .map_err(|e| format!("Failed to send message: {e}"))?;
 
-        // If the channel has persistent chat enabled, also send the encrypted
-        // PchatMessage proto for server storage (dual-path per spec section 7.1).
-        tracing::debug!(
-            channel_id,
-            ?pchat_protocol,
-            ?message_id,
-            now_ms,
-            "send_message: checking pchat path"
-        );
-        if let Some(protocol) = pchat_protocol.filter(PchatProtocol::is_encrypted) {
-            if let Some(ref msg_id) = message_id {
-                let session = own_session.unwrap_or(0);
-                self.build_and_send_pchat_encrypted(&pchat::OutboundMessage {
-                    channel_id,
-                    protocol,
-                    message_id: msg_id,
-                    body: &body,
-                    sender_name: &own_name,
-                    sender_session: session,
-                    timestamp: now_ms,
-                })
-                .await?;
+        // Send the pre-built encrypted PchatMessage for server storage.
+        if let Some((proto_msg, client)) = prebuilt_pchat {
+            if let Err(e) = client
+                .send(command::SendPchatMessage { message: proto_msg })
+                .await
+            {
+                tracing::warn!("send pchat-msg failed: {e}");
             }
         }
 
