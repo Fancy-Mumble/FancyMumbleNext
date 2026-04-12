@@ -62,17 +62,6 @@ function computeHeader(
   return [channel?.name ?? "Unknown", memberCount];
 }
 
-/** Map a font family id to a CSS font-family string. */
-function fontFamilyCss(id: string): string {
-  switch (id) {
-    case "monospace": return "'Cascadia Mono', 'Fira Code', 'Consolas', monospace";
-    case "serif": return "'Georgia', 'Times New Roman', serif";
-    case "humanist": return "'Segoe UI', 'Helvetica Neue', 'Arial', sans-serif";
-    case "rounded": return "'Nunito', 'Quicksand', 'Comfortaa', sans-serif";
-    default: return "inherit";
-  }
-}
-
 export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatViewProps) {
   const channels = useAppStore((s) => s.channels);
   const users = useAppStore((s) => s.users);
@@ -471,7 +460,6 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
             "--chat-font-size": personalization.fontSize === "small" ? "12px"
               : personalization.fontSize === "large" ? `${personalization.fontSizeCustomPx}px`
               : "14px",
-            "--chat-font-family": fontFamilyCss(personalization.fontFamily),
           } as React.CSSProperties}
         >
           <div ref={messagesInnerRef} className={styles.messagesInner}>

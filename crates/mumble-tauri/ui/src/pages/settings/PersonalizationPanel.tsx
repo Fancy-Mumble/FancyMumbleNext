@@ -5,6 +5,7 @@ import { THEMES, applyTheme } from "../../themes";
 import type { ThemeId } from "../../themes";
 import { ImageEditor } from "./ImageEditor";
 import { SliderField, Toggle } from "./SharedControls";
+import { FONT_FAMILIES, applyFont } from "../../utils/fonts";
 import styles from "./SettingsPage.module.css";
 
 interface PersonalizationPanelProps {
@@ -38,14 +39,6 @@ const FONT_SIZES: { id: FontSize; label: string }[] = [
   { id: "small", label: "Small" },
   { id: "medium", label: "Medium" },
   { id: "large", label: "Large" },
-];
-
-const FONT_FAMILIES: { id: string; label: string; css: string }[] = [
-  { id: "system", label: "System Default", css: "inherit" },
-  { id: "monospace", label: "Monospace", css: "'Cascadia Mono', 'Fira Code', 'Consolas', monospace" },
-  { id: "serif", label: "Serif", css: "'Georgia', 'Times New Roman', serif" },
-  { id: "humanist", label: "Humanist", css: "'Segoe UI', 'Helvetica Neue', 'Arial', sans-serif" },
-  { id: "rounded", label: "Rounded", css: "'Nunito', 'Quicksand', 'Comfortaa', sans-serif" },
 ];
 
 /**
@@ -217,6 +210,14 @@ export function PersonalizationPanel({ data, onChange, isExpert }: Personalizati
     (id: ThemeId) => {
       applyTheme(id);
       onChange({ theme: id });
+    },
+    [onChange],
+  );
+
+  const handleFontChange = useCallback(
+    (id: string) => {
+      applyFont(id);
+      onChange({ fontFamily: id });
     },
     [onChange],
   );
@@ -445,7 +446,7 @@ export function PersonalizationPanel({ data, onChange, isExpert }: Personalizati
                 type="button"
                 className={`${styles.optionCard} ${data.fontFamily === f.id ? styles.optionCardSelected : ""}`}
                 style={{ fontFamily: f.css }}
-                onClick={() => onChange({ fontFamily: f.id })}
+                onClick={() => handleFontChange(f.id)}
               >
                 <span className={styles.optionLabel}>{f.label}</span>
               </button>
