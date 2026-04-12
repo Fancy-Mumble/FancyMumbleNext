@@ -14,6 +14,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::command::{BoxedCommand, CommandAction};
 use crate::error::{Error, Result};
 use crate::event::EventHandler;
+use crate::fancy_codec::{self, FancyCodec};
 use crate::message::{ControlMessage, ServerMessage, UdpMessage};
 use crate::transport::audio_codec::AudioPacketCodec;
 use crate::transport::ocb2::Ocb2CryptState;
@@ -277,6 +278,10 @@ async fn event_loop<H: EventHandler>(
     ));
     let cmd_forwarder_task = tokio::spawn(cmd_forwarder_loop(ext_cmd_rx, wq_sender.clone()));
 
+    // Fancy codec: starts as LegacyCodec, upgraded to NativeCodec when
+    // the server announces fancy_version >= 0.2.12 in its Version message.
+    let mut codec: Box<dyn FancyCodec> = Box::new(fancy_codec::LegacyCodec);
+
     // UDP sender handle: socket + encrypt crypt state.
     // Created when CryptSetup arrives (unless force_tcp is set).
     let mut udp_sender: Option<UdpSender> = None;
@@ -354,6 +359,7 @@ async fn event_loop<H: EventHandler>(
                 handler: &mut handler,
                 state: &mut state,
                 outbound_tx: &outbound_tx,
+                codec: &mut codec,
                 udp_sender: &mut udp_sender,
                 udp_reader_task: &mut udp_reader_task,
                 stored_crypto: &mut stored_crypto,
@@ -498,6 +504,7 @@ struct EventLoopCtx<'a, H> {
     handler: &'a mut H,
     state: &'a mut ServerState,
     outbound_tx: &'a mpsc::Sender<ControlMessage>,
+    codec: &'a mut Box<dyn FancyCodec>,
     udp_sender: &'a mut Option<UdpSender>,
     udp_reader_task: &'a mut Option<tokio::task::JoinHandle<()>>,
     stored_crypto: &'a mut Option<StoredCrypto>,
@@ -508,6 +515,12 @@ struct EventLoopCtx<'a, H> {
 
 impl<H: EventHandler> EventLoopCtx<'_, H> {
     async fn handle_server_message(&mut self, server_msg: ServerMessage) -> LoopAction {
+        // Decode: unwrap Fancy messages from PluginData on legacy servers.
+        let server_msg = match server_msg {
+            ServerMessage::Control(ctrl) => ServerMessage::Control(self.codec.decode(ctrl)),
+            udp @ ServerMessage::Udp(_) => udp,
+        };
+
         match &server_msg {
             ServerMessage::Control(ctrl) => {
                 if let ControlMessage::UdpTunnel(ref data) = ctrl {
@@ -538,6 +551,13 @@ impl<H: EventHandler> EventLoopCtx<'_, H> {
 
                     handle_control_message(ctrl, self.state, self.handler);
 
+                    // Upgrade the codec when the server announces its Fancy version.
+                    if matches!(ctrl, ControlMessage::Version(_)) {
+                        *self.codec = fancy_codec::select_codec(
+                            self.state.connection.server_fancy_version,
+                        );
+                    }
+
                     // Piggyback a UDP ping on every TCP Ping response to
                     // keep the NAT mapping alive.
                     if matches!(ctrl, ControlMessage::Ping(_)) {
@@ -564,6 +584,9 @@ impl<H: EventHandler> EventLoopCtx<'_, H> {
         let output = cmd.execute(self.state);
 
         for msg in output.tcp_messages {
+            let Some(msg) = self.codec.encode(msg, self.state) else {
+                continue;
+            };
             if self.outbound_tx.send(msg).await.is_err() {
                 error!("outbound channel closed");
                 break;
