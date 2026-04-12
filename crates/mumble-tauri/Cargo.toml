@@ -47,6 +47,7 @@ tauri-plugin-window-state = "2"
 # Linux: webkit2gtk for webview settings (hardware acceleration, etc.).
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0"
+libc = "0.2"
 
 # Android: mumble-protocol with Opus codec + oboe for native audio I/O.
 [target.'cfg(target_os = "android")'.dependencies]

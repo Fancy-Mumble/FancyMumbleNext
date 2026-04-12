@@ -2758,6 +2758,7 @@ dependencies = [
  "cpal",
  "fancy-utils",
  "hound",
+ "libc",
  "mumble-protocol",
  "oboe",
  "png 0.18.1",
