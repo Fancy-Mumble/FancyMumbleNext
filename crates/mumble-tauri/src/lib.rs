@@ -1733,6 +1733,43 @@ enum GpuCapability {
     NoEgl,
 }
 
+/// Check whether this process was launched from an AppImage.
+#[cfg(target_os = "linux")]
+fn running_in_appimage() -> bool {
+    std::env::var_os("APPIMAGE").is_some() || std::env::var_os("APPDIR").is_some()
+}
+
+/// Check whether a system-installed WebKitGTK 4.1 is available.
+#[cfg(target_os = "linux")]
+fn system_webkit_available() -> bool {
+    [
+        "/usr/lib/webkit2gtk-4.1/WebKitWebProcess",
+        "/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/WebKitWebProcess",
+        "/usr/lib64/webkit2gtk-4.1/WebKitWebProcess",
+    ]
+    .iter()
+    .any(|p| std::path::Path::new(p).exists())
+}
+
+/// Prepend standard system library directories to `LD_LIBRARY_PATH`.
+///
+/// When an AppImage bundles WebKit but not all its runtime dependencies
+/// (notably GStreamer plugins), the spawned `WebKitWebProcess` crashes
+/// with a `RELEASE_ASSERT`.  By putting system dirs first, child
+/// processes resolve against the host's complete library set instead of
+/// the incomplete AppImage copies.
+#[cfg(target_os = "linux")]
+fn prefer_system_libs_for_children() {
+    const SYSTEM_DIRS: &str = "/usr/lib:/usr/lib64:/usr/lib/x86_64-linux-gnu";
+    let current = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
+    let new_path = if current.is_empty() {
+        SYSTEM_DIRS.to_string()
+    } else {
+        format!("{SYSTEM_DIRS}:{current}")
+    };
+    std::env::set_var("LD_LIBRARY_PATH", &new_path);
+}
+
 /// Probe the GPU/EGL capability of this system.
 ///
 /// Three-tier result:
@@ -1949,12 +1986,21 @@ pub fn run() {
                 }
                 std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
                 std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
-                // Prevent GStreamer GL from trying to create EGL contexts.
-                // The WebKitWebProcess loads libgstgl which can abort() when
-                // EGL display creation fails on systems without a real GPU.
                 std::env::set_var("GST_GL_PLATFORM", "none");
                 std::env::set_var("GST_GL_WINDOW", "dummy");
                 std::env::set_var("GST_GL_API", "none");
+
+                // AppImages bundle WebKit but not GStreamer plugins.
+                // The bundled WebKitWebProcess crashes with a
+                // RELEASE_ASSERT when GStreamer cannot find elements
+                // like `appsink`.  Prepend system lib dirs so child
+                // processes load the host's complete library set.
+                if running_in_appimage() && system_webkit_available() {
+                    prefer_system_libs_for_children();
+                    tracing::info!(
+                        "AppImage: child processes will prefer system libraries"
+                    );
+                }
             }
         }
     }
