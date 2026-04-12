@@ -34,10 +34,12 @@ import type {
   KeyHolderEntry,
   ServerInfo,
   ServerLogEntry,
+  ReadReceiptDeliverPayload,
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator";
 import { registerPoll, registerVote } from "./components/chat/PollCard";
 import { applyReaction, resetReactions, setServerCustomReactions, type ServerCustomReaction } from "./components/chat/reactionStore";
+import { applyReadStates, clearReadReceipts } from "./components/chat/readReceiptStore";
 import { offloadManager } from "./messageOffload";
 import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume, getMutedPushChannels, setMutedPushChannel } from "./preferencesStorage";
 import { loadProfileData } from "./pages/settings/profileData";
@@ -140,6 +142,9 @@ interface AppState {
 
   /** Monotonic counter incremented whenever the module-level reaction store changes. */
   reactionVersion: number;
+
+  /** Monotonic counter incremented whenever the module-level read receipt store changes. */
+  readReceiptVersion: number;
 
   // -- Screen share state (in-memory) ----------------------------
   /** Whether we are currently sharing our own screen. */
@@ -325,6 +330,7 @@ const INITIAL: Pick<
   | "polls"
   | "pollMessages"
   | "reactionVersion"
+  | "readReceiptVersion"
   | "isSharingOwn"
   | "webrtcConnecting"
   | "webrtcError"
@@ -381,6 +387,7 @@ const INITIAL: Pick<
   polls: new Map(),
   pollMessages: [],
   reactionVersion: 0,
+  readReceiptVersion: 0,
   isSharingOwn: false,
   webrtcConnecting: false,
   webrtcError: null,
@@ -464,6 +471,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error("disconnect error:", e);
     }
     resetReactions();
+    clearReadReceipts();
     set({ ...INITIAL });
     invoke("update_badge_count", { count: null }).catch(() => {});
   },
@@ -1227,6 +1235,7 @@ export async function initEventListeners(
       // Clean up offloaded temp files.
       offloadManager.dispose().catch(() => {});
       volumeAppliedSessions.clear();
+      clearReadReceipts();
       // Preserve error / password-prompt state that was set by connection-rejected.
       const { error: currentError, passwordRequired: pwRequired, pendingConnect: pending } = useAppStore.getState();
       // If a password prompt is already pending, keep the rejection error
@@ -1488,6 +1497,21 @@ export async function initEventListeners(
         if (Array.isArray(reactions)) {
           setServerCustomReactions(reactions);
         }
+      },
+    ),
+  );
+
+  // -- Read receipt events -----------------------------------------
+
+  unlisteners.push(
+    await listen<ReadReceiptDeliverPayload>(
+      "read-receipt-deliver",
+      (event) => {
+        const { channel_id, read_states } = event.payload;
+        applyReadStates(channel_id, read_states);
+        useAppStore.setState((prev) => ({
+          readReceiptVersion: prev.readReceiptVersion + 1,
+        }));
       },
     ),
   );

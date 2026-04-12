@@ -26,6 +26,7 @@ import QuotePreviewStrip from "./QuotePreviewStrip";
 import { useChatSend } from "./useChatSend";
 import { useChatScroll } from "./useChatScroll";
 import { useMessageSelection } from "./useMessageSelection";
+import { useReadReceipts } from "./useReadReceipts";
 import { isMobile } from "../../utils/platform";
 import type { MessageScope } from "../../messageOffload";
 import { useScreenShare } from "./useScreenShare";
@@ -225,6 +226,19 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     );
     return [...messages, ...channelPolls];
   }, [isGroupMode, groupMessages, isDmMode, dmMessages, messages, pollMessages, selectedChannel]);
+
+  // Ordered message IDs for read-receipt watermark comparison.
+  const allMessageIds = useMemo(
+    () => allMessages.map((m) => m.message_id).filter((id): id is string => id != null),
+    [allMessages],
+  );
+
+  // Auto-send read receipts and query on channel switch.
+  const lastMessageId = allMessageIds[allMessageIds.length - 1];
+  useReadReceipts(
+    isDmMode || isGroupMode ? null : selectedChannel,
+    lastMessageId,
+  );
 
   // --- Extracted hooks ---------------------------------------------
 
@@ -564,6 +578,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onCopyText={handleCopyText}
           reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
           avatarByHash={avatarByHash}
+          allMessageIds={allMessageIds}
+          channelId={selectedChannel ?? undefined}
         />
       )}
       {msgContextMenu && isMobile && (
@@ -578,6 +594,9 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onCite={handleCite}
           onCopyText={handleCopyText}
           reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
+          allMessageIds={allMessageIds}
+          channelId={selectedChannel ?? undefined}
+          avatarByHash={avatarByHash}
         />
       )}
 

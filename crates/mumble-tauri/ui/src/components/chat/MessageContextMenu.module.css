@@ -146,3 +146,19 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.readByLabel {
+  padding: 4px 12px 2px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.5));
+}
+
+.readByEmpty {
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.4));
+}

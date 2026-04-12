@@ -15,6 +15,7 @@ mod permission_denied;
 mod permission_query;
 mod ping;
 mod plugin_data;
+mod read_receipt;
 mod reject;
 mod server_config;
 mod server_sync;
@@ -153,6 +154,7 @@ pub(crate) fn dispatch(msg: &ControlMessage, ctx: &HandlerContext) {
         ControlMessage::PchatReactionFetchResponse(m) => m.handle(ctx),
         ControlMessage::WebRtcSignal(m) => m.handle(ctx),
         ControlMessage::FancyCustomReactionsConfig(m) => m.handle(ctx),
+        ControlMessage::FancyReadReceiptDeliver(m) => m.handle(ctx),
         ControlMessage::BanList(m) => m.handle(ctx),
         ControlMessage::UserList(m) => m.handle(ctx),
         ControlMessage::Acl(m) => m.handle(ctx),

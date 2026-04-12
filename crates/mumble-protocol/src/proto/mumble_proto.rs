@@ -1400,6 +1400,42 @@ pub mod fancy_custom_reactions_config {
         pub label: ::core::option::Option<::prost::alloc::string::String>,
     }
 }
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FancyReadReceipt {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(string, optional, tag = "2")]
+    pub last_read_message_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint64, optional, tag = "3")]
+    pub timestamp: ::core::option::Option<u64>,
+    #[prost(bool, optional, tag = "4")]
+    pub query: ::core::option::Option<bool>,
+    #[prost(string, optional, tag = "5")]
+    pub query_message_id: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FancyReadReceiptDeliver {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(message, repeated, tag = "2")]
+    pub read_states: ::prost::alloc::vec::Vec<fancy_read_receipt_deliver::ReadState>,
+    #[prost(string, optional, tag = "3")]
+    pub query_message_id: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// Nested message and enum types in `FancyReadReceiptDeliver`.
+pub mod fancy_read_receipt_deliver {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ReadState {
+        #[prost(string, optional, tag = "1")]
+        pub cert_hash: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, optional, tag = "2")]
+        pub name: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, optional, tag = "3")]
+        pub last_read_message_id: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(uint64, optional, tag = "4")]
+        pub timestamp: ::core::option::Option<u64>,
+    }
+}
 /// Unified pchat protocol indicator.
 /// Each value identifies both the E2EE protocol implementation
 /// and the persistence behaviour for a channel.

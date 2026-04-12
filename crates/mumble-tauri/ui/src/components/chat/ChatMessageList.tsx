@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useMemo } from "react";
 import type { ChatMessage, TimeFormat, UserEntry } from "../../types";
 import MessageItem, { MessageAvatar } from "./MessageItem";
 import MessageActionBar from "../elements/MessageActionBar";
 import ReactionBar from "./ReactionBar";
+import ReadReceiptIndicator from "./ReadReceiptIndicator";
 import type { ReactionSummary } from "./reactionStore";
 import CheckIcon from "../../assets/icons/status/check.svg?react";
 import { dateKey, formatDateChip } from "../../utils/format";
@@ -92,6 +93,15 @@ export default function ChatMessageList({
   // Resolve own cert hash for hash-based reaction tracking.
   const ownHash = ownSession !== null ? userBySession.get(ownSession)?.hash : undefined;
 
+  // Ordered list of all message IDs for read-receipt watermark comparison.
+  const allMessageIds = useMemo(
+    () => allMessages.map((m) => m.message_id).filter((id): id is string => id != null),
+    [allMessages],
+  );
+
+  // Channel ID for read receipt queries (all messages belong to the same channel).
+  const channelId = allMessages[0]?.channel_id;
+
   // Group consecutive messages from the same sender,
   // also breaking on date boundaries so date chips render between groups.
   const groups: MsgGroup[] = [];
@@ -155,6 +165,11 @@ export default function ChatMessageList({
             isFirstInGroup={j === 0}
             onScrollToMessage={handleScrollToMessage}
             onOpenLightbox={handleOpenLightbox}
+            readReceiptIndicator={
+              msg.is_own && msg.message_id && channelId != null
+                ? <ReadReceiptIndicator messageId={msg.message_id} channelId={channelId} allMessageIds={allMessageIds} />
+                : undefined
+            }
           >
             {msg.message_id && (() => {
               const reactions = getMessageReactions(msg.message_id!);

@@ -841,6 +841,56 @@ impl AppState {
             .unwrap_or_default()
     }
 
+    // -- Read receipts ----------------------------------------------
+
+    /// Send a read receipt watermark to the server.
+    pub async fn send_read_receipt(
+        &self,
+        channel_id: u32,
+        last_read_message_id: String,
+    ) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+
+        let handle = handle.ok_or("Not connected")?;
+
+        handle
+            .send(command::SendReadReceipt {
+                channel_id,
+                last_read_message_id: Some(last_read_message_id),
+                query: false,
+                query_message_id: None,
+            })
+            .await
+            .map_err(|e| format!("Failed to send read receipt: {e}"))?;
+
+        Ok(())
+    }
+
+    /// Query all read receipt states for a channel.
+    pub async fn query_read_receipts(&self, channel_id: u32) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+
+        let handle = handle.ok_or("Not connected")?;
+
+        handle
+            .send(command::SendReadReceipt {
+                channel_id,
+                last_read_message_id: None,
+                query: true,
+                query_message_id: None,
+            })
+            .await
+            .map_err(|e| format!("Failed to query read receipts: {e}"))?;
+
+        Ok(())
+    }
+
     // -- WebRTC signaling -------------------------------------------
 
     /// Send a WebRTC screen-sharing signal to the server.

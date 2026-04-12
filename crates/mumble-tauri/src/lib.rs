@@ -930,6 +930,27 @@ async fn send_subscribe_push(
     state.send_subscribe_push(muted_channels).await
 }
 
+/// Send a read receipt watermark to the server.
+#[tauri::command]
+async fn send_read_receipt(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    last_read_message_id: String,
+) -> Result<(), String> {
+    state
+        .send_read_receipt(channel_id, last_read_message_id)
+        .await
+}
+
+/// Query all read receipt states for a channel from the server.
+#[tauri::command]
+async fn query_read_receipts(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+) -> Result<(), String> {
+    state.query_read_receipts(channel_id).await
+}
+
 /// Send a WebRTC screen-sharing signaling message.
 ///
 /// `target_session` of 0 broadcasts to all channel members.
@@ -1885,6 +1906,8 @@ pub fn run() {
             send_plugin_data,
             send_push_update,
             send_subscribe_push,
+            send_read_receipt,
+            query_read_receipts,
             send_webrtc_signal,
             send_reaction,
             delete_pchat_messages,

@@ -117,6 +117,10 @@ pub enum TcpMessageType {
     FancyCustomReactionsConfig = 124,
     /// Fancy Mumble: live push subscribe for connected clients.
     FancySubscribePush = 125,
+    /// Fancy Mumble: client sends a read receipt watermark.
+    FancyReadReceipt = 126,
+    /// Fancy Mumble: server broadcasts read receipt state.
+    FancyReadReceiptDeliver = 127,
 }
 
 impl TryFrom<u16> for TcpMessageType {
@@ -177,6 +181,8 @@ impl TryFrom<u16> for TcpMessageType {
             123 => Ok(Self::FancyPushUpdate),
             124 => Ok(Self::FancyCustomReactionsConfig),
             125 => Ok(Self::FancySubscribePush),
+            126 => Ok(Self::FancyReadReceipt),
+            127 => Ok(Self::FancyReadReceiptDeliver),
             other => Err(crate::error::Error::UnknownMessageType(other)),
         }
     }
@@ -289,6 +295,10 @@ pub enum ControlMessage {
     FancyCustomReactionsConfig(mumble_tcp::FancyCustomReactionsConfig),
     /// Fancy Mumble: live push subscribe for connected clients.
     FancySubscribePush(mumble_tcp::FancySubscribePush),
+    /// Fancy Mumble: client sends a read receipt watermark.
+    FancyReadReceipt(mumble_tcp::FancyReadReceipt),
+    /// Fancy Mumble: server broadcasts read receipt state.
+    FancyReadReceiptDeliver(mumble_tcp::FancyReadReceiptDeliver),
     /// UDP audio tunneled through TCP (fallback path).
     UdpTunnel(Vec<u8>),
 }
@@ -419,8 +429,8 @@ mod tests {
             let msg_type = TcpMessageType::try_from(121u16).unwrap();
             assert_eq!(msg_type as u16, 121);
         }
-        // FancyPushRegister (122), FancyPushUpdate (123), FancyCustomReactionsConfig (124), FancySubscribePush (125)
-        for id in 122..=125u16 {
+        // FancyPushRegister (122) .. FancyReadReceiptDeliver (127)
+        for id in 122..=127u16 {
             let msg_type = TcpMessageType::try_from(id).unwrap();
             assert_eq!(msg_type as u16, id);
         }
@@ -430,7 +440,7 @@ mod tests {
     fn tcp_message_type_invalid_returns_error() {
         assert!(TcpMessageType::try_from(27u16).is_err());
         assert!(TcpMessageType::try_from(99u16).is_err());
-        assert!(TcpMessageType::try_from(126u16).is_err());
+        assert!(TcpMessageType::try_from(128u16).is_err());
         assert!(TcpMessageType::try_from(199u16).is_err());
         assert!(TcpMessageType::try_from(203u16).is_err());
         assert!(TcpMessageType::try_from(u16::MAX).is_err());

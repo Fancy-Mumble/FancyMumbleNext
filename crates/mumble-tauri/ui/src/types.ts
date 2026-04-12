@@ -185,6 +185,8 @@ export interface UserPreferences {
   sidebarSections?: SidebarSections;
   /** Per-event notification sound configuration. */
   notificationSounds?: NotificationSoundSettings;
+  /** When true, the client does not send read receipts to the server. */
+  disableReadReceipts?: boolean;
 }
 
 /** Identifiers for events that can trigger a notification sound. */
@@ -549,4 +551,21 @@ export interface AclEntry {
   group?: string | null;
   grant: number;
   deny: number;
+}
+
+// -- Read receipts ------------------------------------------------
+
+/** A single user's read watermark for a channel. */
+export interface ReadState {
+  cert_hash: string;
+  name: string;
+  last_read_message_id: string;
+  timestamp: number;
+}
+
+/** Payload emitted by the backend when a read-receipt-deliver arrives. */
+export interface ReadReceiptDeliverPayload {
+  channel_id: number;
+  read_states: ReadState[];
+  query_message_id?: string | null;
 }

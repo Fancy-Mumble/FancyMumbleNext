@@ -149,6 +149,8 @@ interface MessageItemProps {
   readonly onOpenLightbox?: (src: string) => void;
   /** Optional content rendered at the bottom of the bubble (e.g. reactions). */
   readonly children?: React.ReactNode;
+  /** Optional read receipt indicator rendered next to the timestamp on own messages. */
+  readonly readReceiptIndicator?: React.ReactNode;
 }
 
 export default function MessageItem({
@@ -165,6 +167,7 @@ export default function MessageItem({
   onScrollToMessage,
   onOpenLightbox,
   children,
+  readReceiptIndicator,
 }: MessageItemProps) {
   const offloadInfo = extractOffloadInfo(msg.body);
   const offloaded = offloadInfo !== null;
@@ -254,12 +257,16 @@ export default function MessageItem({
             <time className={styles.messageTime} dateTime={new Date(displayTimestamp).toISOString()}>
               {formatTimestamp(displayTimestamp, timeFormat, convertToLocalTime, systemUses24h)}
             </time>
+            {msg.is_own && readReceiptIndicator}
           </span>
         )}
         {!pureMedia && !isFirstInGroup && (
-          <time className={`${styles.messageTime} ${styles.messageTimeContinuation}`} dateTime={new Date(displayTimestamp).toISOString()}>
-            {formatTimestamp(displayTimestamp, timeFormat, convertToLocalTime, systemUses24h)}
-          </time>
+          <span className={`${styles.messageTime} ${styles.messageTimeContinuation}`}>
+            <time dateTime={new Date(displayTimestamp).toISOString()}>
+              {formatTimestamp(displayTimestamp, timeFormat, convertToLocalTime, systemUses24h)}
+            </time>
+            {msg.is_own && readReceiptIndicator}
+          </span>
         )}
         <div className={styles.messageBody}>{renderBody()}</div>
         {children}

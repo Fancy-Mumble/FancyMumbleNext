@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { ChatMessage } from "../../types";
 import type { ReactionSummary } from "./reactionStore";
+import { getReadersForMessage } from "./readReceiptStore";
+import { useAppStore } from "../../store";
 import { QUICK_REACTIONS } from "../elements/MessageActionBar";
 import EmojiPlusIcon from "../../assets/icons/communication/emoji-plus.svg?react";
 import QuoteIcon from "../../assets/icons/communication/quote.svg?react";
@@ -54,6 +56,10 @@ interface MessageContextMenuProps {
   readonly reactions?: readonly ReactionSummary[];
   /** Avatar data-URLs keyed by cert hash. */
   readonly avatarByHash?: ReadonlyMap<string, string>;
+  /** Ordered message IDs for read-receipt watermark comparison. */
+  readonly allMessageIds?: string[];
+  /** Channel the message belongs to. */
+  readonly channelId?: number;
 }
 
 // -- Component ----------------------------------------------------
@@ -70,6 +76,8 @@ export default function MessageContextMenu({
   onCopyText,
   reactions,
   avatarByHash,
+  allMessageIds,
+  channelId,
 }: MessageContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<MenuPosition | null>(null);
@@ -109,6 +117,24 @@ export default function MessageContextMenu({
     }
     return entries;
   }, [reactions, avatarByHash]);
+
+  // Build list of users who read this message
+  const readReceiptVersion = useAppStore((s) => s.readReceiptVersion);
+  const ownSession = useAppStore((s) => s.ownSession);
+  const users = useAppStore((s) => s.users);
+  const ownHash = useMemo(() => users.find((u) => u.session === ownSession)?.hash, [users, ownSession]);
+
+  const isOwnWithId = menu.message.is_own && !!menu.message.message_id && channelId != null && !!allMessageIds;
+
+  const readerEntries = useMemo(() => {
+    const msgId = menu.message.message_id;
+    if (!msgId || !menu.message.is_own || channelId == null || !allMessageIds) return [];
+    const readers = getReadersForMessage(channelId, msgId, allMessageIds);
+    return readers
+      .filter((r) => r.cert_hash !== ownHash)
+      .map((r) => ({ name: r.name, avatarUrl: avatarByHash?.get(r.cert_hash) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menu.message, channelId, allMessageIds, avatarByHash, ownHash, readReceiptVersion]);
 
   return createPortal(
     <>
@@ -197,6 +223,32 @@ export default function MessageContextMenu({
                 </div>
               ))}
             </div>
+          </>
+        )}
+
+        {/* Read by list */}
+        {isOwnWithId && (
+          <>
+            <div className={styles.divider} />
+            <div className={styles.readByLabel}>Read by</div>
+            {readerEntries.length > 0 ? (
+              <div className={styles.reactorSection}>
+                {readerEntries.map((entry) => (
+                  <div key={entry.name} className={styles.reactorItem}>
+                    {entry.avatarUrl ? (
+                      <img src={entry.avatarUrl} alt="" className={styles.reactorAvatar} />
+                    ) : (
+                      <div className={styles.reactorAvatarFallback}>
+                        {entry.name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <span className={styles.reactorName}>{entry.name}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.readByEmpty}>No one yet</div>
+            )}
           </>
         )}
       </div>

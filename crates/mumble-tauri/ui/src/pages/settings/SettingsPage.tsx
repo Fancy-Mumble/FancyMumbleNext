@@ -98,6 +98,7 @@ export default function SettingsPage() {
   const [klipyApiKey, setKlipyApiKeyState] = useState("");
   const [enableNotifications, setEnableNotifications] = useState(true);
   const [disableDualPath, setDisableDualPath] = useState(false);
+  const [disableReadReceipts, setDisableReadReceipts] = useState(false);
   const [debugLogging, setDebugLogging] = useState(false);
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("auto");
   const [convertToLocalTime, setConvertToLocalTime] = useState(true);
@@ -160,6 +161,7 @@ export default function SettingsPage() {
         setKlipyApiKey(prefs.klipyApiKey);
         setEnableNotifications(prefs.enableNotifications ?? true);
         setDisableDualPath(prefs.disableDualPath ?? false);
+        setDisableReadReceipts(prefs.disableReadReceipts ?? false);
         setDebugLogging(prefs.debugLogging ?? false);
         setTimeFormat(prefs.timeFormat);
         setConvertToLocalTime(prefs.convertToLocalTime);
@@ -407,6 +409,14 @@ export default function SettingsPage() {
     });
   }, []);
 
+  const handleToggleReadReceipts = useCallback(() => {
+    setDisableReadReceipts((prev) => {
+      const next = !prev;
+      updatePreferences({ disableReadReceipts: next });
+      return next;
+    });
+  }, []);
+
   const handleToggleDeveloperMode = useCallback(async () => {
     const next: UserMode = userMode === "developer" ? "expert" : "developer";
     setUserMode(next);
@@ -567,12 +577,14 @@ export default function SettingsPage() {
               userMode={userMode}
               klipyApiKey={klipyApiKey}
               disableDualPath={disableDualPath}
+              disableReadReceipts={disableReadReceipts}
               debugLogging={debugLogging}
               timeFormat={timeFormat}
               convertToLocalTime={convertToLocalTime}
               onToggleMode={handleToggleMode}
               onKlipyApiKeyChange={handleKlipyApiKeyChange}
               onToggleDualPath={handleToggleDualPath}
+              onToggleReadReceipts={handleToggleReadReceipts}
               onToggleDebugLogging={handleToggleDebugLogging}
               onTimeFormatChange={handleTimeFormatChange}
               onConvertToLocalTimeChange={handleConvertToLocalTimeChange}
