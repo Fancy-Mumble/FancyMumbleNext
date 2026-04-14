@@ -11,7 +11,6 @@ use crate::state::{pchat, SharedState};
 use crate::state::types::{CurrentChannelPayload, ServerLogEntry, UserEntry};
 
 impl HandleMessage for mumble_tcp::UserState {
-    #[allow(clippy::too_many_lines, reason = "user state handler covers channel moves, profile updates, pchat key exchange, and history fetch")]
     fn handle(&self, ctx: &HandlerContext) {
         let Some(session) = self.session else { return };
 
@@ -21,215 +20,161 @@ impl HandleMessage for mumble_tcp::UserState {
                 let resolver = state.hash_name_resolver.clone();
                 let is_new_user = !state.users.contains_key(&session);
 
-                // Snapshot mute/deaf/channel state before applying changes.
                 let old_snapshot = state.users.get(&session).map(|u| MuteDeafSnapshot {
-                    mute: u.mute,
-                    deaf: u.deaf,
-                    self_mute: u.self_mute,
-                    self_deaf: u.self_deaf,
+                    mute: u.mute, deaf: u.deaf, self_mute: u.self_mute, self_deaf: u.self_deaf,
                 });
 
-                let user = state.users.entry(session).or_insert_with(|| UserEntry {
-                    session,
-                    name: String::new(),
-                    channel_id: 0,
-                    user_id: None,
-                    texture: None,
-                    comment: None,
-                    mute: false,
-                    deaf: false,
-                    suppress: false,
-                    self_mute: false,
-                    self_deaf: false,
-                    priority_speaker: false,
-                    hash: None,
-                    client_features: Vec::new(),
-                });
-                if let Some(ref name) = self.name {
-                    user.name = name.clone();
-                }
-                if let Some(ref texture) = self.texture {
-                    user.texture = (!texture.is_empty()).then(|| texture.clone());
-                }
-                if let Some(ref comment) = self.comment {
-                    user.comment = (!comment.is_empty()).then(|| comment.clone());
-                }
-                if let Some(mute) = self.mute {
-                    user.mute = mute;
-                }
-                if let Some(deaf) = self.deaf {
-                    user.deaf = deaf;
-                }
-                if let Some(suppress) = self.suppress {
-                    user.suppress = suppress;
-                }
-                if let Some(self_mute) = self.self_mute {
-                    user.self_mute = self_mute;
-                }
-                if let Some(self_deaf) = self.self_deaf {
-                    user.self_deaf = self_deaf;
-                }
-                if let Some(priority) = self.priority_speaker {
-                    user.priority_speaker = priority;
-                }
-                if let Some(ref hash) = self.hash {
-                    user.hash = Some(hash.clone());
-                }
-                if !self.client_features.is_empty() {
-                    user.client_features = self.client_features.clone();
-                }
-                if let Some(uid) = self.user_id {
-                    user.user_id = Some(uid);
-                }
+                let user = state.users.entry(session).or_insert_with(|| UserEntry::new(session));
+                apply_user_state_fields(user, self);
 
-                // Persist cert_hash -> username mapping for offline display.
                 if let (Some(ref hash), name) = (&user.hash, &user.name) {
                     maybe_record_name(&resolver, hash, name);
                 }
 
-                // Snapshot user fields before any further state borrows.
-                let user_name = user.name.clone();
-                let user_mute = user.mute;
-                let user_deaf = user.deaf;
-                let user_self_mute = user.self_mute;
-                let user_self_deaf = user.self_deaf;
+                let (user_name, new_snapshot) = snapshot_user(user);
 
-                let mut own_ch = false;
-                let mut remote_ch: Option<u32> = None;
-                if let Some(ch) = self.channel_id {
-                    let prev_channel = user.channel_id;
+                // Apply channel move and drop the borrow on `user` before
+                // touching state.current_channel.
+                let channel_move = self.channel_id.map(|ch| {
+                    let prev = user.channel_id;
                     user.channel_id = ch;
-                    let (o, r) = set_channel_outcome(
-                        state.own_session,
-                        session,
-                        ch,
-                        prev_channel,
-                        is_new_user,
-                        &mut state.current_channel,
-                    );
-                    own_ch = o;
-                    remote_ch = r;
-                }
+                    (ch, prev)
+                });
 
-                // Capture channel name for log (if channel changed).
+                let (own_ch, remote_ch) = if let Some((ch, prev)) = channel_move {
+                    set_channel_outcome(
+                        state.own_session, session, ch, prev, is_new_user, &mut state.current_channel,
+                    )
+                } else {
+                    (false, None)
+                };
+
                 let move_channel_name = self.channel_id
                     .filter(|_| !is_new_user)
                     .and_then(|ch| state.channels.get(&ch))
                     .map(|c| c.name.clone());
 
-                let new_snapshot = MuteDeafSnapshot {
-                    mute: user_mute,
-                    deaf: user_deaf,
-                    self_mute: user_self_mute,
-                    self_deaf: user_self_deaf,
-                };
-
                 (state.synced, own_ch, remote_ch, is_new_user, user_name, old_snapshot, new_snapshot, move_channel_name)
             } else {
-                (false, false, None, false, String::new(), None, MuteDeafSnapshot { mute: false, deaf: false, self_mute: false, self_deaf: false }, None)
+                (false, false, None, false, String::new(), None, MuteDeafSnapshot::default(), None)
             }
         };
 
-        // Build activity log entries outside the lock.
-        if is_synced && !user_name.is_empty() {
-            let mut logs: Vec<ServerLogEntry> = Vec::new();
-            if is_new_user {
-                logs.push(ServerLogEntry::now(format!("{user_name} connected")));
-            }
-            if let Some(ch_name) = move_channel_name {
-                logs.push(ServerLogEntry::now(format!("{user_name} moved to {ch_name}")));
-            }
-            build_mute_deaf_log(&user_name, old_snapshot, &new_snapshot, &mut logs);
-            for entry in logs {
-                ctx.emit("server-log", entry);
-            }
-        }
+        emit_activity_logs(ctx, is_synced, &user_name, is_new_user, move_channel_name, old_snapshot, &new_snapshot);
 
-        // When a remote peer moves into a channel, re-evaluate whether
-        // we should offer to share our channel key with them, then ask the
-        // server for the latest key-holder list so stale prompts are dismissed
-        // if the peer already has the key.
         if is_synced {
             if let Some(ch) = remote_channel_move {
-                pchat::check_key_share_for_channel(&ctx.shared, ch);
-                pchat::query_key_holders(&ctx.shared, ch);
-
-                // For SignalV1 channels, re-send our sender key distribution
-                // to the channel so the new peer can decrypt our messages.
-                let is_signal_v1 = ctx
-                    .shared
-                    .lock()
-                    .ok()
-                    .and_then(|s| {
-                        s.channels.get(&ch).and_then(|c| c.pchat_protocol)
-                    })
-                    == Some(PchatProtocol::SignalV1);
-                if is_signal_v1 {
-                    pchat::send_signal_distribution(&ctx.shared, ch);
-                }
+                handle_remote_channel_move(&ctx.shared, ch);
             }
         }
 
-        // Notify frontend about current-channel change.
         if own_channel_changed {
             if let Some(ch) = self.channel_id {
-                ctx.emit(
-                    "current-channel-changed",
-                    CurrentChannelPayload { channel_id: ch },
-                );
-
-                // Update the foreground-service notification to show the
-                // current channel name alongside the server name.
-                #[cfg(target_os = "android")]
-                {
-                    use tauri::Manager;
-                    let info = ctx.shared.lock().ok().and_then(|s| {
-                        let channel_name = s.channels.get(&ch).map(|c| c.name.clone())?;
-                        let host = s.connected_host.clone();
-                        let app = s.tauri_app_handle.clone()?;
-                        Some((app, host, channel_name))
-                    });
-                    if let Some((app, host, channel_name)) = info {
-                        if let Some(handle) =
-                            app.try_state::<crate::connection_service::ConnectionServiceHandle>()
-                        {
-                            crate::connection_service::update_service_channel(
-                                &handle,
-                                &host,
-                                &channel_name,
-                            );
-                        }
-                    }
-                }
-
-                // Send pchat-fetch for persistent channels (if not yet fetched).
-                let should_fetch = should_fetch_pchat_history(&ctx.shared, ch);
-
-                if should_fetch {
-                    mark_channel_fetched(&ctx.shared, ch);
-                    let shared = Arc::clone(&ctx.shared);
-                    let _pchat_init_task = tokio::spawn(pchat_init_task(shared, ch));
-                }
-            }
-        }
-        // If we received only a hash (no full payload), the server omitted
-        // the large blob. Request it so we display the texture / comment.
-        // During initial sync `request_user_blobs` handles this in bulk,
-        // so we only fire individual blob requests for post-sync updates.
-        if is_synced {
-            let need_texture = self.texture_hash.is_some() && self.texture.is_none();
-            let need_comment = self.comment_hash.is_some() && self.comment.is_none();
-            if need_texture || need_comment {
-                let shared = Arc::clone(&ctx.shared);
-                let sess = session;
-                let _blob_task = tokio::spawn(request_user_blob(shared, sess, need_texture, need_comment));
+                handle_own_channel_change(ctx, ch);
             }
         }
 
-        // Only notify frontend after initial sync is done.
         if is_synced {
+            request_missing_blobs(ctx, self, session);
             ctx.emit_empty("state-changed");
         }
+    }
+}
+
+fn apply_user_state_fields(user: &mut UserEntry, proto: &mumble_tcp::UserState) {
+    if let Some(ref name) = proto.name { user.name = name.clone(); }
+    if let Some(ref texture) = proto.texture { user.texture = (!texture.is_empty()).then(|| texture.clone()); }
+    if let Some(ref comment) = proto.comment { user.comment = (!comment.is_empty()).then(|| comment.clone()); }
+    if let Some(mute) = proto.mute { user.mute = mute; }
+    if let Some(deaf) = proto.deaf { user.deaf = deaf; }
+    if let Some(suppress) = proto.suppress { user.suppress = suppress; }
+    if let Some(self_mute) = proto.self_mute { user.self_mute = self_mute; }
+    if let Some(self_deaf) = proto.self_deaf { user.self_deaf = self_deaf; }
+    if let Some(priority) = proto.priority_speaker { user.priority_speaker = priority; }
+    if let Some(ref hash) = proto.hash { user.hash = Some(hash.clone()); }
+    if !proto.client_features.is_empty() { user.client_features = proto.client_features.clone(); }
+    if let Some(uid) = proto.user_id { user.user_id = Some(uid); }
+}
+
+fn snapshot_user(user: &UserEntry) -> (String, MuteDeafSnapshot) {
+    (
+        user.name.clone(),
+        MuteDeafSnapshot { mute: user.mute, deaf: user.deaf, self_mute: user.self_mute, self_deaf: user.self_deaf },
+    )
+}
+
+fn emit_activity_logs(
+    ctx: &HandlerContext,
+    is_synced: bool,
+    user_name: &str,
+    is_new_user: bool,
+    move_channel_name: Option<String>,
+    old_snapshot: Option<MuteDeafSnapshot>,
+    new_snapshot: &MuteDeafSnapshot,
+) {
+    if !is_synced || user_name.is_empty() { return; }
+    let mut logs: Vec<ServerLogEntry> = Vec::new();
+    if is_new_user {
+        logs.push(ServerLogEntry::now(format!("{user_name} connected")));
+    }
+    if let Some(ch_name) = move_channel_name {
+        logs.push(ServerLogEntry::now(format!("{user_name} moved to {ch_name}")));
+    }
+    build_mute_deaf_log(user_name, old_snapshot, new_snapshot, &mut logs);
+    for entry in logs {
+        ctx.emit("server-log", entry);
+    }
+}
+
+fn handle_remote_channel_move(shared: &Arc<Mutex<SharedState>>, ch: u32) {
+    pchat::check_key_share_for_channel(shared, ch);
+    pchat::query_key_holders(shared, ch);
+
+    let is_signal_v1 = shared
+        .lock()
+        .ok()
+        .and_then(|s| s.channels.get(&ch).and_then(|c| c.pchat_protocol))
+        == Some(PchatProtocol::SignalV1);
+    if is_signal_v1 {
+        pchat::send_signal_distribution(shared, ch);
+    }
+}
+
+fn handle_own_channel_change(ctx: &HandlerContext, ch: u32) {
+    ctx.emit("current-channel-changed", CurrentChannelPayload { channel_id: ch });
+
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        let info = ctx.shared.lock().ok().and_then(|s| {
+            let channel_name = s.channels.get(&ch).map(|c| c.name.clone())?;
+            let host = s.connected_host.clone();
+            let app = s.tauri_app_handle.clone()?;
+            Some((app, host, channel_name))
+        });
+        if let Some((app, host, channel_name)) = info {
+            if let Some(handle) =
+                app.try_state::<crate::connection_service::ConnectionServiceHandle>()
+            {
+                crate::connection_service::update_service_channel(&handle, &host, &channel_name);
+            }
+        }
+    }
+
+    let should_fetch = should_fetch_pchat_history(&ctx.shared, ch);
+    if should_fetch {
+        mark_channel_fetched(&ctx.shared, ch);
+        let shared = Arc::clone(&ctx.shared);
+        let _pchat_init_task = tokio::spawn(pchat_init_task(shared, ch));
+    }
+}
+
+fn request_missing_blobs(ctx: &HandlerContext, proto: &mumble_tcp::UserState, session: u32) {
+    let need_texture = proto.texture_hash.is_some() && proto.texture.is_none();
+    let need_comment = proto.comment_hash.is_some() && proto.comment.is_none();
+    if need_texture || need_comment {
+        let shared = Arc::clone(&ctx.shared);
+        let _blob_task = tokio::spawn(request_user_blob(shared, session, need_texture, need_comment));
     }
 }
 
@@ -246,6 +191,7 @@ fn maybe_record_name(
     }
 }
 
+#[derive(Default)]
 struct MuteDeafSnapshot {
     mute: bool,
     deaf: bool,

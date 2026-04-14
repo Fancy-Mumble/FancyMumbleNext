@@ -17,6 +17,22 @@ use super::types::{ALGORITHM_VERSION, KEY_EXCHANGE_FRESHNESS_MS, ChannelKey, Con
 use super::KeyManager;
 use crate::persistent::KeyTrustLevel;
 
+fn validate_timestamp_freshness(request_timestamp: Option<u64>, exchange_timestamp: u64) -> Result<()> {
+    if let Some(req_ts) = request_timestamp {
+        if exchange_timestamp < req_ts {
+            return Err(Error::InvalidState(
+                "key-exchange timestamp before request".into(),
+            ));
+        }
+        if exchange_timestamp > req_ts + KEY_EXCHANGE_FRESHNESS_MS {
+            return Err(Error::InvalidState(
+                "key-exchange timestamp too far after request".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 impl KeyManager {
     // ---- Key exchange signature verification ------------------------
 
@@ -62,30 +78,30 @@ impl KeyManager {
     /// 4. Verifies `epoch_fingerprint` matches.
     /// 5. For `POST_JOIN`: verifies `parent_fingerprint`, stores as candidate.
     /// 6. For `FULL_ARCHIVE`: adds to consensus collector.
-    #[allow(clippy::too_many_lines, reason = "key exchange verification encompasses multiple security checks that must be atomic")]
     pub fn receive_key_exchange(
         &mut self,
         exchange: &PchatKeyExchange,
         request_timestamp: Option<u64>,
     ) -> Result<()> {
-        // 1. Verify signature
         self.verify_key_exchange_signature(exchange)?;
+        validate_timestamp_freshness(request_timestamp, exchange.timestamp)?;
 
-        // 2. Timestamp freshness
-        if let Some(req_ts) = request_timestamp {
-            if exchange.timestamp < req_ts {
-                return Err(Error::InvalidState(
-                    "key-exchange timestamp before request".into(),
-                ));
-            }
-            if exchange.timestamp > req_ts + KEY_EXCHANGE_FRESHNESS_MS {
-                return Err(Error::InvalidState(
-                    "key-exchange timestamp too far after request".into(),
-                ));
-            }
+        let key_bytes = self.decrypt_exchanged_key(exchange)?;
+
+        let computed_fp = epoch_fingerprint(&key_bytes);
+        if exchange.epoch_fingerprint.len() != 8 || computed_fp != exchange.epoch_fingerprint[..8] {
+            return Err(Error::InvalidState(
+                "epoch_fingerprint mismatch".into(),
+            ));
         }
 
-        // 3. Decrypt the key via DH
+        let protocol = PchatProtocol::from_wire_str(&exchange.protocol);
+        self.store_exchanged_key(protocol, exchange, key_bytes, request_timestamp)?;
+        self.check_inline_countersignature(exchange);
+        Ok(())
+    }
+
+    fn decrypt_exchanged_key(&self, exchange: &PchatKeyExchange) -> Result<[u8; 32]> {
         let peer = self
             .peer_keys
             .get(&exchange.sender_hash)
@@ -109,20 +125,18 @@ impl KeyManager {
 
         let mut key_bytes = [0u8; 32];
         key_bytes.copy_from_slice(&decrypted_key_bytes);
+        Ok(key_bytes)
+    }
 
-        // 4. Verify epoch_fingerprint
-        let computed_fp = epoch_fingerprint(&key_bytes);
-        if exchange.epoch_fingerprint.len() != 8 || computed_fp != exchange.epoch_fingerprint[..8] {
-            return Err(Error::InvalidState(
-                "epoch_fingerprint mismatch".into(),
-            ));
-        }
-
-        let protocol = PchatProtocol::from_wire_str(&exchange.protocol);
-
+    fn store_exchanged_key(
+        &mut self,
+        protocol: PchatProtocol,
+        exchange: &PchatKeyExchange,
+        key_bytes: [u8; 32],
+        request_timestamp: Option<u64>,
+    ) -> Result<()> {
         match protocol {
             PchatProtocol::FancyV1FullArchive => {
-                // 6. Add to consensus collector
                 if let Some(ref request_id) = exchange.request_id {
                     let collector =
                         self.pending_consensus
@@ -137,21 +151,20 @@ impl KeyManager {
                         .responses
                         .insert(exchange.sender_hash.clone(), key_bytes.to_vec());
                 } else {
-                    // Direct key acceptance (no request_id, e.g. key custodian shortcut)
                     let _ = self.archive_keys.insert(
                         exchange.channel_id,
                         (ChannelKey { key: key_bytes }, KeyTrustLevel::Unverified),
                     );
                 }
+                Ok(())
             }
-            _ => {
-                return Err(Error::InvalidState(format!(
-                    "unexpected protocol in key-exchange: {protocol:?}"
-                )));
-            }
+            _ => Err(Error::InvalidState(format!(
+                "unexpected protocol in key-exchange: {protocol:?}"
+            ))),
         }
+    }
 
-        // Check for inline countersignature
+    fn check_inline_countersignature(&mut self, exchange: &PchatKeyExchange) {
         if let (Some(ref countersig), Some(ref countersigner)) =
             (&exchange.countersignature, &exchange.countersigner_hash)
         {
@@ -170,8 +183,6 @@ impl KeyManager {
                 countersig,
             );
         }
-
-        Ok(())
     }
 
     // ---- Key distribution -------------------------------------------

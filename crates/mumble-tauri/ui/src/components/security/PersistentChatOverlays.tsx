@@ -21,6 +21,8 @@ interface PersistentChatResult {
   revokedBanner: ReactNode;
   signalBridgeErrorBanner: ReactNode;
   keyRevoked: boolean;
+  /** True when the user cannot send messages (key revoked or Signal bridge unavailable). */
+  sendBlocked: boolean;
   dialogs: ReactNode;
 }
 
@@ -180,6 +182,7 @@ export function usePersistentChat(
       </InfoBanner>
     ) : null,
     keyRevoked,
+    sendBlocked: keyRevoked || (persistenceMode === "SIGNAL_V1" && !!signalBridgeError),
     signalBridgeErrorBanner: (persistenceMode === "SIGNAL_V1" && signalBridgeError) ? (
       <InfoBanner variant="danger" icon={warningIcon}>
         <p className={infoBannerStyles.description}>

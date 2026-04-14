@@ -69,6 +69,8 @@ export interface ChatMessage {
   timestamp?: number | null;
   /** When true the message was sent by a legacy (non-E2EE) client on a pchat channel. */
   is_legacy?: boolean;
+  /** Unix epoch millis when the message was edited. Absent if never edited. */
+  edited_at?: number | null;
 }
 
 /** A multi-member group chat, identified by a UUID. */
@@ -287,6 +289,14 @@ export interface PacketStats {
   late: number;
   lost: number;
   resync: number;
+}
+
+/** Crypto stats payload emitted on each Ping exchange. */
+export interface CryptoStats {
+  /** Our local decrypt stats (packets we received/decoded). */
+  from_client: PacketStats;
+  /** Server-reported stats for packets it sent to us. */
+  to_client: PacketStats;
 }
 
 /** Rolling-window packet statistics. */

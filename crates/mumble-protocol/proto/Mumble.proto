@@ -179,6 +179,8 @@ message TextMessage {
 	optional string message_id = 6;
 	// Message timestamp as Unix epoch millis (Fancy Mumble extension).
 	optional uint64 timestamp = 7;
+	// When set, this message is an edit replacing the message with this ID.
+	optional string edit_id = 8;
 }
 
 message PermissionDenied {

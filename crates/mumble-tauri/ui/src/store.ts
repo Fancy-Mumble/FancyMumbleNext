@@ -209,6 +209,7 @@ interface AppState {
   selectChannel: (id: number) => Promise<void>;
   joinChannel: (id: number) => Promise<void>;
   sendMessage: (channelId: number, body: string) => Promise<void>;
+  editMessage: (channelId: number, messageId: string, newBody: string) => Promise<void>;
   toggleListen: (channelId: number) => Promise<void>;
 
   // Channel management
@@ -563,6 +564,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     } catch (e) {
       console.error("send_message error:", e);
+    }
+  },
+
+  editMessage: async (channelId, messageId, newBody) => {
+    try {
+      await invoke("edit_message", { channelId, messageId, newBody });
+      const seq = ++messageWriteSeq;
+      const messages = await invoke<ChatMessage[]>("get_messages", {
+        channelId,
+      });
+      if (messageWriteSeq === seq) {
+        set({ messages });
+      }
+    } catch (e) {
+      console.error("edit_message error:", e);
     }
   },
 

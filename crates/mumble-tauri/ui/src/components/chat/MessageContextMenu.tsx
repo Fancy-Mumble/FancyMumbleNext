@@ -8,6 +8,7 @@ import { QUICK_REACTIONS } from "../elements/MessageActionBar";
 import EmojiPlusIcon from "../../assets/icons/communication/emoji-plus.svg?react";
 import QuoteIcon from "../../assets/icons/communication/quote.svg?react";
 import CopyIcon from "../../assets/icons/action/copy.svg?react";
+import EditIcon from "../../assets/icons/action/edit.svg?react";
 import TrashIcon from "../../assets/icons/action/trash.svg?react";
 import CheckboxIcon from "../../assets/icons/status/checkbox.svg?react";
 import styles from "./MessageContextMenu.module.css";
@@ -52,6 +53,7 @@ interface MessageContextMenuProps {
   readonly onMoreReactions?: (msg: ChatMessage, e?: React.MouseEvent) => void;
   readonly onCite?: (msg: ChatMessage) => void;
   readonly onCopyText?: (msg: ChatMessage) => void;
+  readonly onEdit?: (msg: ChatMessage) => void;
   /** Reactions on the context-menu's target message. */
   readonly reactions?: readonly ReactionSummary[];
   /** Avatar data-URLs keyed by cert hash. */
@@ -74,6 +76,7 @@ export default function MessageContextMenu({
   onMoreReactions,
   onCite,
   onCopyText,
+  onEdit,
   reactions,
   avatarByHash,
   allMessageIds,
@@ -185,6 +188,14 @@ export default function MessageContextMenu({
               <CopyIcon width={14} height={14} />
             </span>
             Copy text
+          </button>
+        )}
+        {onEdit && menu.message.is_own && menu.message.message_id && (
+          <button type="button" className={styles.menuItem} onClick={() => { onEdit(menu.message); onClose(); }}>
+            <span className={styles.menuIcon}>
+              <EditIcon width={14} height={14} />
+            </span>
+            Edit message
           </button>
         )}
         {canDelete && (

@@ -361,6 +361,9 @@ pub struct TextMessage {
     /// Message timestamp as Unix epoch millis (Fancy Mumble extension).
     #[prost(uint64, optional, tag = "7")]
     pub timestamp: ::core::option::Option<u64>,
+    /// When set, this message is an edit replacing the message with this ID.
+    #[prost(string, optional, tag = "8")]
+    pub edit_id: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct PermissionDenied {

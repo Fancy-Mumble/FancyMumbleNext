@@ -4,6 +4,7 @@
 //! callbacks when users connect, channels change, audio arrives, etc.
 
 use crate::message::{ControlMessage, UdpMessage};
+use crate::transport::ocb2::PacketStats;
 
 /// Callback interface for server events.
 ///
@@ -25,6 +26,13 @@ pub trait EventHandler: Send + 'static {
 
     /// Called when the audio transport mode changes (e.g. UDP activated or fell back to TCP).
     fn on_audio_transport_changed(&mut self, udp_active: bool) {}
+
+    /// Called on each Ping exchange with updated packet statistics.
+    ///
+    /// `from_client` is our local decrypt stats (packets we received).
+    /// `to_client` is the server's stats echoed back in its Ping reply
+    ///   (packets it sent to us).
+    fn on_ping_stats(&mut self, from_client: PacketStats, to_client: PacketStats) {}
 }
 
 /// A no-op handler for use in tests or headless mode.

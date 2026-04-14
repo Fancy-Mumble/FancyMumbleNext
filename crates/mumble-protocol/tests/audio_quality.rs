@@ -9,16 +9,17 @@
 //! cargo test --package mumble-protocol --test audio_quality --features opus-codec
 //! ```
 
-#![cfg(feature = "opus-codec")]
-// Integration tests are separate crate compilation units and will trigger
-// `unused_crate_dependencies` for every transitive dep of mumble-protocol
-// that is not directly imported in this file.
 #![allow(
     unused_crate_dependencies,
+    missing_docs,
+    reason = "feature-gated test: when `opus-codec` is off the crate is empty"
+)]
+#![cfg(feature = "opus-codec")]
+#![allow(
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::too_many_lines,
-    reason = "integration test: transitive deps are not directly imported; unwrap/expect and long test functions are idiomatic"
+    reason = "integration test: unwrap/expect and long test functions are idiomatic"
 )]
 
 use mumble_protocol::audio::decoder::{AudioDecoder, OpusDecoder};

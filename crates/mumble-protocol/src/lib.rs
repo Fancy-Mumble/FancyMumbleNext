@@ -45,6 +45,7 @@ pub mod client;
 pub mod command;
 pub mod error;
 pub mod event;
+pub mod fancy_codec;
 pub mod message;
 #[cfg(feature = "persistent-chat")]
 pub mod persistent;
@@ -69,5 +70,7 @@ mod _persistent_chat_deps {
 mod _dev_deps {
     use hound as _;
     use minimp3 as _;
+    use rand as _;
     use rcgen as _;
+    use uuid as _;
 }

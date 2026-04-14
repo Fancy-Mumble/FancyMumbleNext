@@ -14,6 +14,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::command::{BoxedCommand, CommandAction};
 use crate::error::{Error, Result};
 use crate::event::EventHandler;
+use crate::fancy_codec::{self, FancyCodec};
 use crate::message::{ControlMessage, ServerMessage, UdpMessage};
 use crate::transport::audio_codec::AudioPacketCodec;
 use crate::transport::ocb2::Ocb2CryptState;
@@ -250,7 +251,6 @@ pub async fn run<H: EventHandler>(
 // -- Event loop -----------------------------------------------------
 
 #[allow(clippy::too_many_arguments, reason = "protocol event loop requires all transport handles")]
-#[allow(clippy::too_many_lines, reason = "event loop drives the full protocol state machine; extracting sub-steps would obscure the sequential flow")]
 async fn event_loop<H: EventHandler>(
     mut handler: H,
     tcp_reader: crate::transport::tcp::TcpReader,
@@ -264,27 +264,25 @@ async fn event_loop<H: EventHandler>(
     ping_interval: Duration,
 ) -> Result<()> {
     let mut state = ServerState::new();
+    let state_decrypt_stats = state.decrypt_stats.clone();
 
-    // Create a single outbound channel that serialises all TCP writes.
-    // Ping task, user commands, and the main loop all send through here.
     let (outbound_tx, outbound_rx) = mpsc::channel::<ControlMessage>(64);
     let tcp_writer_task = tokio::spawn(tcp_writer_loop(tcp_writer, outbound_rx));
     let mut tcp_reader_task = tokio::spawn(tcp_reader_loop(tcp_reader, wq_sender.clone()));
     let ping_task = tokio::spawn(ping_loop(
         outbound_tx.clone(),
         state.ping_stats.clone(),
+        state.decrypt_stats.clone(),
         ping_interval,
     ));
     let cmd_forwarder_task = tokio::spawn(cmd_forwarder_loop(ext_cmd_rx, wq_sender.clone()));
 
-    // UDP sender handle: socket + encrypt crypt state.
-    // Created when CryptSetup arrives (unless force_tcp is set).
+    let mut codec: Box<dyn FancyCodec> = Box::new(fancy_codec::LegacyCodec);
     let mut udp_sender: Option<UdpSender> = None;
     let mut udp_reader_task: Option<tokio::task::JoinHandle<()>> = None;
     let mut stored_crypto: Option<StoredCrypto> = None;
     let mut force_tcp = *force_tcp_rx.borrow();
 
-    // Main dispatch loop
     info!("entering main event loop");
     let mut tcp_reader_alive = true;
     let mut outbound_audio_count: u64 = 0;
@@ -292,45 +290,21 @@ async fn event_loop<H: EventHandler>(
 
     loop {
         loop_iteration += 1;
-        if loop_iteration <= 20 || loop_iteration.is_multiple_of(500) {
-            debug!("event loop iter={loop_iteration} (entering select)");
-        }
 
         let item = tokio::select! {
             biased;
-            item = wq_receiver.recv() => {
-                if loop_iteration <= 20 || loop_iteration.is_multiple_of(500) {
-                    debug!(
-                        "event loop iter={loop_iteration}: woke on work-queue",
-                    );
-                }
-                Some(item)
-            }
+            item = wq_receiver.recv() => Some(item),
             Some(msg) = audio_out_rx.recv() => {
-                if loop_iteration <= 20 || loop_iteration.is_multiple_of(500) {
-                    debug!("event loop iter={loop_iteration}: woke on audio_out");
-                }
-                send_one_audio_packet(
-                    &msg,
-                    &mut udp_sender,
-                    &outbound_tx,
-                    &mut outbound_audio_count,
-                );
+                send_one_audio_packet(&msg, &mut udp_sender, &outbound_tx, &mut outbound_audio_count);
                 None
             }
             Ok(()) = force_tcp_rx.changed() => {
-                debug!("event loop iter={loop_iteration}: woke on force_tcp_rx");
                 let new_force = *force_tcp_rx.borrow_and_update();
                 if new_force != force_tcp {
                     force_tcp = new_force;
                     handle_force_tcp_change(
-                        force_tcp,
-                        &stored_crypto,
-                        &udp_config,
-                        &wq_sender,
-                        &mut udp_sender,
-                        &mut udp_reader_task,
-                        &mut handler,
+                        force_tcp, &stored_crypto, &udp_config, &wq_sender,
+                        &mut udp_sender, &mut udp_reader_task, &state.decrypt_stats, &mut handler,
                     ).await;
                 }
                 None
@@ -342,59 +316,36 @@ async fn event_loop<H: EventHandler>(
             }
         };
 
-        let Some(item) = item else { continue; };
+        let Some(item) = item else { continue };
 
-        if loop_iteration <= 20 || loop_iteration.is_multiple_of(500) {
-            debug!("event loop iter={loop_iteration}: processing work item");
-        }
-
-        let action = {
-            let before = tokio::time::Instant::now();
-            let mut ctx = EventLoopCtx {
-                handler: &mut handler,
-                state: &mut state,
-                outbound_tx: &outbound_tx,
-                udp_sender: &mut udp_sender,
-                udp_reader_task: &mut udp_reader_task,
-                stored_crypto: &mut stored_crypto,
-                udp_config: &udp_config,
-                wq_sender: &wq_sender,
-                force_tcp,
-            };
-            let action = match item {
-                WorkItem::ServerMessage(msg) => ctx.handle_server_message(msg).await,
-                WorkItem::UserCommand(cmd) => ctx.handle_user_command(cmd).await,
-                WorkItem::Shutdown => {
-                    info!("shutdown signal");
-                    ctx.handler.on_disconnected();
-                    LoopAction::Break
-                }
-            };
-            let elapsed = before.elapsed();
-            if elapsed.as_millis() > 50 {
-                warn!(
-                    "event loop: processing took {elapsed:?} (iter={loop_iteration})",
-                );
-            }
-            action
+        let mut ctx = EventLoopCtx {
+            handler: &mut handler,
+            state: &mut state,
+            outbound_tx: &outbound_tx,
+            codec: &mut codec,
+            udp_sender: &mut udp_sender,
+            udp_reader_task: &mut udp_reader_task,
+            stored_crypto: &mut stored_crypto,
+            decrypt_stats: state_decrypt_stats.clone(),
+            udp_config: &udp_config,
+            wq_sender: &wq_sender,
+            force_tcp,
         };
-        if action == LoopAction::Break {
+        if ctx.dispatch_item(item, loop_iteration).await == LoopAction::Break {
             break;
         }
     }
 
-    // -- Clean up all spawned sub-tasks -----------------------------
     ping_task.abort();
     cmd_forwarder_task.abort();
     if tcp_reader_alive {
         tcp_reader_task.abort();
     }
     tcp_writer_task.abort();
-    if let Some(task) = udp_reader_task {
+    if let Some(task) = &udp_reader_task {
         task.abort();
     }
     debug!("all sub-tasks aborted");
-
     Ok(())
 }
 
@@ -438,12 +389,18 @@ async fn tcp_reader_loop(
 async fn ping_loop(
     outbound_tx: mpsc::Sender<ControlMessage>,
     ping_stats: crate::state::SharedPingStats,
+    decrypt_stats: crate::transport::ocb2::SharedPacketStats,
     interval_duration: Duration,
 ) {
     let mut interval = tokio::time::interval(interval_duration);
     loop {
         let _ = interval.tick().await;
         let stats_snapshot = ping_stats
+            .lock()
+            .ok()
+            .map(|s| s.clone())
+            .unwrap_or_default();
+        let crypto_snapshot = decrypt_stats
             .lock()
             .ok()
             .map(|s| s.clone())
@@ -455,13 +412,16 @@ async fn ping_loop(
                     .unwrap_or_default()
                     .as_millis() as u64,
             ),
+            good: Some(crypto_snapshot.good),
+            late: Some(crypto_snapshot.late),
+            lost: Some(crypto_snapshot.lost),
+            resync: Some(crypto_snapshot.resync),
             tcp_packets: Some(stats_snapshot.tcp_packets),
             tcp_ping_avg: Some(stats_snapshot.tcp_ping_avg),
             tcp_ping_var: Some(stats_snapshot.tcp_ping_var),
             udp_packets: Some(stats_snapshot.udp_packets),
             udp_ping_avg: Some(stats_snapshot.udp_ping_avg),
             udp_ping_var: Some(stats_snapshot.udp_ping_var),
-            ..Default::default()
         };
         if outbound_tx
             .send(ControlMessage::Ping(ping))
@@ -498,16 +458,42 @@ struct EventLoopCtx<'a, H> {
     handler: &'a mut H,
     state: &'a mut ServerState,
     outbound_tx: &'a mpsc::Sender<ControlMessage>,
+    codec: &'a mut Box<dyn FancyCodec>,
     udp_sender: &'a mut Option<UdpSender>,
     udp_reader_task: &'a mut Option<tokio::task::JoinHandle<()>>,
     stored_crypto: &'a mut Option<StoredCrypto>,
+    decrypt_stats: crate::transport::ocb2::SharedPacketStats,
     udp_config: &'a UdpConfig,
     wq_sender: &'a WorkQueueSender,
     force_tcp: bool,
 }
 
 impl<H: EventHandler> EventLoopCtx<'_, H> {
+    async fn dispatch_item(&mut self, item: WorkItem, loop_iteration: u64) -> LoopAction {
+        let before = tokio::time::Instant::now();
+        let action = match item {
+            WorkItem::ServerMessage(msg) => self.handle_server_message(msg).await,
+            WorkItem::UserCommand(cmd) => self.handle_user_command(cmd).await,
+            WorkItem::Shutdown => {
+                info!("shutdown signal");
+                self.handler.on_disconnected();
+                LoopAction::Break
+            }
+        };
+        let elapsed = before.elapsed();
+        if elapsed.as_millis() > 50 {
+            warn!("event loop: processing took {elapsed:?} (iter={loop_iteration})");
+        }
+        action
+    }
+
     async fn handle_server_message(&mut self, server_msg: ServerMessage) -> LoopAction {
+        // Decode: unwrap Fancy messages from PluginData on legacy servers.
+        let server_msg = match server_msg {
+            ServerMessage::Control(ctrl) => ServerMessage::Control(self.codec.decode(ctrl)),
+            udp @ ServerMessage::Udp(_) => udp,
+        };
+
         match &server_msg {
             ServerMessage::Control(ctrl) => {
                 if let ControlMessage::UdpTunnel(ref data) = ctrl {
@@ -531,12 +517,20 @@ impl<H: EventHandler> EventLoopCtx<'_, H> {
                             self.stored_crypto,
                             self.udp_sender,
                             self.udp_reader_task,
+                            &self.decrypt_stats,
                             self.handler,
                         )
                         .await;
                     }
 
                     handle_control_message(ctrl, self.state, self.handler);
+
+                    // Upgrade the codec when the server announces its Fancy version.
+                    if matches!(ctrl, ControlMessage::Version(_)) {
+                        *self.codec = fancy_codec::select_codec(
+                            self.state.connection.server_fancy_version,
+                        );
+                    }
 
                     // Piggyback a UDP ping on every TCP Ping response to
                     // keep the NAT mapping alive.
@@ -564,6 +558,9 @@ impl<H: EventHandler> EventLoopCtx<'_, H> {
         let output = cmd.execute(self.state);
 
         for msg in output.tcp_messages {
+            let Some(msg) = self.codec.encode(msg, self.state) else {
+                continue;
+            };
             if self.outbound_tx.send(msg).await.is_err() {
                 error!("outbound channel closed");
                 break;
@@ -645,6 +642,23 @@ fn handle_control_message<H: EventHandler>(
                 let rtt_ms = now.saturating_sub(ts) as f32;
                 state.record_tcp_ping(rtt_ms);
             }
+            // Store the server's packet counters from the Ping reply.
+            let to_client = crate::transport::ocb2::PacketStats {
+                good: p.good.unwrap_or(0),
+                late: p.late.unwrap_or(0),
+                lost: p.lost.unwrap_or(0),
+                resync: p.resync.unwrap_or(0),
+            };
+            if let Ok(mut stats) = state.server_packet_stats.lock() {
+                stats.clone_from(&to_client);
+            }
+            let from_client = state
+                .decrypt_stats
+                .lock()
+                .ok()
+                .map(|s| s.clone())
+                .unwrap_or_default();
+            handler.on_ping_stats(from_client, to_client);
         }
         ControlMessage::ServerSync(sync) => {
             state.apply_server_sync(sync);
@@ -776,6 +790,7 @@ async fn handle_crypt_setup<H: EventHandler>(
     stored_crypto: &mut Option<StoredCrypto>,
     udp_sender: &mut Option<UdpSender>,
     udp_reader_task: &mut Option<tokio::task::JoinHandle<()>>,
+    decrypt_stats: &crate::transport::ocb2::SharedPacketStats,
     handler: &mut H,
 ) {
     // Full key setup: key + client_nonce + server_nonce all present
@@ -815,12 +830,14 @@ async fn handle_crypt_setup<H: EventHandler>(
         wq_sender,
         udp_sender,
         udp_reader_task,
+        decrypt_stats,
         handler,
     )
     .await;
 }
 
 /// Handle a runtime `force_tcp` toggle from the UI.
+#[allow(clippy::too_many_arguments, reason = "mirrors handle_crypt_setup pattern")]
 async fn handle_force_tcp_change<H: EventHandler>(
     force_tcp: bool,
     stored_crypto: &Option<StoredCrypto>,
@@ -828,6 +845,7 @@ async fn handle_force_tcp_change<H: EventHandler>(
     wq_sender: &WorkQueueSender,
     udp_sender: &mut Option<UdpSender>,
     udp_reader_task: &mut Option<tokio::task::JoinHandle<()>>,
+    decrypt_stats: &crate::transport::ocb2::SharedPacketStats,
     handler: &mut H,
 ) {
     if force_tcp {
@@ -849,6 +867,7 @@ async fn handle_force_tcp_change<H: EventHandler>(
                 wq_sender,
                 udp_sender,
                 udp_reader_task,
+                decrypt_stats,
                 handler,
             )
             .await;
@@ -868,6 +887,7 @@ async fn start_udp<H: EventHandler>(
     wq_sender: &WorkQueueSender,
     udp_sender: &mut Option<UdpSender>,
     udp_reader_task: &mut Option<tokio::task::JoinHandle<()>>,
+    decrypt_stats: &crate::transport::ocb2::SharedPacketStats,
     handler: &mut H,
 ) {
 
@@ -904,8 +924,9 @@ async fn start_udp<H: EventHandler>(
     // Spawn UDP reader task
     let reader_socket = socket.clone();
     let reader_wq = wq_sender.clone();
+    let reader_stats = decrypt_stats.clone();
     *udp_reader_task = Some(tokio::spawn(async move {
-        udp_reader_loop(reader_socket, decrypt_crypt, reader_wq).await;
+        udp_reader_loop(reader_socket, decrypt_crypt, reader_stats, reader_wq).await;
     }));
 
     // Store sender handle
@@ -948,6 +969,7 @@ fn udp_ping_message() -> UdpMessage {
 async fn udp_reader_loop(
     socket: Arc<UdpSocket>,
     mut crypt: Ocb2CryptState,
+    shared_stats: crate::transport::ocb2::SharedPacketStats,
     wq_sender: WorkQueueSender,
 ) {
     let mut buf = vec![0u8; 1024];
@@ -977,6 +999,11 @@ async fn udp_reader_loop(
                 continue;
             }
         };
+
+        // Publish updated counters after each decrypt attempt.
+        if let Ok(mut stats) = shared_stats.lock() {
+            stats.clone_from(&crypt.stats);
+        }
 
         match crate::transport::udp::decode_udp_message(&decrypted) {
             Ok(msg) => {

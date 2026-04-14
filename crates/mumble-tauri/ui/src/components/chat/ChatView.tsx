@@ -28,6 +28,7 @@ import { useChatScroll } from "./useChatScroll";
 import { useMessageSelection } from "./useMessageSelection";
 import { useReadReceipts } from "./useReadReceipts";
 import { isMobile } from "../../utils/platform";
+import { htmlToMarkdown } from "./MarkdownInput";
 import type { MessageScope } from "../../messageOffload";
 import { useScreenShare } from "./useScreenShare";
 import ScreenShareViewer, { BroadcastBanner, WebRtcErrorBanner } from "./ScreenShareViewer";
@@ -62,17 +63,6 @@ function computeHeader(
   return [channel?.name ?? "Unknown", memberCount];
 }
 
-/** Map a font family id to a CSS font-family string. */
-function fontFamilyCss(id: string): string {
-  switch (id) {
-    case "monospace": return "'Cascadia Mono', 'Fira Code', 'Consolas', monospace";
-    case "serif": return "'Georgia', 'Times New Roman', serif";
-    case "humanist": return "'Segoe UI', 'Helvetica Neue', 'Arial', sans-serif";
-    case "rounded": return "'Nunito', 'Quicksand', 'Comfortaa', sans-serif";
-    default: return "inherit";
-  }
-}
-
 export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatViewProps) {
   const channels = useAppStore((s) => s.channels);
   const users = useAppStore((s) => s.users);
@@ -105,6 +95,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
   const [draft, setDraft] = useState("");
   const [pendingQuotes, setPendingQuotes] = useState<ChatMessage[]>([]);
+  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const {
     polls, pollMessages, showPollCreator, openPollCreator, closePollCreator,
     handlePollCreate, handlePollVote,
@@ -250,11 +241,27 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
   const lightboxRef = useRef<LightboxHandle>(null);
 
+  const handleEdit = useCallback((msg: ChatMessage) => {
+    setEditingMessage(msg);
+    setDraft(htmlToMarkdown(msg.body));
+  }, []);
+
+  const cancelEdit = useCallback(() => {
+    setEditingMessage(null);
+    setDraft("");
+  }, []);
+
+  useEffect(() => {
+    setEditingMessage(null);
+  }, [selectedChannel, selectedDmUser, selectedGroup]);
+
   const { sending, handleSend, sendMediaFile, handlePaste, handleGifSelect } = useChatSend({
     pendingQuotes,
     clearQuotes: () => setPendingQuotes([]),
     draft,
     clearDraft: () => setDraft(""),
+    editingMessage,
+    onEditComplete: cancelEdit,
   });
 
   const {
@@ -471,7 +478,6 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
             "--chat-font-size": personalization.fontSize === "small" ? "12px"
               : personalization.fontSize === "large" ? `${personalization.fontSizeCustomPx}px`
               : "14px",
-            "--chat-font-family": fontFamilyCss(personalization.fontFamily),
           } as React.CSSProperties}
         >
           <div ref={messagesInnerRef} className={styles.messagesInner}>
@@ -551,8 +557,10 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         onPaste={handlePaste}
         onFileSelected={sendMediaFile}
         onGifSelect={handleGifSelect}
-        disabled={sending || persistent.keyRevoked}
+        disabled={sending || persistent.sendBlocked}
         hasPendingQuotes={pendingQuotes.length > 0}
+        isEditing={editingMessage !== null}
+        onCancelEdit={cancelEdit}
       />
 
       {showPollCreator && (
@@ -577,6 +585,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onMoreReactions={handleMoreReactions}
           onCite={handleCite}
           onCopyText={handleCopyText}
+          onEdit={handleEdit}
           reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
           avatarByHash={avatarByHash}
           allMessageIds={allMessageIds}
@@ -594,6 +603,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onMoreReactions={handleMoreReactions}
           onCite={handleCite}
           onCopyText={handleCopyText}
+          onEdit={handleEdit}
           reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
           allMessageIds={allMessageIds}
           channelId={selectedChannel ?? undefined}

@@ -329,6 +329,16 @@ async fn send_message(
 }
 
 #[tauri::command]
+async fn edit_message(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    message_id: String,
+    new_body: String,
+) -> Result<(), String> {
+    state.edit_message(channel_id, message_id, new_body).await
+}
+
+#[tauri::command]
 async fn select_channel(
     state: tauri::State<'_, AppState>,
     channel_id: u32,
@@ -811,6 +821,21 @@ async fn set_audio_settings(
     Ok(())
 }
 
+/// Switch the desktop audio backend at runtime.
+///
+/// `true` selects the rodio backend (default), `false` selects the
+/// legacy cpal backend. Takes effect on the next voice toggle.
+#[tauri::command]
+fn set_audio_backend(use_rodio: bool) {
+    audio::set_use_rodio_backend(use_rodio);
+}
+
+/// Returns `true` if the rodio backend is selected, `false` for legacy cpal.
+#[tauri::command]
+fn get_audio_backend() -> bool {
+    audio::is_rodio_backend()
+}
+
 /// Get the current voice state.
 #[tauri::command]
 fn get_voice_state(state: tauri::State<'_, AppState>) -> VoiceState {
@@ -871,6 +896,29 @@ fn start_latency_test(state: tauri::State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 fn stop_latency_test(state: tauri::State<'_, AppState>) {
     state.stop_latency_test();
+}
+
+/// Start recording inbound audio to a file.
+#[tauri::command]
+fn start_recording(
+    state: tauri::State<'_, AppState>,
+    directory: String,
+    filename: String,
+    format: state::recording::RecordingFormat,
+) -> Result<String, String> {
+    state.start_recording(directory, filename, format)
+}
+
+/// Stop the current recording and finalize the file.
+#[tauri::command]
+fn stop_recording(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    state.stop_recording()
+}
+
+/// Get the current recording state.
+#[tauri::command]
+fn get_recording_state(state: tauri::State<'_, AppState>) -> state::recording::RecordingState {
+    state.recording_state()
 }
 
 /// Set the user comment on the connected server (`FancyMumble` profile + bio).
@@ -1711,17 +1759,107 @@ async fn process_background(
 
 // --- Application bootstrap ---------------------------------------
 
-/// Probe whether a usable EGL display is available on this system.
-///
-/// Loads `libEGL.so.1` at runtime and calls `eglGetDisplay(EGL_DEFAULT_DISPLAY)`.
-/// Returns `true` only when the call succeeds and returns a non-null display.
-/// This avoids the hard `abort()` that `WebKitGTK` triggers when hardware
-/// acceleration is forced on a system without working EGL (VMs, containers,
-/// broken GPU drivers).
+/// GPU capability level detected on this Linux system.
 #[cfg(target_os = "linux")]
-fn egl_display_available() -> bool {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GpuCapability {
+    /// EGL initializes and DRI render nodes are accessible (real GPU).
+    HardwareAccelerated,
+    /// EGL initializes but no DRI render nodes found (Mesa software).
+    SoftwareOnly,
+    /// EGL cannot initialize at all.
+    NoEgl,
+}
+
+/// Check whether this process was launched from an `AppImage`.
+#[cfg(target_os = "linux")]
+fn running_in_appimage() -> bool {
+    std::env::var_os("APPIMAGE").is_some() || std::env::var_os("APPDIR").is_some()
+}
+
+/// Ensure `GStreamer` can find plugins from the host system.
+///
+/// `AppImage` launchers set `GST_PLUGIN_SYSTEM_PATH` / `_1_0` pointing at
+/// the bundled (and typically empty) plugin directory.  `WebKit` then hits
+/// a `RELEASE_ASSERT` because elements like `appsink` are missing.
+///
+/// This function appends the host's standard plugin directories so
+/// `GStreamer` scans both the bundled and system locations.
+#[cfg(target_os = "linux")]
+fn ensure_gstreamer_plugins_discoverable() {
+    let system_dirs: Vec<&str> = [
+        "/usr/lib/gstreamer-1.0",
+        "/usr/lib/x86_64-linux-gnu/gstreamer-1.0",
+        "/usr/lib64/gstreamer-1.0",
+        "/usr/lib/aarch64-linux-gnu/gstreamer-1.0",
+    ]
+    .iter()
+    .copied()
+    .filter(|d| std::path::Path::new(d).is_dir())
+    .collect();
+
+    if system_dirs.is_empty() {
+        return;
+    }
+
+    let extra = system_dirs.join(":");
+
+    for var in ["GST_PLUGIN_SYSTEM_PATH", "GST_PLUGIN_SYSTEM_PATH_1_0"] {
+        let merged = match std::env::var(var) {
+            Ok(current) if !current.is_empty() => format!("{current}:{extra}"),
+            _ => extra.clone(),
+        };
+        std::env::set_var(var, &merged);
+    }
+}
+
+/// Probe the GPU/EGL capability of this system.
+///
+/// Three-tier result:
+/// - `HardwareAccelerated`: EGL + DRI render nodes work (force `Always`).
+/// - `SoftwareOnly`: EGL initializes via Mesa software but no real GPU is
+///   available (use `OnDemand` so `WebKit` falls back gracefully).
+/// - `NoEgl`: EGL cannot even initialize (force `Never`, disable compositing).
+#[cfg(target_os = "linux")]
+fn probe_gpu_capability() -> GpuCapability {
+    if !egl_can_initialize() {
+        return GpuCapability::NoEgl;
+    }
+    if dri_render_node_accessible() {
+        GpuCapability::HardwareAccelerated
+    } else {
+        GpuCapability::SoftwareOnly
+    }
+}
+
+/// Check whether at least one DRI render node (`/dev/dri/renderD*`) exists
+/// and is readable.  Without a render node, GPU-accelerated rendering will
+/// fall back to software even if EGL initializes.
+#[cfg(target_os = "linux")]
+fn dri_render_node_accessible() -> bool {
+    let Ok(entries) = std::fs::read_dir("/dev/dri") else {
+        return false;
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter(|e| {
+            e.file_name()
+                .to_str()
+                .is_some_and(|n| n.starts_with("renderD"))
+        })
+        .any(|e| std::fs::File::open(e.path()).is_ok())
+}
+
+/// Probe whether `eglInitialize` succeeds on the default display.
+#[cfg(target_os = "linux")]
+fn egl_can_initialize() -> bool {
     const EGL_DEFAULT_DISPLAY: *mut std::ffi::c_void = std::ptr::null_mut();
     const EGL_NO_DISPLAY: *mut std::ffi::c_void = std::ptr::null_mut();
+    const EGL_FALSE: i32 = 0;
+
+    type EglGetDisplay = extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void;
+    type EglInitialize = extern "C" fn(*mut std::ffi::c_void, *mut i32, *mut i32) -> i32;
+    type EglTerminate = extern "C" fn(*mut std::ffi::c_void) -> i32;
 
     #[allow(unsafe_code, reason = "probing EGL via dlopen/dlsym is inherently unsafe FFI")]
     unsafe {
@@ -1737,31 +1875,49 @@ fn egl_display_available() -> bool {
         if lib.is_null() {
             return false;
         }
-        let sym = libc::dlsym(lib, c"eglGetDisplay".as_ptr());
-        if sym.is_null() {
+
+        let get_display_sym = libc::dlsym(lib, c"eglGetDisplay".as_ptr());
+        let initialize_sym = libc::dlsym(lib, c"eglInitialize".as_ptr());
+        let terminate_sym = libc::dlsym(lib, c"eglTerminate".as_ptr());
+        if get_display_sym.is_null() || initialize_sym.is_null() || terminate_sym.is_null() {
             let _ = libc::dlclose(lib);
             return false;
         }
-        let get_display: extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void =
-            std::mem::transmute(sym);
+
+        let get_display: EglGetDisplay = std::mem::transmute(get_display_sym);
+        let initialize: EglInitialize = std::mem::transmute(initialize_sym);
+        let terminate: EglTerminate = std::mem::transmute(terminate_sym);
+
         let display = get_display(EGL_DEFAULT_DISPLAY);
+        if display == EGL_NO_DISPLAY {
+            let _ = libc::dlclose(lib);
+            return false;
+        }
+
+        let mut major: i32 = 0;
+        let mut minor: i32 = 0;
+        let ok = initialize(display, &mut major, &mut minor) != EGL_FALSE;
+        if ok {
+            let _ = terminate(display);
+        }
         let _ = libc::dlclose(lib);
-        display != EGL_NO_DISPLAY
+        ok
     }
 }
 
-/// Configure `WebKitGTK` hardware acceleration and `WebGL`.
+/// Configure `WebKitGTK` hardware acceleration and `WebGL` based on GPU
+/// capability.
 ///
-/// Forces `HardwareAccelerationPolicy::Always` when a working EGL display
-/// is detected so that CSS `backdrop-filter: blur()` renders correctly.
-/// Falls back to the default `OnDemand` policy otherwise.
+/// - `HardwareAccelerated`: force `Always` + WebGL for full CSS effects.
+/// - `SoftwareOnly`: force `Never` because `OnDemand` still attempts
+///   GPU rendering for complex views, which crashes without a real GPU.
+/// - `NoEgl`: force `Never` to prevent abort on EGL initialization.
 #[cfg(target_os = "linux")]
-fn configure_webkitgtk(app: &tauri::App) {
+fn configure_webkitgtk(app: &tauri::App, gpu: GpuCapability) {
     let Some(window) = app.get_webview_window("main") else {
         tracing::warn!("WebKitGTK: main webview window not found in setup");
         return;
     };
-    let has_egl = egl_display_available();
     let result = window.with_webview(move |webview| {
         use webkit2gtk::{SettingsExt, WebViewExt};
         let wv = webview.inner();
@@ -1769,16 +1925,24 @@ fn configure_webkitgtk(app: &tauri::App) {
             tracing::warn!("WebKitGTK: could not get webview settings");
             return;
         };
-        if has_egl {
-            settings.set_hardware_acceleration_policy(
-                webkit2gtk::HardwareAccelerationPolicy::Always,
-            );
-            settings.set_enable_webgl(true);
-            tracing::info!("WebKitGTK: hardware acceleration set to Always, WebGL enabled");
-        } else {
-            tracing::warn!(
-                "WebKitGTK: EGL display not available, keeping default acceleration policy"
-            );
+        match gpu {
+            GpuCapability::HardwareAccelerated => {
+                settings.set_hardware_acceleration_policy(
+                    webkit2gtk::HardwareAccelerationPolicy::Always,
+                );
+                settings.set_enable_webgl(true);
+                tracing::info!("WebKitGTK: hardware acceleration set to Always, WebGL enabled");
+            }
+            GpuCapability::SoftwareOnly | GpuCapability::NoEgl => {
+                settings.set_hardware_acceleration_policy(
+                    webkit2gtk::HardwareAccelerationPolicy::Never,
+                );
+                settings.set_enable_webgl(false);
+                inject_no_gpu_stylesheet(&wv);
+                tracing::info!(
+                    "WebKitGTK: no usable GPU ({gpu:?}), hardware acceleration and backdrop-filter disabled"
+                );
+            }
         }
     });
     if let Err(e) = result {
@@ -1786,39 +1950,104 @@ fn configure_webkitgtk(app: &tauri::App) {
     }
 }
 
+/// Injects a user stylesheet that disables `backdrop-filter` globally and
+/// overrides glass variables with opaque fallbacks so the UI looks good
+/// without blur. This activates from the very first frame, before the
+/// JS-based detection in platform.ts has a chance to run.
+#[cfg(target_os = "linux")]
+fn inject_no_gpu_stylesheet(wv: &webkit2gtk::WebView) {
+    use webkit2gtk::{
+        UserContentInjectedFrames, UserContentManagerExt, UserStyleLevel, UserStyleSheet,
+        WebViewExt,
+    };
+    let Some(ucm) = wv.user_content_manager() else {
+        tracing::warn!("WebKitGTK: could not get UserContentManager for stylesheet injection");
+        return;
+    };
+    let css = UserStyleSheet::new(
+        concat!(
+            ":root {\n",
+            "  --glass-blur: none !important;\n",
+            "  --color-glass: rgba(20, 20, 40, 0.75) !important;\n",
+            "  --color-glass-hover: rgba(30, 30, 55, 0.8) !important;\n",
+            "  --color-glass-active: rgba(42, 171, 238, 0.2) !important;\n",
+            "  --color-glass-border: rgba(255, 255, 255, 0.1) !important;\n",
+            "  --color-glass-border-hover: rgba(255, 255, 255, 0.18) !important;\n",
+            "}\n",
+            "*, *::before, *::after {\n",
+            "  -webkit-backdrop-filter: none !important;\n",
+            "  backdrop-filter: none !important;\n",
+            "}\n",
+        ),
+        UserContentInjectedFrames::AllFrames,
+        UserStyleLevel::Author,
+        &[],
+        &[],
+    );
+    ucm.add_style_sheet(&css);
+}
+
 /// Entry point for the Tauri application.
 ///
 /// Initialises the TLS crypto provider, sets up logging, registers all
 /// Tauri commands, and starts the application event loop.
-#[allow(clippy::too_many_lines, reason = "application bootstrap registers all Tauri commands, plugins, and event handlers")]
 #[allow(clippy::expect_used, reason = "Tauri builder failure during startup is unrecoverable")]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Install the ring TLS crypto provider before anything touches rustls.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    // On Linux, handle quick-action CLI args (e.g. `--action mute`) sent
-    // by .desktop file actions.  If one is found, forward it to the running
-    // instance via a Unix socket and exit immediately.
     #[cfg(target_os = "linux")]
     if linux_desktop::try_send_quick_action() {
         return;
     }
 
-    // On Linux, set the GTK program name and application name so GNOME
-    // matches the running window to the .desktop file.
     #[cfg(target_os = "linux")]
-    linux_desktop::set_gtk_identifiers();
+    let linux_gpu = init_linux_platform();
 
-    // On Linux, force WebKitGTK to use compositing mode so that CSS
-    // `backdrop-filter: blur()` is actually rendered (not just parsed).
-    #[cfg(target_os = "linux")]
-    {
-        std::env::set_var("WEBKIT_FORCE_COMPOSITING_MODE", "1");
-    }
+    init_logging();
 
-    // Set up a reloadable tracing subscriber so the log level can be changed
-    // at runtime from the frontend (Advanced Settings > Debug Logging).
+    let builder = create_base_builder();
+    let builder = register_commands(builder);
+
+    builder
+        .manage(AppState::new())
+        .setup(move |app| {
+            init_app_state(app);
+            #[cfg(target_os = "linux")]
+            {
+                linux_desktop::install_desktop_entry();
+                linux_desktop::start_action_listener(app.handle().clone());
+                configure_webkitgtk(app, linux_gpu);
+            }
+            #[cfg(not(target_os = "android"))]
+            if let Err(e) = tray::setup_tray(app) {
+                tracing::warn!("Failed to create system tray icon: {e}");
+            }
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Focused(focused) = event {
+                if let Some(state) = window.try_state::<AppState>() {
+                    if let Ok(mut s) = state.inner.lock() {
+                        s.app_focused = *focused;
+                    }
+                }
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<AppState>() {
+                    state.shutdown_offload_store();
+                }
+                #[cfg(target_os = "linux")]
+                linux_desktop::cleanup_socket();
+            }
+        });
+}
+
+fn init_logging() {
     let default_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into());
     let filter = EnvFilter::try_new(&default_filter).unwrap_or_else(|_| EnvFilter::new("info"));
     let (filter_layer, reload_handle) = reload::Layer::new(filter);
@@ -1827,16 +2056,48 @@ pub fn run() {
         .with(tracing_subscriber::fmt::layer())
         .init();
     let _ = LOG_RELOAD_HANDLE.set(reload_handle);
+}
 
+#[cfg(target_os = "linux")]
+fn init_linux_platform() -> GpuCapability {
+    linux_desktop::set_gtk_identifiers();
+    let gpu = probe_gpu_capability();
+    match gpu {
+        GpuCapability::HardwareAccelerated => {
+            std::env::set_var("WEBKIT_FORCE_COMPOSITING_MODE", "1");
+        }
+        GpuCapability::SoftwareOnly | GpuCapability::NoEgl => {
+            if gpu == GpuCapability::SoftwareOnly {
+                std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+            }
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+            std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+            std::env::set_var("GST_GL_PLATFORM", "none");
+            std::env::set_var("GST_GL_WINDOW", "dummy");
+            std::env::set_var("GST_GL_API", "none");
+        }
+    }
+    if running_in_appimage() {
+        ensure_gstreamer_plugins_discoverable();
+    }
+    gpu
+}
+
+fn init_app_state(app: &mut tauri::App) {
+    let state = app.state::<AppState>();
+    state.set_app_handle(app.handle().clone());
+    if let Err(e) = state.init_offload_store() {
+        tracing::warn!("Failed to initialise offload store: {e}");
+    }
+}
+
+fn create_base_builder() -> tauri::Builder<tauri::Wry> {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init());
 
-    // Register the foreground connection service plugin on Android so
-    // the process stays alive (and keeps receiving messages / showing
-    // notifications) when the app is in the background.
     #[cfg(target_os = "android")]
     let builder = builder.plugin(
         tauri::plugin::Builder::<tauri::Wry, ()>::new("connection-service")
@@ -1854,8 +2115,6 @@ pub fn run() {
             .build(),
     );
 
-    // Register the FCM plugin on Android so the Rust backend can
-    // subscribe/unsubscribe to FCM topics for push notifications.
     #[cfg(target_os = "android")]
     let builder = builder.plugin(
         tauri::plugin::Builder::<tauri::Wry, ()>::new("fcm-service")
@@ -1871,45 +2130,18 @@ pub fn run() {
             .build(),
     );
 
-    // Window state persistence is desktop-only.
     #[cfg(not(target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_window_state::Builder::new().build());
 
-    // Global shortcuts (PTT) are only available on desktop.
     #[cfg(not(target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
 
     builder
-        .manage(AppState::new())
-        .setup(|app| {
-            let state = app.state::<AppState>();
-            state.set_app_handle(app.handle().clone());
-            // Initialise the encrypted temp-file store for message offloading.
-            // Stale files from a previous session are deleted first.
-            if let Err(e) = state.init_offload_store() {
-                tracing::warn!("Failed to initialise offload store: {e}");
-            }
+}
 
-            // On Linux, install the .desktop file (for GNOME app name + icon)
-            // and start the quick-action IPC listener.
-            #[cfg(target_os = "linux")]
-            {
-                linux_desktop::install_desktop_entry();
-                linux_desktop::start_action_listener(app.handle().clone());
-            }
-
-            #[cfg(target_os = "linux")]
-            configure_webkitgtk(app);
-
-            // System tray icon with quick actions (desktop only).
-            #[cfg(not(target_os = "android"))]
-            if let Err(e) = tray::setup_tray(app) {
-                tracing::warn!("Failed to create system tray icon: {e}");
-            }
-
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
+macro_rules! all_command_handlers {
+    () => {
+        tauri::generate_handler![
             connect,
             generate_certificate,
             list_certificates,
@@ -1922,6 +2154,7 @@ pub fn run() {
             get_users,
             get_messages,
             send_message,
+            edit_message,
             select_channel,
             join_channel,
             get_current_channel,
@@ -1942,6 +2175,8 @@ pub fn run() {
             get_output_devices,
             get_audio_settings,
             set_audio_settings,
+            set_audio_backend,
+            get_audio_backend,
             get_voice_state,
             enable_voice,
             disable_voice,
@@ -1952,6 +2187,9 @@ pub fn run() {
             calibrate_voice_threshold,
             start_latency_test,
             stop_latency_test,
+            start_recording,
+            stop_recording,
+            get_recording_state,
             set_user_comment,
             set_user_texture,
             get_own_session,
@@ -2013,29 +2251,12 @@ pub fn run() {
             key_takeover,
             blur_image,
             process_background,
-        ])
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Focused(focused) = event {
-                if let Some(state) = window.try_state::<AppState>() {
-                    if let Ok(mut s) = state.inner.lock() {
-                        s.app_focused = *focused;
-                    }
-                }
-            }
-        })
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                // Clean up offloaded temp files on graceful shutdown.
-                if let Some(state) = app.try_state::<AppState>() {
-                    state.shutdown_offload_store();
-                }
-                // Remove the quick-action Unix socket.
-                #[cfg(target_os = "linux")]
-                linux_desktop::cleanup_socket();
-            }
-        });
+        ]
+    };
+}
+
+fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder.invoke_handler(all_command_handlers!())
 }
 
 #[cfg(test)]

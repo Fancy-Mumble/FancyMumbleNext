@@ -218,6 +218,7 @@ mod tests {
             message: "Hello world".into(),
             message_id: None,
             timestamp: None,
+            edit_id: None,
         };
         let state = ServerState::new();
         let output = cmd.execute(&state);
@@ -242,6 +243,7 @@ mod tests {
             message: "DM".into(),
             message_id: None,
             timestamp: None,
+            edit_id: None,
         };
         let output = cmd.execute(&ServerState::new());
         match &output.tcp_messages[0] {

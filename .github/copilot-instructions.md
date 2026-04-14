@@ -288,7 +288,15 @@ steps before declaring the task done:
 2. **Run Clippy** (`cargo clippy --all-targets -- -D warnings`) and fix
    every diagnostic it reports.  Clippy failures are treated as build
    failures. Do not add `#[allow]` attributes to silence warnings -
-   fix the underlying issue.
+   fix the underlying issue.  In particular:
+   - **`#[allow(clippy::too_many_lines)]` is absolutely forbidden.**
+     The workspace sets `too_many_lines = "deny"` for a reason.
+     When a function exceeds the line limit, **refactor it** by
+     extracting helper functions, introducing structs, or splitting
+     the logic into smaller pieces.  Never suppress the lint.
+   - The same applies to `#[allow(clippy::excessive_nesting)]` and
+     other `deny`-level lints.  The fix is always to restructure the
+     code, not to silence the warning.
 3. **Write regression tests** - add at least one automated test that
    exercises the new behaviour and would fail if the feature were removed
    or regressed.  Place Rust unit tests in the same file as the code under

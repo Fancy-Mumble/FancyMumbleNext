@@ -6,6 +6,7 @@ import { isMobile } from "./utils/platform";
 import { detectBackdropFilterSupport } from "./utils/platform";
 import { loadPersonalization } from "./personalizationStorage";
 import { applyTheme, DEFAULT_THEME } from "./themes";
+import { applyFont } from "./utils/fonts";
 import "./global.css";
 
 if (isMobile) {
@@ -15,7 +16,10 @@ if (isMobile) {
 detectBackdropFilterSupport();
 
 loadPersonalization()
-  .then((p) => applyTheme(p.theme))
+  .then((p) => {
+    applyTheme(p.theme);
+    applyFont(p.fontFamily);
+  })
   .catch(() => applyTheme(DEFAULT_THEME));
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

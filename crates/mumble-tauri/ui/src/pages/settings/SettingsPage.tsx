@@ -101,6 +101,7 @@ export default function SettingsPage() {
   const [disableDualPath, setDisableDualPath] = useState(false);
   const [disableReadReceipts, setDisableReadReceipts] = useState(false);
   const [debugLogging, setDebugLogging] = useState(false);
+  const [useRodioBackend, setUseRodioBackend] = useState(true);
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("auto");
   const [convertToLocalTime, setConvertToLocalTime] = useState(true);
 
@@ -168,6 +169,13 @@ export default function SettingsPage() {
         setConvertToLocalTime(prefs.convertToLocalTime);
       } catch {
         /* keep defaults */
+      }
+
+      try {
+        const rodio = await invoke<boolean>("get_audio_backend");
+        setUseRodioBackend(rodio);
+      } catch {
+        /* command not available on Android - keep default (true) */
       }
 
       try {
@@ -436,6 +444,16 @@ export default function SettingsPage() {
     }
   }, [debugLogging]);
 
+  const handleToggleAudioBackend = useCallback(async () => {
+    const next = !useRodioBackend;
+    try {
+      await invoke("set_audio_backend", { useRodio: next });
+      setUseRodioBackend(next);
+    } catch (e) {
+      console.error("Failed to switch audio backend:", e);
+    }
+  }, [useRodioBackend]);
+
   const refreshIdentities = useCallback(async () => {
     try {
       const certs = await invoke<string[]>("list_certificates");
@@ -535,6 +553,8 @@ export default function SettingsPage() {
               settings={audioSettings}
               onChange={patchAudio}
               isExpert={userMode !== "normal"}
+              useRodioBackend={useRodioBackend}
+              onToggleAudioBackend={handleToggleAudioBackend}
             />
           )}
 

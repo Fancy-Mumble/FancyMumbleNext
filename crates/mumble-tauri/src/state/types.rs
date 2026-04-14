@@ -88,6 +88,25 @@ pub struct UserEntry {
 }
 
 impl UserEntry {
+    pub fn new(session: u32) -> Self {
+        Self {
+            session,
+            name: String::new(),
+            channel_id: 0,
+            user_id: None,
+            texture: None,
+            comment: None,
+            mute: false,
+            deaf: false,
+            suppress: false,
+            self_mute: false,
+            self_deaf: false,
+            priority_speaker: false,
+            hash: None,
+            client_features: Vec::new(),
+        }
+    }
+
     /// Returns `true` if this user advertises E2EE persistent chat support.
     pub fn has_pchat_e2ee(&self) -> bool {
         use mumble_protocol::proto::mumble_tcp::user_state::ClientFeature;
@@ -128,6 +147,9 @@ pub struct ChatMessage {
     /// pchat-enabled channel and was therefore sent in plaintext.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub is_legacy: bool,
+    /// When set, the message was edited at this Unix-epoch-millisecond timestamp.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<u64>,
 }
 
 impl ChatMessage {
@@ -496,6 +518,15 @@ pub(crate) struct PacketStats {
     pub late: u32,
     pub lost: u32,
     pub resync: u32,
+}
+
+/// Payload emitted via the `crypto-stats` event on each Ping exchange.
+#[derive(Clone, Serialize)]
+pub(crate) struct CryptoStatsPayload {
+    /// Our local decrypt stats (packets we successfully received/decoded).
+    pub from_client: PacketStats,
+    /// Server-reported stats for packets it sent to us.
+    pub to_client: PacketStats,
 }
 
 /// Rolling-window packet statistics.

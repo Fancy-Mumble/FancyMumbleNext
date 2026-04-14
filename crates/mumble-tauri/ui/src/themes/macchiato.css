@@ -8,6 +8,7 @@
   --color-bg-primary: #1e2030;
   --color-bg-secondary: #24273a;
   --color-bg-elevated: #363a4f;
+  --color-surface: #363a4f;
   --color-bg-deepest: #181926;
   --color-bg-media: #11111b;
   --color-bg-app-gradient: linear-gradient(135deg, #1e2030 0%, #24273a 50%, #363a4f 100%);

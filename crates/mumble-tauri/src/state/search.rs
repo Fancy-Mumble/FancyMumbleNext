@@ -35,7 +35,6 @@ impl AppState {
     /// - `"photos"` - only messages containing images
     /// - `"users"` - only users
     /// - `"links"` - only messages containing links
-    #[allow(clippy::too_many_lines, reason = "super_search iterates all data types in one pass for performance")]
     pub fn super_search(&self, query: &str, filter: SearchFilter, channel_id: Option<u32>) -> Vec<SearchResult> {
         let query_lower = query.to_lowercase();
         if query_lower.is_empty() {
@@ -46,131 +45,27 @@ impl AppState {
             return Vec::new();
         };
 
-        // When scoped to a specific channel, only search messages in that channel.
         let scoped = channel_id.is_some();
         let search_channels = !scoped && filter == SearchFilter::All;
         let search_users = !scoped && matches!(filter, SearchFilter::All | SearchFilter::Users);
         let search_groups = !scoped && filter == SearchFilter::All;
         let search_messages = matches!(filter, SearchFilter::All | SearchFilter::Messages | SearchFilter::Photos | SearchFilter::Links);
-        let filter_photos = filter == SearchFilter::Photos;
-        let filter_links = filter == SearchFilter::Links;
 
         let mut results = Vec::new();
 
-        // -- Channels --
         if search_channels {
-            let mut channel_results: Vec<SearchResult> = state
-                .channels
-                .values()
-                .filter_map(|ch| {
-                    let score = fuzzy::fuzzy_score(&query_lower, &ch.name.to_lowercase(), SCORE_CUTOFF)?;
-                    Some(SearchResult {
-                        category: SearchCategory::Channel,
-                        score,
-                        title: ch.name.clone(),
-                        subtitle: None,
-                        id: Some(ch.id),
-                        string_id: None,
-                    })
-                })
-                .collect();
-            channel_results.sort_by_key(|r| r.score);
-            channel_results.truncate(MAX_PER_CATEGORY);
-            results.extend(channel_results);
+            results.extend(search_channels_fuzzy(&state, &query_lower));
         }
-
-        // -- Users --
         if search_users {
-            let mut user_results: Vec<SearchResult> = state
-                .users
-                .values()
-                .filter_map(|u| {
-                    let score = fuzzy::fuzzy_score(&query_lower, &u.name.to_lowercase(), SCORE_CUTOFF)?;
-                    let ch_name = state
-                        .channels
-                        .get(&u.channel_id)
-                        .map(|c| c.name.clone());
-                    Some(SearchResult {
-                        category: SearchCategory::User,
-                        score,
-                        title: u.name.clone(),
-                        subtitle: ch_name,
-                        id: Some(u.session),
-                        string_id: None,
-                    })
-                })
-                .collect();
-            user_results.sort_by_key(|r| r.score);
-            user_results.truncate(MAX_PER_CATEGORY);
-            results.extend(user_results);
+            results.extend(search_users_fuzzy(&state, &query_lower));
         }
-
-        // -- Group chats --
         if search_groups {
-            let mut group_results: Vec<SearchResult> = state
-                .group_chats
-                .values()
-                .filter_map(|g| {
-                    let score = fuzzy::fuzzy_score(&query_lower, &g.name.to_lowercase(), SCORE_CUTOFF)?;
-                    let member_count = g.members.len();
-                    Some(SearchResult {
-                        category: SearchCategory::Group,
-                        score,
-                        title: g.name.clone(),
-                        subtitle: Some(format!(
-                            "{member_count} {}",
-                            if member_count == 1 { "member" } else { "members" }
-                        )),
-                        id: None,
-                        string_id: Some(g.id.clone()),
-                    })
-                })
-                .collect();
-            group_results.sort_by_key(|r| r.score);
-            group_results.truncate(MAX_PER_CATEGORY);
-            results.extend(group_results);
+            results.extend(search_groups_fuzzy(&state, &query_lower));
         }
-
-        // -- Chat messages (channel, DM, group) --
         if search_messages {
-            let mut msg_results: Vec<SearchResult> = Vec::new();
-
-            // Channel messages
-            for (ch_id, msgs) in &state.messages {
-                if channel_id.is_some_and(|scope| *ch_id != scope) {
-                    continue;
-                }
-                let ch_name = state.channels.get(ch_id).map(|c| c.name.as_str()).unwrap_or("Unknown");
-                msg_results.extend(collect_channel_message_results(
-                    msgs.iter(), *ch_id, ch_name, filter_photos, filter_links, &query_lower, query,
-                ));
-            }
-
-            // DM messages - skip when scoped to a channel
-            if !scoped {
-                for msgs in state.dm_messages.values() {
-                    msg_results.extend(collect_dm_message_results(
-                        msgs.iter(), filter_photos, filter_links, &query_lower, query,
-                    ));
-                }
-            }
-
-            // Group messages - skip when scoped to a channel
-            if !scoped {
-                for (group_id, msgs) in &state.group_messages {
-                    let group_name = state.group_chats.get(group_id).map(|g| g.name.as_str()).unwrap_or("Group");
-                    msg_results.extend(collect_group_message_results(
-                        msgs.iter(), group_id, group_name, filter_photos, filter_links, &query_lower, query,
-                    ));
-                }
-            }
-
-            msg_results.sort_by_key(|r| r.score);
-            msg_results.truncate(MAX_PER_CATEGORY);
-            results.extend(msg_results);
+            results.extend(search_messages_fuzzy(&state, &query_lower, query, filter, channel_id, scoped));
         }
 
-        // Final sort and cap
         results.sort_by_key(|r| r.score);
         results.truncate(MAX_TOTAL);
         results
@@ -261,6 +156,104 @@ impl AppState {
 }
 
 // -- Helpers -------------------------------------------------------
+
+fn search_channels_fuzzy(state: &super::SharedState, query_lower: &str) -> Vec<SearchResult> {
+    let mut results: Vec<SearchResult> = state
+        .channels
+        .values()
+        .filter_map(|ch| {
+            let score = fuzzy::fuzzy_score(query_lower, &ch.name.to_lowercase(), SCORE_CUTOFF)?;
+            Some(SearchResult {
+                category: SearchCategory::Channel, score, title: ch.name.clone(),
+                subtitle: None, id: Some(ch.id), string_id: None,
+            })
+        })
+        .collect();
+    results.sort_by_key(|r| r.score);
+    results.truncate(MAX_PER_CATEGORY);
+    results
+}
+
+fn search_users_fuzzy(state: &super::SharedState, query_lower: &str) -> Vec<SearchResult> {
+    let mut results: Vec<SearchResult> = state
+        .users
+        .values()
+        .filter_map(|u| {
+            let score = fuzzy::fuzzy_score(query_lower, &u.name.to_lowercase(), SCORE_CUTOFF)?;
+            let ch_name = state.channels.get(&u.channel_id).map(|c| c.name.clone());
+            Some(SearchResult {
+                category: SearchCategory::User, score, title: u.name.clone(),
+                subtitle: ch_name, id: Some(u.session), string_id: None,
+            })
+        })
+        .collect();
+    results.sort_by_key(|r| r.score);
+    results.truncate(MAX_PER_CATEGORY);
+    results
+}
+
+fn search_groups_fuzzy(state: &super::SharedState, query_lower: &str) -> Vec<SearchResult> {
+    let mut results: Vec<SearchResult> = state
+        .group_chats
+        .values()
+        .filter_map(|g| {
+            let score = fuzzy::fuzzy_score(query_lower, &g.name.to_lowercase(), SCORE_CUTOFF)?;
+            let member_count = g.members.len();
+            Some(SearchResult {
+                category: SearchCategory::Group, score, title: g.name.clone(),
+                subtitle: Some(format!(
+                    "{member_count} {}",
+                    if member_count == 1 { "member" } else { "members" }
+                )),
+                id: None, string_id: Some(g.id.clone()),
+            })
+        })
+        .collect();
+    results.sort_by_key(|r| r.score);
+    results.truncate(MAX_PER_CATEGORY);
+    results
+}
+
+fn search_messages_fuzzy(
+    state: &super::SharedState,
+    query_lower: &str,
+    query: &str,
+    filter: SearchFilter,
+    channel_id: Option<u32>,
+    scoped: bool,
+) -> Vec<SearchResult> {
+    let filter_photos = filter == SearchFilter::Photos;
+    let filter_links = filter == SearchFilter::Links;
+    let mut msg_results: Vec<SearchResult> = Vec::new();
+
+    for (ch_id, msgs) in &state.messages {
+        if channel_id.is_some_and(|scope| *ch_id != scope) {
+            continue;
+        }
+        let ch_name = state.channels.get(ch_id).map(|c| c.name.as_str()).unwrap_or("Unknown");
+        msg_results.extend(collect_channel_message_results(
+            msgs.iter(), *ch_id, ch_name, filter_photos, filter_links, query_lower, query,
+        ));
+    }
+
+    if !scoped {
+        for msgs in state.dm_messages.values() {
+            msg_results.extend(collect_dm_message_results(
+                msgs.iter(), filter_photos, filter_links, query_lower, query,
+            ));
+        }
+        for (group_id, msgs) in &state.group_messages {
+            let group_name = state.group_chats.get(group_id).map(|g| g.name.as_str()).unwrap_or("Group");
+            msg_results.extend(collect_group_message_results(
+                msgs.iter(), group_id, group_name, filter_photos, filter_links, query_lower, query,
+            ));
+        }
+    }
+
+    msg_results.sort_by_key(|r| r.score);
+    msg_results.truncate(MAX_PER_CATEGORY);
+    msg_results
+}
 
 /// Extract `src` attributes from `<img>` tags in an HTML string.
 fn extract_img_srcs(html: &str) -> Vec<String> {

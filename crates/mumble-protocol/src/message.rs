@@ -123,69 +123,38 @@ pub enum TcpMessageType {
     FancyReadReceiptDeliver = 127,
 }
 
-impl TryFrom<u16> for TcpMessageType {
-    type Error = crate::error::Error;
+/// Generates both `TryFrom<u16> for TcpMessageType` and
+/// `ControlMessage::type_id()` / `is_fancy_extension()` from a single
+/// list of variant names.  The variant names must match between both
+/// enums (except `UdpTunnel` which is handled separately).
+macro_rules! message_type_mapping {
+    ($($variant:ident),* $(,)?) => {
+        impl TryFrom<u16> for TcpMessageType {
+            type Error = crate::error::Error;
 
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Version),
-            1 => Ok(Self::UdpTunnel),
-            2 => Ok(Self::Authenticate),
-            3 => Ok(Self::Ping),
-            4 => Ok(Self::Reject),
-            5 => Ok(Self::ServerSync),
-            6 => Ok(Self::ChannelRemove),
-            7 => Ok(Self::ChannelState),
-            8 => Ok(Self::UserRemove),
-            9 => Ok(Self::UserState),
-            10 => Ok(Self::BanList),
-            11 => Ok(Self::TextMessage),
-            12 => Ok(Self::PermissionDenied),
-            13 => Ok(Self::Acl),
-            14 => Ok(Self::QueryUsers),
-            15 => Ok(Self::CryptSetup),
-            16 => Ok(Self::ContextActionModify),
-            17 => Ok(Self::ContextAction),
-            18 => Ok(Self::UserList),
-            19 => Ok(Self::VoiceTarget),
-            20 => Ok(Self::PermissionQuery),
-            21 => Ok(Self::CodecVersion),
-            22 => Ok(Self::UserStats),
-            23 => Ok(Self::RequestBlob),
-            24 => Ok(Self::ServerConfig),
-            25 => Ok(Self::SuggestConfig),
-            26 => Ok(Self::PluginDataTransmission),
-            100 => Ok(Self::PchatMessage),
-            101 => Ok(Self::PchatFetch),
-            102 => Ok(Self::PchatFetchResponse),
-            103 => Ok(Self::PchatMessageDeliver),
-            104 => Ok(Self::PchatKeyAnnounce),
-            105 => Ok(Self::PchatKeyExchange),
-            106 => Ok(Self::PchatKeyRequest),
-            107 => Ok(Self::PchatAck),
-            108 => Ok(Self::PchatEpochCountersig),
-            109 => Ok(Self::PchatKeyHolderReport),
-            110 => Ok(Self::PchatKeyHoldersQuery),
-            111 => Ok(Self::PchatKeyHoldersList),
-            112 => Ok(Self::PchatKeyChallenge),
-            113 => Ok(Self::PchatKeyChallengeResponse),
-            114 => Ok(Self::PchatKeyChallengeResult),
-            115 => Ok(Self::PchatDeleteMessages),
-            116 => Ok(Self::PchatOfflineQueueDrain),
-            117 => Ok(Self::PchatReaction),
-            118 => Ok(Self::PchatReactionDeliver),
-            119 => Ok(Self::PchatReactionFetchResponse),
-            120 => Ok(Self::WebRtcSignal),
-            121 => Ok(Self::PchatSenderKeyDistribution),
-            122 => Ok(Self::FancyPushRegister),
-            123 => Ok(Self::FancyPushUpdate),
-            124 => Ok(Self::FancyCustomReactionsConfig),
-            125 => Ok(Self::FancySubscribePush),
-            126 => Ok(Self::FancyReadReceipt),
-            127 => Ok(Self::FancyReadReceiptDeliver),
-            other => Err(crate::error::Error::UnknownMessageType(other)),
+            fn try_from(value: u16) -> Result<Self, Self::Error> {
+                match value {
+                    $(v if v == Self::$variant as u16 => Ok(Self::$variant),)*
+                    other => Err(crate::error::Error::UnknownMessageType(other)),
+                }
+            }
         }
-    }
+
+        impl ControlMessage {
+            /// The `TcpMessageType` wire ID for this message.
+            pub fn type_id(&self) -> u16 {
+                match self {
+                    $(Self::$variant(_) => TcpMessageType::$variant as u16,)*
+                }
+            }
+
+            /// Whether this is a Fancy Mumble extension type (ID >= 100),
+            /// unknown to legacy Mumble servers.
+            pub fn is_fancy_extension(&self) -> bool {
+                self.type_id() >= FANCY_EXTENSION_TYPE_THRESHOLD
+            }
+        }
+    };
 }
 
 /// A decoded TCP control message received from (or to be sent to) the server.
@@ -243,64 +212,86 @@ pub enum ControlMessage {
     SuggestConfig(mumble_tcp::SuggestConfig),
     /// Plugin data relay message.
     PluginDataTransmission(mumble_tcp::PluginDataTransmission),
-    /// Fancy Mumble: encrypted persistent chat message.
+    /// Fancy: encrypted persistent chat message.
     PchatMessage(mumble_tcp::PchatMessage),
-    /// Fancy Mumble: request to fetch stored messages.
+    /// Fancy: request to fetch stored messages.
     PchatFetch(mumble_tcp::PchatFetch),
-    /// Fancy Mumble: server response to a fetch request.
+    /// Fancy: server response to a fetch request.
     PchatFetchResponse(mumble_tcp::PchatFetchResponse),
-    /// Fancy Mumble: server delivers a stored message to the client.
+    /// Fancy: server delivers a stored message to the client.
     PchatMessageDeliver(mumble_tcp::PchatMessageDeliver),
-    /// Fancy Mumble: client announces its E2EE identity keys.
+    /// Fancy: client announces its E2EE identity keys.
     PchatKeyAnnounce(mumble_tcp::PchatKeyAnnounce),
-    /// Fancy Mumble: peer-to-peer encrypted key exchange.
+    /// Fancy: peer-to-peer encrypted key exchange.
     PchatKeyExchange(mumble_tcp::PchatKeyExchange),
-    /// Fancy Mumble: server requests a key for a new member.
+    /// Fancy: server requests a key for a new member.
     PchatKeyRequest(mumble_tcp::PchatKeyRequest),
-    /// Fancy Mumble: server acknowledgement of a stored message.
+    /// Fancy: server acknowledgement of a stored message.
     PchatAck(mumble_tcp::PchatAck),
-    /// Fancy Mumble: custodian countersignature for an epoch transition.
+    /// Fancy: custodian countersignature for an epoch transition.
     PchatEpochCountersig(mumble_tcp::PchatEpochCountersig),
-    /// Fancy Mumble: report that a peer holds the channel key.
+    /// Fancy: report that a peer holds the channel key.
     PchatKeyHolderReport(mumble_tcp::PchatKeyHolderReport),
-    /// Fancy Mumble: query for list of key holders.
+    /// Fancy: query for list of key holders.
     PchatKeyHoldersQuery(mumble_tcp::PchatKeyHoldersQuery),
-    /// Fancy Mumble: server response with the key-holder list.
+    /// Fancy: server response with the key-holder list.
     PchatKeyHoldersList(mumble_tcp::PchatKeyHoldersList),
-    /// Fancy Mumble: server challenge to prove key possession.
+    /// Fancy: server challenge to prove key possession.
     PchatKeyChallenge(mumble_tcp::PchatKeyChallenge),
-    /// Fancy Mumble: client response to a key-possession challenge.
+    /// Fancy: client response to a key-possession challenge.
     PchatKeyChallengeResponse(mumble_tcp::PchatKeyChallengeResponse),
-    /// Fancy Mumble: server verdict on a key-possession challenge.
+    /// Fancy: server verdict on a key-possession challenge.
     PchatKeyChallengeResult(mumble_tcp::PchatKeyChallengeResult),
-    /// Fancy Mumble: delete persisted messages (by ID, time range, or sender).
+    /// Fancy: delete persisted messages.
     PchatDeleteMessages(mumble_tcp::PchatDeleteMessages),
-    /// Fancy Mumble: server drains offline message queue to a reconnected client.
+    /// Fancy: server drains offline message queue.
     PchatOfflineQueueDrain(mumble_tcp::PchatOfflineQueueDrain),
-    /// Fancy Mumble: client sends a reaction (add/remove) on a persistent message.
+    /// Fancy: client sends a reaction on a persistent message.
     PchatReaction(mumble_tcp::PchatReaction),
-    /// Fancy Mumble: server broadcasts a reaction update to channel members.
+    /// Fancy: server broadcasts a reaction update.
     PchatReactionDeliver(mumble_tcp::PchatReactionDeliver),
-    /// Fancy Mumble: server response with reactions for requested messages.
+    /// Fancy: server response with reactions for requested messages.
     PchatReactionFetchResponse(mumble_tcp::PchatReactionFetchResponse),
-    /// Fancy Mumble: WebRTC screen-sharing signaling relay.
+    /// Fancy: WebRTC screen-sharing signaling relay.
     WebRtcSignal(mumble_tcp::WebRtcSignal),
-    /// Fancy Mumble: Signal sender key distribution.
+    /// Fancy: Signal sender key distribution.
     PchatSenderKeyDistribution(mumble_tcp::PchatSenderKeyDistribution),
-    /// Fancy Mumble: FCM push notification registration.
+    /// Fancy: FCM push notification registration.
     FancyPushRegister(mumble_tcp::FancyPushRegister),
-    /// Fancy Mumble: push notification mute preferences update.
+    /// Fancy: push notification mute preferences update.
     FancyPushUpdate(mumble_tcp::FancyPushUpdate),
-    /// Fancy Mumble: server broadcasts custom reaction/emoji config.
+    /// Fancy: server broadcasts custom reaction/emoji config.
     FancyCustomReactionsConfig(mumble_tcp::FancyCustomReactionsConfig),
-    /// Fancy Mumble: live push subscribe for connected clients.
+    /// Fancy: live push subscribe for connected clients.
     FancySubscribePush(mumble_tcp::FancySubscribePush),
-    /// Fancy Mumble: client sends a read receipt watermark.
+    /// Fancy: client sends a read receipt watermark.
     FancyReadReceipt(mumble_tcp::FancyReadReceipt),
-    /// Fancy Mumble: server broadcasts read receipt state.
+    /// Fancy: server broadcasts read receipt state.
     FancyReadReceiptDeliver(mumble_tcp::FancyReadReceiptDeliver),
     /// UDP audio tunneled through TCP (fallback path).
     UdpTunnel(Vec<u8>),
+}
+
+/// First Fancy Mumble extension type ID. All IDs at or above this
+/// threshold are Fancy-specific and unknown to legacy Mumble servers.
+pub const FANCY_EXTENSION_TYPE_THRESHOLD: u16 = TcpMessageType::PchatMessage as u16;
+
+message_type_mapping! {
+    Version, UdpTunnel, Authenticate, Ping, Reject, ServerSync,
+    ChannelRemove, ChannelState, UserRemove, UserState, BanList,
+    TextMessage, PermissionDenied, Acl, QueryUsers, CryptSetup,
+    ContextActionModify, ContextAction, UserList, VoiceTarget,
+    PermissionQuery, CodecVersion, UserStats, RequestBlob,
+    ServerConfig, SuggestConfig, PluginDataTransmission,
+    PchatMessage, PchatFetch, PchatFetchResponse, PchatMessageDeliver,
+    PchatKeyAnnounce, PchatKeyExchange, PchatKeyRequest, PchatAck,
+    PchatEpochCountersig, PchatKeyHolderReport, PchatKeyHoldersQuery,
+    PchatKeyHoldersList, PchatKeyChallenge, PchatKeyChallengeResponse,
+    PchatKeyChallengeResult, PchatDeleteMessages, PchatOfflineQueueDrain,
+    PchatReaction, PchatReactionDeliver, PchatReactionFetchResponse,
+    WebRtcSignal, PchatSenderKeyDistribution,
+    FancyPushRegister, FancyPushUpdate, FancyCustomReactionsConfig,
+    FancySubscribePush, FancyReadReceipt, FancyReadReceiptDeliver,
 }
 
 /// A decoded UDP message - either audio or a UDP ping.

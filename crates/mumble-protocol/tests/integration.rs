@@ -232,6 +232,7 @@ async fn test_send_text_message() {
         message: "Hello from integration test!".into(),
         message_id: None,
         timestamp: None,
+        edit_id: None,
     };
     let output = cmd.execute(&state);
     for msg in &output.tcp_messages {
@@ -287,6 +288,7 @@ async fn test_send_large_image_message() {
         message: html_message.clone(),
         message_id: None,
         timestamp: None,
+        edit_id: None,
     };
     let output = cmd.execute(&state);
     for msg in &output.tcp_messages {
@@ -1441,6 +1443,7 @@ async fn test_text_message_preserves_client_message_id() {
         message: "hello with id".into(),
         message_id: Some(client_message_id.to_owned()),
         timestamp: Some(client_timestamp),
+        edit_id: None,
     };
     for msg in &cmd.execute(&state1).tcp_messages {
         t1.send(msg).await.unwrap();
@@ -1517,6 +1520,7 @@ async fn test_text_message_generates_id_when_omitted() {
         message: "hello no id".into(),
         message_id: None,
         timestamp: None,
+        edit_id: None,
     };
     for msg in &cmd.execute(&state1).tcp_messages {
         t1.send(msg).await.unwrap();

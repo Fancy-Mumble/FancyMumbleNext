@@ -67,6 +67,7 @@ function makeSettings(overrides: Partial<AudioSettings> = {}): AudioSettings {
 
 function renderPanel(overrides: Partial<AudioSettings> = {}, isExpert = false) {
   const onChange = vi.fn();
+  const onToggleAudioBackend = vi.fn();
   const settings = makeSettings(overrides);
   const result = render(
     <AudioPanel
@@ -75,6 +76,8 @@ function renderPanel(overrides: Partial<AudioSettings> = {}, isExpert = false) {
       settings={settings}
       onChange={onChange}
       isExpert={isExpert}
+      useRodioBackend={false}
+      onToggleAudioBackend={onToggleAudioBackend}
     />,
   );
   return { onChange, settings, ...result };

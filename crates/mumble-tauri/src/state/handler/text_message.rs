@@ -233,6 +233,79 @@ impl<'a> DeferredEmitter<'a> {
 
 // -- Helpers -------------------------------------------------------
 
+/// Apply an edit to a message list, returning `true` if the target was found.
+fn apply_edit(messages: &mut [ChatMessage], edit_id: &str, new_body: &str, edited_at: u64) -> bool {
+    if let Some(msg) = messages.iter_mut().find(|m| m.message_id.as_deref() == Some(edit_id)) {
+        msg.body = new_body.to_owned();
+        msg.edited_at = Some(edited_at);
+        true
+    } else {
+        false
+    }
+}
+
+fn emit_edit_events(
+    kind: &MessageKind,
+    tm: &mumble_tcp::TextMessage,
+    state: &SharedState,
+    ctx: &HandlerContext,
+    deferred: &mut DeferredEmitter<'_>,
+) {
+    match kind {
+        MessageKind::Group(marker) => {
+            deferred.push(DeferredEvent::GroupMessage {
+                group_id: marker.group_id.clone(),
+                sender_name: resolve_sender_name(state, tm.actor),
+                body: marker.body.clone(),
+                sender_session: tm.actor,
+            });
+        }
+        MessageKind::DirectMessage => {
+            if let Some(sid) = tm.actor {
+                ctx.emit("dm-edited", NewDmPayload { session: sid });
+            }
+        }
+        MessageKind::Channel => {
+            let ids = if tm.channel_id.is_empty() { &[0u32][..] } else { &tm.channel_id };
+            for &ch_id in ids {
+                deferred.push(DeferredEvent::NewMessage { channel_id: ch_id });
+            }
+        }
+    }
+}
+
+fn try_apply_edit(
+    tm: &mumble_tcp::TextMessage,
+    kind: &MessageKind,
+    edit_id: &str,
+    state: &mut SharedState,
+) -> bool {
+    let edited_at = tm.timestamp.unwrap_or_else(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+    });
+    match kind {
+        MessageKind::Group(marker) => {
+            state.group_messages.get_mut(&marker.group_id)
+                .is_some_and(|msgs| apply_edit(msgs, edit_id, &marker.body, edited_at))
+        }
+        MessageKind::DirectMessage => {
+            tm.actor
+                .and_then(|sid| state.dm_messages.get_mut(&sid))
+                .is_some_and(|msgs| apply_edit(msgs, edit_id, &tm.message, edited_at))
+        }
+        MessageKind::Channel => {
+            let channel_ids = if tm.channel_id.is_empty() { vec![0u32] } else { tm.channel_id.clone() };
+            channel_ids.iter().any(|ch_id| {
+                state.messages.get_mut(ch_id)
+                    .is_some_and(|msgs| apply_edit(msgs, edit_id, &tm.message, edited_at))
+            })
+        }
+    }
+}
+
 // -- Per-kind handlers ---------------------------------------------
 
 fn resolve_sender_name(state: &SharedState, actor: Option<u32>) -> String {
@@ -271,6 +344,7 @@ fn handle_group_message(
         message_id: tm.message_id.clone(),
         timestamp: tm.timestamp,
         is_legacy: false,
+        edited_at: None,
     };
     msg.ensure_id();
     state
@@ -317,6 +391,7 @@ fn handle_direct_message(
         message_id: tm.message_id.clone(),
         timestamp: tm.timestamp,
         is_legacy: false,
+        edited_at: None,
     };
     msg.ensure_id();
     state
@@ -391,6 +466,7 @@ fn handle_channel_message(
             message_id: tm.message_id.clone(),
             timestamp: tm.timestamp,
             is_legacy,
+            edited_at: None,
         };
         msg.ensure_id();
         state.messages.entry(ch_id).or_default().push(msg);
@@ -433,8 +509,19 @@ impl HandleMessage for mumble_tcp::TextMessage {
         let mut deferred = DeferredEmitter::new(ctx);
 
         if let Ok(mut state) = ctx.shared.lock() {
-            // Don't duplicate messages we sent ourselves.
-            if self.actor == state.own_session && self.actor.is_some() {
+            // Don't duplicate messages we sent ourselves (regular sends).
+            // For edits from ourselves, we *do* need to process them because
+            // the local edit_message path already applied the change locally,
+            // and the server won't echo edits back to us.
+            if self.actor == state.own_session && self.actor.is_some() && self.edit_id.is_none() {
+                return;
+            }
+
+            // Handle message edits: find and update the existing message.
+            if let Some(ref edit_id) = self.edit_id {
+                if try_apply_edit(self, &kind, edit_id, &mut state) {
+                    emit_edit_events(&kind, self, &state, ctx, &mut deferred);
+                }
                 return;
             }
 
@@ -452,5 +539,57 @@ impl HandleMessage for mumble_tcp::TextMessage {
         }
 
         deferred.flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_message(id: &str, body: &str) -> ChatMessage {
+        ChatMessage {
+            sender_session: Some(1),
+            sender_name: "Alice".into(),
+            body: body.into(),
+            channel_id: 0,
+            is_own: false,
+            is_legacy: false,
+            message_id: Some(id.into()),
+            timestamp: Some(1000),
+            sender_hash: None,
+            edited_at: None,
+            dm_session: None,
+            group_id: None,
+        }
+    }
+
+    #[test]
+    fn apply_edit_updates_existing_message() {
+        let mut messages = vec![
+            make_message("msg-1", "original body"),
+            make_message("msg-2", "other message"),
+        ];
+        let result = apply_edit(&mut messages, "msg-1", "updated body", 2000);
+        assert!(result);
+        assert_eq!(messages[0].body, "updated body");
+        assert_eq!(messages[0].edited_at, Some(2000));
+        assert_eq!(messages[1].body, "other message");
+        assert!(messages[1].edited_at.is_none());
+    }
+
+    #[test]
+    fn apply_edit_returns_false_for_unknown_id() {
+        let mut messages = vec![make_message("msg-1", "original body")];
+        let result = apply_edit(&mut messages, "nonexistent", "new body", 2000);
+        assert!(!result);
+        assert_eq!(messages[0].body, "original body");
+        assert!(messages[0].edited_at.is_none());
+    }
+
+    #[test]
+    fn apply_edit_on_empty_list() {
+        let mut messages: Vec<ChatMessage> = vec![];
+        let result = apply_edit(&mut messages, "any-id", "body", 1000);
+        assert!(!result);
     }
 }
