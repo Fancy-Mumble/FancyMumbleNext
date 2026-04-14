@@ -51,14 +51,29 @@ interface ChatHeaderProps {
   readonly sfuAvailable?: boolean;
   /** When a stream is active, display broadcast info in the header. */
   readonly broadcastInfo?: BroadcastInfo;
+  /** Whether there are unseen pin changes (shows red dot on kebab & menu item). */
+  readonly hasNewPins?: boolean;
+  /** Called when the user opens the pinned messages panel. */
+  readonly onPinnedMessages?: () => void;
 }
 
 function buildKebabItems({
   onPollCreate,
   isSilenced,
   onToggleSilence,
-}: Pick<ChatHeaderProps, "onPollCreate" | "isSilenced" | "onToggleSilence">): KebabMenuItem[] {
+  hasNewPins,
+  onPinnedMessages,
+}: Pick<ChatHeaderProps, "onPollCreate" | "isSilenced" | "onToggleSilence" | "hasNewPins" | "onPinnedMessages">): KebabMenuItem[] {
   const items: KebabMenuItem[] = [];
+  if (onPinnedMessages) {
+    items.push({
+      id: "pinned-messages",
+      label: "Pinned messages",
+      icon: <span style={{ fontSize: 15, lineHeight: 1 }}>📌</span>,
+      badge: hasNewPins,
+      onClick: onPinnedMessages,
+    });
+  }
   if (onPollCreate) {
     items.push({
       id: "create-poll",
@@ -100,6 +115,8 @@ export default function ChatHeader({
   onToggleScreenShare,
   sfuAvailable,
   broadcastInfo,
+  hasNewPins,
+  onPinnedMessages,
 }: ChatHeaderProps) {
   let prefix: string;
   if (isGroup) prefix = "";
@@ -235,8 +252,9 @@ export default function ChatHeader({
         )}
         {!privateBadge && (
           <KebabMenu
-            items={buildKebabItems({ onPollCreate, isSilenced, onToggleSilence })}
+            items={buildKebabItems({ onPollCreate, isSilenced, onToggleSilence, hasNewPins, onPinnedMessages })}
             ariaLabel="Channel options"
+            badge={hasNewPins}
           />
         )}
         {!isInChannel && onJoin && (

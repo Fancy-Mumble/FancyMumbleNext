@@ -54,6 +54,8 @@ interface MessageContextMenuProps {
   readonly onCite?: (msg: ChatMessage) => void;
   readonly onCopyText?: (msg: ChatMessage) => void;
   readonly onEdit?: (msg: ChatMessage) => void;
+  /** Pin or unpin a message. */
+  readonly onPin?: (msg: ChatMessage) => void;
   /** Reactions on the context-menu's target message. */
   readonly reactions?: readonly ReactionSummary[];
   /** Avatar data-URLs keyed by cert hash. */
@@ -77,6 +79,7 @@ export default function MessageContextMenu({
   onCite,
   onCopyText,
   onEdit,
+  onPin,
   reactions,
   avatarByHash,
   allMessageIds,
@@ -196,6 +199,12 @@ export default function MessageContextMenu({
               <EditIcon width={14} height={14} />
             </span>
             Edit message
+          </button>
+        )}
+        {onPin && menu.message.message_id && (
+          <button type="button" className={styles.menuItem} onClick={() => { onPin(menu.message); onClose(); }}>
+            <span className={styles.menuIcon}>📌</span>
+            {menu.message.pinned ? "Unpin message" : "Pin message"}
           </button>
         )}
         {canDelete && (

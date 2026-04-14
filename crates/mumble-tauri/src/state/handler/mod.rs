@@ -152,6 +152,8 @@ pub(crate) fn dispatch(msg: &ControlMessage, ctx: &HandlerContext) {
         ControlMessage::PchatSenderKeyDistribution(m) => m.handle(ctx),
         ControlMessage::PchatReactionDeliver(m) => m.handle(ctx),
         ControlMessage::PchatReactionFetchResponse(m) => m.handle(ctx),
+        ControlMessage::PchatPinDeliver(m) => m.handle(ctx),
+        ControlMessage::PchatPinFetchResponse(m) => m.handle(ctx),
         ControlMessage::WebRtcSignal(m) => m.handle(ctx),
         ControlMessage::FancyCustomReactionsConfig(m) => m.handle(ctx),
         ControlMessage::FancyReadReceiptDeliver(m) => m.handle(ctx),

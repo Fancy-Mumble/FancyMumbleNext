@@ -706,6 +706,9 @@ impl AppState {
             timestamp: msg_data.timestamp,
             is_legacy: false,
             edited_at: None,
+            pinned: false,
+            pinned_by: None,
+            pinned_at: None,
         };
         msg.ensure_id();
 
@@ -826,6 +829,9 @@ impl AppState {
                 timestamp,
                 is_legacy: false,
                 edited_at: None,
+                pinned: false,
+                pinned_by: None,
+                pinned_at: None,
             };
             msg.ensure_id();
             state.dm_messages.entry(target_session).or_default().push(msg);
@@ -1054,6 +1060,38 @@ impl AppState {
             .send(command::SendPchatReaction { message: msg })
             .await
             .map_err(|e| format!("Failed to send reaction: {e}"))?;
+
+        Ok(())
+    }
+
+    // -- Pchat pins --------------------------------------------------
+
+    /// Pin or unpin a persisted chat message.
+    pub async fn pin_message(
+        &self,
+        channel_id: u32,
+        message_id: String,
+        unpin: bool,
+    ) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+
+        let handle = handle.ok_or("Not connected")?;
+
+        let msg = mumble_protocol::proto::mumble_tcp::PchatPin {
+            channel_id: Some(channel_id),
+            message_id: Some(message_id),
+            unpin: Some(unpin),
+            sender_hash: None,
+            timestamp: None,
+        };
+
+        handle
+            .send(command::SendPchatPin { message: msg })
+            .await
+            .map_err(|e| format!("Failed to send pin: {e}"))?;
 
         Ok(())
     }
@@ -1510,6 +1548,9 @@ impl AppState {
                 timestamp,
                 is_legacy: false,
                 edited_at: None,
+                pinned: false,
+                pinned_by: None,
+                pinned_at: None,
             };
             msg.ensure_id();
             state

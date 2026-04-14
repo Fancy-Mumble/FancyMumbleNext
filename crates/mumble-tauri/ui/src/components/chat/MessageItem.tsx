@@ -242,7 +242,7 @@ export default function MessageItem({
 
   return (
     <div
-      className={`${styles.messageRow} ${msg.is_own ? styles.own : ""}`}
+      className={`${styles.messageRow} ${msg.is_own ? styles.own : ""} ${msg.pinned ? styles.pinnedRow : ""}`}
     >
       <div
         className={`${styles.bubble} ${msg.is_own ? styles.ownBubble : ""} ${pureMedia ? styles.bubbleMedia : ""} ${msg.is_legacy ? styles.legacyBubble : ""}`}
@@ -258,6 +258,7 @@ export default function MessageItem({
               {formatTimestamp(displayTimestamp, timeFormat, convertToLocalTime, systemUses24h)}
             </time>
             {msg.edited_at != null && <span className={styles.editedBadge}>(edited)</span>}
+            {msg.pinned && <span className={styles.pinnedBadge}>📌 pinned</span>}
             {msg.is_own && readReceiptIndicator}
           </span>
         )}
@@ -267,6 +268,7 @@ export default function MessageItem({
               {formatTimestamp(displayTimestamp, timeFormat, convertToLocalTime, systemUses24h)}
             </time>
             {msg.edited_at != null && <span className={styles.editedBadge}>(edited)</span>}
+            {msg.pinned && <span className={styles.pinnedBadge}>📌 pinned</span>}
             {msg.is_own && readReceiptIndicator}
           </span>
         )}

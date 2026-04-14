@@ -8,8 +8,9 @@ use super::{HandleMessage, HandlerContext};
 use crate::state::local_cache::{CachedReaction, LocalMessageCache};
 use crate::state::pchat;
 use crate::state::types::{
-    KeyHoldersChangedPayload, NewMessagePayload, PchatFetchCompletePayload,
-    PchatHistoryLoadingPayload, ReactionDeliverPayload, ReactionFetchResponsePayload,
+    ChatMessage, KeyHoldersChangedPayload, NewMessagePayload, PchatFetchCompletePayload,
+    PchatHistoryLoadingPayload, PinDeliverPayload, PinFetchResponsePayload,
+    ReactionDeliverPayload, ReactionFetchResponsePayload, StoredPinPayload,
     StoredReactionPayload, UnreadPayload,
 };
 
@@ -465,6 +466,91 @@ fn resolve_entry_name(
         return server_name.to_owned();
     }
     resolver.map_or_else(|| cert_hash.to_owned(), |r| r.resolve(cert_hash))
+}
+
+impl HandleMessage for mumble_tcp::PchatPinDeliver {
+    fn handle(&self, ctx: &HandlerContext) {
+        debug!("received PchatPinDeliver");
+        let channel_id = self.channel_id.unwrap_or(0);
+        let message_id = self.message_id.clone().unwrap_or_default();
+        let pinned = !self.unpin.unwrap_or(false);
+        let pinner_hash = self.pinner_hash.clone().unwrap_or_default();
+        let pinner_name = self.pinner_name.clone().unwrap_or_default();
+        let timestamp = self.timestamp.unwrap_or(0);
+
+        if let Ok(mut state) = ctx.shared.lock() {
+            let resolved_name = resolve_name_by_hash(&state, &pinner_hash, &pinner_name);
+            apply_pin_to_message(&mut state, channel_id, &message_id, pinned, &resolved_name, timestamp);
+        }
+
+        ctx.emit(
+            "pchat-pin-deliver",
+            PinDeliverPayload {
+                channel_id,
+                message_id,
+                pinned,
+                pinner_hash,
+                pinner_name,
+                timestamp,
+            },
+        );
+    }
+}
+
+impl HandleMessage for mumble_tcp::PchatPinFetchResponse {
+    fn handle(&self, ctx: &HandlerContext) {
+        debug!("received PchatPinFetchResponse");
+        let channel_id = self.channel_id.unwrap_or(0);
+
+        let pins: Vec<StoredPinPayload> = self
+            .pins
+            .iter()
+            .map(|p| StoredPinPayload {
+                message_id: p.message_id.clone().unwrap_or_default(),
+                pinner_hash: p.pinner_hash.clone().unwrap_or_default(),
+                pinner_name: p.pinner_name.clone().unwrap_or_default(),
+                timestamp: p.timestamp.unwrap_or(0),
+            })
+            .collect();
+
+        if let Ok(mut state) = ctx.shared.lock() {
+            for pin in &pins {
+                apply_pin_to_message(&mut state, channel_id, &pin.message_id, true, &pin.pinner_name, pin.timestamp);
+            }
+        }
+
+        ctx.emit(
+            "pchat-pin-fetch-response",
+            PinFetchResponsePayload {
+                channel_id,
+                pins,
+            },
+        );
+    }
+}
+
+fn resolve_name_by_hash(state: &crate::state::SharedState, hash: &str, fallback: &str) -> String {
+    state
+        .users
+        .values()
+        .find(|u| u.hash.as_deref() == Some(hash))
+        .map(|u| u.name.clone())
+        .unwrap_or_else(|| fallback.to_owned())
+}
+
+fn apply_pin_to_message(
+    state: &mut crate::state::SharedState,
+    channel_id: u32,
+    message_id: &str,
+    pinned: bool,
+    pinner_name: &str,
+    timestamp: u64,
+) {
+    let Some(msgs) = state.messages.get_mut(&channel_id) else { return };
+    let Some(msg) = msgs.iter_mut().find(|m: &&mut ChatMessage| m.message_id.as_deref() == Some(message_id)) else { return };
+    msg.pinned = pinned;
+    msg.pinned_by = if pinned { Some(pinner_name.to_owned()) } else { None };
+    msg.pinned_at = if pinned { Some(timestamp) } else { None };
 }
 
 fn upsert_cached_reaction(

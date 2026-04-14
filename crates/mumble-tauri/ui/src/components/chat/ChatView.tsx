@@ -7,6 +7,7 @@ import { loadPersonalization, type PersonalizationData } from "../../personaliza
 import ChatHeader from "./ChatHeader";
 import type { BroadcastInfo } from "./ChatHeader";
 import MobileCallControls from "./MobileCallControls";
+import PinnedMessagesPanel from "./PinnedMessagesPanel";
 import ChatComposer from "./ChatComposer";
 import PollCreator from "./PollCreator";
 import { usePolls } from "./usePolls";
@@ -77,6 +78,9 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   const serverFancyVersion = useAppStore((s) => s.serverFancyVersion);
   const sfuAvailable = useAppStore((s) => s.serverConfig.webrtc_sfu_available);
   const webrtcError = useAppStore((s) => s.webrtcError);
+  const pinMessage = useAppStore((s) => s.pinMessage);
+  const clearUnseenPins = useAppStore((s) => s.clearUnseenPins);
+  const unseenPinIds = useAppStore((s) => s.unseenPinIds);
   const clearWebRtcError = useCallback(() => useAppStore.setState({ webrtcError: null }), []);
 
   // DM state
@@ -96,6 +100,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   const [draft, setDraft] = useState("");
   const [pendingQuotes, setPendingQuotes] = useState<ChatMessage[]>([]);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
+  const [showPinnedPanel, setShowPinnedPanel] = useState(false);
   const {
     polls, pollMessages, showPollCreator, openPollCreator, closePollCreator,
     handlePollCreate, handlePollVote,
@@ -219,6 +224,16 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     return [...messages, ...channelPolls];
   }, [isGroupMode, groupMessages, isDmMode, dmMessages, messages, pollMessages, selectedChannel]);
 
+  const hasNewPins = selectedChannel !== null
+    && (unseenPinIds.get(selectedChannel)?.size ?? 0) > 0;
+
+  const channelUnseenPinSet = useMemo(
+    () => (selectedChannel !== null
+      ? unseenPinIds.get(selectedChannel) ?? new Set<string>()
+      : new Set<string>()),
+    [unseenPinIds, selectedChannel],
+  );
+
   // Ordered message IDs for read-receipt watermark comparison.
   const allMessageIds = useMemo(
     () => allMessages.map((m) => m.message_id).filter((id): id is string => id != null),
@@ -246,6 +261,21 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     setDraft(htmlToMarkdown(msg.body));
   }, []);
 
+  const handlePin = useCallback((msg: ChatMessage) => {
+    if (!msg.message_id) return;
+    const channelId = msg.channel_id ?? selectedChannel ?? 0;
+    pinMessage(channelId, msg.message_id, !!msg.pinned);
+  }, [selectedChannel, pinMessage]);
+
+  const handleOpenPinnedPanel = useCallback(() => {
+    setShowPinnedPanel(true);
+    if (selectedChannel !== null) clearUnseenPins(selectedChannel);
+  }, [selectedChannel, clearUnseenPins]);
+
+  const handleClosePinnedPanel = useCallback(() => {
+    setShowPinnedPanel(false);
+  }, []);
+
   const cancelEdit = useCallback(() => {
     setEditingMessage(null);
     setDraft("");
@@ -253,6 +283,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
   useEffect(() => {
     setEditingMessage(null);
+    setShowPinnedPanel(false);
   }, [selectedChannel, selectedDmUser, selectedGroup]);
 
   const { sending, handleSend, sendMediaFile, handlePaste, handleGifSelect } = useChatSend({
@@ -403,6 +434,18 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           }
           sfuAvailable={sfuAvailable}
           broadcastInfo={broadcastInfo}
+          hasNewPins={hasNewPins}
+          onPinnedMessages={handleOpenPinnedPanel}
+        />
+      )}
+
+      {showPinnedPanel && (
+        <PinnedMessagesPanel
+          messages={allMessages}
+          unseenIds={channelUnseenPinSet}
+          onClose={handleClosePinnedPanel}
+          onNavigate={handleScrollToMessage}
+          onUnpin={handlePin}
         />
       )}
 
@@ -586,6 +629,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onCite={handleCite}
           onCopyText={handleCopyText}
           onEdit={handleEdit}
+          onPin={handlePin}
           reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
           avatarByHash={avatarByHash}
           allMessageIds={allMessageIds}
@@ -604,6 +648,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onCite={handleCite}
           onCopyText={handleCopyText}
           onEdit={handleEdit}
+          onPin={handlePin}
           reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
           allMessageIds={allMessageIds}
           channelId={selectedChannel ?? undefined}

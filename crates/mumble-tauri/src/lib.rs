@@ -1024,6 +1024,17 @@ async fn send_reaction(
     state.send_reaction(channel_id, message_id, emoji, action).await
 }
 
+/// Pin or unpin a persisted chat message.
+#[tauri::command]
+async fn pin_message(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+    message_id: String,
+    unpin: bool,
+) -> Result<(), String> {
+    state.pin_message(channel_id, message_id, unpin).await
+}
+
 /// Delete persisted chat messages on the server.
 ///
 /// At least one of `message_ids`, `time_from`/`time_to`, or `sender_hash`
@@ -2200,6 +2211,7 @@ macro_rules! all_command_handlers {
             query_read_receipts,
             send_webrtc_signal,
             send_reaction,
+            pin_message,
             delete_pchat_messages,
             send_dm,
             get_dm_messages,

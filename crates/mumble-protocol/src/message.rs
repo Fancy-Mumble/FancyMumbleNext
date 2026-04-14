@@ -121,6 +121,12 @@ pub enum TcpMessageType {
     FancyReadReceipt = 126,
     /// Fancy Mumble: server broadcasts read receipt state.
     FancyReadReceiptDeliver = 127,
+    /// Fancy Mumble: client sends a pin/unpin request for a persistent message.
+    PchatPin = 128,
+    /// Fancy Mumble: server broadcasts a pin state change.
+    PchatPinDeliver = 129,
+    /// Fancy Mumble: server response with pinned messages for a channel.
+    PchatPinFetchResponse = 130,
 }
 
 /// Generates both `TryFrom<u16> for TcpMessageType` and
@@ -268,6 +274,12 @@ pub enum ControlMessage {
     FancyReadReceipt(mumble_tcp::FancyReadReceipt),
     /// Fancy: server broadcasts read receipt state.
     FancyReadReceiptDeliver(mumble_tcp::FancyReadReceiptDeliver),
+    /// Fancy: client sends a pin/unpin request.
+    PchatPin(mumble_tcp::PchatPin),
+    /// Fancy: server broadcasts a pin state change.
+    PchatPinDeliver(mumble_tcp::PchatPinDeliver),
+    /// Fancy: server response with pinned messages for a channel.
+    PchatPinFetchResponse(mumble_tcp::PchatPinFetchResponse),
     /// UDP audio tunneled through TCP (fallback path).
     UdpTunnel(Vec<u8>),
 }
@@ -292,6 +304,7 @@ message_type_mapping! {
     WebRtcSignal, PchatSenderKeyDistribution,
     FancyPushRegister, FancyPushUpdate, FancyCustomReactionsConfig,
     FancySubscribePush, FancyReadReceipt, FancyReadReceiptDeliver,
+    PchatPin, PchatPinDeliver, PchatPinFetchResponse,
 }
 
 /// A decoded UDP message - either audio or a UDP ping.
@@ -370,6 +383,9 @@ mod tests {
             (119, TcpMessageType::PchatReactionFetchResponse),
             (120, TcpMessageType::WebRtcSignal),
             (121, TcpMessageType::PchatSenderKeyDistribution),
+            (128, TcpMessageType::PchatPin),
+            (129, TcpMessageType::PchatPinDeliver),
+            (130, TcpMessageType::PchatPinFetchResponse),
         ];
 
         for (id, expected_type) in &expected {
@@ -425,13 +441,18 @@ mod tests {
             let msg_type = TcpMessageType::try_from(id).unwrap();
             assert_eq!(msg_type as u16, id);
         }
+        // PchatPin (128) .. PchatPinFetchResponse (130)
+        for id in 128..=130u16 {
+            let msg_type = TcpMessageType::try_from(id).unwrap();
+            assert_eq!(msg_type as u16, id);
+        }
     }
 
     #[test]
     fn tcp_message_type_invalid_returns_error() {
         assert!(TcpMessageType::try_from(27u16).is_err());
         assert!(TcpMessageType::try_from(99u16).is_err());
-        assert!(TcpMessageType::try_from(128u16).is_err());
+        assert!(TcpMessageType::try_from(131u16).is_err());
         assert!(TcpMessageType::try_from(199u16).is_err());
         assert!(TcpMessageType::try_from(203u16).is_err());
         assert!(TcpMessageType::try_from(u16::MAX).is_err());

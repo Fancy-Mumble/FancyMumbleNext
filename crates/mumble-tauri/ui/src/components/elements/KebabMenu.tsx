@@ -9,15 +9,19 @@ export interface KebabMenuItem {
   readonly icon?: React.ReactNode;
   readonly active?: boolean;
   readonly disabled?: boolean;
+  /** Show a red notification dot next to this item. */
+  readonly badge?: boolean;
   readonly onClick: () => void;
 }
 
 interface KebabMenuProps {
   readonly items: KebabMenuItem[];
   readonly ariaLabel?: string;
+  /** Show a red notification dot on the trigger button. */
+  readonly badge?: boolean;
 }
 
-export default function KebabMenu({ items, ariaLabel = "More options" }: KebabMenuProps) {
+export default function KebabMenu({ items, ariaLabel = "More options", badge }: KebabMenuProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
@@ -56,6 +60,7 @@ export default function KebabMenu({ items, ariaLabel = "More options" }: KebabMe
         title={ariaLabel}
       >
         <KebabMenuIcon width={18} height={18} />
+        {badge && <span className={styles.badgeDot} />}
       </button>
 
       {open && createPortal(
@@ -79,6 +84,7 @@ export default function KebabMenu({ items, ariaLabel = "More options" }: KebabMe
               >
                 {item.icon && <span className={styles.menuItemIcon}>{item.icon}</span>}
                 {item.label}
+                {item.badge && <span className={styles.itemBadgeDot} />}
               </button>
             ))}
           </div>

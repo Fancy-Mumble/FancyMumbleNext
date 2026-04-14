@@ -1,0 +1,157 @@
+/* ---- Pinned Messages Panel ------------------------------------- */
+
+.panel {
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-glass-border);
+  animation: slideDown 0.2s ease;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-glass-border);
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.count {
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--color-glass-hover);
+  color: var(--color-text-secondary);
+  border-radius: 10px;
+  padding: 1px 7px;
+  min-width: 18px;
+  text-align: center;
+}
+
+.closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.closeBtn:hover {
+  background: var(--color-glass-hover);
+  color: var(--color-text-primary);
+}
+
+.empty {
+  padding: 20px 14px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.list {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+  position: relative;
+}
+
+.item:hover {
+  background: var(--color-glass-hover);
+}
+
+.item:hover .unpinBtn {
+  opacity: 1;
+}
+
+.itemHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.senderName {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.unseenDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-danger, #e74c3c);
+  flex-shrink: 0;
+}
+
+.pinnedBy {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 400;
+  margin-left: auto;
+}
+
+.preview {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.unpinBtn {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  padding: 3px 8px;
+  border: 1px solid var(--color-glass-border);
+  border-radius: 4px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.unpinBtn:hover {
+  background: var(--color-glass-hover);
+  color: var(--color-text-primary);
+}
+
+@keyframes slideDown {
+  from {
+    max-height: 0;
+    opacity: 0;
+  }
+  to {
+    max-height: 400px;
+    opacity: 1;
+  }
+}

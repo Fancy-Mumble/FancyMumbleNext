@@ -364,6 +364,12 @@ pub struct TextMessage {
     /// When set, this message is an edit replacing the message with this ID.
     #[prost(string, optional, tag = "8")]
     pub edit_id: ::core::option::Option<::prost::alloc::string::String>,
+    /// When set, pin or unpin the message with this ID in the channel.
+    #[prost(string, optional, tag = "9")]
+    pub pin_target: ::core::option::Option<::prost::alloc::string::String>,
+    /// When true combined with pin_target, unpin instead of pin.
+    #[prost(bool, optional, tag = "10")]
+    pub unpin: ::core::option::Option<bool>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct PermissionDenied {
@@ -1435,6 +1441,65 @@ pub mod fancy_read_receipt_deliver {
         pub name: ::core::option::Option<::prost::alloc::string::String>,
         #[prost(string, optional, tag = "3")]
         pub last_read_message_id: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(uint64, optional, tag = "4")]
+        pub timestamp: ::core::option::Option<u64>,
+    }
+}
+/// Client -> Server: pin or unpin a persistent chat message.
+/// The server validates the sender, stores the pin state, and broadcasts
+/// a PchatPinDeliver to all Fancy clients in the channel.
+/// Wire type ID = 128.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatPin {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(string, optional, tag = "2")]
+    pub message_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "3")]
+    pub sender_hash: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(bool, optional, tag = "4")]
+    pub unpin: ::core::option::Option<bool>,
+    #[prost(uint64, optional, tag = "5")]
+    pub timestamp: ::core::option::Option<u64>,
+}
+/// Server -> Client: delivers a pin or unpin event to channel members.
+/// Wire type ID = 129.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatPinDeliver {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(string, optional, tag = "2")]
+    pub message_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "3")]
+    pub pinner_hash: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "4")]
+    pub pinner_name: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(bool, optional, tag = "5")]
+    pub unpin: ::core::option::Option<bool>,
+    #[prost(uint64, optional, tag = "6")]
+    pub timestamp: ::core::option::Option<u64>,
+}
+/// Server -> Client: batch delivery of all pinned message IDs for a channel.
+/// Sent alongside PchatFetchResponse so the client can mark historical
+/// messages as pinned.
+/// Wire type ID = 130.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PchatPinFetchResponse {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(message, repeated, tag = "2")]
+    pub pins: ::prost::alloc::vec::Vec<pchat_pin_fetch_response::PinnedMessage>,
+}
+/// Nested message and enum types in `PchatPinFetchResponse`.
+pub mod pchat_pin_fetch_response {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct PinnedMessage {
+        #[prost(string, optional, tag = "1")]
+        pub message_id: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, optional, tag = "2")]
+        pub pinner_hash: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, optional, tag = "3")]
+        pub pinner_name: ::core::option::Option<::prost::alloc::string::String>,
         #[prost(uint64, optional, tag = "4")]
         pub timestamp: ::core::option::Option<u64>,
     }

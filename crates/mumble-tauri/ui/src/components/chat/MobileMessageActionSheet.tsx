@@ -42,6 +42,8 @@ interface MobileMessageActionSheetProps {
   readonly onCite?: (msg: ChatMessage) => void;
   readonly onCopyText?: (msg: ChatMessage) => void;
   readonly onEdit?: (msg: ChatMessage) => void;
+  /** Pin or unpin a message. */
+  readonly onPin?: (msg: ChatMessage) => void;
   /** Existing reactions on this message (for showing reactor names on mobile). */
   readonly reactions?: readonly ReactionSummary[];
   /** Ordered message IDs for read-receipt watermark comparison. */
@@ -63,6 +65,7 @@ export default function MobileMessageActionSheet({
   onCite,
   onCopyText,
   onEdit,
+  onPin,
   reactions,
   allMessageIds,
   channelId,
@@ -220,6 +223,12 @@ export default function MobileMessageActionSheet({
               <EditIcon width={16} height={16} />
             </span>
             Edit message
+          </button>
+        )}
+        {onPin && message.message_id && (
+          <button type="button" className={styles.actionItem} onClick={act((m) => onPin(m))}>
+            <span className={styles.actionIcon}>📌</span>
+            {message.pinned ? "Unpin message" : "Pin message"}
           </button>
         )}
         {canDelete && (

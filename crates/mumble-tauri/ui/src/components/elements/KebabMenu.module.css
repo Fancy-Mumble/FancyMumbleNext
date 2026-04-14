@@ -84,6 +84,28 @@
   color: var(--color-accent);
 }
 
+/* Red notification dot on the trigger button */
+.badgeDot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-danger, #e74c3c);
+  pointer-events: none;
+}
+
+/* Red notification dot next to a menu item label */
+.itemBadgeDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-danger, #e74c3c);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .backdrop {
   position: fixed;
   inset: 0;

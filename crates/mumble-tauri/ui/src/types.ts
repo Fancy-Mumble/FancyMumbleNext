@@ -71,6 +71,12 @@ export interface ChatMessage {
   is_legacy?: boolean;
   /** Unix epoch millis when the message was edited. Absent if never edited. */
   edited_at?: number | null;
+  /** Whether this message is pinned to the channel. */
+  pinned?: boolean;
+  /** Display name of the user who pinned this message. */
+  pinned_by?: string | null;
+  /** Unix epoch millis when the message was pinned. */
+  pinned_at?: number | null;
 }
 
 /** A multi-member group chat, identified by a UUID. */

@@ -150,6 +150,15 @@ pub struct ChatMessage {
     /// When set, the message was edited at this Unix-epoch-millisecond timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edited_at: Option<u64>,
+    /// Whether this message is pinned.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
+    /// Certificate hash of the user who pinned this message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned_by: Option<String>,
+    /// Unix epoch milliseconds when the message was pinned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned_at: Option<u64>,
 }
 
 impl ChatMessage {
@@ -431,6 +440,33 @@ pub(crate) struct StoredReactionPayload {
 pub(crate) struct ReactionFetchResponsePayload {
     pub channel_id: u32,
     pub reactions: Vec<StoredReactionPayload>,
+}
+
+/// Payload emitted when a `PchatPinDeliver` is received (pin state change).
+#[derive(Clone, Serialize)]
+pub(crate) struct PinDeliverPayload {
+    pub channel_id: u32,
+    pub message_id: String,
+    pub pinned: bool,
+    pub pinner_hash: String,
+    pub pinner_name: String,
+    pub timestamp: u64,
+}
+
+/// Payload emitted when a `PchatPinFetchResponse` is received (batch of pins).
+#[derive(Clone, Serialize)]
+pub(crate) struct StoredPinPayload {
+    pub message_id: String,
+    pub pinner_hash: String,
+    pub pinner_name: String,
+    pub timestamp: u64,
+}
+
+/// Payload emitted when a `PchatPinFetchResponse` is received.
+#[derive(Clone, Serialize)]
+pub(crate) struct PinFetchResponsePayload {
+    pub channel_id: u32,
+    pub pins: Vec<StoredPinPayload>,
 }
 
 /// A pending key-share request waiting for user approval.

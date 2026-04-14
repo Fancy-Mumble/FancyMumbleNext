@@ -45,6 +45,27 @@ import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume
 import { loadProfileData } from "./pages/settings/profileData";
 import { serializeProfile, dataUrlToBytes } from "./profileFormat";
 
+/** Event payload for a pin state change delivered by the server. */
+interface PinDeliverEvent {
+  channel_id: number;
+  message_id: string;
+  pinned: boolean;
+  pinner_hash: string;
+  pinner_name: string;
+  timestamp: number;
+}
+
+/** Event payload for a batch of stored pins from the server. */
+interface PinFetchResponseEvent {
+  channel_id: number;
+  pins: {
+    message_id: string;
+    pinner_hash: string;
+    pinner_name: string;
+    timestamp: number;
+  }[];
+}
+
 /** Event payload for a single reaction delivered by the server. */
 interface ReactionDeliverEvent {
   channel_id: number;
@@ -142,6 +163,9 @@ interface AppState {
 
   /** Monotonic counter incremented whenever the module-level reaction store changes. */
   reactionVersion: number;
+
+  /** Unseen pin message IDs per channel (channel_id -> set of message_ids). */
+  unseenPinIds: Map<number, Set<string>>;
 
   /** Monotonic counter incremented whenever the module-level read receipt store changes. */
   readReceiptVersion: number;
@@ -246,6 +270,10 @@ interface AppState {
   sendWebRtcSignal: (targetSession: number, signalType: number, payload: string) => Promise<void>;
   /** Send a reaction (add/remove) on a persistent chat message via native proto. */
   sendReaction: (channelId: number, messageId: string, emoji: string, action: "add" | "remove") => Promise<void>;
+  /** Pin or unpin a message in a persistent channel. */
+  pinMessage: (channelId: number, messageId: string, unpin: boolean) => Promise<void>;
+  /** Mark all unseen pin notifications as seen for a channel. */
+  clearUnseenPins: (channelId: number) => void;
   /** Add a poll to the store (called locally when creating a poll). */
   addPoll: (poll: PollPayload, isOwn: boolean) => void;
   setError: (error: string | null) => void;
@@ -331,6 +359,7 @@ const INITIAL: Pick<
   | "polls"
   | "pollMessages"
   | "reactionVersion"
+  | "unseenPinIds"
   | "readReceiptVersion"
   | "isSharingOwn"
   | "webrtcConnecting"
@@ -388,6 +417,7 @@ const INITIAL: Pick<
   polls: new Map(),
   pollMessages: [],
   reactionVersion: 0,
+  unseenPinIds: new Map(),
   readReceiptVersion: 0,
   isSharingOwn: false,
   webrtcConnecting: false,
@@ -791,6 +821,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (e) {
       console.error("send_reaction error:", e);
     }
+  },
+
+  pinMessage: async (channelId, messageId, unpin) => {
+    try {
+      await invoke("pin_message", { channelId, messageId, unpin });
+    } catch (e) {
+      console.error("pin_message error:", e);
+    }
+  },
+
+  clearUnseenPins: (channelId) => {
+    set((s) => {
+      const next = new Map(s.unseenPinIds);
+      next.delete(channelId);
+      return { unseenPinIds: next };
+    });
   },
 
   addPoll: (poll, isOwn) => {
@@ -1749,6 +1795,53 @@ export async function initEventListeners(
           applyReaction(r.message_id, r.emoji, "add", r.sender_hash, resolvedName);
         }
         useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
+      },
+    ),
+
+    // Pin/unpin delivered by the server (persistent channels).
+    await listen<PinDeliverEvent>(
+      "pchat-pin-deliver",
+      (event) => {
+        const { channel_id, message_id, pinned, pinner_hash, pinner_name, timestamp } = event.payload;
+        const resolvedName = useAppStore.getState().users.find((u) => u.hash === pinner_hash)?.name ?? pinner_name;
+        useAppStore.setState((s) => {
+          const nextUnseen = new Map(s.unseenPinIds);
+          const channelSet = new Set(nextUnseen.get(channel_id));
+          if (pinned) {
+            channelSet.add(message_id);
+          } else {
+            channelSet.delete(message_id);
+          }
+          if (channelSet.size > 0) nextUnseen.set(channel_id, channelSet);
+          else nextUnseen.delete(channel_id);
+
+          return {
+            messages: s.messages.map((m) =>
+              m.message_id === message_id
+                ? { ...m, pinned, pinned_by: pinned ? resolvedName : null, pinned_at: pinned ? timestamp : null }
+                : m,
+            ),
+            unseenPinIds: nextUnseen,
+          };
+        });
+      },
+    ),
+
+    // Batch pin fetch response (historical pins for persistent channels).
+    await listen<PinFetchResponseEvent>(
+      "pchat-pin-fetch-response",
+      (event) => {
+        const { users } = useAppStore.getState();
+        const pinnedIds = new Map(event.payload.pins.map((p) => {
+          const resolvedName = users.find((u) => u.hash === p.pinner_hash)?.name ?? p.pinner_name;
+          return [p.message_id, { pinned_by: resolvedName, pinned_at: p.timestamp }] as const;
+        }));
+        useAppStore.setState((s) => ({
+          messages: s.messages.map((m) => {
+            const pin = m.message_id ? pinnedIds.get(m.message_id) : undefined;
+            return pin ? { ...m, pinned: true, pinned_by: pin.pinned_by, pinned_at: pin.pinned_at } : m;
+          }),
+        }));
       },
     ),
 

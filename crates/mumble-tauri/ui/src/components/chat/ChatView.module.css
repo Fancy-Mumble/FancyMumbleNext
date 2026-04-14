@@ -639,6 +639,24 @@
   white-space: nowrap;
 }
 
+/* --- Pinned message indicator ----------------------------------- */
+
+.pinnedBadge {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--color-accent, #f0b132);
+  opacity: 0.85;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+.pinnedRow {
+  position: relative;
+  border-left: 3px solid var(--color-accent, #f0b132);
+  padding-left: 8px;
+  border-radius: 2px;
+}
+
 /* --- Offloaded message skeleton --------------------------------- */
 
 .skeleton {

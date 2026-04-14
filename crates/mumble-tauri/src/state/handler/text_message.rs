@@ -345,6 +345,9 @@ fn handle_group_message(
         timestamp: tm.timestamp,
         is_legacy: false,
         edited_at: None,
+        pinned: false,
+        pinned_by: None,
+        pinned_at: None,
     };
     msg.ensure_id();
     state
@@ -392,6 +395,9 @@ fn handle_direct_message(
         timestamp: tm.timestamp,
         is_legacy: false,
         edited_at: None,
+        pinned: false,
+        pinned_by: None,
+        pinned_at: None,
     };
     msg.ensure_id();
     state
@@ -467,6 +473,9 @@ fn handle_channel_message(
             timestamp: tm.timestamp,
             is_legacy,
             edited_at: None,
+            pinned: false,
+            pinned_by: None,
+            pinned_at: None,
         };
         msg.ensure_id();
         state.messages.entry(ch_id).or_default().push(msg);
@@ -560,6 +569,9 @@ mod tests {
             edited_at: None,
             dm_session: None,
             group_id: None,
+            pinned: false,
+            pinned_by: None,
+            pinned_at: None,
         }
     }
 

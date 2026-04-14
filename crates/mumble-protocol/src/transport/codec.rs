@@ -116,6 +116,9 @@ pub(crate) fn serialize_control_message(msg: &ControlMessage) -> Result<(u16, Ve
         FancySubscribePush(m) => m.encode_to_vec(),
         FancyReadReceipt(m) => m.encode_to_vec(),
         FancyReadReceiptDeliver(m) => m.encode_to_vec(),
+        PchatPin(m) => m.encode_to_vec(),
+        PchatPinDeliver(m) => m.encode_to_vec(),
+        PchatPinFetchResponse(m) => m.encode_to_vec(),
         UdpTunnel(data) => data.clone(),
     };
 
@@ -182,6 +185,9 @@ pub(crate) fn deserialize_control_message(type_id: u16, payload: &[u8]) -> Resul
         FancySubscribePush => ControlMessage::FancySubscribePush(mumble_tcp::FancySubscribePush::decode(payload)?),
         FancyReadReceipt => ControlMessage::FancyReadReceipt(mumble_tcp::FancyReadReceipt::decode(payload)?),
         FancyReadReceiptDeliver => ControlMessage::FancyReadReceiptDeliver(mumble_tcp::FancyReadReceiptDeliver::decode(payload)?),
+        PchatPin => ControlMessage::PchatPin(mumble_tcp::PchatPin::decode(payload)?),
+        PchatPinDeliver => ControlMessage::PchatPinDeliver(mumble_tcp::PchatPinDeliver::decode(payload)?),
+        PchatPinFetchResponse => ControlMessage::PchatPinFetchResponse(mumble_tcp::PchatPinFetchResponse::decode(payload)?),
     };
     Ok(msg)
 }

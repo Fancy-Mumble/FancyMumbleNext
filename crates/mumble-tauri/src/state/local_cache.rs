@@ -128,6 +128,9 @@ impl LocalMessageCache {
                         timestamp: Some(m.timestamp),
                         is_legacy: false,
                         edited_at: None,
+                        pinned: false,
+                        pinned_by: None,
+                        pinned_at: None,
                     })
                     .collect();
                 (channel_id, chat_msgs)
