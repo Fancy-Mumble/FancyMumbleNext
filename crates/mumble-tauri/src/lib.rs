@@ -825,14 +825,12 @@ async fn set_audio_settings(
 ///
 /// `true` selects the rodio backend (default), `false` selects the
 /// legacy cpal backend. Takes effect on the next voice toggle.
-#[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn set_audio_backend(use_rodio: bool) {
     audio::set_use_rodio_backend(use_rodio);
 }
 
 /// Returns `true` if the rodio backend is selected, `false` for legacy cpal.
-#[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn get_audio_backend() -> bool {
     audio::is_rodio_backend()

@@ -18,7 +18,9 @@
 //! currently-selected backend at runtime so callers never need `cfg`
 //! gates or backend checks.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::AtomicU32;
+#[cfg(not(target_os = "android"))]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use mumble_protocol::audio::capture::AudioCapture;
@@ -56,6 +58,16 @@ pub fn set_use_rodio_backend(use_rodio: bool) {
 #[cfg(not(target_os = "android"))]
 pub fn is_rodio_backend() -> bool {
     USE_RODIO_BACKEND.load(Ordering::Relaxed)
+}
+
+/// On Android there is only one backend, so this is a no-op.
+#[cfg(target_os = "android")]
+pub fn set_use_rodio_backend(_use_rodio: bool) {}
+
+/// On Android there is only one backend; always returns `true`.
+#[cfg(target_os = "android")]
+pub fn is_rodio_backend() -> bool {
+    true
 }
 
 // -- Traits ----------------------------------------------------------
