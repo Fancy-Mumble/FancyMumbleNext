@@ -12,6 +12,8 @@
 //! The receiver reconstructs the full nonce from its internal counter state.
 //! The 3-byte tag is the first 3 bytes of the full 16-byte OCB2 auth tag.
 
+use std::sync::{Arc, Mutex};
+
 use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use aes::Aes128;
 
@@ -32,6 +34,12 @@ pub struct PacketStats {
     /// Nonce resync events.
     pub resync: u32,
 }
+
+/// Thread-safe handle to shared packet statistics.
+///
+/// The UDP reader task updates the stats on every decrypt, and the
+/// ping loop reads a snapshot to include in outgoing Ping messages.
+pub type SharedPacketStats = Arc<Mutex<PacketStats>>;
 
 /// OCB2-AES128 crypt state compatible with Mumble servers.
 ///

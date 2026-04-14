@@ -21,7 +21,7 @@ pub mod offload;
 pub(crate) mod local_cache;
 pub(crate) mod pchat;
 #[allow(dead_code, reason = "recording module is work-in-progress")]
-mod recording;
+pub(crate) mod recording;
 mod search;
 pub mod types;
 
@@ -59,12 +59,42 @@ pub(crate) fn parse_pchat_protocol_str(s: &str) -> PchatProtocol {
 
 // --- Shared interior state ----------------------------------------
 
+struct OwnMessageData {
+    channel_id: u32,
+    own_session: Option<u32>,
+    own_name: String,
+    own_hash: Option<String>,
+    body: String,
+    message_id: Option<String>,
+    timestamp: Option<u64>,
+    pchat_protocol: Option<PchatProtocol>,
+}
+
 /// Look up the TLS certificate hash for our own session.
 fn own_session_hash(state: &SharedState) -> Option<String> {
     state
         .own_session
         .and_then(|sid| state.users.get(&sid))
         .and_then(|u| u.hash.clone())
+}
+
+fn cache_own_signal_message(state: &mut SharedState, msg: &ChatMessage, channel_id: u32) {
+    let own_cert_hash = state
+        .pchat
+        .as_ref()
+        .map(|ps| ps.own_cert_hash.clone())
+        .unwrap_or_default();
+    if let Some(cache) = state.pchat.as_mut().and_then(|ps| ps.local_cache.as_mut()) {
+        cache.insert(local_cache::CachedMessage {
+            message_id: msg.message_id.clone().unwrap_or_default(),
+            channel_id,
+            timestamp: msg.timestamp.unwrap_or(0),
+            sender_hash: own_cert_hash,
+            sender_name: msg.sender_name.clone(),
+            body: msg.body.clone(),
+            is_own: true,
+        });
+    }
 }
 
 #[derive(Default)]
@@ -559,7 +589,6 @@ impl AppState {
         pchat::send_fetch(&handle, channel_id, before_id, limit).await
     }
 
-    #[allow(clippy::too_many_lines, reason = "message send path covers legacy text, fancy extensions, pchat encryption, and local storage")]
     pub async fn send_message(&self, channel_id: u32, body: String) -> Result<(), String> {
         let (handle, own_session, own_name, own_hash, is_fancy, pchat_protocol) = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;
@@ -580,22 +609,13 @@ impl AppState {
 
         let handle = handle.ok_or("Not connected")?;
 
-        // Generate message_id and timestamp only when the server supports
-        // Fancy Mumble extensions.  Legacy servers ignore unknown fields.
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        let message_id = if is_fancy {
-            Some(uuid::Uuid::new_v4().to_string())
-        } else {
-            None
-        };
-        let timestamp = if is_fancy { Some(now_ms) } else { None };
+        let message_id = is_fancy.then(|| uuid::Uuid::new_v4().to_string());
+        let timestamp = is_fancy.then_some(now_ms);
 
-        // Send a plain TextMessage for backward compat / real-time display.
-        // When dual-path is disabled the body is replaced with a placeholder
-        // so the server never sees the plaintext content.
         let disable_dual = pchat_protocol
             .is_some_and(|p| p.is_encrypted())
             && self
@@ -609,37 +629,10 @@ impl AppState {
             body.clone()
         };
 
-        // If the channel has persistent chat enabled, pre-build the encrypted
-        // PchatMessage BEFORE sending the plaintext TextMessage. This ensures
-        // no plaintext leaks when the sender lacks the encryption key.
-        tracing::debug!(
-            channel_id,
-            ?pchat_protocol,
-            ?message_id,
-            now_ms,
-            "send_message: checking pchat path"
-        );
-        let prebuilt_pchat = if let Some(protocol) = pchat_protocol.filter(PchatProtocol::is_encrypted) {
-            if let Some(ref msg_id) = message_id {
-                let session = own_session.unwrap_or(0);
-                self.build_pchat_encrypted(&pchat::OutboundMessage {
-                    channel_id,
-                    protocol,
-                    message_id: msg_id,
-                    body: &body,
-                    sender_name: &own_name,
-                    sender_session: session,
-                    timestamp: now_ms,
-                })?
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let prebuilt_pchat = self.prebuilt_pchat_message(
+            pchat_protocol, &message_id, channel_id, &body, &own_name, now_ms,
+        )?;
 
-        // Encryption verified (or channel is unencrypted) -- safe to send
-        // the plaintext TextMessage now.
         handle
             .send(command::SendTextMessage {
                 channel_ids: vec![channel_id],
@@ -653,7 +646,6 @@ impl AppState {
             .await
             .map_err(|e| format!("Failed to send message: {e}"))?;
 
-        // Send the pre-built encrypted PchatMessage for server storage.
         if let Some((proto_msg, client)) = prebuilt_pchat {
             if let Err(e) = client
                 .send(command::SendPchatMessage { message: proto_msg })
@@ -663,48 +655,65 @@ impl AppState {
             }
         }
 
-        // Add locally - the server does not echo our own messages back.
-        if let Ok(mut state) = self.inner.lock() {
-            let mut msg = ChatMessage {
-                sender_session: own_session,
-                sender_name: own_name,
-                sender_hash: own_hash,
-                body,
-                channel_id,
-                is_own: true,
-                dm_session: None,
-                group_id: None,
-                message_id,
-                timestamp,
-                is_legacy: false,
-                edited_at: None,
-            };
-            msg.ensure_id();
+        self.store_own_message(OwnMessageData {
+            channel_id, own_session, own_name, own_hash,
+            body, message_id, timestamp, pchat_protocol,
+        });
+        Ok(())
+    }
 
-            // Cache own messages locally for SignalV1 channels.
-            if pchat_protocol.is_some_and(|p| p == PchatProtocol::SignalV1) {
-                let own_cert_hash = state
-                    .pchat
-                    .as_ref()
-                    .map(|ps| ps.own_cert_hash.clone())
-                    .unwrap_or_default();
-                if let Some(cache) = state.pchat.as_mut().and_then(|ps| ps.local_cache.as_mut()) {
-                    cache.insert(local_cache::CachedMessage {
-                        message_id: msg.message_id.clone().unwrap_or_default(),
-                        channel_id,
-                        timestamp: msg.timestamp.unwrap_or(0),
-                        sender_hash: own_cert_hash,
-                        sender_name: msg.sender_name.clone(),
-                        body: msg.body.clone(),
-                        is_own: true,
-                    });
-                }
-            }
+    fn prebuilt_pchat_message(
+        &self,
+        pchat_protocol: Option<PchatProtocol>,
+        message_id: &Option<String>,
+        channel_id: u32,
+        body: &str,
+        own_name: &str,
+        now_ms: u64,
+    ) -> Result<Option<(mumble_protocol::proto::mumble_tcp::PchatMessage, ClientHandle)>, String> {
+        let Some(protocol) = pchat_protocol.filter(PchatProtocol::is_encrypted) else {
+            return Ok(None);
+        };
+        let Some(ref msg_id) = message_id else {
+            return Ok(None);
+        };
+        let session = self.inner.lock().ok()
+            .and_then(|s| s.own_session)
+            .unwrap_or(0);
+        self.build_pchat_encrypted(&pchat::OutboundMessage {
+            channel_id,
+            protocol,
+            message_id: msg_id,
+            body,
+            sender_name: own_name,
+            sender_session: session,
+            timestamp: now_ms,
+        })
+    }
 
-            state.messages.entry(channel_id).or_default().push(msg);
+    fn store_own_message(&self, msg_data: OwnMessageData) {
+        let Ok(mut state) = self.inner.lock() else { return };
+        let mut msg = ChatMessage {
+            sender_session: msg_data.own_session,
+            sender_name: msg_data.own_name,
+            sender_hash: msg_data.own_hash,
+            body: msg_data.body,
+            channel_id: msg_data.channel_id,
+            is_own: true,
+            dm_session: None,
+            group_id: None,
+            message_id: msg_data.message_id,
+            timestamp: msg_data.timestamp,
+            is_legacy: false,
+            edited_at: None,
+        };
+        msg.ensure_id();
+
+        if msg_data.pchat_protocol.is_some_and(|p| p == PchatProtocol::SignalV1) {
+            cache_own_signal_message(&mut state, &msg, msg_data.channel_id);
         }
 
-        Ok(())
+        state.messages.entry(msg_data.channel_id).or_default().push(msg);
     }
 
     /// Edit a previously sent message on a channel.

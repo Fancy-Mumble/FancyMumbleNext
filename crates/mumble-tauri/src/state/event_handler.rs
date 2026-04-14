@@ -157,6 +157,7 @@ impl EventHandler for TauriEventHandler {
                 }
 
                 if is_terminator {
+                    mixer.reset_speaker(session);
                     state.talking_sessions.remove(&session).then_some(false)
                 } else {
                     state.talking_sessions.insert(session).then_some(true)
@@ -241,5 +242,27 @@ impl EventHandler for TauriEventHandler {
         let _ = self
             .app
             .emit("audio-transport-changed", udp_active);
+    }
+
+    fn on_ping_stats(
+        &mut self,
+        from_client: mumble_protocol::transport::ocb2::PacketStats,
+        to_client: mumble_protocol::transport::ocb2::PacketStats,
+    ) {
+        let payload = CryptoStatsPayload {
+            from_client: PacketStats {
+                good: from_client.good,
+                late: from_client.late,
+                lost: from_client.lost,
+                resync: from_client.resync,
+            },
+            to_client: PacketStats {
+                good: to_client.good,
+                late: to_client.late,
+                lost: to_client.lost,
+                resync: to_client.resync,
+            },
+        };
+        let _ = self.app.emit("crypto-stats", payload);
     }
 }

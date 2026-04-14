@@ -104,6 +104,22 @@ impl AudioMixer {
     /// Decode an incoming audio packet from `session` and queue the
     /// decoded samples in the corresponding speaker buffer.
     pub fn feed(&mut self, session: u32, packet: &EncodedPacket) -> Result<()> {
+        // Detect stream restart: if the incoming sequence is much lower
+        // than the last seen, the sender started a new voice stream.
+        // Drop the stale decoder so Opus state from the old stream does
+        // not contaminate the new one (handles lost terminators).
+        if let Some(speaker) = self.speakers.get(&session) {
+            if let Some(prev) = speaker.last_seq {
+                if prev > packet.sequence && prev - packet.sequence > 10 {
+                    tracing::debug!(
+                        "stream restart detected: session {session} seq {prev} -> {}, resetting decoder",
+                        packet.sequence,
+                    );
+                    drop(self.speakers.remove(&session));
+                }
+            }
+        }
+
         let speaker = match self.speakers.entry(session) {
             std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
             std::collections::hash_map::Entry::Vacant(e) => {
@@ -166,6 +182,14 @@ impl AudioMixer {
         apply_boundary_crossfade(&mut frame, &mut speaker.prev_last_sample);
         push_samples(&self.buffers, session, &frame);
         Ok(())
+    }
+
+    /// Reset the decoder for a speaker whose audio stream has ended
+    /// (e.g. terminator received).  The sample buffer is kept so the
+    /// playback callback can drain remaining audio.  A fresh decoder
+    /// will be created automatically when the next stream arrives.
+    pub fn reset_speaker(&mut self, session: u32) {
+        drop(self.speakers.remove(&session));
     }
 
     /// Remove speakers that have not sent audio recently to free
@@ -251,16 +275,29 @@ fn apply_boundary_crossfade(
     frame: &mut crate::audio::sample::AudioFrame,
     prev_last_sample: &mut Option<f32>,
 ) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
+    static CORRECTED_COUNT: AtomicU64 = AtomicU64::new(0);
+
     if frame.format.sample_format != SampleFormat::F32 {
         return;
     }
+
+    let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
 
     if let Some(prev_val) = *prev_last_sample {
         let samples = frame.as_f32_samples_mut();
         if !samples.is_empty() {
             let correction = prev_val - samples[0];
             if correction.abs() > 0.002 {
+                let corrected = CORRECTED_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
                 let cf_len = CROSSFADE_LEN.min(samples.len());
+                if count.is_multiple_of(100) {
+                    tracing::debug!(
+                        "crossfade: frame={count}, corrected={corrected}/{count} ({:.0}%), delta={correction:.4}, cf_len={cf_len}",
+                        corrected as f64 / count as f64 * 100.0,
+                    );
+                }
                 for (i, sample) in samples.iter_mut().take(cf_len).enumerate() {
                     let t = i as f32 / cf_len as f32;
                     let decay = 0.5 * (1.0 + (std::f32::consts::PI * t).cos());
@@ -503,6 +540,89 @@ mod tests {
         assert!(
             (actual - expected).abs() < 1e-4,
             "oldest kept sample should be index {first_kept_idx}: expected ~{expected}, got {actual}"
+        );
+    }
+
+    #[cfg(feature = "opus-codec")]
+    #[test]
+    fn backward_sequence_jump_resets_decoder() {
+        // When the sequence number jumps backwards (new voice stream),
+        // the decoder must be reset so stale Opus state does not
+        // contaminate the new stream.
+        let bufs = make_buffers();
+        let mut mixer = AudioMixer::new(bufs.clone(), AudioFormat::MONO_48KHZ_F32);
+
+        use crate::audio::encoder::{AudioEncoder, OpusEncoder, OpusEncoderConfig};
+        let config = OpusEncoderConfig::default();
+        let frame_size = config.frame_size;
+        let mut enc = OpusEncoder::new(config, AudioFormat::MONO_48KHZ_F32).unwrap();
+        let silent = crate::audio::sample::AudioFrame {
+            data: vec![0u8; frame_size * 4],
+            format: AudioFormat::MONO_48KHZ_F32,
+            sequence: 0,
+            is_silent: false,
+        };
+        let encoded = enc.encode(&silent).unwrap();
+
+        // Feed packet at seq=100 to establish the speaker.
+        let pkt1 = EncodedPacket {
+            data: encoded.data.clone(),
+            sequence: 100,
+            frame_samples: 960,
+        };
+        mixer.feed(42, &pkt1).unwrap();
+        let after_first = bufs.lock().unwrap()[&42].len();
+
+        // Feed packet at seq=0 — large backward jump triggers reset.
+        let pkt2 = EncodedPacket {
+            data: encoded.data.clone(),
+            sequence: 0,
+            frame_samples: 960,
+        };
+        mixer.feed(42, &pkt2).unwrap();
+
+        // Speaker still exists and both frames produced samples.
+        assert_eq!(mixer.speakers.len(), 1);
+        let total = bufs.lock().unwrap()[&42].len();
+        assert!(
+            total >= after_first + frame_size,
+            "both frames should produce samples: total={total}, after_first={after_first}"
+        );
+    }
+
+    #[cfg(feature = "opus-codec")]
+    #[test]
+    fn reset_speaker_clears_decoder_but_keeps_buffer() {
+        let bufs = make_buffers();
+        let mut mixer = AudioMixer::new(bufs.clone(), AudioFormat::MONO_48KHZ_F32);
+
+        use crate::audio::encoder::{AudioEncoder, OpusEncoder, OpusEncoderConfig};
+        let config = OpusEncoderConfig::default();
+        let frame_size = config.frame_size;
+        let mut enc = OpusEncoder::new(config, AudioFormat::MONO_48KHZ_F32).unwrap();
+        let silent = crate::audio::sample::AudioFrame {
+            data: vec![0u8; frame_size * 4],
+            format: AudioFormat::MONO_48KHZ_F32,
+            sequence: 0,
+            is_silent: false,
+        };
+        let pkt = enc.encode(&silent).unwrap();
+        mixer.feed(42, &pkt).unwrap();
+        assert_eq!(mixer.speakers.len(), 1);
+
+        // Reset simulates a terminator being received.
+        mixer.reset_speaker(42);
+        assert_eq!(mixer.speakers.len(), 0);
+
+        // Sample buffer is preserved for the playback callback to drain.
+        let locked = bufs.lock().unwrap();
+        assert!(
+            locked.contains_key(&42),
+            "sample buffer should survive reset_speaker"
+        );
+        assert!(
+            !locked[&42].is_empty(),
+            "previously buffered samples should still be available"
         );
     }
 }

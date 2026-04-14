@@ -7,7 +7,7 @@
 //! a snapshot of the shared speaker buffers (the same ones the playback
 //! callback reads) and writes the mixed PCM to the output file.
 
-use std::collections::VecDeque;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -217,12 +217,13 @@ async fn recording_loop(
     // Poll interval: 20 ms (matches Opus frame size at 48 kHz).
     let interval = Duration::from_millis(20);
     let mut mix_buf: Vec<f32> = Vec::new();
+    let mut cursors: HashMap<u32, usize> = HashMap::new();
 
     while !stop_flag.load(Ordering::Relaxed) {
         tokio::time::sleep(interval).await;
 
-        // Snapshot + mix all speaker buffers into a single mono stream.
-        let samples = drain_and_mix(&speaker_buffers, &mut mix_buf);
+        // Snapshot new samples from speaker buffers without draining.
+        let samples = snapshot_and_mix(&speaker_buffers, &mut mix_buf, &mut cursors);
         if samples == 0 {
             continue;
         }
@@ -245,52 +246,78 @@ async fn recording_loop(
     Ok(())
 }
 
-/// Drain all speaker buffers and mix into a single mono buffer.
+/// Read new samples from each speaker buffer without draining them.
 ///
-/// Unlike the playback callback (which pops samples destructively),
-/// we read a *copy* of the buffered samples. The recording task runs
-/// on a separate cadence from the playback callback, so we use a
-/// non-destructive peek + clear approach that takes a snapshot of
-/// whatever is currently queued per speaker.
+/// Each speaker has a cursor tracking how far into the current
+/// `VecDeque` the recording has already read.  On each call we read
+/// only samples beyond the cursor, mix them, and advance the cursor.
 ///
-/// This means that if the playback callback drains samples before we
-/// do, we simply record silence for that interval - which is fine
-/// because the playback already consumed them.  In practice, at 20 ms
-/// poll intervals, both the recording and playback drain at very
-/// similar rates.
-fn drain_and_mix(speaker_buffers: &SpeakerBuffers, mix_buf: &mut Vec<f32>) -> usize {
-    let Ok(mut buffers) = speaker_buffers.lock() else {
+/// Because the playback callback drains from the front of the
+/// `VecDeque`, our cursor can become stale (point past the end).
+/// When that happens we skip to the current end of the buffer so the
+/// next snapshot picks up only truly new data.  This may leave small
+/// gaps in the recording but avoids re-reading stale samples which
+/// would cause audible discontinuities.
+fn snapshot_and_mix(
+    speaker_buffers: &SpeakerBuffers,
+    mix_buf: &mut Vec<f32>,
+    cursors: &mut HashMap<u32, usize>,
+) -> usize {
+    let Ok(buffers) = speaker_buffers.lock() else {
         return 0;
     };
 
-    // Find max length across all speakers.
-    let max_len = buffers.values().map(VecDeque::len).max().unwrap_or(0);
-    if max_len == 0 {
+    let mut max_new: usize = 0;
+    for (&session, buf) in buffers.iter() {
+        let cursor = cursors.entry(session).or_insert(0);
+        if *cursor > buf.len() {
+            *cursor = buf.len();
+        }
+        let new_count = buf.len() - *cursor;
+        max_new = max_new.max(new_count);
+    }
+
+    if max_new == 0 {
         return 0;
     }
 
     mix_buf.clear();
-    mix_buf.resize(max_len, 0.0_f32);
+    mix_buf.resize(max_new, 0.0_f32);
 
-    for buf in buffers.values_mut() {
-        for (i, sample) in buf.drain(..).enumerate() {
-            if i < max_len {
-                mix_buf[i] += sample;
-            }
+    for (&session, buf) in buffers.iter() {
+        let cursor = cursors.entry(session).or_insert(0);
+        if *cursor > buf.len() {
+            *cursor = buf.len();
         }
+        let start = *cursor;
+        let n = (buf.len() - start).min(max_new);
+        let (a, b) = buf.as_slices();
+        for (i, dst) in mix_buf.iter_mut().take(n).enumerate() {
+            let abs_idx = start + i;
+            let sample = if abs_idx < a.len() {
+                a[abs_idx]
+            } else {
+                b[abs_idx - a.len()]
+            };
+            *dst += sample;
+        }
+        *cursor = start + n;
     }
 
-    // Clamp mixed output.
+    cursors.retain(|id, _| buffers.contains_key(id));
+
     for s in mix_buf.iter_mut() {
         *s = s.clamp(-1.0, 1.0);
     }
 
-    max_len
+    max_new
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
     use super::*;
+    use std::collections::{HashMap, VecDeque};
 
     #[test]
     fn test_expand_filename_template_basic() {
@@ -311,9 +338,7 @@ mod tests {
     #[test]
     fn test_expand_filename_template_datetime() {
         let result = expand_filename_template("rec_{datetime}", "host", "user", "chan");
-        // Should not contain the placeholder anymore.
         assert!(!result.contains("{datetime}"));
-        // Should contain a date-like pattern (YYYY-MM-DD_HH-MM-SS).
         assert!(result.len() > 4);
     }
 
@@ -324,49 +349,106 @@ mod tests {
     }
 
     #[test]
-    fn test_drain_and_mix_empty() {
-        let buffers: SpeakerBuffers = Arc::new(std::sync::Mutex::new(
-            std::collections::HashMap::new(),
-        ));
+    fn test_snapshot_and_mix_empty() {
+        let buffers: SpeakerBuffers = Arc::new(std::sync::Mutex::new(HashMap::new()));
         let mut mix = Vec::new();
-        let n = drain_and_mix(&buffers, &mut mix);
+        let mut cursors = HashMap::new();
+        let n = snapshot_and_mix(&buffers, &mut mix, &mut cursors);
         assert_eq!(n, 0);
     }
 
     #[test]
-    fn test_drain_and_mix_single_speaker() {
-        let mut map = std::collections::HashMap::new();
+    fn test_snapshot_and_mix_single_speaker() {
+        let mut map = HashMap::new();
         let mut deque = VecDeque::new();
-        deque.push_back(0.5);
+        deque.push_back(0.5_f32);
         deque.push_back(-0.3);
         let _ = map.insert(1u32, deque);
 
         let buffers: SpeakerBuffers = Arc::new(std::sync::Mutex::new(map));
         let mut mix = Vec::new();
-        let n = drain_and_mix(&buffers, &mut mix);
+        let mut cursors = HashMap::new();
+        let n = snapshot_and_mix(&buffers, &mut mix, &mut cursors);
         assert_eq!(n, 2);
         assert!((mix[0] - 0.5).abs() < 1e-5);
         assert!((mix[1] - (-0.3)).abs() < 1e-5);
     }
 
     #[test]
-    fn test_drain_and_mix_multiple_speakers_summed() {
-        let mut map = std::collections::HashMap::new();
+    fn test_snapshot_and_mix_multiple_speakers_summed() {
+        let mut map = HashMap::new();
         let mut d1 = VecDeque::new();
-        d1.push_back(0.4);
+        d1.push_back(0.4_f32);
         d1.push_back(0.3);
         let _ = map.insert(1u32, d1);
 
         let mut d2 = VecDeque::new();
-        d2.push_back(0.3);
+        d2.push_back(0.3_f32);
         d2.push_back(0.2);
         let _ = map.insert(2u32, d2);
 
         let buffers: SpeakerBuffers = Arc::new(std::sync::Mutex::new(map));
         let mut mix = Vec::new();
-        let n = drain_and_mix(&buffers, &mut mix);
+        let mut cursors = HashMap::new();
+        let n = snapshot_and_mix(&buffers, &mut mix, &mut cursors);
         assert_eq!(n, 2);
         assert!((mix[0] - 0.7).abs() < 1e-5);
         assert!((mix[1] - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_snapshot_advances_cursors() {
+        let mut map = HashMap::new();
+        let _ = map.insert(1u32, VecDeque::from(vec![0.1_f32, 0.2, 0.3, 0.4]));
+        let buffers: SpeakerBuffers = Arc::new(std::sync::Mutex::new(map));
+        let mut mix = Vec::new();
+        let mut cursors = HashMap::new();
+
+        let n = snapshot_and_mix(&buffers, &mut mix, &mut cursors);
+        assert_eq!(n, 4);
+        assert_eq!(cursors[&1], 4);
+
+        // Second call without new data returns 0
+        let n2 = snapshot_and_mix(&buffers, &mut mix, &mut cursors);
+        assert_eq!(n2, 0);
+    }
+
+    #[test]
+    fn test_snapshot_cursor_skips_on_drain() {
+        let mut map = HashMap::new();
+        let _ = map.insert(1u32, VecDeque::from(vec![0.1_f32, 0.2, 0.3, 0.4, 0.5]));
+        let buffers: SpeakerBuffers = Arc::new(std::sync::Mutex::new(map));
+        let mut mix = Vec::new();
+        let mut cursors = HashMap::new();
+
+        // Read all 5 samples, cursor -> 5
+        let n = snapshot_and_mix(&buffers, &mut mix, &mut cursors);
+        assert_eq!(n, 5);
+        assert_eq!(cursors[&1], 5);
+
+        // Simulate playback draining 3 from front, then 2 new arrive
+        {
+            let mut locked = buffers.lock().unwrap();
+            let buf = locked.get_mut(&1).unwrap();
+            let _ = buf.drain(..3); // [0.4, 0.5]
+            buf.push_back(0.6);     // [0.4, 0.5, 0.6]
+            buf.push_back(0.7);     // [0.4, 0.5, 0.6, 0.7]
+        }
+
+        // cursor=5 > buf.len()=4 -> cursor skips to 4 (end), no re-read
+        let n2 = snapshot_and_mix(&buffers, &mut mix, &mut cursors);
+        assert_eq!(n2, 0);
+        assert_eq!(cursors[&1], 4);
+
+        // Push one more sample
+        {
+            let mut locked = buffers.lock().unwrap();
+            locked.get_mut(&1).unwrap().push_back(0.8); // [0.4, 0.5, 0.6, 0.7, 0.8]
+        }
+
+        // Now reads only the new sample
+        let n3 = snapshot_and_mix(&buffers, &mut mix, &mut cursors);
+        assert_eq!(n3, 1);
+        assert!((mix[0] - 0.8).abs() < 1e-5);
     }
 }

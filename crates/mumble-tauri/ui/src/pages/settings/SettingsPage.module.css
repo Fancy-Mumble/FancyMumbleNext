@@ -1640,3 +1640,26 @@
   background: var(--color-accent);
   color: #fff;
 }
+
+/* --- Audio Statistics -------------------------------------------- */
+
+.statsRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.statsLabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  min-width: 160px;
+  flex-shrink: 0;
+}
+
+.statsValues {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}

@@ -41,6 +41,7 @@ chrono = "0.4"
 png = "0.18"
 mumble-protocol = { path = "../mumble-protocol", features = ["opus-codec", "persistent-chat"] }
 cpal = "0.17.3"
+rodio = { version = "0.22", features = ["recording"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-window-state = "2"
 

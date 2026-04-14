@@ -291,6 +291,14 @@ export interface PacketStats {
   resync: number;
 }
 
+/** Crypto stats payload emitted on each Ping exchange. */
+export interface CryptoStats {
+  /** Our local decrypt stats (packets we received/decoded). */
+  from_client: PacketStats;
+  /** Server-reported stats for packets it sent to us. */
+  to_client: PacketStats;
+}
+
 /** Rolling-window packet statistics. */
 export interface RollingStats {
   /** Rolling window duration in seconds. */

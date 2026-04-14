@@ -217,6 +217,8 @@ pub struct ConnectionInfo {
     pub server_fancy_version: Option<u64>,
 }
 
+use crate::transport::ocb2::SharedPacketStats;
+
 /// Aggregated server state maintained by the client.
 #[derive(Debug, Default)]
 pub struct ServerState {
@@ -229,6 +231,13 @@ pub struct ServerState {
     /// Shared ping statistics - updated on every Ping echo from the server,
     /// read by the periodic ping task to populate outbound Ping messages.
     pub ping_stats: SharedPingStats,
+    /// Local decrypt packet counters (good/late/lost/resync).
+    /// Updated by the UDP reader task on every successful decrypt;
+    /// included in outgoing Ping messages.
+    pub decrypt_stats: SharedPacketStats,
+    /// Packet counters reported by the server in its Ping replies.
+    /// Represents the server's view of packets it sent to this client.
+    pub server_packet_stats: SharedPacketStats,
 }
 
 impl ServerState {

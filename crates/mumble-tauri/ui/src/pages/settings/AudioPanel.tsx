@@ -1,7 +1,8 @@
 ﻿import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { AudioDevice, AudioSettings } from "../../types";
+import type { AudioDevice, AudioSettings, CryptoStats, PacketStats } from "../../types";
+import { isDesktopPlatform } from "../../utils/platform";
 import { Toggle, SliderField, ShortcutRecorder } from "./SharedControls";
 import styles from "./SettingsPage.module.css";
 
@@ -14,6 +15,52 @@ const FRAME_SIZE_OPTIONS = [
 
 /** Peak-hold decay: percentage-points per second. */
 const PEAK_DECAY_PER_SEC = 80;
+
+function StatsRow({ label, stats }: Readonly<{ label: string; stats: PacketStats }>) {
+  const total = stats.good + stats.late + stats.lost;
+  const lossPercent = total > 0 ? ((stats.lost / total) * 100).toFixed(1) : "0.0";
+  return (
+    <div className={styles.statsRow}>
+      <span className={styles.statsLabel}>{label}</span>
+      <span className={styles.statsValues}>
+        {stats.good} good &middot; {stats.late} late &middot; {stats.lost} lost ({lossPercent}%) &middot; {stats.resync} resync
+      </span>
+    </div>
+  );
+}
+
+function AudioStatsSection() {
+  const [cryptoStats, setCryptoStats] = useState<CryptoStats | null>(null);
+
+  useEffect(() => {
+    const unlisten = listen<CryptoStats>("crypto-stats", (event) => {
+      setCryptoStats(event.payload);
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, []);
+
+  if (!cryptoStats) {
+    return (
+      <section className={styles.section}>
+        <h3 className={styles.sectionTitle}>Audio Statistics</h3>
+        <p className={styles.fieldHint}>
+          No statistics available. Connect to a server to see packet statistics.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className={styles.section}>
+      <h3 className={styles.sectionTitle}>Audio Statistics</h3>
+      <p className={styles.fieldHint}>
+        UDP packet counters since connection start.
+      </p>
+      <StatsRow label="To Client (server sent)" stats={cryptoStats.to_client} />
+      <StatsRow label="From Client (we received)" stats={cryptoStats.from_client} />
+    </section>
+  );
+}
 
 function VuMeter({ rms, peak, threshold }: Readonly<{ rms: number; peak: number; threshold: number }>) {
   const fillRef = useRef<HTMLDivElement>(null);
@@ -74,12 +121,16 @@ export function AudioPanel({
   settings,
   onChange,
   isExpert,
+  useRodioBackend,
+  onToggleAudioBackend,
 }: Readonly<{
   devices: AudioDevice[];
   outputDevices: AudioDevice[];
   settings: AudioSettings;
   onChange: (patch: Partial<AudioSettings>) => void;
   isExpert: boolean;
+  useRodioBackend: boolean;
+  onToggleAudioBackend: () => void;
 }>) {
   const [micTesting, setMicTesting] = useState(false);
   const micTestingRef = useRef(false);
@@ -465,8 +516,28 @@ export function AudioPanel({
             onChange={(v) => onChange({ hold_frames: v })}
             format={(v) => `${v}`}
           />
+
+          {isDesktopPlatform() && (
+            <div className={styles.toggleRow}>
+              <div className={styles.toggleInfo}>
+                <span className={styles.fieldLabel}>Legacy Audio Backend</span>
+                <p className={styles.fieldHint}>
+                  Switch to the legacy cpal audio backend. Use this if you
+                  experience issues with the default rodio backend. Takes effect
+                  on the next voice toggle.
+                </p>
+              </div>
+              <Toggle
+                checked={!useRodioBackend}
+                onChange={onToggleAudioBackend}
+              />
+            </div>
+          )}
         </section>
       )}
+
+      {/* -- Audio Statistics -------------------------------- */}
+      {isExpert && <AudioStatsSection />}
 
 
     </>

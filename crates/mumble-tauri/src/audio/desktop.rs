@@ -242,32 +242,37 @@ impl super::AudioDeviceFactory for CpalAudioFactory {
 // -- Mixing playback -----------------------------------------------
 
 /// Batch-drain up to `mono_needed` samples from every active speaker
-/// into `mixed_buf` (summed/mixed), then remove empty speaker entries.
+/// into `mixed_buf` (summed/mixed).
 ///
 /// Per-speaker volume is applied from `speaker_vols` (0.0-2.0,
 /// defaulting to 1.0 when absent).
 ///
-/// Returns `true` when at least one speaker provided samples.
-/// The caller must hold the mutex for this call only; the lock is
-/// released immediately afterwards so `mixer.feed()` is never blocked
-/// during the output fill phase.
-fn batch_drain_speakers(
+/// Returns `(had_data, valid_count, max_buf_before)`: whether any
+/// speaker contributed, the number of valid mixed samples (max drained
+/// from any single speaker), and the maximum buffer level across all
+/// speakers before draining.  Positions beyond `valid_count` in
+/// `mixed_buf` are zero and should be treated as underrun by the caller.
+pub(super) fn batch_drain_speakers(
     bufs: &mut HashMap<u32, VecDeque<f32>>,
     speaker_vols: &HashMap<u32, f32>,
     mixed_buf: &mut Vec<f32>,
     mono_needed: usize,
-) -> bool {
+) -> (bool, usize, usize) {
     mixed_buf.clear();
     mixed_buf.resize(mono_needed, 0.0_f32);
     let mut any = false;
+    let mut max_drained: usize = 0;
+    let mut max_buf_before: usize = 0;
 
-    bufs.retain(|session, buf| {
+    for (session, buf) in bufs.iter_mut() {
         if buf.is_empty() {
-            return false;
+            continue;
         }
         any = true;
+        max_buf_before = max_buf_before.max(buf.len());
         let vol = speaker_vols.get(session).copied().unwrap_or(1.0);
         let n = buf.len().min(mono_needed);
+        max_drained = max_drained.max(n);
         let (a, b) = buf.as_slices();
         let from_a = n.min(a.len());
         for (dst, src) in mixed_buf[..from_a].iter_mut().zip(&a[..from_a]) {
@@ -280,10 +285,9 @@ fn batch_drain_speakers(
             }
         }
         let _ = buf.drain(..n);
-        !buf.is_empty()
-    });
+    }
 
-    any
+    (any, max_drained, max_buf_before)
 }
 
 /// Multi-speaker mixing playback backed by cpal.
@@ -308,16 +312,18 @@ struct PlaybackState {
     underrun_samples: usize,
 }
 
-/// Try to drain speaker buffers into `mixed_buf`. Returns `Some(drained)` on
-/// success, or `None` when the caller should fill zeros and return early.
+/// Try to drain speaker buffers into `mixed_buf`. Returns
+/// `Some((had_data, valid_count, buf_depth))` on success, or `None`
+/// when the caller should fill zeros and return early (not yet primed
+/// or lock failure).
 fn try_drain_speakers_checked(
     buffers: &mumble_protocol::audio::mixer::SpeakerBuffers,
     speaker_volumes: &mumble_protocol::audio::mixer::SpeakerVolumes,
     primed_cb: &AtomicBool,
     mixed_buf: &mut Vec<f32>,
     mono_needed: usize,
-) -> Option<bool> {
-    const PRE_BUFFER_SAMPLES: usize = 2880;
+) -> Option<(bool, usize, usize)> {
+    const PRE_BUFFER_SAMPLES: usize = 4800;
     let Ok(mut bufs) = buffers.lock() else { return None };
     if !primed_cb.load(Ordering::Relaxed) {
         let max_available = bufs.values().map(VecDeque::len).max().unwrap_or(0);
@@ -326,46 +332,73 @@ fn try_drain_speakers_checked(
         }
         primed_cb.store(true, Ordering::Relaxed);
     }
-    let sv = speaker_volumes.lock().map(|g| g.clone()).unwrap_or_default();
+    // try_lock avoids blocking the real-time audio thread on a second
+    // mutex; on contention we fall back to default volumes (1.0).
+    let sv = speaker_volumes.try_lock().map(|g| g.clone()).unwrap_or_default();
     Some(batch_drain_speakers(&mut bufs, &sv, mixed_buf, mono_needed))
 }
 
-/// Apply an anti-pop ramp when exiting an underrun, then return the output
-/// sample. Updates `state` in-place.
+/// Apply a short anti-pop ramp when exiting an underrun, then return
+/// the output sample. Updates `state` in-place.
 fn apply_underrun_ramp(sample: f32, state: &mut PlaybackState) -> f32 {
-    const RAMP_SAMPLES: usize = 96;
     if !state.in_underrun {
         return sample;
     }
+    const MAX_RAMP: usize = 48; // 1 ms at 48 kHz
+    let ramp_len = state.underrun_samples.clamp(8, MAX_RAMP);
     state.ramp_pos += 1;
-    if state.ramp_pos >= RAMP_SAMPLES {
+    if state.ramp_pos >= ramp_len {
         state.in_underrun = false;
         state.ramp_pos = 0;
         state.underrun_samples = 0;
         sample
     } else {
-        let t = state.ramp_pos as f32 / RAMP_SAMPLES as f32;
-        let gain = 0.5 * (1.0 - (std::f32::consts::PI * t).cos());
-        state.last_sample * (1.0 - gain) + sample * gain
+        let t = state.ramp_pos as f32 / ramp_len as f32;
+        // Simple linear crossfade from last held value to new audio.
+        state.last_sample * (1.0 - t) + sample * t
     }
 }
 
-/// Write one interleaved stereo chunk (2 samples) with volume and underrun
-/// decay, updating `state` in-place.
-fn write_stereo_chunk(
-    chunk: &mut [f32],
+/// Linearly interpolate one sample from `mixed_buf` at the fractional
+/// position given by `out_index * src_ratio`. Returns `None` if the
+/// computed source index falls outside `valid_count`.
+fn resample_linear(
+    mixed_buf: &[f32],
+    valid_count: usize,
+    drained: bool,
+    out_index: usize,
+    src_ratio: f64,
+) -> Option<f32> {
+    if !drained {
+        return None;
+    }
+    let src_pos = out_index as f64 * src_ratio;
+    let idx = src_pos as usize;
+    if idx >= valid_count {
+        return None;
+    }
+    let frac = (src_pos - idx as f64) as f32;
+    let s0 = mixed_buf[idx];
+    let s1 = if idx + 1 < valid_count { mixed_buf[idx + 1] } else { s0 };
+    Some(s0 + (s1 - s0) * frac)
+}
+
+/// Write one output frame (mono sample duplicated to all channels) with
+/// volume, underrun decay, and anti-pop ramp. Updates `state` in-place.
+fn write_output_frame(
+    frame: &mut [f32],
     sample_opt: Option<f32>,
     state: &mut PlaybackState,
     vol: f32,
-    primed_cb: &AtomicBool,
 ) {
-    const DECAY: f32 = 0.99;
-    const REPRIME_THRESHOLD: usize = 9600;
+    const DECAY: f32 = 0.997;
     if let Some(raw) = sample_opt {
-        let out = apply_underrun_ramp(raw.tanh(), state);
+        let out = apply_underrun_ramp(raw, state);
         state.last_sample = out;
-        chunk[0] = out * vol;
-        chunk[1] = out * vol;
+        let v = out * vol;
+        for ch in frame.iter_mut() {
+            *ch = v;
+        }
     } else {
         state.in_underrun = true;
         state.ramp_pos = 0;
@@ -374,11 +407,10 @@ fn write_stereo_chunk(
         if state.last_sample.abs() < 1e-6 {
             state.last_sample = 0.0;
         }
-        if state.underrun_samples >= REPRIME_THRESHOLD {
-            primed_cb.store(false, Ordering::Relaxed);
+        let v = state.last_sample * vol;
+        for ch in frame.iter_mut() {
+            *ch = v;
         }
-        chunk[0] = state.last_sample * vol;
-        chunk[1] = state.last_sample * vol;
     }
 }
 
@@ -421,32 +453,77 @@ impl CpalMixingPlayback {
     }
 }
 
+/// Diagnostic counters for the playback callback, logged periodically.
+struct CallbackDiag {
+    callbacks: u64,
+    underrun: u64,
+    partial: u64,
+    none: u64,
+    peak: f32,
+    buf_depth: usize,
+}
+
+impl CallbackDiag {
+    fn log_if_due(&self, src_needed: usize, valid_count: usize, out_frames: usize, src_ratio: f64) {
+        if self.callbacks.is_multiple_of(500) {
+            warn!(
+                "audio diag: cb={}, none={}, underrun={}, partial={}, \
+                 src_needed={}, valid={}, out_frames={}, ratio={:.4}, \
+                 peak={:.4}, buf={}",
+                self.callbacks, self.none, self.underrun, self.partial,
+                src_needed, valid_count, out_frames, src_ratio,
+                self.peak, self.buf_depth,
+            );
+        }
+    }
+}
+
 impl super::MixingPlayback for CpalMixingPlayback {
     fn start(&mut self) -> Result<()> {
         let buffers = self.buffers.clone();
         let volume = self.volume.clone();
         let speaker_volumes = self.speaker_volumes.clone();
 
-        // Pre-buffer: wait until at least one speaker has 60 ms
-        // of decoded audio before starting output, to absorb
-        // network jitter and prevent pops.
-        let primed = Arc::new(AtomicBool::new(false));
-        let primed_cb = primed.clone();
+        // Query the device's preferred output format. On WASAPI shared
+        // mode the system mixer rate is fixed; hardcoding 48 kHz when
+        // the device runs at a different rate causes the callback to
+        // fire at the native rate while we feed 48 kHz data, starving
+        // the speaker buffers.
+        let default_config = self
+            .device
+            .default_output_config()
+            .map_err(|e| Error::InvalidState(format!("output config query: {e}")))?;
+        let device_rate = default_config.sample_rate();
+        let device_channels = default_config.channels();
+
+        warn!(
+            "cpal output device: rate={} Hz, channels={}, format={:?}",
+            device_rate, device_channels, default_config.sample_format()
+        );
 
         let stream_config = cpal::StreamConfig {
-            channels: 2,
-            sample_rate: 48_000,
+            channels: device_channels,
+            sample_rate: device_rate,
             buffer_size: cpal::BufferSize::Default,
         };
 
-        let mut last_sample: f32 = 0.0;
-        let mut in_underrun = false;
-        let mut ramp_pos: usize = 0;
-        let mut underrun_samples: usize = 0;
+        // Source-to-output sample ratio for resampling.
+        // < 1.0 when the device rate exceeds 48 kHz (upsampling).
+        let src_ratio: f64 = 48_000.0 / device_rate as f64;
+        let out_channels = device_channels as usize;
 
-        // Pre-mixed mono buffer reused across callbacks to avoid
-        // repeated allocation.
+        let primed = Arc::new(AtomicBool::new(false));
+        let primed_cb = primed.clone();
+
+        let mut diag = CallbackDiag { callbacks: 0, underrun: 0, partial: 0, none: 0, peak: 0.0, buf_depth: 0 };
+        let mut pb_state = PlaybackState {
+            last_sample: 0.0,
+            in_underrun: false,
+            ramp_pos: 0,
+            underrun_samples: 0,
+        };
         let mut mixed_buf: Vec<f32> = Vec::new();
+        let mut consecutive_empty: u32 = 0;
 
         let stream = self
             .device
@@ -454,32 +531,56 @@ impl super::MixingPlayback for CpalMixingPlayback {
                 &stream_config,
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     let vol = f32::from_bits(volume.load(Ordering::Relaxed));
-                    let mono_needed = data.len() / 2;
-                    let mut pb_state = PlaybackState {
-                        last_sample,
-                        in_underrun,
-                        ramp_pos,
-                        underrun_samples,
-                    };
+                    let out_frames = data.len() / out_channels;
+                    let src_needed =
+                        ((out_frames as f64 * src_ratio).ceil() as usize).max(1);
+
+                    diag.callbacks += 1;
+
                     let drain_result = try_drain_speakers_checked(
                         &buffers,
                         &speaker_volumes,
                         &primed_cb,
                         &mut mixed_buf,
-                        mono_needed,
+                        src_needed,
                     );
-                    let Some(drained) = drain_result else {
-                        data.fill(0.0);
+                    let Some((drained, valid_count, buf_depth)) = drain_result else {
+                        diag.none += 1;
+                        for frame in data.chunks_exact_mut(out_channels) {
+                            write_output_frame(frame, None, &mut pb_state, vol);
+                        }
                         return;
                     };
-                    for (i, chunk) in data.chunks_exact_mut(2).enumerate() {
-                        let sample_opt = (drained && i < mixed_buf.len()).then(|| mixed_buf[i]);
-                        write_stereo_chunk(chunk, sample_opt, &mut pb_state, vol, &primed_cb);
+                    diag.buf_depth = buf_depth;
+
+                    if !drained || valid_count == 0 {
+                        diag.underrun += 1;
+                        consecutive_empty += 1;
+                        // Only reprime after sustained silence (1.5 s).
+                        // Natural speech pauses (100-500 ms) are absorbed
+                        // by the buffer; repriming during those pauses
+                        // would introduce ~100 ms audible gaps.
+                        const REPRIME_AFTER: u32 = 150;
+                        if consecutive_empty >= REPRIME_AFTER {
+                            primed_cb.store(false, Ordering::Relaxed);
+                        }
+                    } else {
+                        consecutive_empty = 0;
+                        if valid_count < src_needed {
+                            diag.partial += 1;
+                        }
                     }
-                    last_sample = pb_state.last_sample;
-                    in_underrun = pb_state.in_underrun;
-                    ramp_pos = pb_state.ramp_pos;
-                    underrun_samples = pb_state.underrun_samples;
+                    diag.log_if_due(src_needed, valid_count, out_frames, src_ratio);
+
+                    for (i, frame) in data.chunks_exact_mut(out_channels).enumerate() {
+                        let sample_opt = resample_linear(
+                            &mixed_buf, valid_count, drained, i, src_ratio,
+                        );
+                        if let Some(s) = &sample_opt {
+                            diag.peak = diag.peak.max(s.abs());
+                        }
+                        write_output_frame(frame, sample_opt, &mut pb_state, vol);
+                    }
                 },
                 |err| error!("cpal mixing output error: {err}"),
                 None,
@@ -552,14 +653,17 @@ mod tests {
         let speaker_vols: HashMap<u32, f32> = HashMap::new();
         let mut mixed = Vec::new();
 
-        let had = batch_drain_speakers(&mut bufs, &speaker_vols, &mut mixed, 10);
+        let (had, valid, _depth) = batch_drain_speakers(&mut bufs, &speaker_vols, &mut mixed, 10);
         assert!(had);
+        assert_eq!(valid, 10);
         assert_eq!(mixed.len(), 10);
         for &s in &mixed {
             assert!((s - 0.75).abs() < 1e-6, "expected 0.75, got {s}");
         }
-        // Both speakers fully drained, so entries removed.
-        assert!(bufs.is_empty());
+        // Both speakers fully drained (entries kept with empty buffers).
+        for buf in bufs.values() {
+            assert!(buf.is_empty());
+        }
     }
 
     #[test]
@@ -569,8 +673,9 @@ mod tests {
         let speaker_vols: HashMap<u32, f32> = HashMap::new();
         let mut mixed = Vec::new();
 
-        let had = batch_drain_speakers(&mut bufs, &speaker_vols, &mut mixed, 10);
+        let (had, valid, _depth) = batch_drain_speakers(&mut bufs, &speaker_vols, &mut mixed, 10);
         assert!(had);
+        assert_eq!(valid, 5);
         // First 5 samples mixed, rest zero-filled.
         assert_eq!(mixed.len(), 10);
         for &s in &mixed[..5] {
@@ -586,7 +691,7 @@ mod tests {
         let mut bufs: HashMap<u32, VecDeque<f32>> = HashMap::new();
         let speaker_vols: HashMap<u32, f32> = HashMap::new();
         let mut mixed = Vec::new();
-        assert!(!batch_drain_speakers(&mut bufs, &speaker_vols, &mut mixed, 10));
+        assert!(!batch_drain_speakers(&mut bufs, &speaker_vols, &mut mixed, 10).0);
     }
 
     #[test]
@@ -612,8 +717,9 @@ mod tests {
         speaker_vols.insert(2u32, 1.5_f32); // speaker 2 at 150%
 
         let mut mixed = Vec::new();
-        let had = batch_drain_speakers(&mut bufs, &speaker_vols, &mut mixed, 4);
+        let (had, valid, _depth) = batch_drain_speakers(&mut bufs, &speaker_vols, &mut mixed, 4);
         assert!(had);
+        assert_eq!(valid, 4);
         // Each sample = 1.0*0.5 + 1.0*1.5 = 2.0
         for &s in &mixed {
             assert!((s - 2.0).abs() < 1e-6, "expected 2.0, got {s}");
@@ -633,5 +739,112 @@ mod tests {
         for &s in &mixed {
             assert!((s - 0.8).abs() < 1e-6, "expected 0.8 (unity), got {s}");
         }
+    }
+
+    fn make_speaker_buffers(
+        data: HashMap<u32, VecDeque<f32>>,
+    ) -> mumble_protocol::audio::mixer::SpeakerBuffers {
+        Arc::new(Mutex::new(data))
+    }
+
+    fn make_speaker_volumes(
+        data: HashMap<u32, f32>,
+    ) -> mumble_protocol::audio::mixer::SpeakerVolumes {
+        Arc::new(Mutex::new(data))
+    }
+
+    #[test]
+    fn try_drain_returns_none_before_primed() {
+        let bufs = make_speaker_buffers(HashMap::from([(1, VecDeque::from(vec![1.0; 100]))]));
+        let vols = make_speaker_volumes(HashMap::new());
+        let primed = AtomicBool::new(false);
+        let mut mixed = Vec::new();
+
+        // 100 samples is below PRE_BUFFER_SAMPLES (4800) -> returns None
+        let result = try_drain_speakers_checked(&bufs, &vols, &primed, &mut mixed, 100);
+        assert!(result.is_none());
+        assert!(!primed.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn try_drain_primes_when_buffer_sufficient() {
+        let bufs = make_speaker_buffers(HashMap::from([(1, VecDeque::from(vec![1.0; 5000]))]));
+        let vols = make_speaker_volumes(HashMap::new());
+        let primed = AtomicBool::new(false);
+        let mut mixed = Vec::new();
+
+        let result = try_drain_speakers_checked(&bufs, &vols, &primed, &mut mixed, 480);
+        assert!(result.is_some());
+        assert!(primed.load(Ordering::Relaxed));
+        let (had_data, valid, _depth) = result.unwrap();
+        assert!(had_data);
+        assert_eq!(valid, 480);
+    }
+
+    #[test]
+    fn try_drain_stays_primed_when_empty() {
+        let bufs = make_speaker_buffers(HashMap::from([(1, VecDeque::from(vec![1.0; 5000]))]));
+        let vols = make_speaker_volumes(HashMap::new());
+        let primed = AtomicBool::new(false);
+        let mut mixed = Vec::new();
+
+        // Prime the buffer
+        let _ = try_drain_speakers_checked(&bufs, &vols, &primed, &mut mixed, 480);
+        assert!(primed.load(Ordering::Relaxed));
+
+        // Drain all remaining data
+        {
+            let mut locked = bufs.lock().unwrap();
+            locked.get_mut(&1).unwrap().clear();
+        }
+
+        // Once primed, stays primed even when empty (returns zero-filled data)
+        let result = try_drain_speakers_checked(&bufs, &vols, &primed, &mut mixed, 480);
+        assert!(result.is_some());
+        assert!(primed.load(Ordering::Relaxed));
+        let (had_data, _valid, _depth) = result.unwrap();
+        assert!(!had_data);
+    }
+
+    #[test]
+    fn try_drain_stays_primed_with_data() {
+        let bufs = make_speaker_buffers(HashMap::from([(1, VecDeque::from(vec![1.0; 10000]))]));
+        let vols = make_speaker_volumes(HashMap::new());
+        let primed = AtomicBool::new(false);
+        let mut mixed = Vec::new();
+
+        // Prime
+        let _ = try_drain_speakers_checked(&bufs, &vols, &primed, &mut mixed, 480);
+        assert!(primed.load(Ordering::Relaxed));
+
+        // Drain again - still has data, should stay primed
+        let result = try_drain_speakers_checked(&bufs, &vols, &primed, &mut mixed, 480);
+        assert!(result.is_some());
+        assert!(primed.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn resample_linear_returns_none_when_not_drained() {
+        let buf = vec![1.0_f32; 10];
+        assert!(resample_linear(&buf, 10, false, 0, 1.0).is_none());
+    }
+
+    #[test]
+    fn resample_linear_identity_at_ratio_one() {
+        let buf = vec![0.0, 0.25, 0.5, 0.75, 1.0];
+        for i in 0..5 {
+            let s = resample_linear(&buf, 5, true, i, 1.0).unwrap();
+            assert!((s - buf[i]).abs() < 1e-6, "index {i}: expected {}, got {s}", buf[i]);
+        }
+    }
+
+    #[test]
+    fn resample_linear_upsamples() {
+        // 2 source samples, ratio 0.5 (device at 2x source rate)
+        let buf = vec![0.0, 1.0];
+        let s0 = resample_linear(&buf, 2, true, 0, 0.5).unwrap();
+        let s1 = resample_linear(&buf, 2, true, 1, 0.5).unwrap();
+        assert!((s0 - 0.0).abs() < 1e-6);
+        assert!((s1 - 0.5).abs() < 1e-6);
     }
 }

@@ -9,14 +9,12 @@ use super::{HandleMessage, HandlerContext};
 use crate::state::{SharedState, types::ChannelEntry};
 
 impl HandleMessage for mumble_tcp::ChannelState {
-    #[allow(clippy::too_many_lines, reason = "channel state handler covers sync, description fetch, pchat mode changes, and custodian events")]
     fn handle(&self, ctx: &HandlerContext) {
         let Some(id) = self.channel_id else { return };
 
-        let (is_synced, needs_description, pchat_changed_for_current, custodian_event, _is_new_channel) = {
+        let (is_synced, needs_description, pchat_changed_for_current, custodian_event) = {
             let mut state_guard = ctx.shared.lock().ok();
             if let Some(ref mut state) = state_guard {
-                let is_new = state.synced && !state.channels.contains_key(&id);
                 let ch = state.channels.entry(id).or_insert_with(|| ChannelEntry {
                     id,
                     parent_id: None,
@@ -33,48 +31,10 @@ impl HandleMessage for mumble_tcp::ChannelState {
                     pchat_retention_days: None,
                     pchat_key_custodians: Vec::new(),
                 });
-                if let Some(parent) = self.parent {
-                    ch.parent_id = Some(parent);
-                }
-                if let Some(ref name) = self.name {
-                    ch.name = name.clone();
-                }
-                if let Some(ref desc) = self.description {
-                    ch.description = desc.clone();
-                }
-                if let Some(ref hash) = self.description_hash {
-                    ch.description_hash = Some(hash.clone());
-                }
-                if let Some(temp) = self.temporary {
-                    ch.temporary = temp;
-                }
-                if let Some(pos) = self.position {
-                    ch.position = pos;
-                }
-                if let Some(max) = self.max_users {
-                    ch.max_users = max;
-                }
-                let mut mode_changed = false;
-                if let Some(mode) = self.pchat_protocol {
-                    let new_mode = PchatProtocol::from_proto(mode);
-                    let old_mode = ch.pchat_protocol;
-                    ch.pchat_protocol = Some(new_mode);
-                    mode_changed = old_mode != Some(new_mode);
-                }
-                if let Some(max_hist) = self.pchat_max_history {
-                    ch.pchat_max_history = Some(max_hist);
-                }
-                if let Some(ret) = self.pchat_retention_days {
-                    ch.pchat_retention_days = Some(ret);
-                }
-                // Update key custodian list from proto.
-                if !self.pchat_key_custodians.is_empty() || ch.pchat_key_custodians != self.pchat_key_custodians {
-                    ch.pchat_key_custodians = self.pchat_key_custodians.clone();
-                }
+                let mode_changed = apply_channel_state_fields(ch, self);
                 let new_custodians = ch.pchat_key_custodians.clone();
                 let needs_desc =
                     ch.description.is_empty() && ch.description_hash.is_some() && state.synced;
-                // ch borrow ends here — safe to borrow state immutably
                 if mode_changed {
                     debug!(
                         channel_id = id,
@@ -83,91 +43,135 @@ impl HandleMessage for mumble_tcp::ChannelState {
                         "pchat: channel mode changed"
                     );
                 }
-                // Update custodian TOFU pin in key manager.
                 let cust_event = state.pchat.as_mut().and_then(|pchat| {
                     let changed = pchat.key_manager.update_custodian_pin(id, new_custodians);
                     changed.then(|| pchat.key_manager.get_custodian_pin(id).cloned()).flatten()
                 });
                 let is_current = state.current_channel == Some(id);
-                (state.synced, needs_desc, mode_changed && is_current, cust_event, is_new)
+                (state.synced, needs_desc, mode_changed && is_current, cust_event)
             } else {
-                (false, false, false, None, false)
+                (false, false, false, None)
             }
         };
 
-        // Emit custodian-pin-changed event when the pin state changes.
         if let Some(pin) = custodian_event {
-            use serde::Serialize;
-            use tauri::Emitter;
-            #[derive(Serialize, Clone)]
-            struct CustodianPinPayload {
-                channel_id: u32,
-                pin: CustodianPinPayloadInner,
-            }
-            #[derive(Serialize, Clone)]
-            #[serde(rename_all = "camelCase")]
-            struct CustodianPinPayloadInner {
-                pinned: Vec<String>,
-                confirmed: bool,
-                pending_update: Option<Vec<String>>,
-            }
-            let app = ctx.shared.lock().ok().and_then(|s| s.tauri_app_handle.clone());
-            if let Some(app) = app {
-                let _ = app.emit("custodian-pin-changed", CustodianPinPayload {
-                    channel_id: id,
-                    pin: CustodianPinPayloadInner {
-                        pinned: pin.pinned,
-                        confirmed: pin.confirmed,
-                        pending_update: pin.pending_update,
-                    },
-                });
-            }
+            emit_custodian_pin_changed(ctx, id, pin);
         }
 
-        // When the pchat mode changes on our current channel to an encrypted mode,
-        // trigger key generation and fetch.
         if pchat_changed_for_current {
             debug!(channel_id = id, "pchat: mode changed on current channel, spawning key-gen + fetch");
             let shared = Arc::clone(&ctx.shared);
             let _pchat_key_gen_task = tokio::spawn(pchat_key_gen_and_fetch(shared, id));
         }
 
-        // Request the full description blob if only a hash
-        // was provided (large descriptions are deferred).
         if needs_description {
-            let shared = Arc::clone(&ctx.shared);
-            let _description_fetch_task = tokio::spawn(async move {
-                let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
-                if let Some(handle) = handle {
-                    let _ = handle
-                        .send(command::RequestBlob {
-                            session_texture: Vec::new(),
-                            session_comment: Vec::new(),
-                            channel_description: vec![id],
-                        })
-                        .await;
-                }
-            });
+            spawn_description_fetch(Arc::clone(&ctx.shared), id);
         }
 
-        // When a channel state changes, re-query its permissions
-        // so the cached bitmask stays up-to-date (ACL changes, etc.).
         if is_synced {
-            let shared = Arc::clone(&ctx.shared);
-            let _permissions_query_task = tokio::spawn(async move {
-                let handle = {
-                    let state = shared.lock().ok();
-                    state.and_then(|s| s.client_handle.clone())
-                };
-                if let Some(handle) = handle {
-                    let _ = handle
-                        .send(command::PermissionQuery { channel_id: id })
-                        .await;
-                }
-            });
+            spawn_permissions_refresh(Arc::clone(&ctx.shared), id);
             ctx.emit_empty("state-changed");
         }
     }
+}
+
+fn apply_channel_state_fields(ch: &mut ChannelEntry, proto: &mumble_tcp::ChannelState) -> bool {
+    if let Some(parent) = proto.parent {
+        ch.parent_id = Some(parent);
+    }
+    if let Some(ref name) = proto.name {
+        ch.name = name.clone();
+    }
+    if let Some(ref desc) = proto.description {
+        ch.description = desc.clone();
+    }
+    if let Some(ref hash) = proto.description_hash {
+        ch.description_hash = Some(hash.clone());
+    }
+    if let Some(temp) = proto.temporary {
+        ch.temporary = temp;
+    }
+    if let Some(pos) = proto.position {
+        ch.position = pos;
+    }
+    if let Some(max) = proto.max_users {
+        ch.max_users = max;
+    }
+    let mut mode_changed = false;
+    if let Some(mode) = proto.pchat_protocol {
+        let new_mode = PchatProtocol::from_proto(mode);
+        let old_mode = ch.pchat_protocol;
+        ch.pchat_protocol = Some(new_mode);
+        mode_changed = old_mode != Some(new_mode);
+    }
+    if let Some(max_hist) = proto.pchat_max_history {
+        ch.pchat_max_history = Some(max_hist);
+    }
+    if let Some(ret) = proto.pchat_retention_days {
+        ch.pchat_retention_days = Some(ret);
+    }
+    if !proto.pchat_key_custodians.is_empty() || ch.pchat_key_custodians != proto.pchat_key_custodians {
+        ch.pchat_key_custodians = proto.pchat_key_custodians.clone();
+    }
+    mode_changed
+}
+
+fn emit_custodian_pin_changed(
+    ctx: &HandlerContext,
+    channel_id: u32,
+    pin: mumble_protocol::persistent::keys::CustodianPinState,
+) {
+    use serde::Serialize;
+    use tauri::Emitter;
+    #[derive(Serialize, Clone)]
+    struct CustodianPinPayload {
+        channel_id: u32,
+        pin: CustodianPinPayloadInner,
+    }
+    #[derive(Serialize, Clone)]
+    #[serde(rename_all = "camelCase")]
+    struct CustodianPinPayloadInner {
+        pinned: Vec<String>,
+        confirmed: bool,
+        pending_update: Option<Vec<String>>,
+    }
+    let app = ctx.shared.lock().ok().and_then(|s| s.tauri_app_handle.clone());
+    if let Some(app) = app {
+        let _ = app.emit("custodian-pin-changed", CustodianPinPayload {
+            channel_id,
+            pin: CustodianPinPayloadInner {
+                pinned: pin.pinned,
+                confirmed: pin.confirmed,
+                pending_update: pin.pending_update,
+            },
+        });
+    }
+}
+
+fn spawn_description_fetch(shared: Arc<Mutex<SharedState>>, id: u32) {
+    let _task = tokio::spawn(async move {
+        let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
+        if let Some(handle) = handle {
+            let _ = handle
+                .send(command::RequestBlob {
+                    session_texture: Vec::new(),
+                    session_comment: Vec::new(),
+                    channel_description: vec![id],
+                })
+                .await;
+        }
+    });
+}
+
+fn spawn_permissions_refresh(shared: Arc<Mutex<SharedState>>, id: u32) {
+    let _task = tokio::spawn(async move {
+        let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
+        if let Some(handle) = handle {
+            let _ = handle
+                .send(command::PermissionQuery { channel_id: id })
+                .await;
+        }
+    });
 }
 
 async fn pchat_key_gen_and_fetch(shared: Arc<Mutex<SharedState>>, id: u32) {

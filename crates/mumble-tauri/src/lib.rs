@@ -821,6 +821,23 @@ async fn set_audio_settings(
     Ok(())
 }
 
+/// Switch the desktop audio backend at runtime.
+///
+/// `true` selects the rodio backend (default), `false` selects the
+/// legacy cpal backend. Takes effect on the next voice toggle.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn set_audio_backend(use_rodio: bool) {
+    audio::set_use_rodio_backend(use_rodio);
+}
+
+/// Returns `true` if the rodio backend is selected, `false` for legacy cpal.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn get_audio_backend() -> bool {
+    audio::is_rodio_backend()
+}
+
 /// Get the current voice state.
 #[tauri::command]
 fn get_voice_state(state: tauri::State<'_, AppState>) -> VoiceState {
@@ -881,6 +898,29 @@ fn start_latency_test(state: tauri::State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 fn stop_latency_test(state: tauri::State<'_, AppState>) {
     state.stop_latency_test();
+}
+
+/// Start recording inbound audio to a file.
+#[tauri::command]
+fn start_recording(
+    state: tauri::State<'_, AppState>,
+    directory: String,
+    filename: String,
+    format: state::recording::RecordingFormat,
+) -> Result<String, String> {
+    state.start_recording(directory, filename, format)
+}
+
+/// Stop the current recording and finalize the file.
+#[tauri::command]
+fn stop_recording(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    state.stop_recording()
+}
+
+/// Get the current recording state.
+#[tauri::command]
+fn get_recording_state(state: tauri::State<'_, AppState>) -> state::recording::RecordingState {
+    state.recording_state()
 }
 
 /// Set the user comment on the connected server (`FancyMumble` profile + bio).
@@ -1953,59 +1993,63 @@ fn inject_no_gpu_stylesheet(wv: &webkit2gtk::WebView) {
 ///
 /// Initialises the TLS crypto provider, sets up logging, registers all
 /// Tauri commands, and starts the application event loop.
-#[allow(clippy::too_many_lines, reason = "application bootstrap registers all Tauri commands, plugins, and event handlers")]
 #[allow(clippy::expect_used, reason = "Tauri builder failure during startup is unrecoverable")]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Install the ring TLS crypto provider before anything touches rustls.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    // On Linux, handle quick-action CLI args (e.g. `--action mute`) sent
-    // by .desktop file actions.  If one is found, forward it to the running
-    // instance via a Unix socket and exit immediately.
     #[cfg(target_os = "linux")]
     if linux_desktop::try_send_quick_action() {
         return;
     }
 
-    // On Linux, set the GTK program name and application name so GNOME
-    // matches the running window to the .desktop file.
     #[cfg(target_os = "linux")]
-    linux_desktop::set_gtk_identifiers();
+    let linux_gpu = init_linux_platform();
 
-    // On Linux, configure WebKitGTK environment variables based on
-    // whether a usable EGL display exists.  These must be set before the
-    // WebView process is spawned.
-    #[cfg(target_os = "linux")]
-    let linux_gpu = probe_gpu_capability();
+    init_logging();
 
-    #[cfg(target_os = "linux")]
-    {
-        match linux_gpu {
-            GpuCapability::HardwareAccelerated => {
-                std::env::set_var("WEBKIT_FORCE_COMPOSITING_MODE", "1");
+    let builder = create_base_builder();
+    let builder = register_commands(builder);
+
+    builder
+        .manage(AppState::new())
+        .setup(move |app| {
+            init_app_state(app);
+            #[cfg(target_os = "linux")]
+            {
+                linux_desktop::install_desktop_entry();
+                linux_desktop::start_action_listener(app.handle().clone());
+                configure_webkitgtk(app, linux_gpu);
             }
-            GpuCapability::SoftwareOnly | GpuCapability::NoEgl => {
-                if linux_gpu == GpuCapability::SoftwareOnly {
-                    std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+            #[cfg(not(target_os = "android"))]
+            if let Err(e) = tray::setup_tray(app) {
+                tracing::warn!("Failed to create system tray icon: {e}");
+            }
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Focused(focused) = event {
+                if let Some(state) = window.try_state::<AppState>() {
+                    if let Ok(mut s) = state.inner.lock() {
+                        s.app_focused = *focused;
+                    }
                 }
-                std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-                std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
-                std::env::set_var("GST_GL_PLATFORM", "none");
-                std::env::set_var("GST_GL_WINDOW", "dummy");
-                std::env::set_var("GST_GL_API", "none");
             }
-        }
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<AppState>() {
+                    state.shutdown_offload_store();
+                }
+                #[cfg(target_os = "linux")]
+                linux_desktop::cleanup_socket();
+            }
+        });
+}
 
-        // AppImages bundle GStreamer core but usually not the plugins.
-        // Point GStreamer at the host system's plugin directories.
-        if running_in_appimage() {
-            ensure_gstreamer_plugins_discoverable();
-        }
-    }
-
-    // Set up a reloadable tracing subscriber so the log level can be changed
-    // at runtime from the frontend (Advanced Settings > Debug Logging).
+fn init_logging() {
     let default_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into());
     let filter = EnvFilter::try_new(&default_filter).unwrap_or_else(|_| EnvFilter::new("info"));
     let (filter_layer, reload_handle) = reload::Layer::new(filter);
@@ -2014,16 +2058,48 @@ pub fn run() {
         .with(tracing_subscriber::fmt::layer())
         .init();
     let _ = LOG_RELOAD_HANDLE.set(reload_handle);
+}
 
+#[cfg(target_os = "linux")]
+fn init_linux_platform() -> GpuCapability {
+    linux_desktop::set_gtk_identifiers();
+    let gpu = probe_gpu_capability();
+    match gpu {
+        GpuCapability::HardwareAccelerated => {
+            std::env::set_var("WEBKIT_FORCE_COMPOSITING_MODE", "1");
+        }
+        GpuCapability::SoftwareOnly | GpuCapability::NoEgl => {
+            if gpu == GpuCapability::SoftwareOnly {
+                std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+            }
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+            std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+            std::env::set_var("GST_GL_PLATFORM", "none");
+            std::env::set_var("GST_GL_WINDOW", "dummy");
+            std::env::set_var("GST_GL_API", "none");
+        }
+    }
+    if running_in_appimage() {
+        ensure_gstreamer_plugins_discoverable();
+    }
+    gpu
+}
+
+fn init_app_state(app: &mut tauri::App) {
+    let state = app.state::<AppState>();
+    state.set_app_handle(app.handle().clone());
+    if let Err(e) = state.init_offload_store() {
+        tracing::warn!("Failed to initialise offload store: {e}");
+    }
+}
+
+fn create_base_builder() -> tauri::Builder<tauri::Wry> {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init());
 
-    // Register the foreground connection service plugin on Android so
-    // the process stays alive (and keeps receiving messages / showing
-    // notifications) when the app is in the background.
     #[cfg(target_os = "android")]
     let builder = builder.plugin(
         tauri::plugin::Builder::<tauri::Wry, ()>::new("connection-service")
@@ -2041,8 +2117,6 @@ pub fn run() {
             .build(),
     );
 
-    // Register the FCM plugin on Android so the Rust backend can
-    // subscribe/unsubscribe to FCM topics for push notifications.
     #[cfg(target_os = "android")]
     let builder = builder.plugin(
         tauri::plugin::Builder::<tauri::Wry, ()>::new("fcm-service")
@@ -2058,45 +2132,18 @@ pub fn run() {
             .build(),
     );
 
-    // Window state persistence is desktop-only.
     #[cfg(not(target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_window_state::Builder::new().build());
 
-    // Global shortcuts (PTT) are only available on desktop.
     #[cfg(not(target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
 
     builder
-        .manage(AppState::new())
-        .setup(move |app| {
-            let state = app.state::<AppState>();
-            state.set_app_handle(app.handle().clone());
-            // Initialise the encrypted temp-file store for message offloading.
-            // Stale files from a previous session are deleted first.
-            if let Err(e) = state.init_offload_store() {
-                tracing::warn!("Failed to initialise offload store: {e}");
-            }
+}
 
-            // On Linux, install the .desktop file (for GNOME app name + icon)
-            // and start the quick-action IPC listener.
-            #[cfg(target_os = "linux")]
-            {
-                linux_desktop::install_desktop_entry();
-                linux_desktop::start_action_listener(app.handle().clone());
-            }
-
-            #[cfg(target_os = "linux")]
-            configure_webkitgtk(app, linux_gpu);
-
-            // System tray icon with quick actions (desktop only).
-            #[cfg(not(target_os = "android"))]
-            if let Err(e) = tray::setup_tray(app) {
-                tracing::warn!("Failed to create system tray icon: {e}");
-            }
-
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
+macro_rules! all_command_handlers {
+    () => {
+        tauri::generate_handler![
             connect,
             generate_certificate,
             list_certificates,
@@ -2130,6 +2177,8 @@ pub fn run() {
             get_output_devices,
             get_audio_settings,
             set_audio_settings,
+            set_audio_backend,
+            get_audio_backend,
             get_voice_state,
             enable_voice,
             disable_voice,
@@ -2140,6 +2189,9 @@ pub fn run() {
             calibrate_voice_threshold,
             start_latency_test,
             stop_latency_test,
+            start_recording,
+            stop_recording,
+            get_recording_state,
             set_user_comment,
             set_user_texture,
             get_own_session,
@@ -2201,29 +2253,12 @@ pub fn run() {
             key_takeover,
             blur_image,
             process_background,
-        ])
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Focused(focused) = event {
-                if let Some(state) = window.try_state::<AppState>() {
-                    if let Ok(mut s) = state.inner.lock() {
-                        s.app_focused = *focused;
-                    }
-                }
-            }
-        })
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                // Clean up offloaded temp files on graceful shutdown.
-                if let Some(state) = app.try_state::<AppState>() {
-                    state.shutdown_offload_store();
-                }
-                // Remove the quick-action Unix socket.
-                #[cfg(target_os = "linux")]
-                linux_desktop::cleanup_socket();
-            }
-        });
+        ]
+    };
+}
+
+fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder.invoke_handler(all_command_handlers!())
 }
 
 #[cfg(test)]
