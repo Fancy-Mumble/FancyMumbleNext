@@ -531,6 +531,8 @@ impl HandleMessage for mumble_tcp::TextMessage {
                 if try_apply_edit(self, &kind, edit_id, &mut state) {
                     emit_edit_events(&kind, self, &state, ctx, &mut deferred);
                 }
+                drop(state);
+                deferred.flush();
                 return;
             }
 
