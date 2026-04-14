@@ -1773,20 +1773,20 @@ enum GpuCapability {
     NoEgl,
 }
 
-/// Check whether this process was launched from an AppImage.
+/// Check whether this process was launched from an `AppImage`.
 #[cfg(target_os = "linux")]
 fn running_in_appimage() -> bool {
     std::env::var_os("APPIMAGE").is_some() || std::env::var_os("APPDIR").is_some()
 }
 
-/// Ensure GStreamer can find plugins from the host system.
+/// Ensure `GStreamer` can find plugins from the host system.
 ///
-/// AppImage launchers set `GST_PLUGIN_SYSTEM_PATH` / `_1_0` pointing at
-/// the bundled (and typically empty) plugin directory.  WebKit then hits
+/// `AppImage` launchers set `GST_PLUGIN_SYSTEM_PATH` / `_1_0` pointing at
+/// the bundled (and typically empty) plugin directory.  `WebKit` then hits
 /// a `RELEASE_ASSERT` because elements like `appsink` are missing.
 ///
 /// This function appends the host's standard plugin directories so
-/// GStreamer scans both the bundled and system locations.
+/// `GStreamer` scans both the bundled and system locations.
 #[cfg(target_os = "linux")]
 fn ensure_gstreamer_plugins_discoverable() {
     let system_dirs: Vec<&str> = [
@@ -1820,7 +1820,7 @@ fn ensure_gstreamer_plugins_discoverable() {
 /// Three-tier result:
 /// - `HardwareAccelerated`: EGL + DRI render nodes work (force `Always`).
 /// - `SoftwareOnly`: EGL initializes via Mesa software but no real GPU is
-///   available (use `OnDemand` so WebKit falls back gracefully).
+///   available (use `OnDemand` so `WebKit` falls back gracefully).
 /// - `NoEgl`: EGL cannot even initialize (force `Never`, disable compositing).
 #[cfg(target_os = "linux")]
 fn probe_gpu_capability() -> GpuCapability {
@@ -1912,7 +1912,7 @@ fn egl_can_initialize() -> bool {
 ///
 /// - `HardwareAccelerated`: force `Always` + WebGL for full CSS effects.
 /// - `SoftwareOnly`: force `Never` because `OnDemand` still attempts
-///    GPU rendering for complex views, which crashes without a real GPU.
+///   GPU rendering for complex views, which crashes without a real GPU.
 /// - `NoEgl`: force `Never` to prevent abort on EGL initialization.
 #[cfg(target_os = "linux")]
 fn configure_webkitgtk(app: &tauri::App, gpu: GpuCapability) {
