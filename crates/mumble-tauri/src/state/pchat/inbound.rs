@@ -43,7 +43,7 @@ pub(crate) fn handle_proto_msg_deliver(
 
     let Ok(mut state) = shared.lock() else { return };
 
-    let Some(pchat) = state.pchat.as_mut() else {
+    let Some(pchat) = state.pchat_ctx.pchat.as_mut() else {
         return;
     };
 
@@ -143,7 +143,7 @@ fn insert_or_replace_message(
     chat_msg: ChatMessage,
 ) {
     if let Some(replaces_id) = replaces_id {
-        if let Some(msgs) = state.messages.get_mut(&channel_id) {
+        if let Some(msgs) = state.msgs.by_channel.get_mut(&channel_id) {
             if let Some(pos) = msgs
                 .iter()
                 .position(|m| m.message_id.as_deref() == Some(replaces_id))
@@ -154,7 +154,7 @@ fn insert_or_replace_message(
         }
     }
 
-    if let Some(msgs) = state.messages.get(&channel_id) {
+    if let Some(msgs) = state.msgs.by_channel.get(&channel_id) {
         if msgs
             .iter()
             .any(|m| m.message_id.as_deref() == Some(message_id))
@@ -164,7 +164,7 @@ fn insert_or_replace_message(
     }
 
     state
-        .messages
+        .msgs.by_channel
         .entry(channel_id)
         .or_default()
         .push(chat_msg);
@@ -193,7 +193,7 @@ pub(crate) fn handle_proto_fetch_resp(
     //   the lock.
     let (mut pchat, own_cert_hash, user_hashes) = {
         let mut state = shared.lock().ok().unwrap_or_else(|| unreachable!());
-        let Some(pchat) = state.pchat.take() else {
+        let Some(pchat) = state.pchat_ctx.pchat.take() else {
             return;
         };
         let own_cert_hash = pchat.own_cert_hash.clone();
@@ -213,7 +213,7 @@ pub(crate) fn handle_proto_fetch_resp(
     let Ok(mut state) = shared.lock() else {
         return;
     };
-    state.pchat = Some(pchat);
+    state.pchat_ctx.pchat = Some(pchat);
 
     merge_decrypted_messages(&mut state, channel_id, decrypted_msgs);
 }
@@ -338,7 +338,7 @@ fn merge_decrypted_messages(
         new_count = decrypted_msgs.len(),
         "pchat fetch-resp: inserting decrypted messages"
     );
-    let existing = state.messages.entry(channel_id).or_default();
+    let existing = state.msgs.by_channel.entry(channel_id).or_default();
 
     let existing_ids: std::collections::HashSet<&str> = existing
         .iter()
@@ -391,7 +391,7 @@ pub(crate) fn handle_proto_delete_messages(
         return;
     };
 
-    let Some(messages) = state.messages.get_mut(&channel_id) else {
+    let Some(messages) = state.msgs.by_channel.get_mut(&channel_id) else {
         debug!(channel_id, "pchat delete: no local messages for channel");
         return;
     };
@@ -464,14 +464,14 @@ pub(crate) fn handle_proto_offline_queue_drain(
     let Ok(mut state) = shared.lock() else {
         return;
     };
-    let Some(pchat) = state.pchat.as_mut() else {
+    let Some(pchat) = state.pchat_ctx.pchat.as_mut() else {
         return;
     };
 
     let decrypted_msgs = decrypt_offline_batch(pchat, channel_id, &msg.messages);
     let acked_ids = insert_offline_messages(&mut state, channel_id, &decrypted_msgs);
 
-    if let Some(msgs) = state.messages.get_mut(&channel_id) {
+    if let Some(msgs) = state.msgs.by_channel.get_mut(&channel_id) {
         msgs.sort_by_key(|m| m.timestamp.unwrap_or(0));
     }
 
@@ -565,7 +565,7 @@ fn insert_offline_messages(
     let mut acked_ids: Vec<String> = Vec::with_capacity(decrypted.len());
 
     for dm in decrypted {
-        if let Some(msgs) = state.messages.get(&channel_id) {
+        if let Some(msgs) = state.msgs.by_channel.get(&channel_id) {
             if msgs
                 .iter()
                 .any(|m| m.message_id.as_deref() == Some(&dm.message_id))
@@ -600,7 +600,7 @@ fn insert_offline_messages(
         };
 
         state
-            .messages
+            .msgs.by_channel
             .entry(channel_id)
             .or_default()
             .push(chat_msg);
@@ -612,7 +612,7 @@ fn insert_offline_messages(
 }
 
 fn send_offline_queue_ack(state: &SharedState, channel_id: u32, acked_ids: Vec<String>) {
-    let Some(handle) = state.client_handle.clone() else {
+    let Some(handle) = state.conn.client_handle.clone() else {
         return;
     };
     let ack = mumble_tcp::PchatAck {

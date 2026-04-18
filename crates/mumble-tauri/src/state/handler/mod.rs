@@ -107,7 +107,7 @@ impl HandlerContext {
         let enabled = self
             .shared
             .lock()
-            .map(|s| s.notifications_enabled)
+            .map(|s| s.prefs.notifications_enabled)
             .unwrap_or(true);
         if enabled {
             self.emitter

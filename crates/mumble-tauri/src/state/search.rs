@@ -1,4 +1,4 @@
-﻿//! Fuzzy super-search across users, channels, groups, and messages.
+//! Fuzzy super-search across users, channels, groups, and messages.
 
 use fancy_utils::fuzzy;
 
@@ -83,7 +83,7 @@ impl AppState {
         let mut entries: Vec<PhotoEntry> = Vec::new();
 
         // Channel messages
-        for (channel_id, msgs) in &state.messages {
+        for (channel_id, msgs) in &state.msgs.by_channel {
             let ch_name = state
                 .channels
                 .get(channel_id)
@@ -105,7 +105,7 @@ impl AppState {
         }
 
         // DM messages
-        for msgs in state.dm_messages.values() {
+        for msgs in state.msgs.by_dm.values() {
             for msg in msgs {
                 if !body_has_image(&msg.body) {
                     continue;
@@ -122,9 +122,9 @@ impl AppState {
         }
 
         // Group messages
-        for (group_id, msgs) in &state.group_messages {
+        for (group_id, msgs) in &state.msgs.by_group {
             let group_name = state
-                .group_chats
+                .msgs.group_chats
                 .get(group_id)
                 .map(|g| g.name.as_str())
                 .unwrap_or("Group");
@@ -194,7 +194,7 @@ fn search_users_fuzzy(state: &super::SharedState, query_lower: &str) -> Vec<Sear
 
 fn search_groups_fuzzy(state: &super::SharedState, query_lower: &str) -> Vec<SearchResult> {
     let mut results: Vec<SearchResult> = state
-        .group_chats
+        .msgs.group_chats
         .values()
         .filter_map(|g| {
             let score = fuzzy::fuzzy_score(query_lower, &g.name.to_lowercase(), SCORE_CUTOFF)?;
@@ -226,7 +226,7 @@ fn search_messages_fuzzy(
     let filter_links = filter == SearchFilter::Links;
     let mut msg_results: Vec<SearchResult> = Vec::new();
 
-    for (ch_id, msgs) in &state.messages {
+    for (ch_id, msgs) in &state.msgs.by_channel {
         if channel_id.is_some_and(|scope| *ch_id != scope) {
             continue;
         }
@@ -237,13 +237,13 @@ fn search_messages_fuzzy(
     }
 
     if !scoped {
-        for msgs in state.dm_messages.values() {
+        for msgs in state.msgs.by_dm.values() {
             msg_results.extend(collect_dm_message_results(
                 msgs.iter(), filter_photos, filter_links, query_lower, query,
             ));
         }
-        for (group_id, msgs) in &state.group_messages {
-            let group_name = state.group_chats.get(group_id).map(|g| g.name.as_str()).unwrap_or("Group");
+        for (group_id, msgs) in &state.msgs.by_group {
+            let group_name = state.msgs.group_chats.get(group_id).map(|g| g.name.as_str()).unwrap_or("Group");
             msg_results.extend(collect_group_message_results(
                 msgs.iter(), group_id, group_name, filter_photos, filter_links, query_lower, query,
             ));

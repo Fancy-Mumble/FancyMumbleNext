@@ -8,7 +8,7 @@ impl HandleMessage for mumble_tcp::UserRemove {
     fn handle(&self, ctx: &HandlerContext) {
         let is_self_kicked = {
             let state = ctx.shared.lock().ok();
-            state.and_then(|s| s.own_session) == Some(self.session)
+            state.and_then(|s| s.conn.own_session) == Some(self.session)
         };
 
         if is_self_kicked {
@@ -19,25 +19,25 @@ impl HandleMessage for mumble_tcp::UserRemove {
                 .unwrap_or_else(|| "Disconnected by server".into());
             info!("Kicked from server: {reason}");
             if let Ok(mut state) = ctx.shared.lock() {
-                state.status = ConnectionStatus::Disconnected;
-                state.client_handle = None;
-                state.event_loop_handle = None;
+                state.conn.status = ConnectionStatus::Disconnected;
+                state.conn.client_handle = None;
+                state.conn.event_loop_handle = None;
                 state.users.clear();
                 state.channels.clear();
-                state.messages.clear();
-                state.own_session = None;
-                state.synced = false;
+                state.msgs.by_channel.clear();
+                state.conn.own_session = None;
+                state.conn.synced = false;
                 state.permanently_listened.clear();
                 state.selected_channel = None;
                 state.current_channel = None;
-                state.unread_counts.clear();
-                state.server_config = ServerConfig::default();
-                state.voice_state = VoiceState::Inactive;
-                state.server_fancy_version = None;
-                state.server_version_info = ServerVersionInfo::default();
-                state.max_users = None;
-                state.max_bandwidth = None;
-                state.opus = false;
+                state.msgs.channel_unread.clear();
+                state.server.config = ServerConfig::default();
+                state.audio.voice_state = VoiceState::Inactive;
+                state.server.fancy_version = None;
+                state.server.version_info = ServerVersionInfo::default();
+                state.server.max_users = None;
+                state.server.max_bandwidth = None;
+                state.server.opus = false;
                 // Stop audio pipelines (desktop only).
                 #[cfg(not(target_os = "android"))]
                 stop_audio_pipelines(&mut state);
@@ -64,15 +64,15 @@ impl HandleMessage for mumble_tcp::UserRemove {
 
                     // Remove any pending key-share requests from the departing user.
                     if let Some(ref hash) = cert_hash {
-                        let before_len = state.pending_key_shares.len();
+                        let before_len = state.pchat_ctx.pending_key_shares.len();
                         let removed: Vec<_> = state
-                            .pending_key_shares
+                            .pchat_ctx.pending_key_shares
                             .iter()
                             .filter(|p| p.peer_cert_hash == *hash)
                             .map(|p| p.channel_id)
                             .collect();
                         state
-                            .pending_key_shares
+                            .pchat_ctx.pending_key_shares
                             .retain(|p| p.peer_cert_hash != *hash);
                         collect_affected_channels(&state, before_len, removed)
                     } else {
@@ -108,13 +108,13 @@ impl HandleMessage for mumble_tcp::UserRemove {
 
 #[cfg(not(target_os = "android"))]
 fn stop_audio_pipelines(state: &mut crate::state::SharedState) {
-    if let Some(handle) = state.outbound_task_handle.take() {
+    if let Some(handle) = state.audio.outbound_task_handle.take() {
         handle.abort();
     }
-    if let Some(mut playback) = state.mixing_playback.take() {
+    if let Some(mut playback) = state.audio.mixing_playback.take() {
         let _ = playback.stop();
     }
-    state.audio_mixer = None;
+    state.audio.mixer = None;
 }
 
 fn collect_affected_channels(
@@ -122,7 +122,7 @@ fn collect_affected_channels(
     before_len: usize,
     removed: Vec<u32>,
 ) -> Vec<(u32, Vec<PendingKeyShare>)> {
-    if state.pending_key_shares.len() == before_len {
+    if state.pchat_ctx.pending_key_shares.len() == before_len {
         return Vec::new();
     }
     let affected_channels: std::collections::HashSet<u32> = removed.into_iter().collect();
@@ -130,7 +130,7 @@ fn collect_affected_channels(
         .into_iter()
         .map(|ch_id| {
             let remaining: Vec<_> = state
-                .pending_key_shares
+                .pchat_ctx.pending_key_shares
                 .iter()
                 .filter(|p| p.channel_id == ch_id)
                 .cloned()

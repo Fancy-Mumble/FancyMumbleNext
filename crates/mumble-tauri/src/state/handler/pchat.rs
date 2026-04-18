@@ -27,10 +27,10 @@ impl HandleMessage for mumble_tcp::PchatMessageDeliver {
             };
 
             let selected = state.selected_channel;
-            let app_focused = state.app_focused;
+            let app_focused = state.prefs.app_focused;
 
             let unreads_changed = if selected != Some(channel_id) {
-                *state.unread_counts.entry(channel_id).or_insert(0) += 1;
+                *state.msgs.channel_unread.entry(channel_id).or_insert(0) += 1;
                 true
             } else {
                 false
@@ -48,7 +48,7 @@ impl HandleMessage for mumble_tcp::PchatMessageDeliver {
                 .unwrap_or_else(|| "Unknown".into());
 
             let body = state
-                .messages
+                .msgs.by_channel
                 .get(&channel_id)
                 .and_then(|msgs| msgs.last())
                 .map(|m| m.body.clone())
@@ -63,7 +63,7 @@ impl HandleMessage for mumble_tcp::PchatMessageDeliver {
             let unreads = ctx
                 .shared
                 .lock()
-                .map(|s| s.unread_counts.clone())
+                .map(|s| s.msgs.channel_unread.clone())
                 .unwrap_or_default();
             ctx.emit("unread-changed", UnreadPayload { unreads });
         }
@@ -156,7 +156,7 @@ impl HandleMessage for mumble_tcp::PchatAck {
         // If a delete request is pending, resolve its oneshot channel.
         if is_deleted || is_rejected {
             if let Ok(mut state) = ctx.shared.lock() {
-                if let Some(tx) = state.pending_delete_ack.take() {
+                if let Some(tx) = state.pchat_ctx.pending_delete_ack.take() {
                     let _ = tx.send(crate::state::types::DeleteAckResult {
                         success: is_deleted,
                         reason: self.reason.clone(),
@@ -202,7 +202,7 @@ impl HandleMessage for mumble_tcp::PchatKeyHoldersList {
                     let name = online_name.unwrap_or_else(|| resolve_entry_name(
                         &cert_hash,
                         entry.name.as_deref().unwrap_or_default(),
-                        state.hash_name_resolver.as_deref(),
+                        state.pchat_ctx.hash_name_resolver.as_deref(),
                     ));
                     let is_online = online_hashes.contains(cert_hash.as_str());
                     crate::state::types::KeyHolderEntry {
@@ -213,7 +213,7 @@ impl HandleMessage for mumble_tcp::PchatKeyHoldersList {
                 })
                 .collect();
 
-            let _ = state.key_holders.insert(channel_id, holders.clone());
+            let _ = state.pchat_ctx.key_holders.insert(channel_id, holders.clone());
 
             // Sync server-provided holder list into key_manager so that
             // consent checks can skip peers who already hold the key.
@@ -223,7 +223,7 @@ impl HandleMessage for mumble_tcp::PchatKeyHoldersList {
                 .map(|e| e.cert_hash.as_str())
                 .collect();
 
-            if let Some(ref mut pchat) = state.pchat {
+            if let Some(ref mut pchat) = state.pchat_ctx.pchat {
                 pchat.key_manager.replace_key_holders(
                     channel_id,
                     holder_hashes.iter().map(|h| (*h).to_owned()).collect(),
@@ -232,16 +232,16 @@ impl HandleMessage for mumble_tcp::PchatKeyHoldersList {
 
             // Remove any pending consent prompts for peers the server now
             // confirms as holders -- they already have the key.
-            let before_len = state.pending_key_shares.len();
-            state.pending_key_shares.retain(|p| {
+            let before_len = state.pchat_ctx.pending_key_shares.len();
+            state.pchat_ctx.pending_key_shares.retain(|p| {
                 !(p.channel_id == channel_id && holder_hashes.contains(p.peer_cert_hash.as_str()))
             });
 
             // Collect payload for deferred emit outside the lock.
-            let share_requests_payload = if state.pending_key_shares.len() != before_len {
-                state.tauri_app_handle.as_ref().map(|app| {
+            let share_requests_payload = if state.pchat_ctx.pending_key_shares.len() != before_len {
+                state.conn.tauri_app_handle.as_ref().map(|app| {
                     let remaining: Vec<_> = state
-                        .pending_key_shares
+                        .pchat_ctx.pending_key_shares
                         .iter()
                         .filter(|p| p.channel_id == channel_id)
                         .cloned()
@@ -366,7 +366,7 @@ impl HandleMessage for mumble_tcp::PchatReactionDeliver {
                 .map(|u| u.name.clone())
                 .unwrap_or_else(|| sender_name.clone());
 
-            if let Some(ref mut pchat_state) = state.pchat {
+            if let Some(ref mut pchat_state) = state.pchat_ctx.pchat {
                 if let Some(ref mut cache) = pchat_state.local_cache {
                     upsert_cached_reaction(
                         cache,
@@ -440,7 +440,7 @@ impl HandleMessage for mumble_tcp::PchatReactionFetchResponse {
                 .filter_map(|u| u.hash.clone().map(|h| (h, u.name.clone())))
                 .collect();
 
-            if let Some(ref mut pchat_state) = state.pchat {
+            if let Some(ref mut pchat_state) = state.pchat_ctx.pchat {
                 if let Some(ref mut cache) = pchat_state.local_cache {
                     bulk_insert_cached_reactions(cache, channel_id, &reactions, &name_by_hash);
                 }
@@ -546,7 +546,7 @@ fn apply_pin_to_message(
     pinner_name: &str,
     timestamp: u64,
 ) {
-    let Some(msgs) = state.messages.get_mut(&channel_id) else { return };
+    let Some(msgs) = state.msgs.by_channel.get_mut(&channel_id) else { return };
     let Some(msg) = msgs.iter_mut().find(|m: &&mut ChatMessage| m.message_id.as_deref() == Some(message_id)) else { return };
     msg.pinned = pinned;
     msg.pinned_by = if pinned { Some(pinner_name.to_owned()) } else { None };

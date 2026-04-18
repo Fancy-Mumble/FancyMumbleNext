@@ -34,21 +34,21 @@ impl HandleMessage for mumble_tcp::ChannelState {
                 let mode_changed = apply_channel_state_fields(ch, self);
                 let new_custodians = ch.pchat_key_custodians.clone();
                 let needs_desc =
-                    ch.description.is_empty() && ch.description_hash.is_some() && state.synced;
+                    ch.description.is_empty() && ch.description_hash.is_some() && state.conn.synced;
                 if mode_changed {
                     debug!(
                         channel_id = id,
                         is_current = (state.current_channel == Some(id)),
-                        has_pchat = state.pchat.is_some(),
+                        has_pchat = state.pchat_ctx.pchat.is_some(),
                         "pchat: channel mode changed"
                     );
                 }
-                let cust_event = state.pchat.as_mut().and_then(|pchat| {
+                let cust_event = state.pchat_ctx.pchat.as_mut().and_then(|pchat| {
                     let changed = pchat.key_manager.update_custodian_pin(id, new_custodians);
                     changed.then(|| pchat.key_manager.get_custodian_pin(id).cloned()).flatten()
                 });
                 let is_current = state.current_channel == Some(id);
-                (state.synced, needs_desc, mode_changed && is_current, cust_event)
+                (state.conn.synced, needs_desc, mode_changed && is_current, cust_event)
             } else {
                 (false, false, false, None)
             }
@@ -135,7 +135,7 @@ fn emit_custodian_pin_changed(
         confirmed: bool,
         pending_update: Option<Vec<String>>,
     }
-    let app = ctx.shared.lock().ok().and_then(|s| s.tauri_app_handle.clone());
+    let app = ctx.shared.lock().ok().and_then(|s| s.conn.tauri_app_handle.clone());
     if let Some(app) = app {
         let _ = app.emit("custodian-pin-changed", CustodianPinPayload {
             channel_id,
@@ -150,7 +150,7 @@ fn emit_custodian_pin_changed(
 
 fn spawn_description_fetch(shared: Arc<Mutex<SharedState>>, id: u32) {
     let _task = tokio::spawn(async move {
-        let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
+        let handle = shared.lock().ok().and_then(|s| s.conn.client_handle.clone());
         if let Some(handle) = handle {
             let _ = handle
                 .send(command::RequestBlob {
@@ -165,7 +165,7 @@ fn spawn_description_fetch(shared: Arc<Mutex<SharedState>>, id: u32) {
 
 fn spawn_permissions_refresh(shared: Arc<Mutex<SharedState>>, id: u32) {
     let _task = tokio::spawn(async move {
-        let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
+        let handle = shared.lock().ok().and_then(|s| s.conn.client_handle.clone());
         if let Some(handle) = handle {
             let _ = handle
                 .send(command::PermissionQuery { channel_id: id })
@@ -187,7 +187,7 @@ async fn pchat_key_gen_and_fetch(shared: Arc<Mutex<SharedState>>, id: u32) {
     let needs_key = shared
         .lock()
         .ok()
-        .and_then(|s| s.pchat.as_ref().map(|p| !p.key_manager.has_key(id, mode)))
+        .and_then(|s| s.pchat_ctx.pchat.as_ref().map(|p| !p.key_manager.has_key(id, mode)))
         .unwrap_or(false);
 
     if needs_key {
@@ -198,13 +198,13 @@ async fn pchat_key_gen_and_fetch(shared: Arc<Mutex<SharedState>>, id: u32) {
     let should_fetch = shared
         .lock()
         .ok()
-        .and_then(|s| s.pchat.as_ref().map(|p| !p.fetched_channels.contains(&id)))
+        .and_then(|s| s.pchat_ctx.pchat.as_ref().map(|p| !p.fetched_channels.contains(&id)))
         .unwrap_or(false);
 
     if should_fetch {
         debug!(channel_id = id, "pchat: sending fetch after mode change");
         if let Ok(mut s) = shared.lock() {
-            if let Some(ref mut p) = s.pchat {
+            if let Some(ref mut p) = s.pchat_ctx.pchat {
                 let _ = p.fetched_channels.insert(id);
             }
         }
@@ -214,7 +214,7 @@ async fn pchat_key_gen_and_fetch(shared: Arc<Mutex<SharedState>>, id: u32) {
             limit: Some(50),
             after_id: None,
         };
-        let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
+        let handle = shared.lock().ok().and_then(|s| s.conn.client_handle.clone());
         if let Some(handle) = handle {
             let _ = handle.send(command::SendPchatFetch { fetch }).await;
             debug!(channel_id = id, "sent pchat-fetch after mode change");
@@ -225,7 +225,7 @@ async fn pchat_key_gen_and_fetch(shared: Arc<Mutex<SharedState>>, id: u32) {
 fn derive_and_store_archive_key(shared: &Arc<Mutex<SharedState>>, id: u32) {
     let Ok(mut s) = shared.lock() else { return };
     let m = s.channels.get(&id).and_then(|c| c.pchat_protocol);
-    let Some(ref mut pchat) = s.pchat else { return };
+    let Some(ref mut pchat) = s.pchat_ctx.pchat else { return };
     let cert = pchat.own_cert_hash.clone();
     if let Some(PchatProtocol::FancyV1FullArchive) = m {
         let key = mumble_protocol::persistent::encryption::derive_archive_key(&pchat.seed, id);

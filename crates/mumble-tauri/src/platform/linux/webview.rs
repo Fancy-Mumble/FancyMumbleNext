@@ -1,6 +1,6 @@
 //! Linux-specific `WebKitGTK` / `AppImage` environment workarounds.
 
-use crate::linux_desktop;
+use super::desktop;
 
 /// Captures the `AppImage` runtime environment at detection time.
 #[derive(Debug)]
@@ -209,7 +209,7 @@ pub fn pre_init() {
 /// Early platform init (before GTK/Tauri starts): sets GTK identifiers
 /// and, inside an `AppImage`, applies `WebKit`/`GStreamer` env overrides.
 pub fn init_platform() {
-    linux_desktop::set_gtk_identifiers();
+    desktop::set_gtk_identifiers();
     if let Some(env) = AppImageEnv::detect() {
         env.apply_workarounds();
         env.ensure_gstreamer_plugins();

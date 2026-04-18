@@ -38,7 +38,7 @@ fn handle_group_create(data: &[u8], ctx: &HandlerContext) {
     debug!(group_id = %group.id, name = %group.name, "group chat created via plugin data");
 
     if let Ok(mut state) = ctx.shared.lock() {
-        let _ = state.group_chats.insert(group.id.clone(), group.clone());
+        let _ = state.msgs.group_chats.insert(group.id.clone(), group.clone());
     }
 
     ctx.emit("group-created", GroupCreatedPayload { group });

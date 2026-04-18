@@ -153,7 +153,7 @@ pub(crate) fn ensure_signal_bridge_unlocked(shared: &Arc<Mutex<SharedState>>) ->
                 return false;
             }
         };
-        if let Some(pchat) = s.pchat.as_ref() {
+        if let Some(pchat) = s.pchat_ctx.pchat.as_ref() {
             if pchat.signal_bridge.is_some() {
                 return true;
             }
@@ -174,7 +174,7 @@ pub(crate) fn ensure_signal_bridge_unlocked(shared: &Arc<Mutex<SharedState>>) ->
                 return false;
             }
         };
-        match s.pchat.as_ref() {
+        match s.pchat_ctx.pchat.as_ref() {
             Some(p) => (p.own_cert_hash.clone(), p.identity_dir.clone()),
             None => return false,
         }
@@ -189,7 +189,7 @@ pub(crate) fn ensure_signal_bridge_unlocked(shared: &Arc<Mutex<SharedState>>) ->
     let loaded = bridge.is_some();
     match shared.lock() {
         Ok(mut s) => {
-            if let Some(ref mut pchat) = s.pchat {
+            if let Some(ref mut pchat) = s.pchat_ctx.pchat {
                 if let Some(ref b) = bridge {
                     pchat.key_manager.set_signal_bridge(Arc::clone(b));
                 } else {
@@ -221,7 +221,7 @@ pub(crate) fn send_signal_distribution(
         let s = shared.lock().ok();
         let bridge_unavailable = s
             .as_ref()
-            .and_then(|s| s.pchat.as_ref())
+            .and_then(|s| s.pchat_ctx.pchat.as_ref())
             .is_some_and(|p| p.signal_bridge_load_failed);
         if bridge_unavailable {
             return;
@@ -231,7 +231,7 @@ pub(crate) fn send_signal_distribution(
     let (handle, distribution) = {
         let Ok(mut state) = shared.lock() else { return };
 
-        let Some(ref mut pchat) = state.pchat else {
+        let Some(ref mut pchat) = state.pchat_ctx.pchat else {
             return;
         };
         if !pchat.ensure_signal_bridge() {
@@ -251,7 +251,7 @@ pub(crate) fn send_signal_distribution(
             }
         };
 
-        (state.client_handle.clone(), dist)
+        (state.conn.client_handle.clone(), dist)
     };
 
     let Some(handle) = handle else { return };
@@ -282,7 +282,7 @@ fn retry_stashed_signal_envelopes(
     sender_channel: u32,
 ) -> usize {
     let decoded: Vec<(String, u32, String, String)> = {
-        let Some(pchat) = state.pchat.as_mut() else {
+        let Some(pchat) = state.pchat_ctx.pchat.as_mut() else {
             return 0;
         };
 
@@ -361,7 +361,7 @@ fn retry_stashed_signal_envelopes(
     let mut replaced_count = 0usize;
     for (message_id, channel_id, sender_name, body) in &decoded {
         let mid: &str = message_id;
-        if let Some(msgs) = state.messages.get_mut(channel_id) {
+        if let Some(msgs) = state.msgs.by_channel.get_mut(channel_id) {
             if let Some(msg) = msgs
                 .iter_mut()
                 .find(|m| m.message_id.as_deref() == Some(mid))
@@ -402,7 +402,7 @@ pub(crate) fn handle_signal_sender_key_by_hash(
         let s = shared.lock().ok();
         let bridge_unavailable = s
             .as_ref()
-            .and_then(|s| s.pchat.as_ref())
+            .and_then(|s| s.pchat_ctx.pchat.as_ref())
             .is_some_and(|p| p.signal_bridge_load_failed);
         if bridge_unavailable {
             return false;
@@ -414,7 +414,7 @@ pub(crate) fn handle_signal_sender_key_by_hash(
     };
 
     {
-        let Some(ref mut pchat) = state.pchat else {
+        let Some(ref mut pchat) = state.pchat_ctx.pchat else {
             return false;
         };
         if !pchat.ensure_signal_bridge() {

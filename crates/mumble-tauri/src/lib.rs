@@ -8,18 +8,8 @@
 #![allow(unreachable_pub, reason = "application crate: pub items in private modules are intentional for Tauri command system")]
 
 mod audio;
-#[cfg(target_os = "linux")]
-mod linux_desktop;
-#[cfg(target_os = "linux")]
-mod linux_webview;
 pub mod platform;
 mod state;
-#[cfg(not(target_os = "android"))]
-mod tray;
-#[cfg(target_os = "android")]
-mod connection_service;
-#[cfg(target_os = "android")]
-mod fcm_service;
 
 use state::{
     AppState, AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus,
@@ -37,56 +27,10 @@ use tracing_subscriber::reload;
 static LOG_RELOAD_HANDLE: OnceLock<reload::Handle<EnvFilter, tracing_subscriber::Registry>> =
     OnceLock::new();
 
-// --- Windows system clock detection ------------------------------
-
-// GetLocaleInfoW from kernel32 - used to read the user's regional settings.
-#[cfg(target_os = "windows")]
-#[link(name = "kernel32")]
-extern "system" {
-    fn GetLocaleInfoW(locale: u32, lctype: u32, lp_lc_data: *mut u16, cch_data: i32) -> i32;
-}
-
-/// Returns true when the Windows regional settings use a 24-hour clock.
-///
-/// Reads `LOCALE_ITIME` ("0" = 12-hour, "1" = 24-hour) via `GetLocaleInfoW`.
-#[cfg(target_os = "windows")]
-#[allow(unsafe_code, reason = "GetLocaleInfoW is a safe Windows API call wrapped with an unsafe extern block")]
-fn system_uses_24h() -> Option<bool> {
-    const LOCALE_USER_DEFAULT: u32 = 0x0400;
-    const LOCALE_ITIME: u32 = 0x0019;
-    let mut buf = [0u16; 4];
-    let len = unsafe { GetLocaleInfoW(LOCALE_USER_DEFAULT, LOCALE_ITIME, buf.as_mut_ptr(), 4) };
-    if len <= 0 {
-        return None;
-    }
-    // Docs say "0" = 12-hour, "1" = 24-hour, but some locales (e.g. de-DE)
-    // return "2". Only "0" is exclusively 12-hour; treat anything else as 24h.
-    Some(
-        buf[..(len as usize).saturating_sub(1)]
-            .first()
-            .copied()
-            .map(|c| c != b'0' as u16)
-            .unwrap_or(false),
-    )
-}
-
-/// On non-Windows, `WebView` Intl resolution is reliable so we return `None`
-/// and let the frontend probe it directly.
-#[cfg(not(target_os = "windows"))]
-fn system_uses_24h() -> Option<bool> {
-    None
-}
-
 /// Returns the OS-detected clock format for the "auto" time setting.
-///
-/// On Windows, `WebView2` (Chromium) derives the hour cycle from the ICU/CLDR
-/// language-tag default (e.g. `en-US` is always 12h) and ignores the Windows
-/// Region time-format setting, so the backend must read it directly.
-/// Returns `None` on non-Windows platforms where the `WebView` Intl API
-/// already honours the system locale.
 #[tauri::command]
 fn get_system_clock_format() -> Option<&'static str> {
-    system_uses_24h().map(|h24| if h24 { "24h" } else { "12h" })
+    platform::badge::system_clock_format()
 }
 
 /// Result of a server ping attempt.
@@ -101,100 +45,6 @@ struct PingResult {
     max_user_count: Option<u32>,
     /// Server version string (e.g. "1.5.634"), None if unavailable.
     server_version: Option<String>,
-}
-
-// --- Badge overlay icon (Windows) ---------------------------------
-
-/// Render a small 16x16 RGBA image with a red circle and white digit(s).
-///
-/// Used on Windows where `set_badge_count` is unsupported and the overlay
-/// icon API must be used instead.
-#[cfg(target_os = "windows")]
-fn render_badge_icon(count: u32) -> Vec<u8> {
-    const SIZE: usize = 16;
-    let mut rgba = vec![0u8; SIZE * SIZE * 4];
-
-    // Draw a filled red circle (center 7.5, 7.5, radius 7.5).
-    let cx = 7.5_f64;
-    let cy = 7.5_f64;
-    let r = 7.5_f64;
-    for y in 0..SIZE {
-        for x in 0..SIZE {
-            let dx = x as f64 - cx;
-            let dy = y as f64 - cy;
-            if dx * dx + dy * dy <= r * r {
-                let i = (y * SIZE + x) * 4;
-                rgba[i] = 220;     // R
-                rgba[i + 1] = 38;  // G
-                rgba[i + 2] = 38;  // B
-                rgba[i + 3] = 255; // A
-            }
-        }
-    }
-
-    // Stamp a white digit/text into the circle using a tiny 3x5 font.
-    let label = if count > 99 {
-        "!".to_string()
-    } else {
-        count.to_string()
-    };
-    stamp_text(&mut rgba, SIZE, &label);
-    rgba
-}
-
-/// Tiny 3x5 pixel font for digits 0-9 and "!".
-/// Each glyph is stored as 5 rows of 3 bits (MSB = left pixel).
-#[cfg(target_os = "windows")]
-fn glyph(ch: char) -> [u8; 5] {
-    match ch {
-        '0' => [0b111, 0b101, 0b101, 0b101, 0b111],
-        '1' => [0b010, 0b110, 0b010, 0b010, 0b111],
-        '2' => [0b111, 0b001, 0b111, 0b100, 0b111],
-        '3' => [0b111, 0b001, 0b111, 0b001, 0b111],
-        '4' => [0b101, 0b101, 0b111, 0b001, 0b001],
-        '5' => [0b111, 0b100, 0b111, 0b001, 0b111],
-        '6' => [0b111, 0b100, 0b111, 0b101, 0b111],
-        '7' => [0b111, 0b001, 0b010, 0b010, 0b010],
-        '8' => [0b111, 0b101, 0b111, 0b101, 0b111],
-        '9' => [0b111, 0b101, 0b111, 0b001, 0b111],
-        '!' => [0b010, 0b010, 0b010, 0b000, 0b010],
-        _   => [0b000; 5],
-    }
-}
-
-/// Stamp a short text string (1-2 chars) centered in a 16x16 RGBA buffer.
-#[cfg(target_os = "windows")]
-fn stamp_text(rgba: &mut [u8], size: usize, text: &str) {
-    let chars: Vec<char> = text.chars().collect();
-    let glyph_w = 3;
-    let glyph_h = 5;
-    let spacing = 1;
-    let total_w = chars.len() * glyph_w + chars.len().saturating_sub(1) * spacing;
-    let start_x = (size.saturating_sub(total_w)) / 2;
-    let start_y = (size.saturating_sub(glyph_h)) / 2;
-
-    for (ci, &ch) in chars.iter().enumerate() {
-        let g = glyph(ch);
-        let ox = start_x + ci * (glyph_w + spacing);
-        for (row, &bits) in g.iter().enumerate() {
-            for col in 0..glyph_w {
-                if bits & (1 << (glyph_w - 1 - col)) != 0 {
-                    set_pixel(rgba, size, ox + col, start_y + row);
-                }
-            }
-        }
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn set_pixel(rgba: &mut [u8], size: usize, px: usize, py: usize) {
-    if px < size && py < size {
-        let i = (py * size + px) * 4;
-        rgba[i] = 255;
-        rgba[i + 1] = 255;
-        rgba[i + 2] = 255;
-        rgba[i + 3] = 255;
-    }
 }
 
 // --- Tauri commands -----------------------------------------------
@@ -815,7 +665,7 @@ async fn set_audio_settings(
     }
     if force_tcp_changed {
         if let Ok(inner) = state.inner.lock() {
-            if let Some(ref handle) = inner.client_handle {
+            if let Some(ref handle) = inner.conn.client_handle {
                 handle.set_force_tcp(force_tcp);
             }
         }
@@ -1160,7 +1010,7 @@ fn set_notifications_enabled(
     state: tauri::State<'_, AppState>,
     enabled: bool,
 ) -> Result<(), String> {
-    state.inner.lock().map_err(|e| e.to_string())?.notifications_enabled = enabled;
+    state.inner.lock().map_err(|e| e.to_string())?.prefs.notifications_enabled = enabled;
     Ok(())
 }
 
@@ -1173,7 +1023,7 @@ fn set_disable_dual_path(
     state: tauri::State<'_, AppState>,
     disabled: bool,
 ) -> Result<(), String> {
-    state.inner.lock().map_err(|e| e.to_string())?.disable_dual_path = disabled;
+    state.inner.lock().map_err(|e| e.to_string())?.prefs.disable_dual_path = disabled;
     Ok(())
 }
 
@@ -1223,33 +1073,7 @@ async fn reset_app_data(app: tauri::AppHandle) -> Result<(), String> {
 /// the native badge-count API. On Android/iOS this is a no-op.
 #[tauri::command]
 fn update_badge_count(window: tauri::Window, count: Option<u32>) -> Result<(), String> {
-    set_badge_platform(&window, count)
-}
-
-/// Windows implementation - overlay icon.
-#[cfg(target_os = "windows")]
-fn set_badge_platform(window: &tauri::Window, count: Option<u32>) -> Result<(), String> {
-    match count.filter(|&c| c > 0) {
-        Some(c) => {
-            let rgba = render_badge_icon(c);
-            let image = tauri::image::Image::new_owned(rgba, 16, 16);
-            window.set_overlay_icon(Some(image)).map_err(|e| e.to_string())
-        }
-        None => window.set_overlay_icon(None).map_err(|e| e.to_string()),
-    }
-}
-
-/// Linux/macOS implementation - native badge count.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-fn set_badge_platform(window: &tauri::Window, count: Option<u32>) -> Result<(), String> {
-    let badge = count.filter(|&c| c > 0).map(i64::from);
-    window.set_badge_count(badge).map_err(|e| e.to_string())
-}
-
-/// Android/iOS - badge counts are not supported, no-op.
-#[cfg(any(target_os = "android", target_os = "ios"))]
-fn set_badge_platform(_window: &tauri::Window, _count: Option<u32>) -> Result<(), String> {
-    Ok(())
+    platform::badge::set_badge(&window, count)
 }
 
 // --- Content offloading commands ----------------------------------
@@ -1470,7 +1294,7 @@ fn confirm_custodians(
     channel_id: u32,
 ) -> Result<(), String> {
     let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
-    if let Some(ref mut pchat) = shared.pchat {
+    if let Some(ref mut pchat) = shared.pchat_ctx.pchat {
         pchat.key_manager.confirm_custodian_list(channel_id);
     }
     Ok(())
@@ -1483,7 +1307,7 @@ fn accept_custodian_changes(
     channel_id: u32,
 ) -> Result<(), String> {
     let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
-    if let Some(ref mut pchat) = shared.pchat {
+    if let Some(ref mut pchat) = shared.pchat_ctx.pchat {
         pchat.key_manager.accept_custodian_update(channel_id);
     }
     Ok(())
@@ -1506,17 +1330,17 @@ async fn approve_key_share(
 
         // Remove the pending entry and capture its request_id.
         let idx = shared
-            .pending_key_shares
+            .pchat_ctx.pending_key_shares
             .iter()
             .position(|p| p.channel_id == channel_id && p.peer_cert_hash == peer_cert_hash)
             .ok_or("no pending key share for this channel/peer")?;
-        let removed = shared.pending_key_shares.remove(idx);
+        let removed = shared.pchat_ctx.pending_key_shares.remove(idx);
         let request_id = removed.request_id;
 
         // Collect payload for deferred emit outside the lock.
-        let share_requests_emit = shared.tauri_app_handle.as_ref().map(|app| {
+        let share_requests_emit = shared.conn.tauri_app_handle.as_ref().map(|app| {
             let remaining: Vec<_> = shared
-                .pending_key_shares
+                .pchat_ctx.pending_key_shares
                 .iter()
                 .filter(|p| p.channel_id == channel_id)
                 .cloned()
@@ -1530,7 +1354,7 @@ async fn approve_key_share(
             )
         });
 
-        let pchat = shared.pchat.as_ref().ok_or("pchat not initialised")?;
+        let pchat = shared.pchat_ctx.pchat.as_ref().ok_or("pchat not initialised")?;
 
         let peer_record = pchat
             .key_manager
@@ -1562,7 +1386,7 @@ async fn approve_key_share(
             state::pchat::wire_key_exchange_to_proto(&wire_exchange);
 
         let handle = shared
-            .client_handle
+            .conn.client_handle
             .clone()
             .ok_or("not connected")?;
 
@@ -1584,7 +1408,7 @@ async fn approve_key_share(
     // Record the peer as a key holder locally so we don't prompt consent
     // for them again on subsequent channel moves.
     if let Ok(mut shared) = state.inner.lock() {
-        if let Some(ref mut pchat) = shared.pchat {
+        if let Some(ref mut pchat) = shared.pchat_ctx.pchat {
             pchat
                 .key_manager
                 .record_key_holder(channel_id, peer_cert_hash.clone());
@@ -1615,13 +1439,13 @@ fn dismiss_key_share(
         let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
 
         shared
-            .pending_key_shares
+            .pchat_ctx.pending_key_shares
             .retain(|p| !(p.channel_id == channel_id && p.peer_cert_hash == peer_cert_hash));
 
         // Collect payload for deferred emit outside the lock.
-        shared.tauri_app_handle.as_ref().map(|app| {
+        shared.conn.tauri_app_handle.as_ref().map(|app| {
             let remaining: Vec<_> = shared
-                .pending_key_shares
+                .pchat_ctx.pending_key_shares
                 .iter()
                 .filter(|p| p.channel_id == channel_id)
                 .cloned()
@@ -1653,7 +1477,7 @@ async fn query_key_holders(
 ) -> Result<(), String> {
     let handle = {
         let shared = state.inner.lock().map_err(|e| e.to_string())?;
-        shared.client_handle.clone().ok_or("not connected")?
+        shared.conn.client_handle.clone().ok_or("not connected")?
     };
     let query = mumble_protocol::proto::mumble_tcp::PchatKeyHoldersQuery {
         channel_id: Some(channel_id),
@@ -1671,7 +1495,7 @@ fn get_key_holders(
     channel_id: u32,
 ) -> Vec<state::types::KeyHolderEntry> {
     let shared = state.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    shared.key_holders.get(&channel_id).cloned().unwrap_or_default()
+    shared.pchat_ctx.key_holders.get(&channel_id).cloned().unwrap_or_default()
 }
 
 /// Request a key-ownership takeover for a channel (requires `KeyOwner` permission).
@@ -1809,7 +1633,7 @@ pub fn run() {
             init_app_state(app);
             platform::setup(app.handle().clone());
             #[cfg(not(target_os = "android"))]
-            if let Err(e) = tray::setup_tray(app) {
+            if let Err(e) = platform::desktop::tray::setup_tray(app) {
                 tracing::warn!("Failed to create system tray icon: {e}");
             }
             Ok(())
@@ -1818,7 +1642,7 @@ pub fn run() {
             if let tauri::WindowEvent::Focused(focused) = event {
                 if let Some(state) = window.try_state::<AppState>() {
                     if let Ok(mut s) = state.inner.lock() {
-                        s.app_focused = *focused;
+                        s.prefs.app_focused = *focused;
                     }
                 }
             }
@@ -1869,9 +1693,9 @@ fn create_base_builder() -> tauri::Builder<tauri::Wry> {
                     "com.fancymumble.app",
                     "ConnectionServicePlugin",
                 )?;
-                let cs_handle = connection_service::ConnectionServiceHandle(handle);
-                connection_service::register_disconnect_listener(&cs_handle, app.clone());
-                connection_service::register_navigate_listener(&cs_handle, app.clone());
+                let cs_handle = platform::android::connection_service::ConnectionServiceHandle(handle);
+                platform::android::connection_service::register_disconnect_listener(&cs_handle, app.clone());
+                platform::android::connection_service::register_navigate_listener(&cs_handle, app.clone());
                 let _ = app.manage(cs_handle);
                 Ok(())
             })
@@ -1886,7 +1710,7 @@ fn create_base_builder() -> tauri::Builder<tauri::Wry> {
                     "com.fancymumble.app",
                     "FcmPlugin",
                 )?;
-                let fcm_handle = fcm_service::FcmPluginHandle(handle);
+                let fcm_handle = platform::android::fcm_service::FcmPluginHandle(handle);
                 let _ = app.manage(fcm_handle);
                 Ok(())
             })

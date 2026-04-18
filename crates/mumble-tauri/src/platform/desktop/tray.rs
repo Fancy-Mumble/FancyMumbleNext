@@ -18,7 +18,7 @@ use tracing::{info, warn};
 use crate::state::AppState;
 
 /// Embedded app icon (compile-time).
-const ICON_BYTES: &[u8] = include_bytes!("../icons/icon.png");
+const ICON_BYTES: &[u8] = include_bytes!("../../../icons/icon.png");
 
 /// Tray icon ID so we can look it up later.
 const TRAY_ID: &str = "main-tray";

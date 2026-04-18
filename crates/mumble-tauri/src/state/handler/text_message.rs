@@ -150,7 +150,7 @@ impl<'a> DeferredEmitter<'a> {
             .ctx
             .shared
             .lock()
-            .map(|s| s.group_unread_counts.clone())
+            .map(|s| s.msgs.group_unread.clone())
             .unwrap_or_default();
         self.ctx
             .emit("group-unread-changed", GroupUnreadPayload { unreads });
@@ -174,7 +174,7 @@ impl<'a> DeferredEmitter<'a> {
             .ctx
             .shared
             .lock()
-            .map(|s| s.dm_unread_counts.clone())
+            .map(|s| s.msgs.dm_unread.clone())
             .unwrap_or_default();
         self.ctx
             .emit("dm-unread-changed", DmUnreadPayload { unreads });
@@ -185,7 +185,7 @@ impl<'a> DeferredEmitter<'a> {
             .ctx
             .shared
             .lock()
-            .map(|s| s.unread_counts.clone())
+            .map(|s| s.msgs.channel_unread.clone())
             .unwrap_or_default();
         self.ctx
             .emit("unread-changed", UnreadPayload { unreads });
@@ -288,18 +288,18 @@ fn try_apply_edit(
     });
     match kind {
         MessageKind::Group(marker) => {
-            state.group_messages.get_mut(&marker.group_id)
+            state.msgs.by_group.get_mut(&marker.group_id)
                 .is_some_and(|msgs| apply_edit(msgs, edit_id, &marker.body, edited_at))
         }
         MessageKind::DirectMessage => {
             tm.actor
-                .and_then(|sid| state.dm_messages.get_mut(&sid))
+                .and_then(|sid| state.msgs.by_dm.get_mut(&sid))
                 .is_some_and(|msgs| apply_edit(msgs, edit_id, &tm.message, edited_at))
         }
         MessageKind::Channel => {
             let channel_ids = if tm.channel_id.is_empty() { vec![0u32] } else { tm.channel_id.clone() };
             channel_ids.iter().any(|ch_id| {
-                state.messages.get_mut(ch_id)
+                state.msgs.by_channel.get_mut(ch_id)
                     .is_some_and(|msgs| apply_edit(msgs, edit_id, &tm.message, edited_at))
             })
         }
@@ -327,7 +327,7 @@ fn handle_group_message(
     state: &mut SharedState,
     deferred: &mut DeferredEmitter,
 ) {
-    if !state.group_chats.contains_key(&marker.group_id) {
+    if !state.msgs.group_chats.contains_key(&marker.group_id) {
         return;
     }
 
@@ -351,14 +351,14 @@ fn handle_group_message(
     };
     msg.ensure_id();
     state
-        .group_messages
+        .msgs.by_group
         .entry(marker.group_id.clone())
         .or_default()
         .push(msg);
 
-    if state.selected_group.as_deref() != Some(&marker.group_id) {
+    if state.msgs.selected_group.as_deref() != Some(&marker.group_id) {
         *state
-            .group_unread_counts
+            .msgs.group_unread
             .entry(marker.group_id.clone())
             .or_insert(0) += 1;
         deferred.push(DeferredEvent::GroupUnreads);
@@ -401,14 +401,14 @@ fn handle_direct_message(
     };
     msg.ensure_id();
     state
-        .dm_messages
+        .msgs.by_dm
         .entry(sender_session)
         .or_default()
         .push(msg);
 
-    if state.selected_dm_user != Some(sender_session) {
+    if state.msgs.selected_dm_user != Some(sender_session) {
         *state
-            .dm_unread_counts
+            .msgs.dm_unread
             .entry(sender_session)
             .or_insert(0) += 1;
         deferred.push(DeferredEvent::DmUnreads);
@@ -433,7 +433,7 @@ fn handle_channel_message(
     };
 
     let selected = state.selected_channel;
-    let app_focused = state.app_focused;
+    let app_focused = state.prefs.app_focused;
     let sender_name = resolve_sender_name(state, tm.actor);
     let mut unreads_changed = false;
 
@@ -478,10 +478,10 @@ fn handle_channel_message(
             pinned_at: None,
         };
         msg.ensure_id();
-        state.messages.entry(ch_id).or_default().push(msg);
+        state.msgs.by_channel.entry(ch_id).or_default().push(msg);
 
         if selected != Some(ch_id) {
-            *state.unread_counts.entry(ch_id).or_insert(0) += 1;
+            *state.msgs.channel_unread.entry(ch_id).or_insert(0) += 1;
             unreads_changed = true;
         }
 
@@ -522,7 +522,7 @@ impl HandleMessage for mumble_tcp::TextMessage {
             // For edits from ourselves, we *do* need to process them because
             // the local edit_message path already applied the change locally,
             // and the server won't echo edits back to us.
-            if self.actor == state.own_session && self.actor.is_some() && self.edit_id.is_none() {
+            if self.actor == state.conn.own_session && self.actor.is_some() && self.edit_id.is_none() {
                 return;
             }
 

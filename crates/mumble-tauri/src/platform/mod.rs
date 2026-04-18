@@ -1,11 +1,19 @@
 //! Compile-time platform selection via the [`PlatformHooks`] trait.
 //!
-//! Each platform provides an implementation; all others get no-op defaults.
-//! Call sites in `main.rs` and `lib.rs` use the free-function wrappers below
-//! so they are free of `#[cfg]` guards.
+//! Platform-specific code is organised into sub-folders:
+//!
+//! - [`linux`]    - `.desktop` integration, `WebKitGTK` / `AppImage` workarounds.
+//! - [`android`]  - foreground service bridge, FCM token retrieval.
+//! - [`desktop`]  - system tray icon (all desktop OSes).
+//! - [`badge`]    - taskbar badge overlay and system clock detection.
 
+pub(crate) mod badge;
 #[cfg(target_os = "linux")]
-use crate::{linux_desktop, linux_webview};
+mod linux;
+#[cfg(target_os = "android")]
+pub(crate) mod android;
+#[cfg(not(target_os = "android"))]
+pub(crate) mod desktop;
 
 /// Lifecycle hooks invoked at fixed points in the application startup sequence.
 ///
@@ -44,28 +52,28 @@ pub struct LinuxPlatform;
 #[cfg(target_os = "linux")]
 impl PlatformHooks for LinuxPlatform {
     fn pre_init() {
-        linux_webview::pre_init();
+        linux::webview::pre_init();
     }
 
     fn check_dependencies() {
-        linux_webview::check_dependencies();
+        linux::webview::check_dependencies();
     }
 
     fn init() {
-        linux_webview::init_platform();
+        linux::webview::init_platform();
     }
 
     fn try_single_instance() -> bool {
-        linux_desktop::try_send_quick_action()
+        linux::desktop::try_send_quick_action()
     }
 
     fn setup(handle: tauri::AppHandle) {
-        linux_desktop::install_desktop_entry();
-        linux_desktop::start_action_listener(handle);
+        linux::desktop::install_desktop_entry();
+        linux::desktop::start_action_listener(handle);
     }
 
     fn teardown() {
-        linux_desktop::cleanup_socket();
+        linux::desktop::cleanup_socket();
     }
 }
 
