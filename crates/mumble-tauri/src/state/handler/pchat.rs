@@ -457,7 +457,7 @@ impl HandleMessage for mumble_tcp::PchatReactionFetchResponse {
     }
 }
 
-fn resolve_entry_name(
+pub(super) fn resolve_entry_name(
     cert_hash: &str,
     server_name: &str,
     resolver: Option<&dyn crate::state::hash_names::HashNameResolver>,

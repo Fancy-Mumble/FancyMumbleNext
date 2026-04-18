@@ -109,8 +109,8 @@ export default function MobileMessageActionSheet({
     if (!msgId || !message.is_own || channelId == null || !allMessageIds) return [];
     const readers = getReadersForMessage(channelId, msgId, allMessageIds);
     return readers
-      .filter((r) => r.cert_hash !== ownHash)
-      .map((r) => ({ name: r.name, avatarUrl: avatarByHash?.get(r.cert_hash) }));
+      .filter((r) => r.name && (!ownHash || r.cert_hash !== ownHash))
+      .map((r) => ({ certHash: r.cert_hash, name: r.name, isOnline: r.is_online, avatarUrl: avatarByHash?.get(r.cert_hash) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message, channelId, allMessageIds, avatarByHash, ownHash, readReceiptVersion]);
 
@@ -182,7 +182,7 @@ export default function MobileMessageActionSheet({
           <div className={styles.readByLabel}>Read by</div>
           {readerEntries.length > 0 ? (
             readerEntries.map((entry) => (
-              <div key={entry.name} className={styles.readByRow}>
+              <div key={entry.certHash} className={`${styles.readByRow} ${entry.isOnline ? "" : styles.offlineReader}`}>
                 {entry.avatarUrl ? (
                   <img src={entry.avatarUrl} alt="" className={styles.readByAvatar} />
                 ) : (

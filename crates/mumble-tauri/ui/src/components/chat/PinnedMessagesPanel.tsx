@@ -5,6 +5,12 @@ import styles from "./PinnedMessagesPanel.module.css";
 
 const MAX_PREVIEW = 120;
 
+const IMG_SRC_RE = /<img[^>]+src="([^"]+)"/i;
+
+function extractFirstImageSrc(html: string): string | null {
+  return IMG_SRC_RE.exec(html)?.[1] ?? null;
+}
+
 function stripHtml(html: string): string {
   return html
     .replaceAll(/<!--[\s\S]*?-->/g, "")
@@ -67,6 +73,7 @@ export default function PinnedMessagesPanel({
           {pinnedMessages.map((msg) => {
             const id = msg.message_id ?? "";
             const preview = truncate(stripHtml(msg.body), MAX_PREVIEW);
+            const imageSrc = extractFirstImageSrc(msg.body);
             const isUnseen = unseenIds.has(id);
 
             return (
@@ -88,7 +95,12 @@ export default function PinnedMessagesPanel({
                     </span>
                   )}
                 </div>
-                <div className={styles.preview}>{preview || "(media)"}</div>
+                <div className={styles.previewRow}>
+                  {imageSrc && (
+                    <img src={imageSrc} alt="" className={styles.thumbnail} />
+                  )}
+                  <div className={styles.preview}>{preview || (imageSrc ? "Image" : "(media)")}</div>
+                </div>
                 {onUnpin && (
                   <button
                     type="button"

@@ -577,6 +577,7 @@ export interface AclEntry {
 export interface ReadState {
   cert_hash: string;
   name: string;
+  is_online: boolean;
   last_read_message_id: string;
   timestamp: number;
 }
