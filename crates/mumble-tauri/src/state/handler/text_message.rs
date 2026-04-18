@@ -63,6 +63,7 @@ enum DeferredEvent {
     DmUnreads,
     NewMessage {
         channel_id: u32,
+        sender_session: Option<u32>,
     },
     RequestUserAttention,
     ChannelMessage {
@@ -109,8 +110,8 @@ impl<'a> DeferredEmitter<'a> {
                     self.emit_direct_message(*sender_session, sender_name, body);
                 }
                 DeferredEvent::DmUnreads => self.emit_dm_unreads(),
-                DeferredEvent::NewMessage { channel_id } => {
-                    self.ctx.emit("new-message", NewMessagePayload { channel_id: *channel_id });
+                DeferredEvent::NewMessage { channel_id, sender_session } => {
+                    self.ctx.emit("new-message", NewMessagePayload { channel_id: *channel_id, sender_session: *sender_session });
                 }
                 DeferredEvent::RequestUserAttention => {
                     self.ctx.request_user_attention();
@@ -268,7 +269,7 @@ fn emit_edit_events(
         MessageKind::Channel => {
             let ids = if tm.channel_id.is_empty() { &[0u32][..] } else { &tm.channel_id };
             for &ch_id in ids {
-                deferred.push(DeferredEvent::NewMessage { channel_id: ch_id });
+                deferred.push(DeferredEvent::NewMessage { channel_id: ch_id, sender_session: tm.actor });
             }
         }
     }
@@ -485,7 +486,7 @@ fn handle_channel_message(
             unreads_changed = true;
         }
 
-        deferred.push(DeferredEvent::NewMessage { channel_id: ch_id });
+        deferred.push(DeferredEvent::NewMessage { channel_id: ch_id, sender_session: tm.actor });
 
         // Flash the taskbar when a permanently-listened channel gets a
         // message while it is not the viewed channel.

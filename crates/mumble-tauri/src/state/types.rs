@@ -318,6 +318,7 @@ pub struct GroupChat {
 #[derive(Clone, Serialize)]
 pub(crate) struct NewMessagePayload {
     pub channel_id: u32,
+    pub sender_session: Option<u32>,
 }
 
 /// Emitted when a new direct message arrives.

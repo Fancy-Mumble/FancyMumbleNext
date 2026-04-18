@@ -250,7 +250,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   );
 
   // Send typing indicators with debouncing.
-  const notifyTyping = useTypingIndicator();
+  const { notifyTyping, resetTyping } = useTypingIndicator();
 
   // --- Extracted hooks ---------------------------------------------
 
@@ -304,6 +304,11 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     editingMessage,
     onEditComplete: cancelEdit,
   });
+
+  const handleSendAndResetTyping = useCallback(async () => {
+    await handleSend();
+    resetTyping();
+  }, [handleSend, resetTyping]);
 
   const {
     canDelete, selectionMode, selectedMsgIds,
@@ -609,7 +614,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         <ChatComposer
           draft={draft}
           onChange={handleDraftChange}
-          onSend={handleSend}
+          onSend={handleSendAndResetTyping}
           onPaste={handlePaste}
           onFileSelected={sendMediaFile}
           onGifSelect={handleGifSelect}

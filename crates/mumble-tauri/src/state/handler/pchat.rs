@@ -57,7 +57,7 @@ impl HandleMessage for mumble_tcp::PchatMessageDeliver {
             (selected, app_focused, unreads_changed, sender_name, body, sender_session)
         };
 
-        ctx.emit("new-message", NewMessagePayload { channel_id });
+        ctx.emit("new-message", NewMessagePayload { channel_id, sender_session });
 
         if unreads_changed {
             let unreads = ctx
@@ -115,7 +115,7 @@ impl HandleMessage for mumble_tcp::PchatFetchResponse {
         // Signal that history loading is complete for this channel.
         ctx.emit("pchat-history-loading", PchatHistoryLoadingPayload { channel_id, loading: false });
         ctx.emit("pchat-fetch-complete", PchatFetchCompletePayload { channel_id, has_more, total_stored });
-        ctx.emit("new-message", NewMessagePayload { channel_id });
+        ctx.emit("new-message", NewMessagePayload { channel_id, sender_session: None });
         ctx.emit_empty("state-changed");
     }
 }
@@ -297,7 +297,7 @@ impl HandleMessage for mumble_tcp::PchatDeleteMessages {
         debug!("received PchatDeleteMessages");
         let channel_id = self.channel_id.unwrap_or(0);
         pchat::handle_proto_delete_messages(&ctx.shared, self);
-        ctx.emit("new-message", NewMessagePayload { channel_id });
+        ctx.emit("new-message", NewMessagePayload { channel_id, sender_session: None });
     }
 }
 
@@ -306,7 +306,7 @@ impl HandleMessage for mumble_tcp::PchatOfflineQueueDrain {
         debug!("received PchatOfflineQueueDrain");
         let channel_id = self.channel_id.unwrap_or(0);
         pchat::handle_proto_offline_queue_drain(&ctx.shared, self);
-        ctx.emit("new-message", NewMessagePayload { channel_id });
+        ctx.emit("new-message", NewMessagePayload { channel_id, sender_session: None });
         ctx.emit_empty("state-changed");
     }
 }

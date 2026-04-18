@@ -1343,12 +1343,29 @@ export async function initEventListeners(
     }),
 
     // New text message arrived.
-    await listen<{ channel_id: number }>("new-message", async (event) => {
+    await listen<{ channel_id: number; sender_session: number | null }>("new-message", async (event) => {
+      const { channel_id, sender_session } = event.payload;
+
+      // Clear the sender's typing indicator immediately.
+      if (sender_session != null) {
+        useAppStore.setState((prev) => {
+          const channelSet = prev.typingUsers.get(channel_id);
+          if (!channelSet?.has(sender_session)) return prev;
+          const next = new Map(prev.typingUsers);
+          const updated = new Set(channelSet);
+          updated.delete(sender_session);
+          if (updated.size === 0) {
+            next.delete(channel_id);
+          } else {
+            next.set(channel_id, updated);
+          }
+          return { typingUsers: next };
+        });
+      }
+
       const { selectedChannel } = useAppStore.getState();
-      if (selectedChannel === event.payload.channel_id) {
-        await useAppStore
-          .getState()
-          .refreshMessages(event.payload.channel_id);
+      if (selectedChannel === channel_id) {
+        await useAppStore.getState().refreshMessages(channel_id);
       }
     }),
 

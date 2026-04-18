@@ -45,5 +45,9 @@ export function useTypingIndicator() {
       .catch((err) => console.error("[typing] invoke failed:", err));
   }, [status]);
 
-  return notifyTyping;
+  const resetTyping = useCallback(() => {
+    lastSentRef.current = 0;
+  }, []);
+
+  return { notifyTyping, resetTyping };
 }
