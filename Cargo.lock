@@ -2785,7 +2785,6 @@ dependencies = [
  "cpal",
  "fancy-utils",
  "hound",
- "libc",
  "mumble-protocol",
  "oboe",
  "png 0.18.1",
@@ -2812,7 +2811,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "webkit2gtk",
 ]
 
 [[package]]

@@ -10,6 +10,9 @@
 mod audio;
 #[cfg(target_os = "linux")]
 mod linux_desktop;
+#[cfg(target_os = "linux")]
+mod linux_webview;
+pub mod platform;
 mod state;
 #[cfg(not(target_os = "android"))]
 mod tray;
@@ -1770,234 +1773,6 @@ async fn process_background(
 
 // --- Application bootstrap ---------------------------------------
 
-/// GPU capability level detected on this Linux system.
-#[cfg(target_os = "linux")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum GpuCapability {
-    /// EGL initializes and DRI render nodes are accessible (real GPU).
-    HardwareAccelerated,
-    /// EGL initializes but no DRI render nodes found (Mesa software).
-    SoftwareOnly,
-    /// EGL cannot initialize at all.
-    NoEgl,
-}
-
-/// Check whether this process was launched from an `AppImage`.
-#[cfg(target_os = "linux")]
-fn running_in_appimage() -> bool {
-    std::env::var_os("APPIMAGE").is_some() || std::env::var_os("APPDIR").is_some()
-}
-
-/// Ensure `GStreamer` can find plugins from the host system.
-///
-/// `AppImage` launchers set `GST_PLUGIN_SYSTEM_PATH` / `_1_0` pointing at
-/// the bundled (and typically empty) plugin directory.  `WebKit` then hits
-/// a `RELEASE_ASSERT` because elements like `appsink` are missing.
-///
-/// This function appends the host's standard plugin directories so
-/// `GStreamer` scans both the bundled and system locations.
-#[cfg(target_os = "linux")]
-fn ensure_gstreamer_plugins_discoverable() {
-    let system_dirs: Vec<&str> = [
-        "/usr/lib/gstreamer-1.0",
-        "/usr/lib/x86_64-linux-gnu/gstreamer-1.0",
-        "/usr/lib64/gstreamer-1.0",
-        "/usr/lib/aarch64-linux-gnu/gstreamer-1.0",
-    ]
-    .iter()
-    .copied()
-    .filter(|d| std::path::Path::new(d).is_dir())
-    .collect();
-
-    if system_dirs.is_empty() {
-        return;
-    }
-
-    let extra = system_dirs.join(":");
-
-    for var in ["GST_PLUGIN_SYSTEM_PATH", "GST_PLUGIN_SYSTEM_PATH_1_0"] {
-        let merged = match std::env::var(var) {
-            Ok(current) if !current.is_empty() => format!("{current}:{extra}"),
-            _ => extra.clone(),
-        };
-        std::env::set_var(var, &merged);
-    }
-}
-
-/// Probe the GPU/EGL capability of this system.
-///
-/// Three-tier result:
-/// - `HardwareAccelerated`: EGL + DRI render nodes work (force `Always`).
-/// - `SoftwareOnly`: EGL initializes via Mesa software but no real GPU is
-///   available (use `OnDemand` so `WebKit` falls back gracefully).
-/// - `NoEgl`: EGL cannot even initialize (force `Never`, disable compositing).
-#[cfg(target_os = "linux")]
-fn probe_gpu_capability() -> GpuCapability {
-    if !egl_can_initialize() {
-        return GpuCapability::NoEgl;
-    }
-    if dri_render_node_accessible() {
-        GpuCapability::HardwareAccelerated
-    } else {
-        GpuCapability::SoftwareOnly
-    }
-}
-
-/// Check whether at least one DRI render node (`/dev/dri/renderD*`) exists
-/// and is readable.  Without a render node, GPU-accelerated rendering will
-/// fall back to software even if EGL initializes.
-#[cfg(target_os = "linux")]
-fn dri_render_node_accessible() -> bool {
-    let Ok(entries) = std::fs::read_dir("/dev/dri") else {
-        return false;
-    };
-    entries
-        .filter_map(Result::ok)
-        .filter(|e| {
-            e.file_name()
-                .to_str()
-                .is_some_and(|n| n.starts_with("renderD"))
-        })
-        .any(|e| std::fs::File::open(e.path()).is_ok())
-}
-
-/// Probe whether `eglInitialize` succeeds on the default display.
-#[cfg(target_os = "linux")]
-fn egl_can_initialize() -> bool {
-    const EGL_DEFAULT_DISPLAY: *mut std::ffi::c_void = std::ptr::null_mut();
-    const EGL_NO_DISPLAY: *mut std::ffi::c_void = std::ptr::null_mut();
-    const EGL_FALSE: i32 = 0;
-
-    type EglGetDisplay = extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void;
-    type EglInitialize = extern "C" fn(*mut std::ffi::c_void, *mut i32, *mut i32) -> i32;
-    type EglTerminate = extern "C" fn(*mut std::ffi::c_void) -> i32;
-
-    #[allow(unsafe_code, reason = "probing EGL via dlopen/dlsym is inherently unsafe FFI")]
-    unsafe {
-        let lib = libc::dlopen(
-            c"libEGL.so.1".as_ptr(),
-            libc::RTLD_NOW | libc::RTLD_NOLOAD,
-        );
-        let lib = if lib.is_null() {
-            libc::dlopen(c"libEGL.so.1".as_ptr(), libc::RTLD_NOW)
-        } else {
-            lib
-        };
-        if lib.is_null() {
-            return false;
-        }
-
-        let get_display_sym = libc::dlsym(lib, c"eglGetDisplay".as_ptr());
-        let initialize_sym = libc::dlsym(lib, c"eglInitialize".as_ptr());
-        let terminate_sym = libc::dlsym(lib, c"eglTerminate".as_ptr());
-        if get_display_sym.is_null() || initialize_sym.is_null() || terminate_sym.is_null() {
-            let _ = libc::dlclose(lib);
-            return false;
-        }
-
-        let get_display: EglGetDisplay = std::mem::transmute(get_display_sym);
-        let initialize: EglInitialize = std::mem::transmute(initialize_sym);
-        let terminate: EglTerminate = std::mem::transmute(terminate_sym);
-
-        let display = get_display(EGL_DEFAULT_DISPLAY);
-        if display == EGL_NO_DISPLAY {
-            let _ = libc::dlclose(lib);
-            return false;
-        }
-
-        let mut major: i32 = 0;
-        let mut minor: i32 = 0;
-        let ok = initialize(display, &mut major, &mut minor) != EGL_FALSE;
-        if ok {
-            let _ = terminate(display);
-        }
-        let _ = libc::dlclose(lib);
-        ok
-    }
-}
-
-/// Configure `WebKitGTK` hardware acceleration and `WebGL` based on GPU
-/// capability.
-///
-/// - `HardwareAccelerated`: force `Always` + WebGL for full CSS effects.
-/// - `SoftwareOnly`: force `Never` because `OnDemand` still attempts
-///   GPU rendering for complex views, which crashes without a real GPU.
-/// - `NoEgl`: force `Never` to prevent abort on EGL initialization.
-#[cfg(target_os = "linux")]
-fn configure_webkitgtk(app: &tauri::App, gpu: GpuCapability) {
-    let Some(window) = app.get_webview_window("main") else {
-        tracing::warn!("WebKitGTK: main webview window not found in setup");
-        return;
-    };
-    let result = window.with_webview(move |webview| {
-        use webkit2gtk::{SettingsExt, WebViewExt};
-        let wv = webview.inner();
-        let Some(settings) = wv.settings() else {
-            tracing::warn!("WebKitGTK: could not get webview settings");
-            return;
-        };
-        match gpu {
-            GpuCapability::HardwareAccelerated => {
-                settings.set_hardware_acceleration_policy(
-                    webkit2gtk::HardwareAccelerationPolicy::Always,
-                );
-                settings.set_enable_webgl(true);
-                tracing::info!("WebKitGTK: hardware acceleration set to Always, WebGL enabled");
-            }
-            GpuCapability::SoftwareOnly | GpuCapability::NoEgl => {
-                settings.set_hardware_acceleration_policy(
-                    webkit2gtk::HardwareAccelerationPolicy::Never,
-                );
-                settings.set_enable_webgl(false);
-                inject_no_gpu_stylesheet(&wv);
-                tracing::info!(
-                    "WebKitGTK: no usable GPU ({gpu:?}), hardware acceleration and backdrop-filter disabled"
-                );
-            }
-        }
-    });
-    if let Err(e) = result {
-        tracing::warn!("WebKitGTK: with_webview failed: {e}");
-    }
-}
-
-/// Injects a user stylesheet that disables `backdrop-filter` globally and
-/// overrides glass variables with opaque fallbacks so the UI looks good
-/// without blur. This activates from the very first frame, before the
-/// JS-based detection in platform.ts has a chance to run.
-#[cfg(target_os = "linux")]
-fn inject_no_gpu_stylesheet(wv: &webkit2gtk::WebView) {
-    use webkit2gtk::{
-        UserContentInjectedFrames, UserContentManagerExt, UserStyleLevel, UserStyleSheet,
-        WebViewExt,
-    };
-    let Some(ucm) = wv.user_content_manager() else {
-        tracing::warn!("WebKitGTK: could not get UserContentManager for stylesheet injection");
-        return;
-    };
-    let css = UserStyleSheet::new(
-        concat!(
-            ":root {\n",
-            "  --glass-blur: none !important;\n",
-            "  --color-glass: rgba(20, 20, 40, 0.75) !important;\n",
-            "  --color-glass-hover: rgba(30, 30, 55, 0.8) !important;\n",
-            "  --color-glass-active: rgba(42, 171, 238, 0.2) !important;\n",
-            "  --color-glass-border: rgba(255, 255, 255, 0.1) !important;\n",
-            "  --color-glass-border-hover: rgba(255, 255, 255, 0.18) !important;\n",
-            "}\n",
-            "*, *::before, *::after {\n",
-            "  -webkit-backdrop-filter: none !important;\n",
-            "  backdrop-filter: none !important;\n",
-            "}\n",
-        ),
-        UserContentInjectedFrames::AllFrames,
-        UserStyleLevel::Author,
-        &[],
-        &[],
-    );
-    ucm.add_style_sheet(&css);
-}
-
 /// Entry point for the Tauri application.
 ///
 /// Initialises the TLS crypto provider, sets up logging, registers all
@@ -2007,15 +1782,13 @@ fn inject_no_gpu_stylesheet(wv: &webkit2gtk::WebView) {
 pub fn run() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    #[cfg(target_os = "linux")]
-    if linux_desktop::try_send_quick_action() {
+    if platform::try_single_instance() {
         return;
     }
 
-    #[cfg(target_os = "linux")]
-    let linux_gpu = init_linux_platform();
-
+    platform::init();
     init_logging();
+    platform::check_dependencies();
 
     let builder = create_base_builder();
     let builder = register_commands(builder);
@@ -2024,12 +1797,7 @@ pub fn run() {
         .manage(AppState::new())
         .setup(move |app| {
             init_app_state(app);
-            #[cfg(target_os = "linux")]
-            {
-                linux_desktop::install_desktop_entry();
-                linux_desktop::start_action_listener(app.handle().clone());
-                configure_webkitgtk(app, linux_gpu);
-            }
+            platform::setup(app.handle().clone());
             #[cfg(not(target_os = "android"))]
             if let Err(e) = tray::setup_tray(app) {
                 tracing::warn!("Failed to create system tray icon: {e}");
@@ -2052,8 +1820,7 @@ pub fn run() {
                 if let Some(state) = app.try_state::<AppState>() {
                     state.shutdown_offload_store();
                 }
-                #[cfg(target_os = "linux")]
-                linux_desktop::cleanup_socket();
+                platform::teardown();
             }
         });
 }
@@ -2067,31 +1834,6 @@ fn init_logging() {
         .with(tracing_subscriber::fmt::layer())
         .init();
     let _ = LOG_RELOAD_HANDLE.set(reload_handle);
-}
-
-#[cfg(target_os = "linux")]
-fn init_linux_platform() -> GpuCapability {
-    linux_desktop::set_gtk_identifiers();
-    let gpu = probe_gpu_capability();
-    match gpu {
-        GpuCapability::HardwareAccelerated => {
-            std::env::set_var("WEBKIT_FORCE_COMPOSITING_MODE", "1");
-        }
-        GpuCapability::SoftwareOnly | GpuCapability::NoEgl => {
-            if gpu == GpuCapability::SoftwareOnly {
-                std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
-            }
-            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-            std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
-            std::env::set_var("GST_GL_PLATFORM", "none");
-            std::env::set_var("GST_GL_WINDOW", "dummy");
-            std::env::set_var("GST_GL_API", "none");
-        }
-    }
-    if running_in_appimage() {
-        ensure_gstreamer_plugins_discoverable();
-    }
-    gpu
 }
 
 fn init_app_state(app: &mut tauri::App) {
