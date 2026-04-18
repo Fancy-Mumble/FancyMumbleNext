@@ -73,6 +73,7 @@ impl PlatformHooks for LinuxPlatform {
 
 #[cfg(not(target_os = "linux"))]
 #[derive(Debug)]
+/// No-op platform hooks for non-Linux targets.
 pub struct NoPlatform;
 
 #[cfg(not(target_os = "linux"))]
