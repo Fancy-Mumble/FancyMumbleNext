@@ -981,6 +981,16 @@ async fn send_subscribe_push(
     state.send_subscribe_push(muted_channels).await
 }
 
+/// Notify the server that we are typing in a channel.
+#[tauri::command]
+async fn send_typing_indicator(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+) -> Result<(), String> {
+    tracing::debug!(channel_id, "send_typing_indicator invoked");
+    state.send_typing_indicator(channel_id).await
+}
+
 /// Send a read receipt watermark to the server.
 #[tauri::command]
 async fn send_read_receipt(
@@ -1951,6 +1961,7 @@ macro_rules! all_command_handlers {
             send_subscribe_push,
             send_read_receipt,
             query_read_receipts,
+            send_typing_indicator,
             send_webrtc_signal,
             send_reaction,
             pin_message,

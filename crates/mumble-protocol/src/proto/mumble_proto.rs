@@ -1504,6 +1504,19 @@ pub mod pchat_pin_fetch_response {
         pub timestamp: ::core::option::Option<u64>,
     }
 }
+/// Client -> Server: notify the server that the user is typing in a channel.
+/// The server fills in `actor` with the sender's session ID and broadcasts
+/// the message to all other Fancy clients in the same channel.
+/// Wire type ID = 131.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FancyTypingIndicator {
+    /// Session ID of the typing user (set by server on relay, ignored from client).
+    #[prost(uint32, optional, tag = "1")]
+    pub actor: ::core::option::Option<u32>,
+    /// Channel where the user is typing.
+    #[prost(uint32, optional, tag = "2")]
+    pub channel_id: ::core::option::Option<u32>,
+}
 /// Unified pchat protocol indicator.
 /// Each value identifies both the E2EE protocol implementation
 /// and the persistence behaviour for a channel.

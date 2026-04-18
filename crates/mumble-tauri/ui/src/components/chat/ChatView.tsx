@@ -28,6 +28,8 @@ import { useChatSend } from "./useChatSend";
 import { useChatScroll } from "./useChatScroll";
 import { useMessageSelection } from "./useMessageSelection";
 import { useReadReceipts } from "./useReadReceipts";
+import { useTypingIndicator } from "./useTypingIndicator";
+import TypingIndicator from "./TypingIndicator";
 import { isMobile } from "../../utils/platform";
 import { htmlToMarkdown } from "./MarkdownInput";
 import type { MessageScope } from "../../messageOffload";
@@ -247,6 +249,9 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     lastMessageId,
   );
 
+  // Send typing indicators with debouncing.
+  const notifyTyping = useTypingIndicator();
+
   // --- Extracted hooks ---------------------------------------------
 
   const {
@@ -280,6 +285,11 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     setEditingMessage(null);
     setDraft("");
   }, []);
+
+  const handleDraftChange = useCallback((value: string) => {
+    setDraft(value);
+    if (value) notifyTyping();
+  }, [notifyTyping]);
 
   useEffect(() => {
     setEditingMessage(null);
@@ -593,18 +603,22 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
       {/* Pending quote preview strip */}
       <QuotePreviewStrip quotes={pendingQuotes} onRemove={removePendingQuote} />
 
-      <ChatComposer
-        draft={draft}
-        onChange={setDraft}
-        onSend={handleSend}
-        onPaste={handlePaste}
-        onFileSelected={sendMediaFile}
-        onGifSelect={handleGifSelect}
-        disabled={sending || persistent.sendBlocked}
-        hasPendingQuotes={pendingQuotes.length > 0}
-        isEditing={editingMessage !== null}
-        onCancelEdit={cancelEdit}
-      />
+      <div className={styles.composerWrapper}>
+        <TypingIndicator channelId={isDmMode || isGroupMode ? null : selectedChannel} />
+
+        <ChatComposer
+          draft={draft}
+          onChange={handleDraftChange}
+          onSend={handleSend}
+          onPaste={handlePaste}
+          onFileSelected={sendMediaFile}
+          onGifSelect={handleGifSelect}
+          disabled={sending || persistent.sendBlocked}
+          hasPendingQuotes={pendingQuotes.length > 0}
+          isEditing={editingMessage !== null}
+          onCancelEdit={cancelEdit}
+        />
+      </div>
 
       {showPollCreator && (
         <PollCreator

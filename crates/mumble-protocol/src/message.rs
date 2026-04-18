@@ -127,6 +127,8 @@ pub enum TcpMessageType {
     PchatPinDeliver = 129,
     /// Fancy Mumble: server response with pinned messages for a channel.
     PchatPinFetchResponse = 130,
+    /// Fancy Mumble: typing indicator broadcast.
+    FancyTypingIndicator = 131,
 }
 
 /// Generates both `TryFrom<u16> for TcpMessageType` and
@@ -280,6 +282,8 @@ pub enum ControlMessage {
     PchatPinDeliver(mumble_tcp::PchatPinDeliver),
     /// Fancy: server response with pinned messages for a channel.
     PchatPinFetchResponse(mumble_tcp::PchatPinFetchResponse),
+    /// Fancy: typing indicator broadcast.
+    FancyTypingIndicator(mumble_tcp::FancyTypingIndicator),
     /// UDP audio tunneled through TCP (fallback path).
     UdpTunnel(Vec<u8>),
 }
@@ -305,6 +309,7 @@ message_type_mapping! {
     FancyPushRegister, FancyPushUpdate, FancyCustomReactionsConfig,
     FancySubscribePush, FancyReadReceipt, FancyReadReceiptDeliver,
     PchatPin, PchatPinDeliver, PchatPinFetchResponse,
+    FancyTypingIndicator,
 }
 
 /// A decoded UDP message - either audio or a UDP ping.
@@ -446,13 +451,18 @@ mod tests {
             let msg_type = TcpMessageType::try_from(id).unwrap();
             assert_eq!(msg_type as u16, id);
         }
+        // FancyTypingIndicator (131)
+        {
+            let msg_type = TcpMessageType::try_from(131u16).unwrap();
+            assert_eq!(msg_type as u16, 131);
+        }
     }
 
     #[test]
     fn tcp_message_type_invalid_returns_error() {
         assert!(TcpMessageType::try_from(27u16).is_err());
         assert!(TcpMessageType::try_from(99u16).is_err());
-        assert!(TcpMessageType::try_from(131u16).is_err());
+        assert!(TcpMessageType::try_from(132u16).is_err());
         assert!(TcpMessageType::try_from(199u16).is_err());
         assert!(TcpMessageType::try_from(203u16).is_err());
         assert!(TcpMessageType::try_from(u16::MAX).is_err());

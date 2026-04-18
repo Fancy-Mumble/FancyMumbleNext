@@ -496,6 +496,14 @@ impl<H: EventHandler> EventLoopCtx<'_, H> {
 
         match &server_msg {
             ServerMessage::Control(ctrl) => {
+                if !matches!(
+                    ctrl,
+                    ControlMessage::UdpTunnel(_)
+                        | ControlMessage::Ping(_)
+                        | ControlMessage::PermissionQuery(_)
+                ) {
+                    debug!(type_id = ctrl.type_id(), "inbound control message");
+                }
                 if let ControlMessage::UdpTunnel(ref data) = ctrl {
                     trace!("handle_server_message: UdpTunnel ({} bytes)", data.len());
                     match crate::transport::audio_codec::decode_tunnel_audio(data) {
@@ -558,7 +566,9 @@ impl<H: EventHandler> EventLoopCtx<'_, H> {
         let output = cmd.execute(self.state);
 
         for msg in output.tcp_messages {
+            let type_id = msg.type_id();
             let Some(msg) = self.codec.encode(msg, self.state) else {
+                warn!(type_id, "codec dropped outbound message");
                 continue;
             };
             if self.outbound_tx.send(msg).await.is_err() {

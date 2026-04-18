@@ -20,6 +20,7 @@ mod reject;
 mod server_config;
 mod server_sync;
 mod text_message;
+mod typing_indicator;
 mod user_list;
 mod user_remove;
 mod user_state;
@@ -157,6 +158,7 @@ pub(crate) fn dispatch(msg: &ControlMessage, ctx: &HandlerContext) {
         ControlMessage::WebRtcSignal(m) => m.handle(ctx),
         ControlMessage::FancyCustomReactionsConfig(m) => m.handle(ctx),
         ControlMessage::FancyReadReceiptDeliver(m) => m.handle(ctx),
+        ControlMessage::FancyTypingIndicator(m) => m.handle(ctx),
         ControlMessage::BanList(m) => m.handle(ctx),
         ControlMessage::UserList(m) => m.handle(ctx),
         ControlMessage::Acl(m) => m.handle(ctx),

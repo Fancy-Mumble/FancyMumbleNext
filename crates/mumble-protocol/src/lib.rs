@@ -46,6 +46,7 @@ pub mod command;
 pub mod error;
 pub mod event;
 pub mod fancy_codec;
+pub mod fancy_message_support;
 pub mod message;
 #[cfg(feature = "persistent-chat")]
 pub mod persistent;

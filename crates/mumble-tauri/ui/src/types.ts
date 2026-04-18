@@ -195,6 +195,8 @@ export interface UserPreferences {
   notificationSounds?: NotificationSoundSettings;
   /** When true, the client does not send read receipts to the server. */
   disableReadReceipts?: boolean;
+  /** When true, typing indicators are neither sent nor shown. */
+  disableTypingIndicators?: boolean;
 }
 
 /** Identifiers for events that can trigger a notification sound. */

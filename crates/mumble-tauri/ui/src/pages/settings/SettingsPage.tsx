@@ -20,6 +20,7 @@ import { ProfilePanel } from "./ProfilePanel";
 import { AudioPanel } from "./AudioPanel";
 import { ShortcutsPanel } from "./ShortcutsPanel";
 import { AdvancedPanel } from "./AdvancedPanel";
+import { PrivacyPanel } from "./PrivacyPanel";
 import { IdentitiesPanel } from "./IdentitiesPanel";
 import { PersonalizationPanel } from "./PersonalizationPanel";
 import { NotificationsPanel, DEFAULT_NOTIFICATION_SOUNDS } from "./NotificationsPanel";
@@ -31,7 +32,7 @@ import styles from "./SettingsPage.module.css";
 
 // -- Types & constants ----------------------------------------------
 
-type Tab = "profile" | "voice" | "shortcuts" | "identities" | "advanced" | "personalize" | "notifications";
+type Tab = "profile" | "voice" | "shortcuts" | "identities" | "advanced" | "personalize" | "notifications" | "privacy";
 
 const DEFAULT_AUDIO: AudioSettings = {
   selected_device: null,
@@ -74,6 +75,7 @@ const TABS: TabDef<Tab>[] = [
   { id: "shortcuts", label: "Shortcuts", icon: "⌨️" },
   { id: "identities", label: "Identities", icon: "🔑" },
   { id: "notifications", label: "Notifications", icon: "🔔" },
+  { id: "privacy", label: "Privacy", icon: "🔒" },
   { id: "personalize", label: "Personalize", icon: "🎨" },
   { id: "advanced", label: "Advanced", icon: "⚙️" },
 ];
@@ -100,6 +102,7 @@ export default function SettingsPage() {
   const [enableNotifications, setEnableNotifications] = useState(true);
   const [disableDualPath, setDisableDualPath] = useState(false);
   const [disableReadReceipts, setDisableReadReceipts] = useState(false);
+  const [disableTypingIndicators, setDisableTypingIndicators] = useState(false);
   const [debugLogging, setDebugLogging] = useState(false);
   const [useRodioBackend, setUseRodioBackend] = useState(true);
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("auto");
@@ -164,6 +167,7 @@ export default function SettingsPage() {
         setEnableNotifications(prefs.enableNotifications ?? true);
         setDisableDualPath(prefs.disableDualPath ?? false);
         setDisableReadReceipts(prefs.disableReadReceipts ?? false);
+        setDisableTypingIndicators(prefs.disableTypingIndicators ?? false);
         setDebugLogging(prefs.debugLogging ?? false);
         setTimeFormat(prefs.timeFormat);
         setConvertToLocalTime(prefs.convertToLocalTime);
@@ -426,6 +430,14 @@ export default function SettingsPage() {
     });
   }, []);
 
+  const handleToggleTypingIndicators = useCallback(() => {
+    setDisableTypingIndicators((prev) => {
+      const next = !prev;
+      updatePreferences({ disableTypingIndicators: next });
+      return next;
+    });
+  }, []);
+
   const handleToggleDeveloperMode = useCallback(async () => {
     const next: UserMode = userMode === "developer" ? "expert" : "developer";
     setUserMode(next);
@@ -593,19 +605,26 @@ export default function SettingsPage() {
             />
           )}
 
+          {tab === "privacy" && (
+            <PrivacyPanel
+              disableDualPath={disableDualPath}
+              disableReadReceipts={disableReadReceipts}
+              disableTypingIndicators={disableTypingIndicators}
+              onToggleDualPath={handleToggleDualPath}
+              onToggleReadReceipts={handleToggleReadReceipts}
+              onToggleTypingIndicators={handleToggleTypingIndicators}
+            />
+          )}
+
           {tab === "advanced" && (
             <AdvancedPanel
               userMode={userMode}
               klipyApiKey={klipyApiKey}
-              disableDualPath={disableDualPath}
-              disableReadReceipts={disableReadReceipts}
               debugLogging={debugLogging}
               timeFormat={timeFormat}
               convertToLocalTime={convertToLocalTime}
               onToggleMode={handleToggleMode}
               onKlipyApiKeyChange={handleKlipyApiKeyChange}
-              onToggleDualPath={handleToggleDualPath}
-              onToggleReadReceipts={handleToggleReadReceipts}
               onToggleDebugLogging={handleToggleDebugLogging}
               onTimeFormatChange={handleTimeFormatChange}
               onConvertToLocalTimeChange={handleConvertToLocalTimeChange}

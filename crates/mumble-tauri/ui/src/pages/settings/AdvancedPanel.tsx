@@ -12,15 +12,11 @@ const TIME_FORMAT_OPTIONS: { value: TimeFormat; label: string }[] = [
 export function AdvancedPanel({
   userMode,
   klipyApiKey,
-  disableDualPath,
-  disableReadReceipts,
   debugLogging,
   timeFormat,
   convertToLocalTime,
   onToggleMode,
   onKlipyApiKeyChange,
-  onToggleDualPath,
-  onToggleReadReceipts,
   onToggleDebugLogging,
   onTimeFormatChange,
   onConvertToLocalTimeChange,
@@ -29,15 +25,11 @@ export function AdvancedPanel({
 }: {
   userMode: UserMode;
   klipyApiKey: string;
-  disableDualPath: boolean;
-  disableReadReceipts: boolean;
   debugLogging: boolean;
   timeFormat: TimeFormat;
   convertToLocalTime: boolean;
   onToggleMode: () => void;
   onKlipyApiKeyChange: (key: string) => void;
-  onToggleDualPath: () => void;
-  onToggleReadReceipts: () => void;
   onToggleDebugLogging: () => void;
   onTimeFormatChange: (fmt: TimeFormat) => void;
   onConvertToLocalTimeChange: () => void;
@@ -123,38 +115,6 @@ export function AdvancedPanel({
           </div>
         </section>
       )}
-
-      <section className={styles.section}>
-        <div className={styles.toggleRow}>
-          <div className={styles.toggleInfo}>
-            <h3 className={styles.sectionTitle}>
-              Disable dual-path sending
-            </h3>
-            <p className={styles.fieldHint}>
-              When enabled, encrypted channels replace the plain-text message
-              with a placeholder so the server never sees the real content.
-              Legacy clients without E2EE support will only see
-              &quot;[Encrypted message]&quot;.
-            </p>
-          </div>
-          <Toggle checked={disableDualPath} onChange={onToggleDualPath} />
-        </div>
-      </section>
-
-      <section className={styles.section}>
-        <div className={styles.toggleRow}>
-          <div className={styles.toggleInfo}>
-            <h3 className={styles.sectionTitle}>
-              Disable read receipts
-            </h3>
-            <p className={styles.fieldHint}>
-              When enabled, other users will not see that you have read their
-              messages. You will also not see read receipts from others.
-            </p>
-          </div>
-          <Toggle checked={disableReadReceipts} onChange={onToggleReadReceipts} />
-        </div>
-      </section>
 
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Time Display</h3>

@@ -926,6 +926,25 @@ impl AppState {
             .unwrap_or_default()
     }
 
+    // -- Typing indicator -------------------------------------------
+
+    /// Notify the server that we are typing in a channel.
+    pub async fn send_typing_indicator(&self, channel_id: u32) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.client_handle.clone()
+        };
+
+        let handle = handle.ok_or("Not connected")?;
+
+        handle
+            .send(command::SendTypingIndicator { channel_id })
+            .await
+            .map_err(|e| format!("Failed to send typing indicator: {e}"))?;
+
+        Ok(())
+    }
+
     // -- Read receipts ----------------------------------------------
 
     /// Send a read receipt watermark to the server.

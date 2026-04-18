@@ -170,6 +170,9 @@ interface AppState {
   /** Monotonic counter incremented whenever the module-level read receipt store changes. */
   readReceiptVersion: number;
 
+  /** Map of channel_id -> set of session IDs currently typing. */
+  typingUsers: Map<number, Set<number>>;
+
   // -- Screen share state (in-memory) ----------------------------
   /** Whether we are currently sharing our own screen. */
   isSharingOwn: boolean;
@@ -361,6 +364,7 @@ const INITIAL: Pick<
   | "reactionVersion"
   | "unseenPinIds"
   | "readReceiptVersion"
+  | "typingUsers"
   | "isSharingOwn"
   | "webrtcConnecting"
   | "webrtcError"
@@ -419,6 +423,7 @@ const INITIAL: Pick<
   reactionVersion: 0,
   unseenPinIds: new Map(),
   readReceiptVersion: 0,
+  typingUsers: new Map(),
   isSharingOwn: false,
   webrtcConnecting: false,
   webrtcError: null,
@@ -1574,6 +1579,41 @@ export async function initEventListeners(
         useAppStore.setState((prev) => ({
           readReceiptVersion: prev.readReceiptVersion + 1,
         }));
+      },
+    ),
+  );
+
+  // -- Typing indicator events ------------------------------------
+
+  unlisteners.push(
+    await listen<{ session: number; channel_id: number }>(
+      "typing-indicator",
+      (event) => {
+        const { session, channel_id } = event.payload;
+        useAppStore.setState((prev) => {
+          const next = new Map(prev.typingUsers);
+          const channelSet = new Set(next.get(channel_id));
+          channelSet.add(session);
+          next.set(channel_id, channelSet);
+          return { typingUsers: next };
+        });
+
+        // Auto-expire after 5 seconds.
+        setTimeout(() => {
+          useAppStore.setState((prev) => {
+            const next = new Map(prev.typingUsers);
+            const channelSet = next.get(channel_id);
+            if (!channelSet) return prev;
+            const updated = new Set(channelSet);
+            updated.delete(session);
+            if (updated.size === 0) {
+              next.delete(channel_id);
+            } else {
+              next.set(channel_id, updated);
+            }
+            return { typingUsers: next };
+          });
+        }, 5000);
       },
     ),
   );

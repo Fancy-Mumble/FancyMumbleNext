@@ -20,6 +20,7 @@ const DEFAULTS: UserPreferences = {
   enableNotifications: true,
   disableDualPath: false,
   debugLogging: false,
+  disableTypingIndicators: false,
 };
 
 async function getStore() {
