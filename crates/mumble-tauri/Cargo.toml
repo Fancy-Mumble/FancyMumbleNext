@@ -45,6 +45,18 @@ rodio = { version = "0.22", features = ["recording"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-window-state = "2"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"
+gtk = "0.18"
+
+ashpd = { version = "0.13", features = ["screencast"] }
+gstreamer = "0.23"
+gstreamer-app = "0.23"
+
+# Image crate for JPEG encoding in the screen-share MJPEG pipeline (not needed on Linux/iOS).
+[target.'cfg(not(any(target_os = "ios", target_os = "linux")))'.dependencies]
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+
 # Android: mumble-protocol with Opus codec + oboe for native audio I/O.
 [target.'cfg(target_os = "android")'.dependencies]
 mumble-protocol = { path = "../mumble-protocol", features = ["opus-codec", "persistent-chat"] }

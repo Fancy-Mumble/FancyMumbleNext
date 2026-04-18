@@ -9,7 +9,7 @@
  * signal dispatcher in useScreenShare.ts through the exported helpers.
  */
 import { useState, useEffect, useRef } from "react";
-import { useAppStore } from "../../store";
+import { useAppStore } from "../../../store";
 
 const SIGNAL_SDP_OFFER = 2;
 const SIGNAL_ICE_CANDIDATE = 4;

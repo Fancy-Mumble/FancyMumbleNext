@@ -232,6 +232,11 @@ pub(super) struct SharedState {
     /// bypassed so the user still receives notifications while the app
     /// is in the background.
     pub app_focused: bool,
+    /// Active screen share service (capture + MJPEG stream).
+    pub screen_share: Option<crate::webrtc::ScreenShareService>,
+    /// GTK repaint ticker that forces compositor redraws during screen share.
+    #[cfg(target_os = "linux")]
+    repaint_ticker: Option<crate::linux_webview::RepaintTicker>,
 }
 
 // --- Tauri-managed application state ------------------------------
@@ -241,6 +246,7 @@ pub struct AppState {
     pub(super) inner: Arc<Mutex<SharedState>>,
     app_handle: Mutex<Option<AppHandle>>,
     start_time: Instant,
+    screen_share_starting: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
@@ -282,6 +288,7 @@ impl AppState {
             inner: Arc::new(Mutex::new(SharedState { notifications_enabled: true, app_focused: true, ..Default::default() })),
             app_handle: Mutex::new(None),
             start_time: Instant::now(),
+            screen_share_starting: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -1002,6 +1009,76 @@ impl AppState {
             .map_err(|e| format!("Failed to send WebRTC signal: {e}"))?;
 
         Ok(())
+    }
+
+    // -- Screen capture (Rust-native) -------------------------------
+
+    /// Start screen capture and return the local MJPEG stream URL.
+    ///
+    /// `source_index` is the monitor index from `list_capture_sources`.
+    pub async fn start_screen_share(&self, source_index: Option<usize>) -> Result<String, String> {
+        {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            if state.screen_share.is_some() {
+                return Err("Screen sharing is already active".into());
+            }
+        }
+
+        if self.screen_share_starting.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Err("Screen sharing is already starting".into());
+        }
+
+        let result = crate::webrtc::ScreenShareService::start(source_index).await;
+
+        match result {
+            Ok((service, url)) => {
+                {
+                    let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+                    state.screen_share = Some(service);
+                    #[cfg(target_os = "linux")]
+                    {
+                        let handle = self.app_handle.lock()
+                            .ok()
+                            .and_then(|h| h.clone());
+                        state.repaint_ticker = handle
+                            .as_ref()
+                            .and_then(crate::linux_webview::start_repaint_ticker);
+                    }
+                }
+                self.screen_share_starting.store(false, std::sync::atomic::Ordering::SeqCst);
+                Ok(url)
+            }
+            Err(e) => {
+                self.screen_share_starting.store(false, std::sync::atomic::Ordering::SeqCst);
+                Err(e)
+            }
+        }
+    }
+
+    /// Stop the active screen-share session.
+    pub async fn stop_screen_share(&self) -> Result<(), String> {
+        self.screen_share_starting.store(false, std::sync::atomic::Ordering::SeqCst);
+
+        let service = {
+            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            #[cfg(target_os = "linux")]
+            { drop(state.repaint_ticker.take()); }
+            state.screen_share.take()
+        };
+
+        if let Some(svc) = service {
+            svc.stop().await;
+        }
+
+        Ok(())
+    }
+
+    /// Get the stream URL of the active screen share, if any.
+    pub fn screen_share_url(&self) -> Option<String> {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|s| s.screen_share.as_ref().map(super::webrtc::ScreenShareService::stream_url))
     }
 
     // -- Pchat reactions --------------------------------------------

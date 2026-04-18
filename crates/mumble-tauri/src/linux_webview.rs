@@ -1,6 +1,12 @@
 //! Linux-specific `WebKitGTK` / `AppImage` environment workarounds.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use crate::linux_desktop;
+use webkit2gtk::{
+    PermissionRequest, PermissionRequestExt, WebViewExt as WebkitWebViewExt,
+};
 
 /// Captures the `AppImage` runtime environment at detection time.
 #[derive(Debug)]
@@ -182,6 +188,121 @@ fn autodetect_plugin_available() -> bool {
         .map(String::as_str)
         .chain(standard_dirs.iter().copied())
         .any(|dir| std::path::Path::new(dir).join("libgstautodetect.so").exists())
+}
+
+/// Auto-allows media permission requests on the main `WebKitWebView`.
+///
+/// wry 0.54 does not handle `permission-request` signals on Linux, so
+/// `getUserMedia()` and `getDisplayMedia()` would be silently denied.
+///
+/// Note: `RTCPeerConnection` requires `ENABLE_WEB_RTC=ON` at `WebKitGTK`
+/// compile time.  Neither Ubuntu nor Arch enable this flag, so WebRTC
+/// is unavailable on stock distro builds.  The `set_enable_webrtc()`
+/// API exists but is a no-op when the feature was not compiled in.
+pub(crate) fn enable_media_permissions(handle: &tauri::AppHandle) {
+    use tauri::Manager;
+
+    let Some(window) = handle.get_webview_window("main") else {
+        tracing::warn!("could not find main webview window for media permissions");
+        return;
+    };
+
+    if let Err(e) = window.with_webview(|webview| {
+        let wk = webview.inner();
+        let _ = wk.connect_permission_request(|_view, request: &PermissionRequest| {
+            tracing::debug!("WebKit permission-request: allowing");
+            request.allow();
+            true
+        });
+    }) {
+        tracing::warn!("failed to configure WebKit media settings: {e}");
+    }
+}
+
+/// Handle returned by [`start_repaint_ticker`] to stop the periodic
+/// surface commits when screen sharing ends.
+pub struct RepaintTicker {
+    active: Arc<AtomicBool>,
+}
+
+impl Drop for RepaintTicker {
+    fn drop(&mut self) {
+        self.active.store(false, Ordering::Relaxed);
+        tracing::debug!("repaint ticker stopped");
+    }
+}
+
+extern "C" {
+    fn fancy_get_wl_surface(gdk_window: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+    fn fancy_wl_surface_force_commit(wl_surface: *mut std::ffi::c_void);
+}
+
+/// Start a timer that forces the Wayland compositor to repaint our
+/// window while screen sharing is active.
+///
+/// On GNOME Wayland, Mutter stops delivering frame callbacks to windows
+/// on monitors without cursor activity, which stalls GTK's paint cycle
+/// and makes canvas draws invisible.  This ticker bypasses GTK by
+/// calling `wl_surface_damage_buffer` + `wl_surface_commit` directly
+/// on the underlying Wayland surface, forcing the compositor to
+/// re-composite our window and restart frame callback delivery.
+pub(crate) fn start_repaint_ticker(handle: &tauri::AppHandle) -> Option<RepaintTicker> {
+    use gtk::prelude::WidgetExt;
+    use tauri::Manager;
+    use webkit2gtk::glib;
+
+    let window = handle.get_webview_window("main")?;
+    let active = Arc::new(AtomicBool::new(true));
+    let flag = Arc::clone(&active);
+
+    let result = window.with_webview(move |webview| {
+        let widget = webview.inner().clone();
+
+        let wl_surface = resolve_wl_surface(&widget);
+        if wl_surface.is_null() {
+            tracing::debug!("not on Wayland or wl_surface unavailable, ticker will use queue_draw only");
+        } else {
+            tracing::debug!("acquired wl_surface for direct compositor commits");
+        }
+
+        let _source_id = glib::timeout_add_local(std::time::Duration::from_millis(60), move || {
+            if !flag.load(Ordering::Relaxed) {
+                return glib::ControlFlow::Break;
+            }
+
+            widget.queue_draw();
+
+            if !wl_surface.is_null() {
+                #[allow(unsafe_code, reason = "FFI call to C Wayland surface helper")]
+                unsafe { fancy_wl_surface_force_commit(wl_surface) };
+            }
+
+            glib::ControlFlow::Continue
+        });
+    });
+
+    if let Err(e) = result {
+        tracing::warn!("failed to start repaint ticker: {e}");
+        return None;
+    }
+
+    tracing::debug!("repaint ticker started");
+    Some(RepaintTicker { active })
+}
+
+#[allow(unsafe_code, reason = "FFI call to resolve the raw Wayland surface from GDK")]
+fn resolve_wl_surface(widget: &impl gtk::prelude::WidgetExt) -> *mut std::ffi::c_void {
+    use webkit2gtk::glib::translate::ToGlibPtr;
+
+    let Some(gdk_window) = widget.window() else {
+        return std::ptr::null_mut();
+    };
+
+    let raw_gdk: *mut gtk::gdk::ffi::GdkWindow = gdk_window.to_glib_none().0;
+    // SAFETY: raw_gdk is a valid GdkWindow pointer from GTK. The C helper
+    // uses dlsym to resolve gdk_wayland_window_get_wl_surface and returns
+    // NULL when not on Wayland.
+    unsafe { fancy_get_wl_surface(raw_gdk.cast()) }
 }
 
 /// Must be the very first call in `main()` on Linux.

@@ -60,6 +60,7 @@ impl PlatformHooks for LinuxPlatform {
     }
 
     fn setup(handle: tauri::AppHandle) {
+        linux_webview::enable_media_permissions(&handle);
         linux_desktop::install_desktop_entry();
         linux_desktop::start_action_listener(handle);
     }

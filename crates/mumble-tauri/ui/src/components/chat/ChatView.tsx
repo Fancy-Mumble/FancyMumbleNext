@@ -31,10 +31,11 @@ import { useReadReceipts } from "./useReadReceipts";
 import { isMobile } from "../../utils/platform";
 import { htmlToMarkdown } from "./MarkdownInput";
 import type { MessageScope } from "../../messageOffload";
-import { useScreenShare } from "./useScreenShare";
-import ScreenShareViewer, { BroadcastBanner, WebRtcErrorBanner } from "./ScreenShareViewer";
-import StreamFocusView from "./StreamFocusView";
-import MultiStreamGrid from "./MultiStreamGrid";
+import { useScreenShare } from "./screenshare/useScreenShare";
+import ScreenShareViewer, { BroadcastBanner, WebRtcErrorBanner } from "./screenshare/ScreenShareViewer";
+import ScreenPicker from "./screenshare/ScreenPicker";
+import StreamFocusView from "./screenshare/StreamFocusView";
+import MultiStreamGrid from "./screenshare/MultiStreamGrid";
 import styles from "./ChatView.module.css";
 import { Lightbox, type LightboxHandle } from "../elements/Lightbox";
 
@@ -320,9 +321,9 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   // Determine which screen share panel to show (own broadcast or watching someone).
   // watchingSession takes priority: a broadcaster can watch another stream.
   const activeScreenShare = screenShare.watchingSession !== null
-    ? { session: screenShare.watchingSession, isOwn: false, stream: null }
+    ? { session: screenShare.watchingSession, isOwn: false, stream: null, nativeUrl: null }
     : screenShare.isBroadcasting
-      ? { session: ownSession!, isOwn: true, stream: screenShare.localStream }
+      ? { session: ownSession!, isOwn: true, stream: screenShare.localStream, nativeUrl: screenShare.nativeStreamUrl }
       : null;
 
   // Other users broadcasting in the current channel (for the notification banner).
@@ -338,7 +339,9 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   // Show StreamFocusView when watching someone, or broadcasting with others.
   // Using a single instance keeps layout state stable across swap transitions.
   const showFocusView = activeScreenShare !== null && (
-    !activeScreenShare.isOwn || channelBroadcasters.length > 0
+    !activeScreenShare.isOwn
+      ? true
+      : (activeScreenShare.stream || activeScreenShare.nativeUrl) && channelBroadcasters.length > 0
   );
 
   // Secondary panels for the unified focus view.
@@ -403,7 +406,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   }
 
   return (
-    <main className={`${styles.main} ${activeScreenShare ? styles.streamingLayout : ""}`}>
+    <main className={`${styles.main} ${activeScreenShare && (activeScreenShare.stream || activeScreenShare.nativeUrl) ? styles.streamingLayout : ""}`}>
       {selectionMode ? (
         <MessageSelectionBar
           count={selectedMsgIds.size}
@@ -452,10 +455,11 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
       <MobileCallControls />
 
       {/* Solo own broadcast preview (no other broadcasters) */}
-      {activeScreenShare?.isOwn && activeScreenShare.stream && !showFocusView && (
+      {activeScreenShare?.isOwn && (activeScreenShare.stream || activeScreenShare.nativeUrl) && !showFocusView && (
         <ScreenShareViewer
           isOwnBroadcast
           localStream={activeScreenShare.stream}
+          nativeStreamUrl={activeScreenShare.nativeUrl}
         />
       )}
 
@@ -464,6 +468,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         <StreamFocusView
           isOwnBroadcast={activeScreenShare.isOwn}
           localStream={activeScreenShare.isOwn ? activeScreenShare.stream : null}
+          nativeStreamUrl={activeScreenShare.isOwn ? activeScreenShare.nativeUrl : null}
           session={activeScreenShare.isOwn ? undefined : activeScreenShare.session}
           ownBroadcastStream={screenShare.isBroadcasting ? screenShare.localStream : null}
           otherBroadcasters={focusViewSecondaries}
@@ -490,6 +495,11 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
       {/* WebRTC error inline banner - same style as broadcast banner */}
       {webrtcError && (
         <WebRtcErrorBanner message={webrtcError} onDismiss={clearWebRtcError} />
+      )}
+
+      {/* Native screen picker dialog (Linux) */}
+      {screenShare.showScreenPicker && (
+        <ScreenPicker onSelect={screenShare.onPickerSelect} onCancel={screenShare.onPickerCancel} />
       )}
 
       {/* Messages wrapper: position:relative so the key-share banner

@@ -18,7 +18,9 @@
  *   ICE_CANDIDATE = 4  - client sends ICE candidate to server
  */
 import { useEffect, useCallback, useState, useRef } from "react";
-import { useAppStore, onWebRtcSignal } from "../../store";
+import { invoke } from "@tauri-apps/api/core";
+import { useAppStore, onWebRtcSignal } from "../../../store";
+import type { ScreenShareCapabilities } from "../../../types";
 import {
   getPreviewPc,
   handlePreviewAnswer,
@@ -467,6 +469,14 @@ export interface ScreenShareHook {
   watchingSession: number | null;
   /** The local MediaStream (for own preview). null if not broadcasting. */
   localStream: MediaStream | null;
+  /** Local MJPEG URL when using native Rust-based screen capture. */
+  nativeStreamUrl: string | null;
+  /** Whether the native screen picker dialog is open. */
+  showScreenPicker: boolean;
+  /** Callback when user selects a source in the picker. */
+  onPickerSelect: (sourceIndex: number) => void;
+  /** Callback when user cancels the picker. */
+  onPickerCancel: () => void;
   /** Start sharing our screen. */
   startSharing: () => Promise<void>;
   /** Stop sharing our screen. */
@@ -485,6 +495,9 @@ export function useScreenShare(): ScreenShareHook {
   const watchingSession = useAppStore((s) => s.watchingSession);
   const isBroadcasting = useAppStore((s) => s.isSharingOwn);
   const [stream, setStream] = useState<MediaStream | null>(localStream);
+
+  // Screen picker dialog state (native capture path).
+  const [showPicker, setShowPicker] = useState(false);
 
   // Track channel members so we can re-announce to late joiners.
   const prevChannelSessionsRef = useRef<Set<number>>(new Set());
@@ -538,7 +551,51 @@ export function useScreenShare(): ScreenShareHook {
   }, [isBroadcasting, stream, ownSession]);
 
   const startSharing = useCallback(async () => {
-    if (localStream) return; // already broadcasting
+    if (localStream) return; // already broadcasting (browser path)
+    if (useAppStore.getState().nativeStreamUrl) return; // already broadcasting (native path)
+    if (useAppStore.getState().isSharingOwn) return; // start already in progress
+
+    // Query platform capabilities to decide which path to use.
+    let caps: ScreenShareCapabilities | null = null;
+    try {
+      caps = await invoke<ScreenShareCapabilities>("get_screen_share_capabilities");
+    } catch (e) {
+      console.warn("[screen-share] failed to query capabilities:", e);
+    }
+
+    const hasBrowserWebRtc = typeof RTCPeerConnection !== "undefined"
+      && !!navigator.mediaDevices?.getDisplayMedia;
+
+    // --- Native capture path (Linux / Android) ---
+    // The XDG ScreenCast portal shows the OS-native screen picker,
+    // so we invoke start_screen_share directly (no custom ScreenPicker needed).
+    if (!hasBrowserWebRtc && caps?.native_capture) {
+      try {
+        const url = await invoke<string>("start_screen_share", { sourceIndex: null });
+        useAppStore.setState((s) => {
+          const next = new Set(s.broadcastingSessions);
+          if (ownSession) next.add(ownSession);
+          return { isSharingOwn: true, broadcastingSessions: next, nativeStreamUrl: url };
+        });
+        broadcastSignal(SIGNAL_START, "");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!msg.includes("cancelled") && !msg.includes("denied")) {
+          showWebRtcError(`Native screen capture failed: ${msg}`);
+        }
+      }
+      return;
+    }
+
+    // --- Browser WebRTC path (Windows / macOS) ---
+    if (typeof RTCPeerConnection === "undefined") {
+      showWebRtcError(
+        "Screen sharing requires WebRTC (RTCPeerConnection), which is not available in this WebView. " +
+        "On Linux, WebKitGTK must be compiled with ENABLE_WEB_RTC=ON. " +
+        "Neither Ubuntu nor Arch enable this flag in their packages.",
+      );
+      return;
+    }
 
     const { serverConfig } = useAppStore.getState();
     if (serverConfig.webrtc_sfu_available) {
@@ -549,6 +606,11 @@ export function useScreenShare(): ScreenShareHook {
     }
 
     try {
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        showWebRtcError("Screen sharing is not supported by this WebView version.");
+        return;
+      }
+
       const mediaStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: true,
@@ -584,18 +646,30 @@ export function useScreenShare(): ScreenShareHook {
         });
       }
     } catch (e) {
-      // User cancelled the screen picker dialog - not an error.
-      console.warn("[screenshare] getDisplayMedia failed or cancelled:", e);
+      // NotAllowedError: user cancelled the screen picker - not an error.
+      // Other errors (e.g. permission denied by WebKit) should be surfaced.
+      if (e instanceof DOMException && e.name === "NotAllowedError") {
+        console.info("[screenshare] user cancelled the screen picker");
+      } else {
+        console.error("[screenshare] getDisplayMedia failed:", e);
+        const msg = e instanceof Error ? e.message : String(e);
+        showWebRtcError(`Screen sharing failed: ${msg}`);
+      }
     }
   }, [ownSession]);
 
   const stopSharingCb = useCallback(() => {
+    // Always tell the backend to stop (handles both active and starting states).
+    invoke("stop_screen_share").catch((e: unknown) =>
+      console.warn("[screen-share] stop_screen_share failed:", e),
+    );
+
     stopBroadcasting();
     setStream(null);
     useAppStore.setState((s) => {
       const next = new Set(s.broadcastingSessions);
       if (ownSession) next.delete(ownSession);
-      return { isSharingOwn: false, broadcastingSessions: next };
+      return { isSharingOwn: false, broadcastingSessions: next, nativeStreamUrl: null };
     });
     if (ownSession) {
       broadcastSignal(SIGNAL_STOP, "");
@@ -633,11 +707,37 @@ export function useScreenShare(): ScreenShareHook {
     useAppStore.setState({ watchingSession: null });
   }, []);
 
+  const nativeStreamUrl = useAppStore((s) => s.nativeStreamUrl);
+
+  const onPickerSelect = useCallback(async (sourceIndex: number) => {
+    setShowPicker(false);
+    try {
+      const url = await invoke<string>("start_screen_share", { sourceIndex });
+      useAppStore.setState((s) => {
+        const next = new Set(s.broadcastingSessions);
+        if (ownSession) next.add(ownSession);
+        return { isSharingOwn: true, broadcastingSessions: next, nativeStreamUrl: url };
+      });
+      broadcastSignal(SIGNAL_START, "");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      showWebRtcError(`Native screen capture failed: ${msg}`);
+    }
+  }, [ownSession]);
+
+  const onPickerCancel = useCallback(() => {
+    setShowPicker(false);
+  }, []);
+
   return {
     isBroadcasting,
     broadcastingSessions,
     watchingSession,
     localStream: stream,
+    nativeStreamUrl,
+    showScreenPicker: showPicker,
+    onPickerSelect,
+    onPickerCancel,
     startSharing,
     stopSharing: stopSharingCb,
     watchBroadcast,

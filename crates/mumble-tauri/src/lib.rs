@@ -16,6 +16,7 @@ pub mod platform;
 mod state;
 #[cfg(not(target_os = "android"))]
 mod tray;
+mod webrtc;
 #[cfg(target_os = "android")]
 mod connection_service;
 #[cfg(target_os = "android")]
@@ -1015,6 +1016,41 @@ async fn send_webrtc_signal(
     state.send_webrtc_signal(target_session, signal_type, payload).await
 }
 
+/// Start native screen capture and return the local MJPEG stream URL.
+///
+/// `source_index` selects which monitor to capture (from `list_capture_sources`).
+#[tauri::command]
+async fn start_screen_share(
+    state: tauri::State<'_, AppState>,
+    source_index: Option<usize>,
+) -> Result<String, String> {
+    state.start_screen_share(source_index).await
+}
+
+/// Stop the active native screen-share session.
+#[tauri::command]
+async fn stop_screen_share(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.stop_screen_share().await
+}
+
+/// List available capture sources (monitors) with thumbnails.
+#[tauri::command]
+fn list_capture_sources() -> Result<Vec<webrtc::CaptureSourceInfo>, String> {
+    webrtc::list_capture_sources()
+}
+
+/// Get the MJPEG stream URL for the active screen share.
+#[tauri::command]
+fn get_screen_share_url(state: tauri::State<'_, AppState>) -> Option<String> {
+    state.screen_share_url()
+}
+
+/// Query which screen sharing methods are available on this platform.
+#[tauri::command]
+fn get_screen_share_capabilities() -> webrtc::ScreenShareCapabilities {
+    webrtc::capabilities()
+}
+
 /// Send a reaction (add/remove) on a persisted chat message.
 #[tauri::command]
 async fn send_reaction(
@@ -1952,6 +1988,11 @@ macro_rules! all_command_handlers {
             send_read_receipt,
             query_read_receipts,
             send_webrtc_signal,
+            start_screen_share,
+            stop_screen_share,
+            list_capture_sources,
+            get_screen_share_url,
+            get_screen_share_capabilities,
             send_reaction,
             pin_message,
             delete_pchat_messages,

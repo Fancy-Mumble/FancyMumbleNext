@@ -13,10 +13,10 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import ScreenShareViewer from "./ScreenShareViewer";
 import { useRemoteStream } from "./useScreenShare";
 import { useStreamThumbnail } from "./useStreamPreview";
-import { useAppStore } from "../../store";
-import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
-import ChevronDownIcon from "../../assets/icons/navigation/chevron-down.svg?react";
-import Grid2x2Icon from "../../assets/icons/general/grid-2x2.svg?react";
+import { useAppStore } from "../../../store";
+import ScreenShareIcon from "../../../assets/icons/communication/screen-share.svg?react";
+import ChevronDownIcon from "../../../assets/icons/navigation/chevron-down.svg?react";
+import Grid2x2Icon from "../../../assets/icons/general/grid-2x2.svg?react";
 import styles from "./StreamFocusView.module.css";
 import { useBroadcasterOrder, useDragStream } from "./useStreamDrag";
 import type { Broadcaster, PointerDragItemProps, PointerDragHandlers } from "./useStreamDrag";
@@ -206,19 +206,20 @@ const DrawerThumb = memo(function DrawerThumb({ session, name, isDragOver, onIte
 interface PrimaryPaneProps {
   readonly isOwnBroadcast: boolean;
   readonly localStream: MediaStream | null;
+  readonly nativeStreamUrl?: string | null;
   readonly session?: number;
   readonly hasOthers: boolean;
   readonly isPrimaryDragOver: boolean;
 }
 
-function PrimaryPane({ isOwnBroadcast, localStream, session, hasOthers, isPrimaryDragOver }: PrimaryPaneProps) {
+function PrimaryPane({ isOwnBroadcast, localStream, nativeStreamUrl, session, hasOthers, isPrimaryDragOver }: PrimaryPaneProps) {
   return (
     <section
       className={styles.primaryPane}
       aria-label="Primary stream"
       data-drop-zone={hasOthers ? "primary" : undefined}
     >
-      <ScreenShareViewer isOwnBroadcast={isOwnBroadcast} localStream={localStream} session={session} />
+      <ScreenShareViewer isOwnBroadcast={isOwnBroadcast} localStream={localStream} nativeStreamUrl={nativeStreamUrl} session={session} />
       {hasOthers && (
         <div
           className={`${styles.primaryDropZone} ${isPrimaryDragOver ? styles.primaryDropZoneActive : ""}`}
@@ -430,6 +431,8 @@ function LayoutSecondaryPanes({ layout, secondaries, dragOverTarget, dragHandler
 interface StreamFocusViewProps {
   readonly isOwnBroadcast: boolean;
   readonly localStream: MediaStream | null;
+  /** Local MJPEG URL when using native Rust-based screen capture. */
+  readonly nativeStreamUrl?: string | null;
   /** Session ID of the broadcaster shown in the primary pane. */
   readonly session?: number;
   readonly otherBroadcasters: Broadcaster[];
@@ -441,6 +444,7 @@ interface StreamFocusViewProps {
 export default function StreamFocusView({
   isOwnBroadcast,
   localStream,
+  nativeStreamUrl,
   session,
   otherBroadcasters,
   onWatch,
@@ -488,6 +492,7 @@ export default function StreamFocusView({
         <PrimaryPane
           isOwnBroadcast={isOwnBroadcast}
           localStream={localStream}
+          nativeStreamUrl={nativeStreamUrl}
           session={session}
           hasOthers={hasOthers}
           isPrimaryDragOver={dragOverTarget === "primary"}

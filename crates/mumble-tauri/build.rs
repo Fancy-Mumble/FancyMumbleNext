@@ -16,6 +16,17 @@ fn main() {
 
     tauri_build::build();
 
+    // Compile the Wayland surface helper on Linux.  It uses dlsym to
+    // resolve GDK/Wayland symbols at runtime so no extra pkg-config
+    // dependencies are needed at build time.
+    if target_os == "linux" {
+        cc::Build::new()
+            .file("src/wayland_surface_helper.c")
+            .compile("wayland_surface_helper");
+        println!("cargo:rerun-if-changed=src/wayland_surface_helper.c");
+        println!("cargo:rustc-link-lib=dl");
+    }
+
     // Oboe (Android audio) is a C++ library whose pure-virtual functions
     // need the C++ runtime (`__cxa_pure_virtual` etc.).  The Rust linker
     // uses NDK clang (C mode) which does NOT auto-link libc++.

@@ -13,7 +13,7 @@ import StarIcon from "../../assets/icons/status/star.svg?react";
 import ShieldCheckIcon from "../../assets/icons/status/shield-check.svg?react";
 import VolumeIcon from "../../assets/icons/audio/volume.svg?react";
 import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
-import { useStreamThumbnail } from "../chat/useStreamPreview";
+import { useStreamThumbnail } from "../chat/screenshare/useStreamPreview";
 import styles from "./UserListItem.module.css";
 
 // Re-export so existing consumers (e.g. ChannelSidebar) keep working.

@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { BroadcastBanner } from "../chat/ScreenShareViewer";
+import { BroadcastBanner } from "../chat/screenshare/ScreenShareViewer";
 
 describe("BroadcastBanner", () => {
   it("renders nothing when no broadcasters", () => {

@@ -16,7 +16,7 @@ import type { ChannelEntry, UserEntry } from "../../../types";
 import { colorFor, avatarUrl, useHoverCardPosition, UserHoverCardPortal } from "../UserListItem";
 import { parseComment } from "../../../profileFormat";
 import { useUserStats } from "../../../hooks/useUserStats";
-import { useStreamThumbnail } from "../../chat/useStreamPreview";
+import { useStreamThumbnail } from "../../chat/screenshare/useStreamPreview";
 import SwipeableCard from "../../elements/SwipeableCard";
 import { isMobile } from "../../../utils/platform";
 import ChevronRightIcon from "../../../assets/icons/navigation/chevron-right.svg?react";

@@ -181,6 +181,8 @@ interface AppState {
   broadcastingSessions: Set<number>;
   /** Session ID we are currently watching (null if not watching). */
   watchingSession: number | null;
+  /** Local MJPEG stream URL when using native Rust-based screen capture. */
+  nativeStreamUrl: string | null;
 
   // -- Persistent chat state -------------------------------------
   /** Persistence metadata per channel (mode, retention, fetch state). */
@@ -366,6 +368,7 @@ const INITIAL: Pick<
   | "webrtcError"
   | "broadcastingSessions"
   | "watchingSession"
+  | "nativeStreamUrl"
   | "channelPersistence"
   | "keyTrust"
   | "custodianPins"
@@ -424,6 +427,7 @@ const INITIAL: Pick<
   webrtcError: null,
   broadcastingSessions: new Set(),
   watchingSession: null,
+  nativeStreamUrl: null,
   channelPersistence: {},
   keyTrust: {},
   custodianPins: {},

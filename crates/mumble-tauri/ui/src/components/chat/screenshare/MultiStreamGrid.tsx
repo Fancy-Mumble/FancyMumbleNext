@@ -5,9 +5,9 @@
  */
 import { useCallback, useState } from "react";
 import { useStreamThumbnail } from "./useStreamPreview";
-import PlayIcon from "../../assets/icons/status/play.svg?react";
-import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
-import ChevronDownIcon from "../../assets/icons/navigation/chevron-down.svg?react";
+import PlayIcon from "../../../assets/icons/status/play.svg?react";
+import ScreenShareIcon from "../../../assets/icons/communication/screen-share.svg?react";
+import ChevronDownIcon from "../../../assets/icons/navigation/chevron-down.svg?react";
 import styles from "./MultiStreamGrid.module.css";
 
 // ---------------------------------------------------------------------------

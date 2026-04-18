@@ -8,17 +8,17 @@
  * - BroadcastBanner: notification bar shown when someone else is sharing
  */
 import { useRef, useEffect, useMemo, useState, useCallback } from "react";
-import { useAppStore } from "../../store";
+import { useAppStore } from "../../../store";
 import { useRemoteStream } from "./useScreenShare";
-import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
-import ErrorCircleIcon from "../../assets/icons/status/error-circle.svg?react";
-import PlayIcon from "../../assets/icons/status/play.svg?react";
-import PauseIcon from "../../assets/icons/status/pause.svg?react";
-import VolumeIcon from "../../assets/icons/audio/volume.svg?react";
-import VolumeOffIcon from "../../assets/icons/audio/volume-off.svg?react";
-import FullscreenIcon from "../../assets/icons/action/fullscreen.svg?react";
-import FullscreenExitIcon from "../../assets/icons/action/fullscreen-exit.svg?react";
+import ScreenShareIcon from "../../../assets/icons/communication/screen-share.svg?react";
+import CloseIcon from "../../../assets/icons/action/close.svg?react";
+import ErrorCircleIcon from "../../../assets/icons/status/error-circle.svg?react";
+import PlayIcon from "../../../assets/icons/status/play.svg?react";
+import PauseIcon from "../../../assets/icons/status/pause.svg?react";
+import VolumeIcon from "../../../assets/icons/audio/volume.svg?react";
+import VolumeOffIcon from "../../../assets/icons/audio/volume-off.svg?react";
+import FullscreenIcon from "../../../assets/icons/action/fullscreen.svg?react";
+import FullscreenExitIcon from "../../../assets/icons/action/fullscreen-exit.svg?react";
 import styles from "./ScreenShareViewer.module.css";
 
 // ---------------------------------------------------------------------------
@@ -256,6 +256,8 @@ function RemoteViewer({ session }: { readonly session: number }) {
 interface ScreenShareViewerProps {
   readonly isOwnBroadcast: boolean;
   readonly localStream: MediaStream | null;
+  /** Local MJPEG URL when using native Rust-based screen capture. */
+  readonly nativeStreamUrl?: string | null;
   /** Session ID of the broadcaster (required when isOwnBroadcast is false). */
   readonly session?: number;
 }
@@ -263,13 +265,144 @@ interface ScreenShareViewerProps {
 export default function ScreenShareViewer({
   isOwnBroadcast,
   localStream,
+  nativeStreamUrl,
   session,
 }: ScreenShareViewerProps) {
   return (
     <div className={styles.broadcastArea}>
-      {isOwnBroadcast && localStream
-        ? <OwnBroadcastPreview stream={localStream} />
+      {isOwnBroadcast
+        ? (nativeStreamUrl
+          ? <NativeBroadcastPreview url={nativeStreamUrl} />
+          : localStream
+            ? <OwnBroadcastPreview stream={localStream} />
+            : null)
         : <RemoteViewer session={session ?? 0} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Native canvas preview - fetch + requestAnimationFrame to force
+// compositor repaints even when the cursor is on another monitor.
+// ---------------------------------------------------------------------------
+
+function NativeBroadcastPreview({ url }: { readonly url: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const pausedRef = useRef(false);
+  const [paused, setPaused] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const onChange = () => {
+      setIsFullscreen(document.fullscreenElement === containerRef.current);
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  const togglePause = useCallback(() => {
+    pausedRef.current = !pausedRef.current;
+    setPaused(pausedRef.current);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (document.fullscreenElement === container) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      container.requestFullscreen().catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let active = true;
+    let latestBitmap: ImageBitmap | null = null;
+    let rafId = 0;
+
+    async function fetchLoop() {
+      while (active) {
+        if (pausedRef.current) {
+          await new Promise((r) => setTimeout(r, 100));
+          continue;
+        }
+        try {
+          const resp = await fetch(`${url}?t=${Date.now()}`);
+          if (!resp.ok || !active) break;
+          const blob = await resp.blob();
+          if (!active) break;
+          const bmp = await createImageBitmap(blob);
+          if (!active) { bmp.close(); break; }
+          latestBitmap?.close();
+          latestBitmap = bmp;
+        } catch {
+          if (!active) break;
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+    }
+
+    function renderLoop() {
+      if (!active) return;
+      if (latestBitmap) {
+        const bmp = latestBitmap;
+        latestBitmap = null;
+        canvas!.width = bmp.width;
+        canvas!.height = bmp.height;
+        ctx!.drawImage(bmp, 0, 0);
+        bmp.close();
+      }
+      rafId = requestAnimationFrame(renderLoop);
+    }
+
+    fetchLoop();
+    rafId = requestAnimationFrame(renderLoop);
+
+    return () => {
+      active = false;
+      cancelAnimationFrame(rafId);
+      latestBitmap?.close();
+      latestBitmap = null;
+    };
+  }, [url]);
+
+  return (
+    <div ref={containerRef} className={styles.streamViewport}>
+      <canvas
+        ref={canvasRef}
+        className={styles.videoElement}
+      />
+      <div className={styles.streamControls}>
+        <button
+          type="button"
+          className={styles.controlBtn}
+          onClick={togglePause}
+          title={paused ? "Resume" : "Pause"}
+          aria-label={paused ? "Resume" : "Pause"}
+        >
+          {paused
+            ? <PlayIcon width={16} height={16} />
+            : <PauseIcon width={16} height={16} />}
+        </button>
+        <div className={styles.controlsSpacer} />
+        <button
+          type="button"
+          className={styles.controlBtn}
+          onClick={toggleFullscreen}
+          title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+          aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+        >
+          {isFullscreen
+            ? <FullscreenExitIcon width={16} height={16} />
+            : <FullscreenIcon width={16} height={16} />}
+        </button>
+      </div>
     </div>
   );
 }

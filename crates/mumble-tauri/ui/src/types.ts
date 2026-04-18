@@ -105,6 +105,23 @@ export interface MumbleServerConfig {
   webrtc_sfu_available: boolean;
 }
 
+/** Platform screen-sharing capabilities reported by the Rust backend. */
+export interface ScreenShareCapabilities {
+  native_capture: boolean;
+  browser_webrtc: boolean;
+}
+
+/** A single capture source (monitor) returned by `list_capture_sources`. */
+export interface CaptureSourceInfo {
+  index: number;
+  name: string;
+  width: number;
+  height: number;
+  is_primary: boolean;
+  /** Data-URL JPEG thumbnail of the monitor, or empty string on failure. */
+  thumbnail: string;
+}
+
 /** Aggregated server info from the backend (version, host, codec, etc.). */
 export interface ServerInfo {
   host: string;
