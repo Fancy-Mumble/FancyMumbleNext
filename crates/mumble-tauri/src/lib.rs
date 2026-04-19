@@ -720,6 +720,14 @@ async fn toggle_deafen(state: tauri::State<'_, AppState>) -> Result<(), String> 
     state.toggle_deafen().await
 }
 
+/// Set the local playback volume for a specific remote user.
+///
+/// `volume` is a multiplier (0.0 = muted, 1.0 = normal, 2.0 = 200%).
+#[tauri::command]
+fn set_user_volume(state: tauri::State<'_, AppState>, session: u32, volume: f32) {
+    state.set_user_volume(session, volume);
+}
+
 /// Start monitoring the microphone and emitting amplitude events.
 #[tauri::command]
 fn start_mic_test(state: tauri::State<'_, AppState>) -> Result<(), String> {
@@ -1769,6 +1777,7 @@ macro_rules! all_command_handlers {
             disable_voice,
             toggle_mute,
             toggle_deafen,
+            set_user_volume,
             start_mic_test,
             stop_mic_test,
             calibrate_voice_threshold,

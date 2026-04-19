@@ -175,8 +175,9 @@ fn capture_thread(
 const MIX_CHUNK_SIZE: usize = 960;
 /// Minimum buffered samples before playback begins (~100 ms).
 const PRE_BUFFER_SAMPLES: usize = 4800;
-/// Consecutive empty refills before repriming (~1.5 s at 20 ms chunks).
-const REPRIME_AFTER: u32 = 150;
+/// Consecutive empty chunk-level refills before repriming (~1.5 s).
+/// Each empty refill represents one `MIX_CHUNK_SIZE` period (20 ms).
+const REPRIME_AFTER: u32 = 75;
 
 /// A rodio [`Source`] that reads from per-speaker ring buffers and
 /// yields mixed mono `f32` samples at 48 kHz.
@@ -198,6 +199,11 @@ struct MumbleMixerSource {
     in_underrun: bool,
     ramp_pos: usize,
     underrun_samples: usize,
+    /// Remaining samples to skip before the next `refill_chunk()` call.
+    /// Prevents per-sample refill attempts during underrun, throttling
+    /// them to once per chunk (~20 ms) so `consecutive_empty` counts
+    /// as chunk-level events rather than sample-level.
+    underrun_cooldown: usize,
     diag: MixerDiag,
 }
 
@@ -235,6 +241,7 @@ impl MumbleMixerSource {
             in_underrun: false,
             ramp_pos: 0,
             underrun_samples: 0,
+            underrun_cooldown: 0,
             diag: MixerDiag {
                 samples_pulled: 0,
                 refills: 0,
@@ -254,6 +261,7 @@ impl MumbleMixerSource {
             self.diag.lock_failures += 1;
             self.chunk_pos = 0;
             self.chunk_valid = 0;
+            self.underrun_cooldown = MIX_CHUNK_SIZE;
             return;
         };
 
@@ -262,6 +270,7 @@ impl MumbleMixerSource {
             if max_available < PRE_BUFFER_SAMPLES {
                 self.chunk_pos = 0;
                 self.chunk_valid = 0;
+                self.underrun_cooldown = MIX_CHUNK_SIZE;
                 return;
             }
             self.primed = true;
@@ -288,6 +297,7 @@ impl MumbleMixerSource {
             }
             self.chunk_pos = 0;
             self.chunk_valid = 0;
+            self.underrun_cooldown = MIX_CHUNK_SIZE;
         } else {
             if valid_count < MIX_CHUNK_SIZE {
                 self.diag.partial_refills += 1;
@@ -307,7 +317,9 @@ impl Iterator for MumbleMixerSource {
             return None;
         }
 
-        if self.chunk_pos >= self.chunk_valid {
+        if self.underrun_cooldown > 0 {
+            self.underrun_cooldown -= 1;
+        } else if self.chunk_pos >= self.chunk_valid {
             self.refill_chunk();
         }
 
@@ -358,7 +370,7 @@ impl Iterator for MumbleMixerSource {
 
             self.diag.peak = self.diag.peak.max(sample.abs());
             self.last_sample = sample;
-            Some(sample * vol)
+            Some(super::soft_clip(sample * vol))
         } else {
             // Underrun: exponential decay of last sample instead of
             // hard silence jump which causes audible clicks.
@@ -370,7 +382,7 @@ impl Iterator for MumbleMixerSource {
             if self.last_sample.abs() < 1e-6 {
                 self.last_sample = 0.0;
             }
-            Some(self.last_sample * vol)
+            Some(super::soft_clip(self.last_sample * vol))
         }
     }
 }
@@ -585,6 +597,13 @@ mod tests {
             }
         }
 
+        // Drain remaining cooldown - the source continues decay output
+        // until the next refill attempt at the chunk boundary.
+        let remaining = src.underrun_cooldown;
+        for _ in 0..remaining {
+            let _ = src.next();
+        }
+
         // First samples after resume should ramp from decayed last_sample
         // toward -0.3, NOT jump directly to -0.3.
         let resume_sample = src.next().unwrap();
@@ -604,5 +623,41 @@ mod tests {
             (settled - (-0.3)).abs() < 0.05,
             "after ramp should settle to -0.3, got {settled}"
         );
+    }
+
+    #[test]
+    fn brief_underrun_does_not_trigger_reprime() {
+        let buffers: SpeakerBuffers = Arc::new(Mutex::new(HashMap::new()));
+        let svols: SpeakerVolumes = Arc::new(Mutex::new(HashMap::new()));
+
+        let total_samples = PRE_BUFFER_SAMPLES + MIX_CHUNK_SIZE;
+        {
+            let mut bufs = buffers.lock().unwrap();
+            let buf = bufs.entry(1).or_default();
+            for _ in 0..total_samples {
+                buf.push_back(0.5);
+            }
+        }
+
+        let mut src = make_source(buffers.clone(), svols);
+
+        for _ in 0..total_samples {
+            let _ = src.next();
+        }
+        assert!(src.primed, "should be primed after initial playback");
+
+        // Drain one full chunk of underrun (960 samples).
+        // With the cooldown fix, this should count as exactly 1
+        // consecutive_empty instead of 960.
+        for _ in 0..MIX_CHUNK_SIZE {
+            let _ = src.next();
+        }
+
+        assert!(src.primed, "should still be primed after a single-chunk underrun");
+        assert_eq!(
+            src.consecutive_empty, 1,
+            "one chunk of underrun should count as 1 empty refill, not {}", src.consecutive_empty
+        );
+        assert_eq!(src.diag.reprime_count, 0, "no repriming should have occurred");
     }
 }

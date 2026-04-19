@@ -76,7 +76,6 @@ impl AppState {
     /// Set the local playback volume for a specific remote user.
     ///
     /// `volume` is a multiplier (0.0 = muted, 1.0 = normal, 2.0 = 200%).
-    #[allow(dead_code, reason = "per-user volume API is prepared for UI integration")]
     pub fn set_user_volume(&self, session: u32, volume: f32) {
         if let Ok(state) = self.inner.lock() {
             if let Ok(mut sv) = state.audio.speaker_volumes.lock() {

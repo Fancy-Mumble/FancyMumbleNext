@@ -395,7 +395,7 @@ fn write_output_frame(
     if let Some(raw) = sample_opt {
         let out = apply_underrun_ramp(raw, state);
         state.last_sample = out;
-        let v = out * vol;
+        let v = super::soft_clip(out * vol);
         for ch in frame.iter_mut() {
             *ch = v;
         }
@@ -407,7 +407,7 @@ fn write_output_frame(
         if state.last_sample.abs() < 1e-6 {
             state.last_sample = 0.0;
         }
-        let v = state.last_sample * vol;
+        let v = super::soft_clip(state.last_sample * vol);
         for ch in frame.iter_mut() {
             *ch = v;
         }
