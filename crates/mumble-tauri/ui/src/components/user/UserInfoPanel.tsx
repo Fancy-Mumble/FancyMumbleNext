@@ -5,9 +5,15 @@
  * bandwidth - mirroring the original Mumble "User Information" dialog.
  */
 
+import { lazy, Suspense, useEffect, useState } from "react";
 import type { UserStats, PacketStats } from "../../types";
+import type { GeoLocation } from "../../utils/geolocation";
+import { geolocateIp } from "../../utils/geolocation";
+import { getPreferences } from "../../preferencesStorage";
 import { formatDuration, formatBandwidth } from "../../utils/format";
 import styles from "./UserInfoPanel.module.css";
+
+const OsmMap = lazy(() => import("../elements/OsmMap"));
 
 // -- Helpers -------------------------------------------------------
 
@@ -56,12 +62,35 @@ export default function UserInfoPanel({ stats }: Readonly<Props>) {
 
 function ConnectionInfo({ stats }: Readonly<Props>) {
   const hasVersion = stats.version || stats.os;
+  const [geo, setGeo] = useState<GeoLocation | null>(null);
+
+  useEffect(() => {
+    if (!stats.address) {
+      setGeo(null);
+      return;
+    }
+    let cancelled = false;
+    getPreferences().then((prefs) => {
+      if (cancelled || prefs.disableOsmMaps) {
+        if (!cancelled) setGeo(null);
+        return;
+      }
+      geolocateIp(stats.address!).then((result) => {
+        if (!cancelled) setGeo(result);
+      });
+    });
+    return () => { cancelled = true; };
+  }, [stats.address]);
 
   if (!hasVersion && !stats.address) return null;
 
   const osDisplay = [stats.os, stats.os_version]
     .filter(Boolean)
     .join(" ");
+
+  const popupLabel = [geo?.city, geo?.region, geo?.country]
+    .filter(Boolean)
+    .join(", ");
 
   return (
     <section className={styles.section}>
@@ -85,6 +114,12 @@ function ConnectionInfo({ stats }: Readonly<Props>) {
             <span className={styles.infoValue}>{stats.address}</span>
           </>
         )}
+        {geo && (
+          <>
+            <span className={styles.infoLabel}>Location</span>
+            <span className={styles.infoValue}>{popupLabel}</span>
+          </>
+        )}
         <>
           <span className={styles.infoLabel}>Certificate</span>
           <span className={styles.infoValue}>
@@ -98,6 +133,13 @@ function ConnectionInfo({ stats }: Readonly<Props>) {
           </span>
         </>
       </div>
+      {geo && (
+        <div className={styles.mapWrapper}>
+          <Suspense fallback={null}>
+            <OsmMap lat={geo.lat} lng={geo.lng} popupLabel={popupLabel} />
+          </Suspense>
+        </div>
+      )}
     </section>
   );
 }

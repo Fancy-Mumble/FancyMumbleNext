@@ -5,16 +5,20 @@ export function PrivacyPanel({
   disableDualPath,
   disableReadReceipts,
   disableTypingIndicators,
+  disableOsmMaps,
   onToggleDualPath,
   onToggleReadReceipts,
   onToggleTypingIndicators,
+  onToggleOsmMaps,
 }: {
   disableDualPath: boolean;
   disableReadReceipts: boolean;
   disableTypingIndicators: boolean;
+  disableOsmMaps: boolean;
   onToggleDualPath: () => void;
   onToggleReadReceipts: () => void;
   onToggleTypingIndicators: () => void;
+  onToggleOsmMaps: () => void;
 }) {
   return (
     <>
@@ -64,6 +68,21 @@ export function PrivacyPanel({
             </p>
           </div>
           <Toggle checked={disableTypingIndicators} onChange={onToggleTypingIndicators} />
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.toggleRow}>
+          <div className={styles.toggleInfo}>
+            <h3 className={styles.sectionTitle}>
+              Disable OpenStreetMap maps
+            </h3>
+            <p className={styles.fieldHint}>
+              When enabled, no map tiles are loaded and no IP geolocation
+              requests are sent to external services.
+            </p>
+          </div>
+          <Toggle checked={disableOsmMaps} onChange={onToggleOsmMaps} />
         </div>
       </section>
     </>

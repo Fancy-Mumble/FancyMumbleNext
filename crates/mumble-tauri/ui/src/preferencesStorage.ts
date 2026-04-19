@@ -21,6 +21,7 @@ const DEFAULTS: UserPreferences = {
   disableDualPath: false,
   debugLogging: false,
   disableTypingIndicators: false,
+  disableOsmMaps: false,
 };
 
 async function getStore() {

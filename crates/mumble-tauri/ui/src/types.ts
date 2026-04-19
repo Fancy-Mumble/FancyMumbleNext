@@ -197,6 +197,8 @@ export interface UserPreferences {
   disableReadReceipts?: boolean;
   /** When true, typing indicators are neither sent nor shown. */
   disableTypingIndicators?: boolean;
+  /** When true, OpenStreetMap maps and IP geolocation requests are disabled. */
+  disableOsmMaps?: boolean;
 }
 
 /** Identifiers for events that can trigger a notification sound. */

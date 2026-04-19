@@ -104,6 +104,7 @@ export default function SettingsPage() {
   const [disableDualPath, setDisableDualPath] = useState(false);
   const [disableReadReceipts, setDisableReadReceipts] = useState(false);
   const [disableTypingIndicators, setDisableTypingIndicators] = useState(false);
+  const [disableOsmMaps, setDisableOsmMaps] = useState(false);
   const [debugLogging, setDebugLogging] = useState(false);
   const [useRodioBackend, setUseRodioBackend] = useState(true);
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("auto");
@@ -170,6 +171,7 @@ export default function SettingsPage() {
         setDisableDualPath(prefs.disableDualPath ?? false);
         setDisableReadReceipts(prefs.disableReadReceipts ?? false);
         setDisableTypingIndicators(prefs.disableTypingIndicators ?? false);
+        setDisableOsmMaps(prefs.disableOsmMaps ?? false);
         setDebugLogging(prefs.debugLogging ?? false);
         setTimeFormat(prefs.timeFormat);
         setConvertToLocalTime(prefs.convertToLocalTime);
@@ -441,6 +443,14 @@ export default function SettingsPage() {
     });
   }, []);
 
+  const handleToggleOsmMaps = useCallback(() => {
+    setDisableOsmMaps((prev) => {
+      const next = !prev;
+      updatePreferences({ disableOsmMaps: next });
+      return next;
+    });
+  }, []);
+
   const handleToggleDeveloperMode = useCallback(async () => {
     const next: UserMode = userMode === "developer" ? "expert" : "developer";
     setUserMode(next);
@@ -613,9 +623,11 @@ export default function SettingsPage() {
               disableDualPath={disableDualPath}
               disableReadReceipts={disableReadReceipts}
               disableTypingIndicators={disableTypingIndicators}
+              disableOsmMaps={disableOsmMaps}
               onToggleDualPath={handleToggleDualPath}
               onToggleReadReceipts={handleToggleReadReceipts}
               onToggleTypingIndicators={handleToggleTypingIndicators}
+              onToggleOsmMaps={handleToggleOsmMaps}
             />
           )}
 
