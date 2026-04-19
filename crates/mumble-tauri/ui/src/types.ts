@@ -406,6 +406,11 @@ export interface FancyProfile {
   cardBackground?: string;
   /** Custom card background (only used when cardBackground is "custom"). */
   cardBackgroundCustom?: string;
+  /** User-chosen theme colours (1-5 hex values) for gradient card background,
+   *  border accents, and adaptive text colour. */
+  themeColors?: string[];
+  /** Enable frosted-glass overlay on the card background. */
+  cardGlass?: boolean;
   /** Avatar border style preset id. */
   avatarBorder?: string;
   /** Custom avatar border CSS (only used when avatarBorder is "custom"). */

@@ -1641,6 +1641,19 @@
   color: #fff;
 }
 
+.infoBoxYellow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.45);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: #a87d00;
+}
+
 /* --- Audio Statistics -------------------------------------------- */
 
 .statsRow {

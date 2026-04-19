@@ -7,6 +7,7 @@ import type { AudioDevice, AudioSettings, FancyProfile, UserMode, TimeFormat } f
 import { getPreferences, updatePreferences, getSavedAudioSettings, saveAudioSettings } from "../../preferencesStorage";
 import { serializeProfile, dataUrlToBytes } from "../../profileFormat";
 import { setKlipyApiKey } from "../../components/chat/GifPicker";
+import { setKlipyApiKey as setKlipyApiKeyBanner } from "./KlipyGifBrowser";
 import { useAppStore } from "../../store";
 import {
   type ShortcutBindings,
@@ -164,6 +165,7 @@ export default function SettingsPage() {
         setDefaultUsername(prefs.defaultUsername);
         setKlipyApiKeyState(prefs.klipyApiKey ?? "");
         setKlipyApiKey(prefs.klipyApiKey);
+        setKlipyApiKeyBanner(prefs.klipyApiKey);
         setEnableNotifications(prefs.enableNotifications ?? true);
         setDisableDualPath(prefs.disableDualPath ?? false);
         setDisableReadReceipts(prefs.disableReadReceipts ?? false);
@@ -359,6 +361,7 @@ export default function SettingsPage() {
   const handleKlipyApiKeyChange = useCallback(async (key: string) => {
     setKlipyApiKeyState(key);
     setKlipyApiKey(key);
+    setKlipyApiKeyBanner(key);
     await updatePreferences({ klipyApiKey: key });
   }, []);
 

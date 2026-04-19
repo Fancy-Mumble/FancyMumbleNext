@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { initEventListeners } from "./store";
 import { getPreferences, getSavedAudioSettings, isFirstRun, getNotificationSounds } from "./preferencesStorage";
 import { setKlipyApiKey } from "./components/chat/GifPicker";
+import { setKlipyApiKey as setKlipyApiKeyBanner } from "./pages/settings/KlipyGifBrowser";
 import { loadShortcuts, applyGlobalShortcut } from "./pages/settings/shortcutHelpers";
 import { useVisualViewport } from "./hooks/useVisualViewport";
 import { useNotificationSounds } from "./hooks/useNotificationSounds";
@@ -36,6 +37,7 @@ export default function App() {
     isFirstRun().then(setFirstRun);
     getPreferences().then((prefs) => {
       setKlipyApiKey(prefs.klipyApiKey);
+      setKlipyApiKeyBanner(prefs.klipyApiKey);
     });
     getNotificationSounds().then((ns) => {
       if (ns) setNotifSounds(ns);

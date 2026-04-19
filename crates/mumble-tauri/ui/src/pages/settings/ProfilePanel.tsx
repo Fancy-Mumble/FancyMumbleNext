@@ -1,16 +1,18 @@
-﻿import { useRef, useState, useCallback } from "react";
+﻿import { useState, useCallback } from "react";
 import type { FancyProfile } from "../../types";
 import { updatePreferences } from "../../preferencesStorage";
 import {
   DECORATIONS,
   NAMEPLATES,
   EFFECTS,
-  CARD_BACKGROUNDS,
   AVATAR_BORDERS,
 } from "./profileData";
 import { ImageEditor } from "./ImageEditor";
 import { BioEditor } from "./BioEditor";
 import { NameStyleSection } from "./NameStyleSection";
+import { BannerEditorModal } from "./BannerEditorModal";
+import { FileDropZone } from "../../components/elements/FileDropZone";
+import { CardColorPicker } from "../../components/elements/CardColorPicker";
 import styles from "./SettingsPage.module.css";
 
 export function ProfilePanel({
@@ -46,48 +48,24 @@ export function ProfilePanel({
   onSwitchIdentity: (label: string | null) => void;
   onGoToIdentities: () => void;
 }>) {
-  const avatarInputRef = useRef<HTMLInputElement>(null);
-  const bannerInputRef = useRef<HTMLInputElement>(null);
+  const [showBannerEditor, setShowBannerEditor] = useState(false);
+  const [showCustomCss, setShowCustomCss] = useState(false);
 
-  // State for the image crop/zoom editor.
-  const [editorImage, setEditorImage] = useState<{
-    src: string;
-    target: "avatar" | "banner";
-  } | null>(null);
+  const [editorImage, setEditorImage] = useState<string | null>(null);
 
   const handleSaveUsername = useCallback(async () => {
     if (!defaultUsername.trim()) return;
     await updatePreferences({ defaultUsername: defaultUsername.trim() });
   }, [defaultUsername]);
 
-  const handleAvatarFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleAvatarFile = useCallback((file: File) => {
     const reader = new FileReader();
-    reader.onload = () =>
-      setEditorImage({ src: reader.result as string, target: "avatar" });
+    reader.onload = () => setEditorImage(reader.result as string);
     reader.readAsDataURL(file);
-    e.target.value = "";
-  };
-
-  const handleBannerFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () =>
-      setEditorImage({ src: reader.result as string, target: "banner" });
-    reader.readAsDataURL(file);
-    e.target.value = "";
-  };
+  }, []);
 
   const handleEditorConfirm = (dataUrl: string) => {
-    if (editorImage?.target === "avatar") {
-      onAvatarChange(dataUrl);
-    } else {
-      onPatchProfile({
-        banner: { ...profile.banner, image: dataUrl },
-      });
-    }
+    onAvatarChange(dataUrl);
     setEditorImage(null);
   };
 
@@ -124,7 +102,7 @@ export function ProfilePanel({
             </button>
           </div>
           {connectedCertLabel && activeIdentity !== connectedCertLabel && (
-            <p className={styles.fieldHint}>
+            <p className={styles.infoBoxYellow}>
               Viewing profile for a different identity. Changes are saved locally
               but will not be applied to the server until you connect with this identity.
             </p>
@@ -158,45 +136,47 @@ export function ProfilePanel({
         <p className={styles.fieldHint}>
           Upload a PNG or JPEG image. Sent as the Mumble user texture.
         </p>
-        <div className={styles.avatarRow}>
-          <button
-            type="button"
-            className={styles.avatarPreview}
-            onClick={() => avatarInputRef.current?.click()}
-            aria-label="Choose avatar image"
-          >
-            {avatar ? (
-              <img src={avatar} alt="Avatar" className={styles.avatarImg} />
-            ) : (
-              <span className={styles.avatarPlaceholder}>📷</span>
-            )}
-          </button>
-          <div className={styles.avatarActions}>
-            <button
-              type="button"
-              className={styles.ghostBtn}
-              onClick={() => avatarInputRef.current?.click()}
-            >
-              Change
-            </button>
-            {avatar && (
-              <button
-                type="button"
-                className={styles.ghostBtn}
-                onClick={() => onAvatarChange(null)}
-              >
-                Remove
-              </button>
-            )}
-          </div>
-        </div>
-        <input
-          ref={avatarInputRef}
-          type="file"
+        <FileDropZone
           accept="image/png,image/jpeg,image/webp"
-          hidden
-          onChange={handleAvatarFile}
+          onFile={handleAvatarFile}
+          label="Drop avatar"
+          shape="circle"
+          size="small"
+          preview={
+            avatar ? (
+              <img src={avatar} alt="Avatar" />
+            ) : undefined
+          }
+          onRemove={avatar ? () => onAvatarChange(null) : undefined}
         />
+      </section>
+
+      {/* -- Banner --------------------------------------------- */}
+      <section className={styles.section}>
+        <h3 className={styles.sectionTitle}>Banner</h3>
+        <p className={styles.fieldHint}>
+          Background colour, image, or GIF for your profile card banner.
+        </p>
+        {profile.banner?.image && (
+          <img
+            src={profile.banner.image}
+            alt="Banner"
+            className={styles.bannerThumb}
+          />
+        )}
+        {!profile.banner?.image && profile.banner?.color && (
+          <div
+            className={styles.bannerThumb}
+            style={{ background: profile.banner.color, height: 60 }}
+          />
+        )}
+        <button
+          type="button"
+          className={styles.ghostBtn}
+          onClick={() => setShowBannerEditor(true)}
+        >
+          Edit Banner
+        </button>
       </section>
 
       {/* -- Bio ------------------------------------------------ */}
@@ -238,36 +218,26 @@ export function ProfilePanel({
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Card Background</h3>
         <p className={styles.fieldHint}>
-          Background style for your profile card - gradients, glass,
-          transparency, or a solid colour.
+          Pick up to 5 colours. The first 3 form the gradient, the 4th
+          sets the border, and the 5th becomes an accent for status text.
         </p>
-        <div className={styles.optionGrid}>
-          {CARD_BACKGROUNDS
-            .filter((bg) => bg.id !== "custom" || isExpert)
-            .map((bg) => (
-              <button
-                key={bg.id}
-                type="button"
-                className={`${styles.cardBgCard} ${
-                  (profile.cardBackground ?? "default") === bg.id
-                    ? styles.optionCardSelected
-                    : ""
-                }`}
-                style={{
-                  background: bg.value || "var(--color-glass)",
-                  ...bg.extra,
-                }}
-                onClick={() =>
-                  onPatchProfile({
-                    cardBackground: bg.id === "default" ? undefined : bg.id,
-                  })
-                }
-              >
-                <span className={styles.optionLabel}>{bg.label}</span>
-              </button>
-            ))}
-        </div>
-        {isExpert && profile.cardBackground === "custom" && (
+        <CardColorPicker
+          colors={profile.themeColors ?? []}
+          onChange={(themeColors) => onPatchProfile({ themeColors, cardBackground: undefined })}
+          glass={profile.cardGlass}
+          onGlassChange={(cardGlass) => onPatchProfile({ cardGlass: cardGlass || undefined })}
+        />
+        {isExpert && !showCustomCss && (
+          <button
+            type="button"
+            className={styles.ghostBtn}
+            style={{ marginTop: 8, fontSize: 12 }}
+            onClick={() => setShowCustomCss(true)}
+          >
+            Custom CSS override...
+          </button>
+        )}
+        {isExpert && showCustomCss && (
           <div className={styles.field} style={{ marginTop: 8 }}>
             <label className={styles.fieldLabel}>Custom CSS background</label>
             <input
@@ -275,7 +245,10 @@ export function ProfilePanel({
               type="text"
               value={profile.cardBackgroundCustom ?? ""}
               onChange={(e) =>
-                onPatchProfile({ cardBackgroundCustom: e.target.value || undefined })
+                onPatchProfile({
+                  cardBackground: e.target.value ? "custom" : undefined,
+                  cardBackgroundCustom: e.target.value || undefined,
+                })
               }
               placeholder="linear-gradient(135deg, #1a1a2e, #2d1b38)"
             />
@@ -439,74 +412,6 @@ export function ProfilePanel({
         displayName={defaultUsername}
       />
 
-      {/* -- Banner --------------------------------------------- */}
-      <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>Banner</h3>
-        <p className={styles.fieldHint}>
-          Background colour and optional image for your profile card banner.
-        </p>
-
-        {/* Colour */}
-        <div className={styles.field}>
-          <div className={styles.fieldRow}>
-            <label className={styles.fieldLabel}>Colour</label>
-            <input
-              type="color"
-              className={styles.colorInput}
-              value={profile.banner?.color || "#1a1a2e"}
-              onChange={(e) =>
-                onPatchProfile({
-                  banner: { ...profile.banner, color: e.target.value },
-                })
-              }
-            />
-          </div>
-        </div>
-
-        {/* Image */}
-        <div className={styles.field}>
-          <label className={styles.fieldLabel}>Image</label>
-          <div className={styles.avatarRow}>
-            {profile.banner?.image && (
-              <img
-                src={profile.banner.image}
-                alt="Banner"
-                className={styles.bannerThumb}
-              />
-            )}
-            <div className={styles.avatarActions}>
-              <button
-                type="button"
-                className={styles.ghostBtn}
-                onClick={() => bannerInputRef.current?.click()}
-              >
-                {profile.banner?.image ? "Change" : "Upload"}
-              </button>
-              {profile.banner?.image && (
-                <button
-                  type="button"
-                  className={styles.ghostBtn}
-                  onClick={() =>
-                    onPatchProfile({
-                      banner: { ...profile.banner, image: undefined },
-                    })
-                  }
-                >
-                  Remove
-                </button>
-              )}
-            </div>
-          </div>
-          <input
-            ref={bannerInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            hidden
-            onChange={handleBannerFile}
-          />
-        </div>
-      </section>
-
       {/* Profile errors (e.g. too large) */}
       {profileError && (
         <section className={styles.section}>
@@ -514,16 +419,28 @@ export function ProfilePanel({
         </section>
       )}
 
-      {/* Image crop/zoom editor modal */}
+      {/* Avatar crop/zoom editor modal */}
       {editorImage && (
         <ImageEditor
-          src={editorImage.src}
-          cropShape={editorImage.target === "avatar" ? "circle" : "rect"}
-          targetWidth={editorImage.target === "avatar" ? 128 : 400}
-          targetHeight={editorImage.target === "avatar" ? 128 : 150}
-          maxBytes={editorImage.target === "avatar" ? 100_000 : 80_000}
+          src={editorImage}
+          cropShape="circle"
+          targetWidth={128}
+          targetHeight={128}
+          maxBytes={100_000}
           onConfirm={handleEditorConfirm}
           onCancel={() => setEditorImage(null)}
+        />
+      )}
+
+      {/* Banner editor modal */}
+      {showBannerEditor && (
+        <BannerEditorModal
+          banner={profile.banner}
+          onConfirm={(banner) => {
+            onPatchProfile({ banner });
+            setShowBannerEditor(false);
+          }}
+          onCancel={() => setShowBannerEditor(false)}
         />
       )}
     </>
