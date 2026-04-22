@@ -93,6 +93,26 @@ impl AppState {
         Ok(())
     }
 
+    pub async fn request_link_preview(
+        &self,
+        urls: Vec<String>,
+        request_id: String,
+    ) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.conn.client_handle.clone()
+        };
+
+        let handle = handle.ok_or("Not connected")?;
+
+        handle
+            .send(command::RequestLinkPreview { urls, request_id })
+            .await
+            .map_err(|e| format!("Failed to request link preview: {e}"))?;
+
+        Ok(())
+    }
+
     pub async fn send_read_receipt(
         &self,
         channel_id: u32,

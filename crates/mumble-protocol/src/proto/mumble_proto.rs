@@ -1517,6 +1517,87 @@ pub struct FancyTypingIndicator {
     #[prost(uint32, optional, tag = "2")]
     pub channel_id: ::core::option::Option<u32>,
 }
+/// Client -> Server: request link previews for one or more URLs.
+/// The server validates, rate-limits, fetches metadata, and responds
+/// with FancyLinkPreviewResponse.
+/// Wire type ID = 132.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FancyLinkPreviewRequest {
+    #[prost(string, repeated, tag = "1")]
+    pub urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Client-chosen correlation ID so the response can be matched.
+    #[prost(string, optional, tag = "2")]
+    pub request_id: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// Server -> Client: link preview results.
+/// Wire type ID = 133.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FancyLinkPreviewResponse {
+    /// Correlation ID from the request.
+    #[prost(string, optional, tag = "1")]
+    pub request_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "2")]
+    pub embeds: ::prost::alloc::vec::Vec<fancy_link_preview_response::Embed>,
+}
+/// Nested message and enum types in `FancyLinkPreviewResponse`.
+pub mod fancy_link_preview_response {
+    /// Link embed data with media, provider, and author info.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Embed {
+        #[prost(string, optional, tag = "1")]
+        pub url: ::core::option::Option<::prost::alloc::string::String>,
+        /// "video", "image", "gifv", "article", "link", "rich"
+        #[prost(string, optional, tag = "2")]
+        pub r#type: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, optional, tag = "3")]
+        pub title: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, optional, tag = "4")]
+        pub description: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(int32, optional, tag = "5")]
+        pub color: ::core::option::Option<i32>,
+        #[prost(string, optional, tag = "6")]
+        pub site_name: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(message, optional, tag = "7")]
+        pub thumbnail: ::core::option::Option<embed::Media>,
+        #[prost(message, optional, tag = "8")]
+        pub image: ::core::option::Option<embed::Media>,
+        #[prost(message, optional, tag = "9")]
+        pub video: ::core::option::Option<embed::Media>,
+        #[prost(message, optional, tag = "10")]
+        pub provider: ::core::option::Option<embed::Provider>,
+        #[prost(message, optional, tag = "11")]
+        pub author: ::core::option::Option<embed::Author>,
+    }
+    /// Nested message and enum types in `Embed`.
+    pub mod embed {
+        /// Reusable sub-message for media (thumbnail, image, video).
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Media {
+            #[prost(string, optional, tag = "1")]
+            pub url: ::core::option::Option<::prost::alloc::string::String>,
+            #[prost(int32, optional, tag = "2")]
+            pub width: ::core::option::Option<i32>,
+            #[prost(int32, optional, tag = "3")]
+            pub height: ::core::option::Option<i32>,
+        }
+        /// Provider metadata.
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Provider {
+            #[prost(string, optional, tag = "1")]
+            pub name: ::core::option::Option<::prost::alloc::string::String>,
+            #[prost(string, optional, tag = "2")]
+            pub url: ::core::option::Option<::prost::alloc::string::String>,
+        }
+        /// Author metadata.
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Author {
+            #[prost(string, optional, tag = "1")]
+            pub name: ::core::option::Option<::prost::alloc::string::String>,
+            #[prost(string, optional, tag = "2")]
+            pub url: ::core::option::Option<::prost::alloc::string::String>,
+        }
+    }
+}
 /// Unified pchat protocol indicator.
 /// Each value identifies both the E2EE protocol implementation
 /// and the persistence behaviour for a channel.

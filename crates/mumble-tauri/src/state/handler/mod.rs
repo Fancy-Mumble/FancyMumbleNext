@@ -10,6 +10,7 @@ mod channel_remove;
 mod channel_state;
 mod codec_version;
 mod custom_reactions_config;
+mod link_preview;
 mod pchat;
 mod permission_denied;
 mod permission_query;
@@ -159,6 +160,7 @@ pub(crate) fn dispatch(msg: &ControlMessage, ctx: &HandlerContext) {
         ControlMessage::FancyCustomReactionsConfig(m) => m.handle(ctx),
         ControlMessage::FancyReadReceiptDeliver(m) => m.handle(ctx),
         ControlMessage::FancyTypingIndicator(m) => m.handle(ctx),
+        ControlMessage::FancyLinkPreviewResponse(m) => m.handle(ctx),
         ControlMessage::BanList(m) => m.handle(ctx),
         ControlMessage::UserList(m) => m.handle(ctx),
         ControlMessage::Acl(m) => m.handle(ctx),

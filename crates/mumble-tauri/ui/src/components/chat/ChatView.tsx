@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+﻿import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../store";
 import type { ChatMessage, TimeFormat } from "../../types";
@@ -9,10 +9,8 @@ import type { BroadcastInfo } from "./ChatHeader";
 import MobileCallControls from "./MobileCallControls";
 import PinnedMessagesPanel from "./PinnedMessagesPanel";
 import ChatComposer from "./ChatComposer";
-import PollCreator from "./PollCreator";
 import { usePolls } from "./usePolls";
 import { useReactions } from "./useReactions";
-import EmojiPicker from "../elements/EmojiPicker";
 import MessageContextMenu from "./MessageContextMenu";
 import MobileMessageActionSheet from "./MobileMessageActionSheet";
 import ChevronDownIcon from "../../assets/icons/navigation/chevron-down.svg?react";
@@ -35,10 +33,13 @@ import { htmlToMarkdown } from "./MarkdownInput";
 import type { MessageScope } from "../../messageOffload";
 import { useScreenShare } from "./useScreenShare";
 import ScreenShareViewer, { BroadcastBanner, WebRtcErrorBanner } from "./ScreenShareViewer";
-import StreamFocusView from "./StreamFocusView";
-import MultiStreamGrid from "./MultiStreamGrid";
 import styles from "./ChatView.module.css";
 import { Lightbox, type LightboxHandle } from "../elements/Lightbox";
+
+const PollCreator = lazy(() => import("./PollCreator"));
+const EmojiPicker = lazy(() => import("../elements/EmojiPicker"));
+const StreamFocusView = lazy(() => import("./StreamFocusView"));
+const MultiStreamGrid = lazy(() => import("./MultiStreamGrid"));
 
 /**
  * Minimum Fancy Mumble server version required for screen sharing.
@@ -476,22 +477,26 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
       {/* Unified focus view: single instance keeps layout stable across swaps */}
       {showFocusView && activeScreenShare && (
-        <StreamFocusView
-          isOwnBroadcast={activeScreenShare.isOwn}
-          localStream={activeScreenShare.isOwn ? activeScreenShare.stream : null}
-          session={activeScreenShare.isOwn ? undefined : activeScreenShare.session}
-          ownBroadcastStream={screenShare.isBroadcasting ? screenShare.localStream : null}
-          otherBroadcasters={focusViewSecondaries}
-          onWatch={handleFocusWatch}
-        />
+        <Suspense fallback={null}>
+          <StreamFocusView
+            isOwnBroadcast={activeScreenShare.isOwn}
+            localStream={activeScreenShare.isOwn ? activeScreenShare.stream : null}
+            session={activeScreenShare.isOwn ? undefined : activeScreenShare.session}
+            ownBroadcastStream={screenShare.isBroadcasting ? screenShare.localStream : null}
+            otherBroadcasters={focusViewSecondaries}
+            onWatch={handleFocusWatch}
+          />
+        </Suspense>
       )}
 
       {/* Multi-stream grid: shown when 2+ broadcasters and we are not sharing or watching */}
       {!activeScreenShare && channelBroadcasters.length > 1 && (
-        <MultiStreamGrid
-          broadcasters={channelBroadcasters}
-          onWatch={screenShare.watchBroadcast}
-        />
+        <Suspense fallback={null}>
+          <MultiStreamGrid
+            broadcasters={channelBroadcasters}
+            onWatch={screenShare.watchBroadcast}
+          />
+        </Suspense>
       )}
 
       {/* Single broadcaster notification banner */}
@@ -626,10 +631,12 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
       </div>
 
       {showPollCreator && (
-        <PollCreator
-          onSubmit={handlePollCreate}
-          onClose={closePollCreator}
-        />
+        <Suspense fallback={null}>
+          <PollCreator
+            onSubmit={handlePollCreate}
+            onClose={closePollCreator}
+          />
+        </Suspense>
       )}
 
       {/* Persistent chat dialogs (key verification, custodian prompt) */}
@@ -695,12 +702,14 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
       {/* Emoji picker overlay */}
       {emojiPicker && (
-        <EmojiPicker
-          anchorX={emojiPicker.x}
-          anchorY={emojiPicker.y}
-          onSelect={handleEmojiSelect}
-          onClose={closeEmojiPicker}
-        />
+        <Suspense fallback={null}>
+          <EmojiPicker
+            anchorX={emojiPicker.x}
+            anchorY={emojiPicker.y}
+            onSelect={handleEmojiSelect}
+            onClose={closeEmojiPicker}
+          />
+        </Suspense>
       )}
 
       <Lightbox

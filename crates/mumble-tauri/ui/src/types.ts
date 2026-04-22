@@ -162,6 +162,32 @@ export interface PublicServer {
 
 // --- User Preferences ---------------------------------------------
 
+// --- Link Embeds --------------------------------------------------
+
+/** Dimension/URL pair for an embedded image or video. */
+export interface EmbedMedia {
+  url: string;
+  width?: number;
+  height?: number;
+}
+
+/** A link embed returned by the server after scraping Open Graph / oEmbed data. */
+export interface LinkEmbed {
+  url: string;
+  type: "video" | "image" | "gifv" | "article" | "link" | "rich";
+  title?: string;
+  description?: string;
+  color?: number;
+  site_name?: string;
+  thumbnail?: EmbedMedia;
+  image?: EmbedMedia;
+  video?: EmbedMedia;
+  provider?: { name?: string; url?: string };
+  author?: { name?: string; url?: string };
+}
+
+// --- User Preferences ---------------------------------------------
+
 /** Whether the user prefers a simplified or full-featured UI. */
 export type UserMode = "normal" | "expert" | "developer";
 
@@ -199,6 +225,10 @@ export interface UserPreferences {
   disableTypingIndicators?: boolean;
   /** When true, OpenStreetMap maps and IP geolocation requests are disabled. */
   disableOsmMaps?: boolean;
+  /** When true, rich link previews (including external resource embeds) are hidden. */
+  disableLinkPreviews?: boolean;
+  /** When true, automatically retry connecting after an unexpected disconnect. */
+  autoReconnect?: boolean;
 }
 
 /** Identifiers for events that can trigger a notification sound. */

@@ -129,6 +129,10 @@ pub enum TcpMessageType {
     PchatPinFetchResponse = 130,
     /// Fancy Mumble: typing indicator broadcast.
     FancyTypingIndicator = 131,
+    /// Fancy Mumble: client requests link previews from the server.
+    FancyLinkPreviewRequest = 132,
+    /// Fancy Mumble: server responds with link embed metadata.
+    FancyLinkPreviewResponse = 133,
 }
 
 /// Generates both `TryFrom<u16> for TcpMessageType` and
@@ -284,6 +288,10 @@ pub enum ControlMessage {
     PchatPinFetchResponse(mumble_tcp::PchatPinFetchResponse),
     /// Fancy: typing indicator broadcast.
     FancyTypingIndicator(mumble_tcp::FancyTypingIndicator),
+    /// Fancy: client requests link previews from the server.
+    FancyLinkPreviewRequest(mumble_tcp::FancyLinkPreviewRequest),
+    /// Fancy: server responds with link embed metadata.
+    FancyLinkPreviewResponse(mumble_tcp::FancyLinkPreviewResponse),
     /// UDP audio tunneled through TCP (fallback path).
     UdpTunnel(Vec<u8>),
 }
@@ -310,6 +318,7 @@ message_type_mapping! {
     FancySubscribePush, FancyReadReceipt, FancyReadReceiptDeliver,
     PchatPin, PchatPinDeliver, PchatPinFetchResponse,
     FancyTypingIndicator,
+    FancyLinkPreviewRequest, FancyLinkPreviewResponse,
 }
 
 /// A decoded UDP message - either audio or a UDP ping.

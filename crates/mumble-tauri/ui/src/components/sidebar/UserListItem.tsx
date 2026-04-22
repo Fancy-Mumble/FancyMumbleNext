@@ -1,4 +1,4 @@
-﻿import { useState, useMemo, useCallback, useRef } from "react";
+﻿import { memo, useState, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useAppStore } from "../../store";
 import type { UserEntry, FancyProfile } from "../../types";
@@ -173,7 +173,7 @@ interface UserListItemProps {
   readonly onContextMenu?: (e: React.MouseEvent) => void;
 }
 
-export function UserListItem({
+export const UserListItem = memo(function UserListItem({
   user,
   channelName,
   active,
@@ -283,4 +283,4 @@ export function UserListItem({
       )}
     </button>
   );
-}
+});

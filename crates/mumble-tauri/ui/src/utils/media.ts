@@ -256,3 +256,15 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 function escapeAttr(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
+
+/**
+ * Fetch a remote URL and return its contents as a data URL.
+ * Useful for converting external image URLs (e.g. Klipy) into
+ * self-contained data URIs that can be sent as binary.
+ */
+export async function fetchAsDataUrl(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+  const blob = await res.blob();
+  return blobToDataUrl(blob);
+}

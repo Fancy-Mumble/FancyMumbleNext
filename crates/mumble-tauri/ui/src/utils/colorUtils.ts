@@ -67,23 +67,12 @@ function relativeLuminance(hex: string): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
-/** WCAG contrast ratio between two hex colours (1 to 21). */
-export function contrastRatio(hex1: string, hex2: string): number {
-  const l1 = relativeLuminance(hex1);
-  const l2 = relativeLuminance(hex2);
-  const lighter = Math.max(l1, l2);
-  const darker = Math.min(l1, l2);
-  return (lighter + 0.05) / (darker + 0.05);
-}
-
 /**
- * Choose a text colour (light or dark) that has the best contrast against
- * the given background hex. Targets a WCAG AA ratio of at least 4.5.
+ * Choose a text colour (light or dark) that has the best perceived
+ * contrast against the given background hex, using the APCA model.
  */
 export function textColorForBg(bgHex: string): string {
-  const light = "#ffffff";
-  const dark = "#111111";
-  return contrastRatio(bgHex, light) >= contrastRatio(bgHex, dark) ? light : dark;
+  return textColorForGradient([bgHex]);
 }
 
 /**
@@ -122,13 +111,57 @@ export function borderColorFromPalette(userColors: string[]): string {
 }
 
 /**
- * Find the best text colour for content placed over a gradient
- * defined by the given colours.
+ * Compute APCA (Advanced Perceptual Contrast Algorithm) lightness
+ * contrast between a background and text colour.
+ *
+ * Returns a signed value: positive = dark text on light bg,
+ * negative = light text on dark bg. Higher absolute value = better
+ * perceived readability. APCA properly accounts for the polarity
+ * asymmetry where light text on dark/saturated backgrounds is more
+ * legible than the reverse at equal luminance differences.
+ */
+function apcaLightness(bgY: number, txtY: number): number {
+  const bgC = bgY > 0.022 ? bgY : bgY + (0.022 - bgY) ** 1.414;
+  const txtC = txtY > 0.022 ? txtY : txtY + (0.022 - txtY) ** 1.414;
+
+  if (bgC > txtC) {
+    const sapc = (bgC ** 0.56 - txtC ** 0.57) * 1.14;
+    return sapc < 0.1 ? 0 : (sapc - 0.027) * 100;
+  }
+  const sapc = (bgC ** 0.65 - txtC ** 0.62) * 1.14;
+  return sapc > -0.1 ? 0 : (sapc + 0.027) * 100;
+}
+
+/**
+ * Find the best text colour for content placed over a gradient.
+ *
+ * Uses APCA (the contrast model for WCAG 3.0) which correctly handles
+ * polarity: light text on saturated/dark backgrounds is perceived as
+ * more readable than dark text at the same mathematical luminance
+ * difference. This fixes issues with pure red, blue, and other
+ * saturated mid-tone colours where WCAG 2.x picks dark text incorrectly.
+ *
+ * Evaluates both white and black text against every gradient stop,
+ * takes the worst-case (minimum |Lc|) for each, and picks the winner.
  */
 export function textColorForGradient(userColors: string[]): string {
   if (userColors.length === 0) return "#ffffff";
-  const avgLum = userColors.reduce((sum, c) => sum + relativeLuminance(c), 0) / userColors.length;
-  return avgLum > 0.18 ? "#111111" : "#ffffff";
+
+  const WHITE_Y = 1.0;
+  const BLACK_Y = 0.012;
+
+  let worstWhiteLc = Infinity;
+  let worstBlackLc = Infinity;
+
+  for (const c of userColors) {
+    const bgY = relativeLuminance(c);
+    const lcWhite = Math.abs(apcaLightness(bgY, WHITE_Y));
+    const lcBlack = Math.abs(apcaLightness(bgY, BLACK_Y));
+    if (lcWhite < worstWhiteLc) worstWhiteLc = lcWhite;
+    if (lcBlack < worstBlackLc) worstBlackLc = lcBlack;
+  }
+
+  return worstWhiteLc >= worstBlackLc ? "#ffffff" : "#111111";
 }
 
 export function hexToRgba(hex: string, alpha: number): string {
@@ -152,8 +185,16 @@ export function buildGradient(userColors: string[], angle = 135, alpha = 1): str
   const stops = userColors.slice(0, MAX_GRADIENT_STOPS);
   const toStop = (c: string) => (alpha < 1 ? hexToRgba(c, alpha) : c);
   if (stops.length === 1) {
-    const companions = generateHarmoniousColors(stops);
-    return `linear-gradient(${angle}deg, ${[stops[0], companions[0], companions[1]].map(toStop).join(", ")})`;
+    const hsl = hexToHsl(stops[0]);
+    const companion = hslToHex({
+      h: hsl.h,
+      s: clamp(hsl.s - 5, 10, 90),
+      l: clamp(hsl.l + (hsl.l > 50 ? -12 : 12), 10, 85),
+    });
+    return `linear-gradient(${angle}deg, ${toStop(stops[0])}, ${toStop(companion)})`;
+  }
+  if (stops.length === 2) {
+    return `linear-gradient(${angle}deg, ${stops.map(toStop).join(", ")})`;
   }
   return `linear-gradient(${angle}deg, ${stops.map(toStop).join(", ")})`;
 }

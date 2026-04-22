@@ -22,6 +22,7 @@ const DEFAULTS: UserPreferences = {
   debugLogging: false,
   disableTypingIndicators: false,
   disableOsmMaps: false,
+  autoReconnect: false,
 };
 
 async function getStore() {

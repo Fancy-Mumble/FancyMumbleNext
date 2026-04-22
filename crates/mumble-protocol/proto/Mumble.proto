@@ -881,3 +881,60 @@ message FancyTypingIndicator {
 	// Channel where the user is typing.
 	optional uint32 channel_id = 2;
 }
+
+// ---------------------------------------------------------------------------
+// Link preview (Fancy Mumble extension, IDs 132-133)
+// ---------------------------------------------------------------------------
+
+// Client -> Server: request link previews for one or more URLs.
+// The server validates, rate-limits, fetches metadata, and responds
+// with FancyLinkPreviewResponse.
+// Wire type ID = 132.
+message FancyLinkPreviewRequest {
+	repeated string urls = 1;
+	// Client-chosen correlation ID so the response can be matched.
+	optional string request_id = 2;
+}
+
+// Server -> Client: link preview results.
+// Wire type ID = 133.
+message FancyLinkPreviewResponse {
+	// Link embed data with media, provider, and author info.
+	message Embed {
+		optional string url = 1;
+		// "video", "image", "gifv", "article", "link", "rich"
+		optional string type = 2;
+		optional string title = 3;
+		optional string description = 4;
+		optional int32 color = 5;
+		optional string site_name = 6;
+
+		// Reusable sub-message for media (thumbnail, image, video).
+		message Media {
+			optional string url = 1;
+			optional int32 width = 2;
+			optional int32 height = 3;
+		}
+		optional Media thumbnail = 7;
+		optional Media image = 8;
+		optional Media video = 9;
+
+		// Provider metadata.
+		message Provider {
+			optional string name = 1;
+			optional string url = 2;
+		}
+		optional Provider provider = 10;
+
+		// Author metadata.
+		message Author {
+			optional string name = 1;
+			optional string url = 2;
+		}
+		optional Author author = 11;
+	}
+
+	// Correlation ID from the request.
+	optional string request_id = 1;
+	repeated Embed embeds = 2;
+}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { initEventListeners } from "./store";
@@ -12,10 +12,11 @@ import { DEFAULT_NOTIFICATION_SOUNDS } from "./pages/settings/NotificationsPanel
 import type { NotificationSoundSettings } from "./types";
 import TitleBar from "./components/layout/TitleBar";
 import ConnectPage from "./pages/ConnectPage";
-import ChatPage from "./pages/ChatPage";
-import SettingsPage from "./pages/settings";
-import AdminPanel from "./pages/admin";
-import WelcomePage from "./pages/WelcomePage";
+
+const ChatPage = lazy(() => import("./pages/ChatPage"));
+const SettingsPage = lazy(() => import("./pages/settings"));
+const AdminPanel = lazy(() => import("./pages/admin"));
+const WelcomePage = lazy(() => import("./pages/WelcomePage"));
 
 export default function App() {
   const navigate = useNavigate();
@@ -93,21 +94,23 @@ export default function App() {
   return (
     <div className="app">
       <TitleBar />
-      <Routes>
-        {firstRun ? (
-          <>
-            <Route path="/welcome" element={<WelcomePage onComplete={() => setFirstRun(false)} />} />
-            <Route path="*" element={<Navigate to="/welcome" replace />} />
-          </>
-        ) : (
-          <>
-            <Route path="/" element={<ConnectPage />} />
-            <Route path="/chat" element={<ChatPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/admin" element={<AdminPanel />} />
-          </>
-        )}
-      </Routes>
+      <Suspense fallback={null}>
+        <Routes>
+          {firstRun ? (
+            <>
+              <Route path="/welcome" element={<WelcomePage onComplete={() => setFirstRun(false)} />} />
+              <Route path="*" element={<Navigate to="/welcome" replace />} />
+            </>
+          ) : (
+            <>
+              <Route path="/" element={<ConnectPage />} />
+              <Route path="/chat" element={<ChatPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/admin" element={<AdminPanel />} />
+            </>
+          )}
+        </Routes>
+      </Suspense>
     </div>
   );
 }

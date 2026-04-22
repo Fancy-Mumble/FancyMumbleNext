@@ -13,11 +13,13 @@ export function AdvancedPanel({
   userMode,
   klipyApiKey,
   debugLogging,
+  autoReconnect,
   timeFormat,
   convertToLocalTime,
   onToggleMode,
   onKlipyApiKeyChange,
   onToggleDebugLogging,
+  onToggleAutoReconnect,
   onTimeFormatChange,
   onConvertToLocalTimeChange,
   onToggleDeveloperMode,
@@ -26,11 +28,13 @@ export function AdvancedPanel({
   userMode: UserMode;
   klipyApiKey: string;
   debugLogging: boolean;
+  autoReconnect: boolean;
   timeFormat: TimeFormat;
   convertToLocalTime: boolean;
   onToggleMode: () => void;
   onKlipyApiKeyChange: (key: string) => void;
   onToggleDebugLogging: () => void;
+  onToggleAutoReconnect: () => void;
   onTimeFormatChange: (fmt: TimeFormat) => void;
   onConvertToLocalTimeChange: () => void;
   onToggleDeveloperMode: () => void;
@@ -115,6 +119,19 @@ export function AdvancedPanel({
           </div>
         </section>
       )}
+
+      <section className={styles.section}>
+        <div className={styles.toggleRow}>
+          <div className={styles.toggleInfo}>
+            <h3 className={styles.sectionTitle}>Auto Reconnect</h3>
+            <p className={styles.fieldHint}>
+              Automatically retry connecting if the server connection drops unexpectedly.
+              Manual disconnects never trigger auto-reconnect.
+            </p>
+          </div>
+          <Toggle checked={autoReconnect} onChange={onToggleAutoReconnect} />
+        </div>
+      </section>
 
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Time Display</h3>

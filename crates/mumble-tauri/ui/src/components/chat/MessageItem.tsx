@@ -1,7 +1,8 @@
-import { useState, useCallback, useRef, useMemo } from "react";
+import { memo, useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { ChatMessage, UserEntry, TimeFormat } from "../../types";
 import type { PollPayload } from "./PollCreator";
+import { useAppStore, requestLinkPreview } from "../../store";
 import { parseComment } from "../../profileFormat";
 import { ProfilePreviewCard } from "../../pages/settings/ProfilePreviewCard";
 import { useUserStats } from "../../hooks/useUserStats";
@@ -10,11 +11,15 @@ import { formatTimestamp, colorFor } from "../../utils/format";
 import { extractOffloadInfo } from "../../messageOffload";
 import PollCard, { getPoll } from "./PollCard";
 import MediaPreview from "./MediaPreview";
+import LinkPreviewCard from "./LinkPreviewCard";
 import QuoteBlock from "../elements/QuoteBlock";
 import styles from "./ChatView.module.css";
 
 /** Regex to match quote reference markers in message bodies. */
 const QUOTE_RE = /<!-- FANCY_QUOTE:(.+?) -->/g;
+
+/** Regex to extract URLs from plain text (after stripping HTML tags). */
+const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi;
 
 /** Approximate height of the profile hover card, used for viewport clamping. */
 const HOVER_CARD_H = 340;
@@ -153,7 +158,7 @@ interface MessageItemProps {
   readonly readReceiptIndicator?: React.ReactNode;
 }
 
-export default function MessageItem({
+export default memo(function MessageItem({
   msg,
   index,
   polls,
@@ -172,6 +177,16 @@ export default function MessageItem({
   const offloadInfo = extractOffloadInfo(msg.body);
   const offloaded = offloadInfo !== null;
   const pureMedia = !offloaded && isPureMedia(msg.body);
+
+  const linkEmbeds = useAppStore((s) => msg.message_id ? s.linkEmbeds.get(msg.message_id) : undefined);
+
+  useEffect(() => {
+    if (!msg.message_id) return;
+    const plain = msg.body.replace(/<[^>]+>/g, " ");
+    const urls = [...plain.matchAll(URL_RE)].map((m) => m[0]);
+    if (urls.length === 0) return;
+    requestLinkPreview(urls, msg.message_id);
+  }, [msg.message_id, msg.body]);
 
   // Always resolve a displayable timestamp: prefer server-side, fall back to local time.
   const displayTimestamp = msg.timestamp ?? Date.now();
@@ -273,8 +288,11 @@ export default function MessageItem({
           </span>
         )}
         <div className={styles.messageBody}>{renderBody()}</div>
+        {linkEmbeds && linkEmbeds.length > 0 && (
+          <LinkPreviewCard embeds={linkEmbeds} allowExternalResources />
+        )}
         {children}
       </div>
     </div>
   );
-}
+});

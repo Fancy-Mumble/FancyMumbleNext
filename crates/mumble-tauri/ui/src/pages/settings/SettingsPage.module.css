@@ -852,6 +852,20 @@
   margin-bottom: 8px;
 }
 
+.avatarThumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--color-glass-border);
+}
+
+.avatarRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 /* --- Apply button ----------------------------------------------- */
 
 .applyBtn {

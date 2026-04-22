@@ -7,11 +7,10 @@ import {
   EFFECTS,
   AVATAR_BORDERS,
 } from "./profileData";
-import { ImageEditor } from "./ImageEditor";
 import { BioEditor } from "./BioEditor";
 import { NameStyleSection } from "./NameStyleSection";
 import { BannerEditorModal } from "./BannerEditorModal";
-import { FileDropZone } from "../../components/elements/FileDropZone";
+import { AvatarEditorModal } from "./AvatarEditorModal";
 import { CardColorPicker } from "../../components/elements/CardColorPicker";
 import styles from "./SettingsPage.module.css";
 
@@ -49,25 +48,13 @@ export function ProfilePanel({
   onGoToIdentities: () => void;
 }>) {
   const [showBannerEditor, setShowBannerEditor] = useState(false);
+  const [showAvatarEditor, setShowAvatarEditor] = useState(false);
   const [showCustomCss, setShowCustomCss] = useState(false);
-
-  const [editorImage, setEditorImage] = useState<string | null>(null);
 
   const handleSaveUsername = useCallback(async () => {
     if (!defaultUsername.trim()) return;
     await updatePreferences({ defaultUsername: defaultUsername.trim() });
   }, [defaultUsername]);
-
-  const handleAvatarFile = useCallback((file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => setEditorImage(reader.result as string);
-    reader.readAsDataURL(file);
-  }, []);
-
-  const handleEditorConfirm = (dataUrl: string) => {
-    onAvatarChange(dataUrl);
-    setEditorImage(null);
-  };
 
   const nameStyle = profile.nameStyle ?? {};
   const patchNameStyle = (patch: Partial<NonNullable<FancyProfile["nameStyle"]>>) =>
@@ -134,21 +121,24 @@ export function ProfilePanel({
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Avatar</h3>
         <p className={styles.fieldHint}>
-          Upload a PNG or JPEG image. Sent as the Mumble user texture.
+          Upload a PNG, JPEG, GIF, or pick from Klipy. Sent as the Mumble user texture.
         </p>
-        <FileDropZone
-          accept="image/png,image/jpeg,image/webp"
-          onFile={handleAvatarFile}
-          label="Drop avatar"
-          shape="circle"
-          size="small"
-          preview={
-            avatar ? (
-              <img src={avatar} alt="Avatar" />
-            ) : undefined
-          }
-          onRemove={avatar ? () => onAvatarChange(null) : undefined}
-        />
+        <div className={styles.avatarRow}>
+          {avatar && (
+            <img
+              src={avatar}
+              alt="Avatar"
+              className={styles.avatarThumb}
+            />
+          )}
+          <button
+            type="button"
+            className={styles.ghostBtn}
+            onClick={() => setShowAvatarEditor(true)}
+          >
+            Edit Avatar
+          </button>
+        </div>
       </section>
 
       {/* -- Banner --------------------------------------------- */}
@@ -419,19 +409,6 @@ export function ProfilePanel({
         </section>
       )}
 
-      {/* Avatar crop/zoom editor modal */}
-      {editorImage && (
-        <ImageEditor
-          src={editorImage}
-          cropShape="circle"
-          targetWidth={128}
-          targetHeight={128}
-          maxBytes={100_000}
-          onConfirm={handleEditorConfirm}
-          onCancel={() => setEditorImage(null)}
-        />
-      )}
-
       {/* Banner editor modal */}
       {showBannerEditor && (
         <BannerEditorModal
@@ -441,6 +418,18 @@ export function ProfilePanel({
             setShowBannerEditor(false);
           }}
           onCancel={() => setShowBannerEditor(false)}
+        />
+      )}
+
+      {/* Avatar editor modal */}
+      {showAvatarEditor && (
+        <AvatarEditorModal
+          avatar={avatar}
+          onConfirm={(newAvatar) => {
+            onAvatarChange(newAvatar);
+            setShowAvatarEditor(false);
+          }}
+          onCancel={() => setShowAvatarEditor(false)}
         />
       )}
     </>

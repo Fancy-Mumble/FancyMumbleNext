@@ -32,7 +32,7 @@ interface Segment {
 }
 
 /** Regex matching URLs (http, https, ftp) in plain text. */
-const URL_RE = /https?:\/\/[^\s<>"'`,;)\]]+|ftp:\/\/[^\s<>"'`,;)\]]+/g;
+const URL_RE = /https?:\/\/[^\s<>"'`,)\]]+|ftp:\/\/[^\s<>"'`,)\]]+/g;
 
 /**
  * Parse raw markdown text into decorated segments.
@@ -249,7 +249,7 @@ export function markdownToHtml(raw: string): string {
   html = html.replace(/~~(.+?)~~/g, "<s>$1</s>");
   // URLs -> clickable links (must run after entity escaping)
   html = html.replace(
-    /(https?:\/\/[^\s<>"'`,;)\]]+|ftp:\/\/[^\s<>"'`,;)\]]+)/g,
+    /(https?:\/\/[^\s<>"'`,)\]]+|ftp:\/\/[^\s<>"'`,)\]]+)/g,
     '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
   );
   // Newlines -> <br> (must come last so inline formatting is applied first)

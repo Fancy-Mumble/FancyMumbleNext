@@ -849,6 +849,16 @@ async fn send_typing_indicator(
     state.send_typing_indicator(channel_id).await
 }
 
+/// Request link previews for the given URLs from the server.
+#[tauri::command]
+async fn request_link_preview(
+    state: tauri::State<'_, AppState>,
+    urls: Vec<String>,
+    request_id: String,
+) -> Result<(), String> {
+    state.request_link_preview(urls, request_id).await
+}
+
 /// Send a read receipt watermark to the server.
 #[tauri::command]
 async fn send_read_receipt(
@@ -1795,6 +1805,7 @@ macro_rules! all_command_handlers {
             send_read_receipt,
             query_read_receipts,
             send_typing_indicator,
+            request_link_preview,
             send_webrtc_signal,
             send_reaction,
             pin_message,

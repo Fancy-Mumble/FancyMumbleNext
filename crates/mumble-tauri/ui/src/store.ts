@@ -92,6 +92,52 @@ interface ReactionFetchResponseEvent {
 /** Sessions that have already had their stored volume applied this connection. */
 const volumeAppliedSessions = new Set<number>();
 
+const AUTO_RECONNECT_DELAY_MS = 3000;
+
+let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let manualDisconnectRequested = false;
+
+function clearAutoReconnectTimer(): void {
+  if (autoReconnectTimer !== null) {
+    clearTimeout(autoReconnectTimer);
+    autoReconnectTimer = null;
+  }
+}
+
+async function attemptAutoReconnect(
+  fallbackTarget: { host: string; port: number; username: string; certLabel: string | null },
+): Promise<void> {
+  if (manualDisconnectRequested) return;
+
+  const { getPreferences } = await import("./preferencesStorage");
+  const prefs = await getPreferences().catch(() => null);
+  if (!prefs?.autoReconnect) return;
+
+  const state = useAppStore.getState();
+  if (state.status === "connected" || state.passwordRequired) return;
+
+  const target = state.pendingConnect ?? fallbackTarget;
+  await state.connect(target.host, target.port, target.username, target.certLabel ?? null);
+
+  const after = useAppStore.getState();
+  if (
+    after.status !== "connected"
+    && !after.passwordRequired
+    && !manualDisconnectRequested
+  ) {
+    scheduleAutoReconnect(target);
+  }
+}
+
+function scheduleAutoReconnect(
+  fallbackTarget: { host: string; port: number; username: string; certLabel: string | null },
+): void {
+  clearAutoReconnectTimer();
+  autoReconnectTimer = setTimeout(() => {
+    void attemptAutoReconnect(fallbackTarget);
+  }, AUTO_RECONNECT_DELAY_MS);
+}
+
 /**
  * Apply persisted per-user volumes to any users that just appeared.
  * Skips sessions already applied this connection.
@@ -160,6 +206,10 @@ interface AppState {
   polls: Map<string, PollPayload>;
   /** Synthetic local-only messages for rendering polls in the chat flow. */
   pollMessages: ChatMessage[];
+
+  // -- Link embed state (in-memory, not persisted) ---------------
+  /** Link embeds keyed by message_id. */
+  linkEmbeds: Map<string, import("./types").LinkEmbed[]>;
 
   /** Monotonic counter incremented whenever the module-level reaction store changes. */
   reactionVersion: number;
@@ -361,6 +411,7 @@ const INITIAL: Pick<
   | "groupUnreadCounts"
   | "polls"
   | "pollMessages"
+  | "linkEmbeds"
   | "reactionVersion"
   | "unseenPinIds"
   | "readReceiptVersion"
@@ -420,6 +471,7 @@ const INITIAL: Pick<
   groupUnreadCounts: {},
   polls: new Map(),
   pollMessages: [],
+  linkEmbeds: new Map(),
   reactionVersion: 0,
   unseenPinIds: new Map(),
   readReceiptVersion: 0,
@@ -478,6 +530,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   ...INITIAL,
 
   connect: async (host, port, username, certLabel, password) => {
+    manualDisconnectRequested = false;
+    clearAutoReconnectTimer();
     set({
       status: "connecting",
       error: null,
@@ -499,6 +553,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   disconnect: async () => {
+    manualDisconnectRequested = true;
+    clearAutoReconnectTimer();
     try {
       // Clean up offloaded temp files before resetting state.
       await offloadManager.dispose();
@@ -1157,6 +1213,21 @@ export function onWebRtcSignal(handler: WebRtcSignalHandler): () => void {
   };
 }
 
+/** Set of request_ids already sent to avoid duplicate requests. */
+const pendingPreviewRequests = new Set<string>();
+
+/** Request link previews from the server for the given URLs. */
+export async function requestLinkPreview(urls: string[], requestId: string): Promise<void> {
+  if (pendingPreviewRequests.has(requestId)) return;
+  pendingPreviewRequests.add(requestId);
+  try {
+    await invoke("request_link_preview", { urls, requestId });
+  } catch (e) {
+    console.error("request_link_preview failed:", e);
+    pendingPreviewRequests.delete(requestId);
+  }
+}
+
 /**
  * Subscribe to backend events and translate them into store updates.
  * Call once from the root `<App>` component; returns cleanup functions.
@@ -1206,6 +1277,8 @@ export async function initEventListeners(
   // Server fully connected (ServerSync received).
   unlisteners.push(
     await listen("server-connected", async () => {
+      manualDisconnectRequested = false;
+      clearAutoReconnectTimer();
       // Load silenced channels for this server (pendingConnect still available).
       const pending = useAppStore.getState().pendingConnect;
       let silenced = new Set<number>();
@@ -1311,6 +1384,10 @@ export async function initEventListeners(
       useAppStore.setState({ ...INITIAL, error: reason, passwordRequired: pwRequired, pendingConnect: pending });
       invoke("update_badge_count", { count: null }).catch(() => {});
       navigate("/");
+
+      if (!manualDisconnectRequested && !pwRequired && pending) {
+        scheduleAutoReconnect(pending);
+      }
     }),
   );
 
@@ -1567,6 +1644,22 @@ export async function initEventListeners(
         for (const handler of webRtcSignalHandlers) {
           handler(sender_session, target_session, signal_type, payload);
         }
+      },
+    ),
+  );
+
+  // -- Link preview response events --------------------------------
+
+  unlisteners.push(
+    await listen<{ request_id: string; embeds: import("./types").LinkEmbed[] }>(
+      "link-preview-response",
+      (event) => {
+        const { request_id, embeds } = event.payload;
+        if (!request_id || !Array.isArray(embeds) || embeds.length === 0) return;
+        const prev = useAppStore.getState().linkEmbeds;
+        const next = new Map(prev);
+        next.set(request_id, embeds);
+        useAppStore.setState({ linkEmbeds: next });
       },
     ),
   );

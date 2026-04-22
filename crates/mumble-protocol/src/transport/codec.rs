@@ -120,6 +120,8 @@ pub(crate) fn serialize_control_message(msg: &ControlMessage) -> Result<(u16, Ve
         PchatPinDeliver(m) => m.encode_to_vec(),
         PchatPinFetchResponse(m) => m.encode_to_vec(),
         FancyTypingIndicator(m) => m.encode_to_vec(),
+        FancyLinkPreviewRequest(m) => m.encode_to_vec(),
+        FancyLinkPreviewResponse(m) => m.encode_to_vec(),
         UdpTunnel(data) => data.clone(),
     };
 
@@ -190,6 +192,8 @@ pub(crate) fn deserialize_control_message(type_id: u16, payload: &[u8]) -> Resul
         PchatPinDeliver => ControlMessage::PchatPinDeliver(mumble_tcp::PchatPinDeliver::decode(payload)?),
         PchatPinFetchResponse => ControlMessage::PchatPinFetchResponse(mumble_tcp::PchatPinFetchResponse::decode(payload)?),
         FancyTypingIndicator => ControlMessage::FancyTypingIndicator(mumble_tcp::FancyTypingIndicator::decode(payload)?),
+        FancyLinkPreviewRequest => ControlMessage::FancyLinkPreviewRequest(mumble_tcp::FancyLinkPreviewRequest::decode(payload)?),
+        FancyLinkPreviewResponse => ControlMessage::FancyLinkPreviewResponse(mumble_tcp::FancyLinkPreviewResponse::decode(payload)?),
     };
     Ok(msg)
 }
