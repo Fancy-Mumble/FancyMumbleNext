@@ -18,10 +18,11 @@ const DEFAULTS: UserPreferences = {
   timeFormat: "auto",
   convertToLocalTime: true,
   enableNotifications: true,
-  disableDualPath: false,
+  enableDualPath: false,
   debugLogging: false,
   disableTypingIndicators: false,
   disableOsmMaps: false,
+  disableLinkPreviews: false,
   autoReconnect: false,
 };
 

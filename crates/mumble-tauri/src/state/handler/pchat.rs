@@ -179,11 +179,15 @@ impl HandleMessage for mumble_tcp::PchatKeyHoldersList {
                 return;
             };
 
-            // Build entries, resolving online status from known users.
-            let online_hashes: std::collections::HashSet<&str> = state
+            // Build a single hash -> name map from online users so the
+            // per-holder lookup is O(1) instead of O(N) (the previous
+            // `state.users.values().find(...)` per holder grew to
+            // O(holders * users) and contended with the audio task for
+            // the SharedState lock on busy servers).
+            let online_name_by_hash: HashMap<&str, &str> = state
                 .users
                 .values()
-                .filter_map(|u| u.hash.as_deref())
+                .filter_map(|u| u.hash.as_deref().map(|h| (h, u.name.as_str())))
                 .collect();
 
             let holders: Vec<_> = self
@@ -194,17 +198,15 @@ impl HandleMessage for mumble_tcp::PchatKeyHoldersList {
                     // Prefer name from online user, fall back to server-provided name,
                     // then stored name from the hash resolver, and finally a
                     // deterministic human-readable name generated from the hash.
-                    let online_name = state
-                        .users
-                        .values()
-                        .find(|u| u.hash.as_deref() == Some(&cert_hash))
-                        .map(|u| u.name.clone());
+                    let online_name = online_name_by_hash
+                        .get(cert_hash.as_str())
+                        .map(|n| (*n).to_owned());
                     let name = online_name.unwrap_or_else(|| resolve_entry_name(
                         &cert_hash,
                         entry.name.as_deref().unwrap_or_default(),
                         state.pchat_ctx.hash_name_resolver.as_deref(),
                     ));
-                    let is_online = online_hashes.contains(cert_hash.as_str());
+                    let is_online = online_name_by_hash.contains_key(cert_hash.as_str());
                     crate::state::types::KeyHolderEntry {
                         cert_hash,
                         name,

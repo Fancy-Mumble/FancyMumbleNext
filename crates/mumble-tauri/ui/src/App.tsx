@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { initEventListeners } from "./store";
+import { initEventListeners, useAppStore } from "./store";
 import { getPreferences, getSavedAudioSettings, isFirstRun, getNotificationSounds } from "./preferencesStorage";
 import { setKlipyApiKey } from "./components/chat/GifPicker";
 import { setKlipyApiKey as setKlipyApiKeyBanner } from "./pages/settings/KlipyGifBrowser";
@@ -39,6 +39,7 @@ export default function App() {
     getPreferences().then((prefs) => {
       setKlipyApiKey(prefs.klipyApiKey);
       setKlipyApiKeyBanner(prefs.klipyApiKey);
+      useAppStore.setState({ disableLinkPreviews: prefs.disableLinkPreviews ?? false });
     });
     getNotificationSounds().then((ns) => {
       if (ns) setNotifSounds(ns);

@@ -212,7 +212,7 @@ export interface UserPreferences {
   enableNotifications?: boolean;
   /** When true, encrypted channels send a placeholder instead of the real
    *  message body in the plain TextMessage (disabling dual-path sending). */
-  disableDualPath?: boolean;
+  enableDualPath?: boolean;
   /** Enable verbose debug logging in the Rust backend. */
   debugLogging?: boolean;
   /** Collapsed/expanded state of sidebar sections. */

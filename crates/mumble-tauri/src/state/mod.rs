@@ -120,6 +120,23 @@ pub(super) struct PchatContext {
     pub pending_delete_ack: Option<tokio::sync::oneshot::Sender<DeleteAckResult>>,
 }
 
+/// Maximum number of in-memory messages retained per thread (channel, DM,
+/// or group).  Older messages remain available through the persistent local
+/// cache and can be loaded on demand via `fetch_older_messages`.  Capping
+/// the working set keeps long-running sessions from accumulating unbounded
+/// memory and prevents the UI from re-rendering ever-growing lists.
+pub(super) const MAX_MESSAGES_PER_THREAD: usize = 500;
+
+/// Append a message to a thread's `Vec<ChatMessage>` while enforcing the
+/// `MAX_MESSAGES_PER_THREAD` cap by dropping the oldest entries.
+pub(super) fn push_capped(messages: &mut Vec<ChatMessage>, msg: ChatMessage) {
+    messages.push(msg);
+    if messages.len() > MAX_MESSAGES_PER_THREAD {
+        let drop_count = messages.len() - MAX_MESSAGES_PER_THREAD;
+        let _ = messages.drain(..drop_count);
+    }
+}
+
 /// Message storage: channel, DM, and group messages with unread counts.
 #[derive(Default)]
 pub(super) struct MessageStore {
@@ -212,5 +229,55 @@ impl AppState {
                 ch.user_count += 1;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dummy_message(idx: usize) -> ChatMessage {
+        ChatMessage {
+            sender_session: Some(1),
+            sender_name: "user".into(),
+            sender_hash: None,
+            body: format!("msg {idx}"),
+            channel_id: 0,
+            is_own: false,
+            dm_session: None,
+            group_id: None,
+            message_id: Some(format!("id-{idx}")),
+            timestamp: Some(idx as u64),
+            is_legacy: false,
+            edited_at: None,
+            pinned: false,
+            pinned_by: None,
+            pinned_at: None,
+        }
+    }
+
+    #[test]
+    fn push_capped_drops_oldest_when_full() {
+        let mut buf: Vec<ChatMessage> = Vec::new();
+        for i in 0..(MAX_MESSAGES_PER_THREAD + 5) {
+            push_capped(&mut buf, dummy_message(i));
+        }
+        assert_eq!(buf.len(), MAX_MESSAGES_PER_THREAD);
+        // Oldest 5 should have been drained; first remaining message is index 5.
+        assert_eq!(buf.first().and_then(|m| m.timestamp), Some(5));
+        assert_eq!(
+            buf.last().and_then(|m| m.timestamp),
+            Some((MAX_MESSAGES_PER_THREAD + 4) as u64),
+        );
+    }
+
+    #[test]
+    fn push_capped_below_limit_keeps_all() {
+        let mut buf: Vec<ChatMessage> = Vec::new();
+        for i in 0..10 {
+            push_capped(&mut buf, dummy_message(i));
+        }
+        assert_eq!(buf.len(), 10);
+        assert_eq!(buf.first().and_then(|m| m.timestamp), Some(0));
     }
 }

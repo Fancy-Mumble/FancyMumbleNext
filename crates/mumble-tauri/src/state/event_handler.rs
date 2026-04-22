@@ -133,23 +133,27 @@ impl EventHandler for TauriEventHandler {
                 );
             }
 
-            let packet = EncodedPacket {
-                data: audio.opus_data.clone(),
-                sequence: audio.frame_number,
-                frame_samples: 960,
-            };
-
             // Determine what to emit INSIDE the lock, then emit OUTSIDE.
             // Calling app.emit() while holding SharedState causes a deadlock:
             // the webview dispatches the JS event synchronously, JS may invoke
             // a Tauri command that tries to re-lock SharedState, and both
             // threads wait on each other.
+            //
+            // The opus payload is only cloned (into `EncodedPacket`) when a
+            // mixer is actually present, so audio packets received before the
+            // pipeline is initialised cost nothing.
             let emit_action: Option<bool> = 'action: {
                 let Ok(mut state) = self.shared.lock() else {
                     break 'action None;
                 };
                 let Some(ref mut mixer) = state.audio.mixer else {
                     break 'action None;
+                };
+
+                let packet = EncodedPacket {
+                    data: audio.opus_data.clone(),
+                    sequence: audio.frame_number,
+                    frame_samples: 960,
                 };
 
                 if let Err(e) = mixer.feed(session, &packet) {

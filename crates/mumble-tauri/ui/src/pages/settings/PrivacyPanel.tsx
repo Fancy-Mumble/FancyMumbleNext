@@ -2,23 +2,27 @@ import { Toggle } from "./SharedControls";
 import styles from "./SettingsPage.module.css";
 
 export function PrivacyPanel({
-  disableDualPath,
+  enableDualPath,
   disableReadReceipts,
   disableTypingIndicators,
   disableOsmMaps,
+  disableLinkPreviews,
   onToggleDualPath,
   onToggleReadReceipts,
   onToggleTypingIndicators,
   onToggleOsmMaps,
+  onToggleLinkPreviews,
 }: {
-  disableDualPath: boolean;
+  enableDualPath: boolean;
   disableReadReceipts: boolean;
   disableTypingIndicators: boolean;
   disableOsmMaps: boolean;
+  disableLinkPreviews: boolean;
   onToggleDualPath: () => void;
   onToggleReadReceipts: () => void;
   onToggleTypingIndicators: () => void;
   onToggleOsmMaps: () => void;
+  onToggleLinkPreviews: () => void;
 }) {
   return (
     <>
@@ -28,16 +32,17 @@ export function PrivacyPanel({
         <div className={styles.toggleRow}>
           <div className={styles.toggleInfo}>
             <h3 className={styles.sectionTitle}>
-              Disable dual-path sending
+              Enable dual-path sending
             </h3>
             <p className={styles.fieldHint}>
-              When enabled, encrypted channels replace the plain-text message
-              with a placeholder so the server never sees the real content.
-              Legacy clients without E2EE support will only see
-              &quot;[Encrypted message]&quot;.
+              When enabled, encrypted channels also send a plain-text
+              placeholder over the normal message path so legacy clients
+              without E2EE support see &quot;[Encrypted message]&quot; instead
+              of nothing. Disable this to keep the ciphertext off the
+              unencrypted path entirely.
             </p>
           </div>
-          <Toggle checked={disableDualPath} onChange={onToggleDualPath} />
+          <Toggle checked={enableDualPath} onChange={onToggleDualPath} />
         </div>
       </section>
 
@@ -83,6 +88,22 @@ export function PrivacyPanel({
             </p>
           </div>
           <Toggle checked={disableOsmMaps} onChange={onToggleOsmMaps} />
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.toggleRow}>
+          <div className={styles.toggleInfo}>
+            <h3 className={styles.sectionTitle}>
+              Disable link previews
+            </h3>
+            <p className={styles.fieldHint}>
+              When enabled, the app will not request link metadata from the
+              server. This prevents the server from learning which URLs you
+              share in chat.
+            </p>
+          </div>
+          <Toggle checked={disableLinkPreviews} onChange={onToggleLinkPreviews} />
         </div>
       </section>
     </>

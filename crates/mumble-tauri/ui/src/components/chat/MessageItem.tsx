@@ -8,6 +8,7 @@ import { ProfilePreviewCard } from "../../pages/settings/ProfilePreviewCard";
 import { useUserStats } from "../../hooks/useUserStats";
 import { isMobile } from "../../utils/platform";
 import { formatTimestamp, colorFor } from "../../utils/format";
+import { extractUrlsFromMessage } from "../../utils/extractUrls";
 import { extractOffloadInfo } from "../../messageOffload";
 import PollCard, { getPoll } from "./PollCard";
 import MediaPreview from "./MediaPreview";
@@ -17,9 +18,6 @@ import styles from "./ChatView.module.css";
 
 /** Regex to match quote reference markers in message bodies. */
 const QUOTE_RE = /<!-- FANCY_QUOTE:(.+?) -->/g;
-
-/** Regex to extract URLs from plain text (after stripping HTML tags). */
-const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi;
 
 /** Approximate height of the profile hover card, used for viewport clamping. */
 const HOVER_CARD_H = 340;
@@ -179,14 +177,15 @@ export default memo(function MessageItem({
   const pureMedia = !offloaded && isPureMedia(msg.body);
 
   const linkEmbeds = useAppStore((s) => msg.message_id ? s.linkEmbeds.get(msg.message_id) : undefined);
+  const disableLinkPreviews = useAppStore((s) => s.disableLinkPreviews);
 
   useEffect(() => {
     if (!msg.message_id) return;
-    const plain = msg.body.replace(/<[^>]+>/g, " ");
-    const urls = [...plain.matchAll(URL_RE)].map((m) => m[0]);
+    if (disableLinkPreviews) return;
+    const urls = extractUrlsFromMessage(msg.body);
     if (urls.length === 0) return;
     requestLinkPreview(urls, msg.message_id);
-  }, [msg.message_id, msg.body]);
+  }, [msg.message_id, msg.body, disableLinkPreviews]);
 
   // Always resolve a displayable timestamp: prefer server-side, fall back to local time.
   const displayTimestamp = msg.timestamp ?? Date.now();
@@ -288,7 +287,7 @@ export default memo(function MessageItem({
           </span>
         )}
         <div className={styles.messageBody}>{renderBody()}</div>
-        {linkEmbeds && linkEmbeds.length > 0 && (
+        {!disableLinkPreviews && linkEmbeds && linkEmbeds.length > 0 && (
           <LinkPreviewCard embeds={linkEmbeds} allowExternalResources />
         )}
         {children}

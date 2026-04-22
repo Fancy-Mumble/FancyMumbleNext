@@ -65,7 +65,8 @@ impl AppState {
                 pinned_at: None,
             };
             msg.ensure_id();
-            state.msgs.by_dm.entry(target_session).or_default().push(msg);
+            let bucket = state.msgs.by_dm.entry(target_session).or_default();
+            crate::state::push_capped(bucket, msg);
         }
 
         Ok(())

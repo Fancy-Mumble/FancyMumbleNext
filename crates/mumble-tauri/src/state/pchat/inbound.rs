@@ -163,11 +163,8 @@ fn insert_or_replace_message(
         }
     }
 
-    state
-        .msgs.by_channel
-        .entry(channel_id)
-        .or_default()
-        .push(chat_msg);
+    let bucket = state.msgs.by_channel.entry(channel_id).or_default();
+    crate::state::push_capped(bucket, chat_msg);
 }
 
 // -- Fetch response ---------------------------------------------------
@@ -599,11 +596,8 @@ fn insert_offline_messages(
             pinned_at: None,
         };
 
-        state
-            .msgs.by_channel
-            .entry(channel_id)
-            .or_default()
-            .push(chat_msg);
+        let bucket = state.msgs.by_channel.entry(channel_id).or_default();
+        crate::state::push_capped(bucket, chat_msg);
 
         acked_ids.push(dm.message_id.clone());
     }

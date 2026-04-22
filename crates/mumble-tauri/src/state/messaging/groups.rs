@@ -159,11 +159,11 @@ impl AppState {
                 pinned_at: None,
             };
             msg.ensure_id();
-            state
+            let bucket = state
                 .msgs.by_group
                 .entry(msg.group_id.clone().unwrap_or_default())
-                .or_default()
-                .push(msg);
+                .or_default();
+            crate::state::push_capped(bucket, msg);
         }
 
         Ok(())

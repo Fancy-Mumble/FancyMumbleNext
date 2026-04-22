@@ -479,7 +479,8 @@ fn handle_channel_message(
             pinned_at: None,
         };
         msg.ensure_id();
-        state.msgs.by_channel.entry(ch_id).or_default().push(msg);
+        let bucket = state.msgs.by_channel.entry(ch_id).or_default();
+        crate::state::push_capped(bucket, msg);
 
         if selected != Some(ch_id) {
             *state.msgs.channel_unread.entry(ch_id).or_insert(0) += 1;

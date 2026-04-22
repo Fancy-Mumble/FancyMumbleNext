@@ -19,14 +19,28 @@ import styles from "./UserListItem.module.css";
 // Re-export so existing consumers (e.g. ChannelSidebar) keep working.
 export { colorFor } from "../../utils/format";
 
+// LRU avatar cache.  Keyed by session id; stores the source texture length
+// so we re-decode when the user updates their avatar.  Capped to keep
+// long-running sessions (with lots of user churn) from accumulating
+// megabytes of stale data: URLs that prevent garbage collection.
+const TEXTURE_CACHE_MAX = 200;
 const textureCache = new Map<number, { len: number; url: string }>();
 
 export function avatarUrl(user: UserEntry): string | null {
   if (!user.texture || user.texture.length === 0) return null;
   const cached = textureCache.get(user.session);
-  if (cached?.len === user.texture.length) return cached.url;
+  if (cached?.len === user.texture.length) {
+    // Touch for LRU ordering.
+    textureCache.delete(user.session);
+    textureCache.set(user.session, cached);
+    return cached.url;
+  }
   const url = textureToDataUrl(user.texture);
   textureCache.set(user.session, { len: user.texture.length, url });
+  if (textureCache.size > TEXTURE_CACHE_MAX) {
+    const oldestKey = textureCache.keys().next().value;
+    if (oldestKey !== undefined) textureCache.delete(oldestKey);
+  }
   return url;
 }
 

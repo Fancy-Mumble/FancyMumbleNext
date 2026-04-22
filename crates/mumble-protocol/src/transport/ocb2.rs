@@ -595,6 +595,51 @@ mod tests {
     }
 
     #[test]
+    fn nonce_resync_recovers_from_out_of_range() {
+        // Regression: simulate the production "OCB2 nonce out of range"
+        // failure mode and verify that calling `set_decrypt_iv` with the
+        // sender's current nonce restores decryption.  This is the
+        // recovery path that the UDP reader takes when the control loop
+        // forwards a server-supplied partial CryptSetup.
+        let mut sender = Ocb2CryptState::new();
+        sender.set_key(&[0x55; 16], &[0; 16], &[0; 16]).unwrap();
+
+        let mut receiver = Ocb2CryptState::new();
+        receiver.set_key(&[0x55; 16], &[0; 16], &[0; 16]).unwrap();
+
+        // Encrypt 200 packets but only deliver the first one; this leaves
+        // the sender's nonce far ahead of the receiver's.
+        for i in 0..200u8 {
+            let plain = vec![i; 8];
+            let enc = sender.encrypt(&plain).unwrap();
+            if i == 0 {
+                let _ = receiver.decrypt(&enc).unwrap();
+            }
+        }
+
+        // The very next encrypted packet must now fail with a
+        // major-desync error - this is exactly what the user saw.
+        let next_plain = b"after gap";
+        let next_enc = sender.encrypt(next_plain).unwrap();
+        let err = receiver.decrypt(&next_enc).unwrap_err();
+        assert!(
+            format!("{err}").contains("nonce out of range"),
+            "expected nonce-out-of-range, got: {err}"
+        );
+
+        // Server now sends a partial CryptSetup containing its current
+        // encrypt nonce; the client applies it.
+        let server_iv = *sender.encrypt_iv();
+        receiver.set_decrypt_iv(&server_iv);
+
+        // Subsequent packets must once again decrypt correctly.
+        let recovery_plain = b"resync ok";
+        let recovery_enc = sender.encrypt(recovery_plain).unwrap();
+        let recovered = receiver.decrypt(&recovery_enc).unwrap();
+        assert_eq!(&recovered, recovery_plain);
+    }
+
+    #[test]
     fn empty_plaintext_roundtrip() {
         let mut sender = Ocb2CryptState::new();
         sender.set_key(&[0x33; 16], &[0; 16], &[0; 16]).unwrap();

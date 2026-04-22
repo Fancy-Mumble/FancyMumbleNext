@@ -101,10 +101,11 @@ export default function SettingsPage() {
   const [defaultUsername, setDefaultUsername] = useState("");
   const [klipyApiKey, setKlipyApiKeyState] = useState("");
   const [enableNotifications, setEnableNotifications] = useState(true);
-  const [disableDualPath, setDisableDualPath] = useState(false);
+  const [enableDualPath, setEnableDualPath] = useState(false);
   const [disableReadReceipts, setDisableReadReceipts] = useState(false);
   const [disableTypingIndicators, setDisableTypingIndicators] = useState(false);
   const [disableOsmMaps, setDisableOsmMaps] = useState(false);
+  const [disableLinkPreviews, setDisableLinkPreviews] = useState(false);
   const [autoReconnect, setAutoReconnect] = useState(false);
   const [debugLogging, setDebugLogging] = useState(false);
   const [useRodioBackend, setUseRodioBackend] = useState(true);
@@ -169,10 +170,11 @@ export default function SettingsPage() {
         setKlipyApiKey(prefs.klipyApiKey);
         setKlipyApiKeyBanner(prefs.klipyApiKey);
         setEnableNotifications(prefs.enableNotifications ?? true);
-        setDisableDualPath(prefs.disableDualPath ?? false);
+        setEnableDualPath(prefs.enableDualPath ?? false);
         setDisableReadReceipts(prefs.disableReadReceipts ?? false);
         setDisableTypingIndicators(prefs.disableTypingIndicators ?? false);
         setDisableOsmMaps(prefs.disableOsmMaps ?? false);
+        setDisableLinkPreviews(prefs.disableLinkPreviews ?? false);
         setAutoReconnect(prefs.autoReconnect ?? false);
         setDebugLogging(prefs.debugLogging ?? false);
         setTimeFormat(prefs.timeFormat);
@@ -419,10 +421,10 @@ export default function SettingsPage() {
   );
 
   const handleToggleDualPath = useCallback(async () => {
-    setDisableDualPath((prev) => {
+    setEnableDualPath((prev) => {
       const next = !prev;
-      updatePreferences({ disableDualPath: next });
-      invoke("set_disable_dual_path", { disabled: next }).catch((e) =>
+      updatePreferences({ enableDualPath: next });
+      invoke("set_disable_dual_path", { disabled: !next }).catch((e) =>
         console.error("set_disable_dual_path error:", e),
       );
       return next;
@@ -449,6 +451,15 @@ export default function SettingsPage() {
     setDisableOsmMaps((prev) => {
       const next = !prev;
       updatePreferences({ disableOsmMaps: next });
+      return next;
+    });
+  }, []);
+
+  const handleToggleLinkPreviews = useCallback(() => {
+    setDisableLinkPreviews((prev) => {
+      const next = !prev;
+      updatePreferences({ disableLinkPreviews: next });
+      useAppStore.setState({ disableLinkPreviews: next });
       return next;
     });
   }, []);
@@ -630,14 +641,16 @@ export default function SettingsPage() {
 
           {tab === "privacy" && (
             <PrivacyPanel
-              disableDualPath={disableDualPath}
+              enableDualPath={enableDualPath}
               disableReadReceipts={disableReadReceipts}
               disableTypingIndicators={disableTypingIndicators}
               disableOsmMaps={disableOsmMaps}
+              disableLinkPreviews={disableLinkPreviews}
               onToggleDualPath={handleToggleDualPath}
               onToggleReadReceipts={handleToggleReadReceipts}
               onToggleTypingIndicators={handleToggleTypingIndicators}
               onToggleOsmMaps={handleToggleOsmMaps}
+              onToggleLinkPreviews={handleToggleLinkPreviews}
             />
           )}
 

@@ -6,7 +6,7 @@
 //! readable with the correct seed.  This mirrors Signal's architecture
 //! of "decrypt once, store securely locally".
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM, NONCE_LEN};
@@ -65,6 +65,9 @@ pub(crate) struct CachedReaction {
 /// readable with the correct seed.
 pub(crate) struct LocalMessageCache {
     messages: HashMap<u32, Vec<CachedMessage>>,
+    /// Per-channel set of `message_id`s present in `messages`, used for
+    /// O(1) dedup on insert.  Rebuilt from `messages` after load.
+    message_ids: HashMap<u32, HashSet<String>>,
     reactions: HashMap<u32, Vec<CachedReaction>>,
     cache_key: LessSafeKey,
     cache_path: PathBuf,
@@ -77,6 +80,7 @@ impl LocalMessageCache {
         let cache_key = Self::derive_key(seed)?;
         Ok(Self {
             messages: HashMap::new(),
+            message_ids: HashMap::new(),
             reactions: HashMap::new(),
             cache_key,
             cache_path: identity_dir.join(CACHE_FILE),
@@ -100,12 +104,35 @@ impl LocalMessageCache {
     }
 
     /// Insert a message into the cache, deduplicating by `message_id`.
+    ///
+    /// Uses a per-channel `HashSet` for O(1) dedup and binary-search
+    /// insertion to keep messages ordered by timestamp without a full
+    /// re-sort.  This keeps the per-message cost O(log N) instead of
+    /// the previous O(N log N), which becomes critical for long-running
+    /// chats with thousands of messages (insert is called inside the
+    /// `SharedState` lock).
     pub fn insert(&mut self, msg: CachedMessage) {
-        let channel = self.messages.entry(msg.channel_id).or_default();
-        if !channel.iter().any(|m| m.message_id == msg.message_id) {
-            channel.push(msg);
-            channel.sort_by_key(|m| m.timestamp);
+        let channel_id = msg.channel_id;
+        let ids = self.message_ids.entry(channel_id).or_default();
+        if !ids.insert(msg.message_id.clone()) {
+            return;
         }
+        let channel = self.messages.entry(channel_id).or_default();
+        let pos = channel.partition_point(|m| m.timestamp <= msg.timestamp);
+        channel.insert(pos, msg);
+    }
+
+    /// Rebuild the `message_ids` index from `messages` after load.
+    fn rebuild_message_id_index(&mut self) {
+        self.message_ids = self
+            .messages
+            .iter()
+            .map(|(&channel_id, msgs)| {
+                let ids: HashSet<String> =
+                    msgs.iter().map(|m| m.message_id.clone()).collect();
+                (channel_id, ids)
+            })
+            .collect();
     }
 
     /// Convert all cached messages into `ChatMessage` format, grouped by channel.
@@ -223,6 +250,7 @@ impl LocalMessageCache {
         let json = self.decrypt(&encrypted)?;
         self.messages =
             serde_json::from_slice(&json).map_err(|e| format!("deserialize cache: {e}"))?;
+        self.rebuild_message_id_index();
         debug!(
             path = ?self.cache_path,
             messages = self.total_count(),
@@ -382,6 +410,60 @@ mod tests {
         cache.insert(msg.clone());
         cache.insert(msg);
         assert_eq!(cache.total_count(), 1);
+    }
+
+    #[test]
+    fn out_of_order_inserts_are_sorted_by_timestamp() {
+        // Regression: insert preserves timestamp order using binary-search
+        // insertion instead of a per-call full re-sort (O(N^2) -> O(N log N)).
+        let dir = TempDir::new().unwrap();
+        let mut cache = LocalMessageCache::new(dir.path(), &test_seed()).unwrap();
+        let make = |id: &str, ts: u64| CachedMessage {
+            message_id: id.to_string(),
+            channel_id: 1,
+            timestamp: ts,
+            sender_hash: "x".to_string(),
+            sender_name: "X".to_string(),
+            body: id.to_string(),
+            is_own: false,
+        };
+
+        cache.insert(make("c", 300));
+        cache.insert(make("a", 100));
+        cache.insert(make("d", 400));
+        cache.insert(make("b", 200));
+
+        let msgs = cache.all_chat_messages();
+        let ch1 = &msgs[&1];
+        assert_eq!(ch1.len(), 4);
+        let bodies: Vec<&str> = ch1.iter().map(|m| m.body.as_str()).collect();
+        assert_eq!(bodies, vec!["a", "b", "c", "d"]);
+    }
+
+    #[test]
+    fn dedup_index_rebuilt_after_load() {
+        // Regression: after load(), the message_ids index must be
+        // populated so subsequent inserts of existing ids are deduped.
+        let dir = TempDir::new().unwrap();
+        let seed = test_seed();
+        let mut cache = LocalMessageCache::new(dir.path(), &seed).unwrap();
+        let msg = CachedMessage {
+            message_id: "persist-1".to_string(),
+            channel_id: 1,
+            timestamp: 100,
+            sender_hash: "x".to_string(),
+            sender_name: "X".to_string(),
+            body: "first".to_string(),
+            is_own: false,
+        };
+        cache.insert(msg.clone());
+        cache.save().unwrap();
+
+        let mut cache2 = LocalMessageCache::new(dir.path(), &seed).unwrap();
+        cache2.load().unwrap();
+        // Re-inserting the same id after load must NOT add a duplicate.
+        cache2.insert(msg);
+        assert_eq!(cache2.total_count(), 1);
     }
 
     // -- Reaction tests -----------------------------------------------

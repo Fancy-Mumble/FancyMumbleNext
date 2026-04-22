@@ -190,7 +190,8 @@ impl AppState {
             cache_own_signal_message(&mut state, &msg, msg_data.channel_id);
         }
 
-        state.msgs.by_channel.entry(msg_data.channel_id).or_default().push(msg);
+        let bucket = state.msgs.by_channel.entry(msg_data.channel_id).or_default();
+        super::push_capped(bucket, msg);
     }
 
     pub async fn edit_message(

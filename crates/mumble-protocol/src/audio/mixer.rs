@@ -46,12 +46,29 @@ pub type SpeakerBuffers = Arc<Mutex<HashMap<u32, VecDeque<f32>>>>;
 /// slider.  The playback callback reads these values during mixing.
 pub type SpeakerVolumes = Arc<Mutex<HashMap<u32, f32>>>;
 
+/// Number of samples per 10 ms at 48 kHz - the unit of Mumble's
+/// `frame_number` field.  A packet that decodes to N samples consumes
+/// `N / SAMPLES_PER_SEQ_UNIT` sequence units.
+const SAMPLES_PER_SEQ_UNIT: u64 = 480;
+
 /// Per-speaker decoder state.
 struct SpeakerDecoder {
     decoder: Box<dyn AudioDecoder>,
     last_seq: Option<u64>,
-    seq_step: Option<u64>,
+    /// Sequence number we expect the next packet from this speaker to
+    /// carry, computed as `packet.sequence + decoded_samples / 480`
+    /// after every successful decode.  Used for sample-accurate gap
+    /// detection that works regardless of how many Opus frames the
+    /// sender packs into each network packet.
+    expected_next_seq: Option<u64>,
     prev_last_sample: Option<f32>,
+    /// Set to true when the decoder is fresh (just created or reset)
+    /// and the very next decoded frame must be faded in from silence.
+    /// Without this fade, the first frame's first sample can start at
+    /// near-full amplitude (Opus has no warm-up lookahead), producing
+    /// an audible click/pop at the start of every utterance and after
+    /// every stream restart.
+    needs_fade_in: bool,
     last_activity: Instant,
 }
 
@@ -61,8 +78,9 @@ impl SpeakerDecoder {
         Ok(Self {
             decoder: Box::new(decoder),
             last_seq: None,
-            seq_step: None,
+            expected_next_seq: None,
             prev_last_sample: None,
+            needs_fade_in: true,
             last_activity: Instant::now(),
         })
     }
@@ -128,50 +146,71 @@ impl AudioMixer {
         };
         speaker.last_activity = Instant::now();
 
-        // Detect and conceal gaps in the sequence (same logic as
-        // InboundPipeline but per-speaker).
-        let gap_plc = detect_sequence_gap(
-            speaker.last_seq,
-            speaker.seq_step,
-            packet.sequence,
-            &mut speaker.seq_step,
-        );
+        // Conservative gap handling: only insert silence padding when
+        // we can be CERTAIN packets were lost.  We compute the expected
+        // next seq from the previous packet's decoded sample count
+        // (in 10 ms units, the protocol's sequence unit).  Anything
+        // beyond a generous tolerance is treated as real loss; small
+        // discrepancies (jitter, frames-per-packet variation) are
+        // ignored - libopus's internal state handles those gracefully
+        // on the next decode.
+        let silence_units = detect_certain_gap(speaker.expected_next_seq, packet.sequence);
 
-        // Generate PLC frames for detected gaps, then decode the
-        // current packet. This two-phase approach avoids a mutable
-        // re-borrow after calling feed_lost.
-        if let Some(gap) = gap_plc {
-            for _ in 0..gap {
-                self.feed_lost(session)?;
-            }
-            let speaker = self
-                .speakers
-                .get_mut(&session)
-                .ok_or_else(|| crate::error::Error::InvalidState("speaker removed during PLC".into()))?;
-            speaker.last_seq = Some(packet.sequence);
-            let mut frame = speaker.decoder.decode(packet)?;
-            apply_boundary_crossfade(
-                &mut frame,
-                &mut speaker.prev_last_sample,
-            );
-            push_samples(&self.buffers, session, &frame);
-            return Ok(());
+        if silence_units > 0 {
+            insert_silence(&self.buffers, session, silence_units, self.format);
         }
 
-        // No gap: borrow is still live from the entry above.
         let speaker = self
             .speakers
             .get_mut(&session)
-            .ok_or_else(|| crate::error::Error::InvalidState("speaker removed unexpectedly".into()))?;
+            .ok_or_else(|| crate::error::Error::InvalidState("speaker removed during gap fill".into()))?;
         speaker.last_seq = Some(packet.sequence);
 
+        // After a silence padding insertion, the buffer ends in 0.0 -
+        // arm the crossfade so the next decoded frame ramps up smoothly
+        // from silence rather than jumping in at full amplitude.
+        if silence_units > 0 {
+            speaker.prev_last_sample = Some(0.0);
+        }
+
         let mut frame = speaker.decoder.decode(packet)?;
-        apply_boundary_crossfade(&mut frame, &mut speaker.prev_last_sample);
+        let consumed_units = frame_seq_units(&frame, self.format);
+        speaker.expected_next_seq = Some(packet.sequence + consumed_units);
+
+        // Cold-start fade-in: a fresh decoder has no warm-up state,
+        // and Opus's first decoded sample can be at full speech
+        // amplitude.  Pushing that straight into the buffer creates
+        // a step from silence to ~0.9 - audible as a pop at the
+        // start of every utterance.  Apply a 5 ms cosine fade-in to
+        // the first frame so the buffer ramps smoothly out of
+        // silence.  Subsequent frames from the same decoder are
+        // continuous (libopus is stateful) and need no further
+        // intervention.
+        if speaker.needs_fade_in {
+            apply_cold_start_fade_in(&mut frame);
+            speaker.needs_fade_in = false;
+        } else if speaker.prev_last_sample.is_some() {
+            // Only apply the boundary crossfade after a real
+            // discontinuity event (silence padding).  libopus's
+            // stateful decode is naturally continuous between
+            // consecutive packets, so applying a crossfade on every
+            // frame would distort the first 24 samples of every
+            // 10 ms window - audible as a constant 100 Hz buzz
+            // riding on top of loud audio.
+            apply_boundary_crossfade(&mut frame, &mut speaker.prev_last_sample);
+        }
+        // For continuous decode, do NOT track prev_last_sample - we
+        // want the crossfade dormant until the next discontinuity.
+        speaker.prev_last_sample = None;
         push_samples(&self.buffers, session, &frame);
         Ok(())
     }
 
     /// Generate a PLC (packet-loss concealment) frame for `session`.
+    ///
+    /// Currently unused by [`feed`] - kept for the recording path and
+    /// future jitter-buffer integration.
+    #[allow(dead_code, reason = "kept for future jitter-buffer integration and external callers")]
     fn feed_lost(&mut self, session: u32) -> Result<()> {
         let speaker = self
             .speakers
@@ -221,30 +260,78 @@ impl AudioMixer {
 }
 
 /// Push decoded F32 samples into the shared per-speaker buffer.
-/// Detect sequence gaps between consecutive audio packets and return
-/// the number of lost frames to conceal. Updates `seq_step` on first pair.
-fn detect_sequence_gap(
-    last_seq: Option<u64>,
-    current_step: Option<u64>,
-    incoming_seq: u64,
-    seq_step: &mut Option<u64>,
-) -> Option<u64> {
-    let prev = last_seq?;
-    if let Some(step) = current_step {
-        if step == 0 {
-            return None;
+/// Detect a *certain* loss gap between the expected next sequence and
+/// the incoming packet's sequence.
+///
+/// Returns the number of 10 ms units of silence to insert before the
+/// new packet.  The threshold is intentionally generous so that normal
+/// jitter, frames-per-packet variation, and packet reordering do NOT
+/// cause spurious gap fills (which were the source of the
+/// crackle/click artifacts heard on multi-frame-per-packet senders).
+///
+/// Capped at [`MAX_SILENCE_FILL_UNITS`] (matches the per-speaker
+/// buffer capacity) so that an inserted gap never displaces real
+/// decoded audio that has not been played yet.
+fn detect_certain_gap(expected: Option<u64>, incoming: u64) -> u64 {
+    /// Tolerance in 10 ms units.  Up to this many missing units are
+    /// silently absorbed; beyond it we treat the gap as real loss.
+    const GAP_TOLERANCE: u64 = 8;
+
+    let Some(expected) = expected else { return 0 };
+    if incoming <= expected + GAP_TOLERANCE {
+        return 0;
+    }
+    (incoming - expected).min(MAX_SILENCE_FILL_UNITS)
+}
+
+/// Maximum silence-padding insertion in 10 ms units.  Matches the
+/// per-speaker buffer cap so that a gap fill cannot displace real
+/// already-decoded audio waiting to be played.
+const MAX_SILENCE_FILL_UNITS: u64 =
+    (MAX_SPEAKER_BUFFER_SAMPLES as u64) / SAMPLES_PER_SEQ_UNIT;
+
+/// Number of 10 ms sequence units the given decoded frame represents.
+fn frame_seq_units(frame: &crate::audio::sample::AudioFrame, format: AudioFormat) -> u64 {
+    let bytes_per_sample = format.sample_format.byte_width().max(1) as u64;
+    let channels = format.channels.max(1) as u64;
+    let total_samples = frame.data.len() as u64 / bytes_per_sample / channels;
+    (total_samples / SAMPLES_PER_SEQ_UNIT).max(1)
+}
+
+/// Append `units * 10 ms` of silence to the speaker buffer to keep
+/// real-time alignment after a confirmed packet-loss gap.
+///
+/// Inserts at most [`MAX_SPEAKER_BUFFER_SAMPLES`] minus the current
+/// buffer length so that the cap-eviction at the end of `push_*`
+/// helpers never has to discard already-decoded real audio that has
+/// not been played yet.  Discarding real audio in favour of silence
+/// caused 100 - 400 ms perceptible dropouts every time a moderate
+/// gap was detected, sustained underrun in the playback mixer, and
+/// repeated re-prime cycles in the rodio source.
+fn insert_silence(
+    buffers: &SpeakerBuffers,
+    session: u32,
+    units: u64,
+    format: AudioFormat,
+) {
+    let requested = (units as usize) * (SAMPLES_PER_SEQ_UNIT as usize) * format.channels as usize;
+    if requested == 0 {
+        return;
+    }
+    if let Ok(mut bufs) = buffers.lock() {
+        let buf = bufs
+            .entry(session)
+            .or_insert_with(|| VecDeque::with_capacity(MAX_SPEAKER_BUFFER_SAMPLES));
+        let remaining = MAX_SPEAKER_BUFFER_SAMPLES.saturating_sub(buf.len());
+        let to_insert = requested.min(remaining);
+        for _ in 0..to_insert {
+            buf.push_back(0.0);
         }
-        let expected = prev + step;
-        if incoming_seq > expected {
-            Some(((incoming_seq - expected) / step).min(3))
-        } else {
-            None
+        if to_insert < requested {
+            tracing::debug!(
+                "insert_silence: clamped {requested} samples to {to_insert} for session {session} (buffer near cap, refusing to evict real audio)"
+            );
         }
-    } else {
-        if incoming_seq > prev {
-            *seq_step = Some(incoming_seq - prev);
-        }
-        None
     }
 }
 
@@ -260,9 +347,16 @@ fn push_samples(
             .or_insert_with(|| VecDeque::with_capacity(MAX_SPEAKER_BUFFER_SAMPLES));
         buf.extend(samples.iter().copied());
         // Drop oldest samples when the buffer exceeds the cap so
-        // stale audio never accumulates beyond ~400 ms.
+        // stale audio never accumulates beyond ~400 ms.  This is the
+        // last-resort overflow behaviour for live decoded audio
+        // arriving faster than the playback can drain it (e.g. on
+        // Android when the app is backgrounded); it should not happen
+        // in steady state on desktop.
         if buf.len() > MAX_SPEAKER_BUFFER_SAMPLES {
             let excess = buf.len() - MAX_SPEAKER_BUFFER_SAMPLES;
+            tracing::debug!(
+                "push_samples: dropped {excess} oldest samples for session {session} (buffer overflow, playback falling behind)"
+            );
             let _ = buf.drain(..excess);
         }
     }
@@ -309,6 +403,34 @@ fn apply_boundary_crossfade(
 
     let samples = frame.as_f32_samples();
     *prev_last_sample = samples.last().copied();
+}
+
+/// Apply a cosine fade-in to the start of a frame produced by a fresh
+/// decoder.  Opus has no warm-up lookahead, so the very first decoded
+/// sample after creating a new decoder can be at full speech amplitude
+/// (e.g. ~0.9).  Pushing that straight into the speaker buffer creates
+/// a step from silence to ~0.9 - audible as a pop at the start of every
+/// utterance and after every stream restart.  A 5 ms cosine fade-in is
+/// short enough to be inaudible to the listener (1/4 of a phoneme) but
+/// long enough to remove the broadband click.
+fn apply_cold_start_fade_in(frame: &mut crate::audio::sample::AudioFrame) {
+    if frame.format.sample_format != SampleFormat::F32 {
+        return;
+    }
+    /// 5 ms at 48 kHz - short enough to be inaudible perceptually
+    /// but long enough to spread the spectral energy of the onset
+    /// below the click range.
+    const FADE_LEN: usize = 240;
+
+    let samples = frame.as_f32_samples_mut();
+    let n = FADE_LEN.min(samples.len());
+    for (i, sample) in samples.iter_mut().take(n).enumerate() {
+        let t = i as f32 / n as f32;
+        // Equal-power cosine fade: 0.5 - 0.5*cos(pi*t) goes 0 -> 1
+        // with zero derivative at both endpoints.
+        let w = 0.5 - 0.5 * (std::f32::consts::PI * t).cos();
+        *sample *= w;
+    }
 }
 
 #[cfg(test)]
@@ -413,10 +535,9 @@ mod tests {
 
     #[cfg(feature = "opus-codec")]
     #[test]
-    fn gap_in_sequence_triggers_plc() {
-        // Feeding packets with a sequence gap should produce *more*
-        // samples than two contiguous packets because PLC frames are
-        // generated for the missing packets.
+    fn certain_gap_inserts_silence_padding() {
+        // A large, undeniable sequence gap should produce extra samples
+        // (silence padding) so the playback timeline stays aligned.
         let bufs = make_buffers();
         let mut mixer = AudioMixer::new(bufs.clone(), AudioFormat::MONO_48KHZ_F32);
 
@@ -431,36 +552,265 @@ mod tests {
             is_silent: false,
         };
 
-        // Packet 1: sequence 0
+        // 20 ms frames -> seq increments by 2 per packet in protocol units.
         let pkt1 = enc.encode(&silent).unwrap();
         mixer.feed(1, &pkt1).unwrap();
         let after_first = bufs.lock().unwrap()[&1].len();
 
-        // Packet 2: sequence 960 (normal step)
+        // Packet 2: contiguous (seq = 2).
         let pkt2 = EncodedPacket {
             data: pkt1.data.clone(),
-            sequence: 960,
+            sequence: 2,
             frame_samples: pkt1.frame_samples,
         };
         mixer.feed(1, &pkt2).unwrap();
         let after_second = bufs.lock().unwrap()[&1].len();
         let contiguous_added = after_second - after_first;
 
-        // Packet 3: sequence 2880 (skip one frame at sequence 1920)
+        // Packet 3: large gap (seq = 20, expected = 4) - 16 units of loss
+        // well above the 8-unit tolerance.
         let pkt3 = EncodedPacket {
             data: pkt1.data.clone(),
-            sequence: 2880,
+            sequence: 20,
             frame_samples: pkt1.frame_samples,
         };
         mixer.feed(1, &pkt3).unwrap();
         let after_gap = bufs.lock().unwrap()[&1].len();
         let gap_added = after_gap - after_second;
 
-        // Gap should produce more samples (concealment frame + normal frame).
         assert!(
             gap_added > contiguous_added,
-            "Expected PLC to produce extra samples: gap_added={gap_added}, contiguous_added={contiguous_added}"
+            "Expected silence padding for a large gap: gap_added={gap_added}, contiguous_added={contiguous_added}"
         );
+    }
+
+    #[cfg(feature = "opus-codec")]
+    #[test]
+    fn multi_frame_per_packet_does_not_inject_silence() {
+        // Regression: senders that pack multiple Opus frames per
+        // network packet make the sequence number jump by more than 1
+        // per packet.  The previous heuristic learned step=1 from the
+        // first pair and then injected fake PLC frames at every
+        // multi-frame packet, causing audible clicks.  The new
+        // sample-accurate detector must absorb this without inserting
+        // any silence.
+        let bufs = make_buffers();
+        let mut mixer = AudioMixer::new(bufs.clone(), AudioFormat::MONO_48KHZ_F32);
+
+        use crate::audio::encoder::{AudioEncoder, OpusEncoder, OpusEncoderConfig};
+        let config = OpusEncoderConfig::default();
+        let frame_size = config.frame_size;
+        let mut enc = OpusEncoder::new(config, AudioFormat::MONO_48KHZ_F32).unwrap();
+        let silent = crate::audio::sample::AudioFrame {
+            data: vec![0u8; frame_size * 4],
+            format: AudioFormat::MONO_48KHZ_F32,
+            sequence: 0,
+            is_silent: false,
+        };
+        let template = enc.encode(&silent).unwrap();
+
+        // First packet: seq = 0 (1 packet = 20 ms = 2 protocol units).
+        mixer.feed(7, &template).unwrap();
+        let after_first = bufs.lock().unwrap()[&7].len();
+        // 20 ms decoded = 960 samples.
+        assert_eq!(after_first, 960);
+
+        // Subsequent packets: seq advances by 2 per packet (matching
+        // the 20 ms frame size).  No silence should ever be inserted.
+        let mut prev_len = after_first;
+        for i in 1..10_u64 {
+            let pkt = EncodedPacket {
+                data: template.data.clone(),
+                sequence: i * 2,
+                frame_samples: template.frame_samples,
+            };
+            mixer.feed(7, &pkt).unwrap();
+            let len = bufs.lock().unwrap()[&7].len();
+            let added = len - prev_len;
+            assert_eq!(
+                added, 960,
+                "iteration {i}: each packet must decode to exactly 960 samples \
+                 with no silence padding (added={added})"
+            );
+            prev_len = len;
+        }
+    }
+
+    #[cfg(feature = "opus-codec")]
+    #[test]
+    fn continuous_decode_does_not_arm_crossfade() {
+        // Regression: applying a boundary crossfade on every successful
+        // decode produces a 100 Hz buzz on top of loud audio because
+        // the first 24 samples of each 10 ms frame are warped toward
+        // the previous frame's last sample.  Continuous decode flow
+        // must leave `prev_last_sample` cleared so the crossfade stays
+        // dormant until a real discontinuity (silence padding).
+        let bufs = make_buffers();
+        let mut mixer = AudioMixer::new(bufs.clone(), AudioFormat::MONO_48KHZ_F32);
+
+        use crate::audio::encoder::{AudioEncoder, OpusEncoder, OpusEncoderConfig};
+        let config = OpusEncoderConfig::default();
+        let frame_size = config.frame_size;
+        let mut enc = OpusEncoder::new(config, AudioFormat::MONO_48KHZ_F32).unwrap();
+        let silent = crate::audio::sample::AudioFrame {
+            data: vec![0u8; frame_size * 4],
+            format: AudioFormat::MONO_48KHZ_F32,
+            sequence: 0,
+            is_silent: false,
+        };
+        let template = enc.encode(&silent).unwrap();
+
+        for i in 0..5_u64 {
+            let pkt = EncodedPacket {
+                data: template.data.clone(),
+                sequence: i * 2,
+                frame_samples: template.frame_samples,
+            };
+            mixer.feed(11, &pkt).unwrap();
+            let speaker = mixer.speakers.get(&11).unwrap();
+            assert!(
+                speaker.prev_last_sample.is_none(),
+                "iteration {i}: continuous decode must leave prev_last_sample = None, \
+                 found {:?}", speaker.prev_last_sample
+            );
+        }
+    }
+
+    #[cfg(feature = "opus-codec")]
+    #[test]
+    fn silence_padding_arms_crossfade_for_next_frame() {
+        // After a confirmed gap, silence is appended and the next real
+        // decode should be smoothed in (not jumped to full amplitude).
+        // Verified indirectly by checking prev_last_sample is set to 0.0
+        // after silence insertion.
+        let bufs = make_buffers();
+        let mut mixer = AudioMixer::new(bufs.clone(), AudioFormat::MONO_48KHZ_F32);
+
+        use crate::audio::encoder::{AudioEncoder, OpusEncoder, OpusEncoderConfig};
+        let config = OpusEncoderConfig::default();
+        let frame_size = config.frame_size;
+        let mut enc = OpusEncoder::new(config, AudioFormat::MONO_48KHZ_F32).unwrap();
+        let silent = crate::audio::sample::AudioFrame {
+            data: vec![0u8; frame_size * 4],
+            format: AudioFormat::MONO_48KHZ_F32,
+            sequence: 0,
+            is_silent: false,
+        };
+        let template = enc.encode(&silent).unwrap();
+
+        // Prime: one normal packet (seq=0).
+        mixer.feed(13, &template).unwrap();
+        assert!(mixer.speakers.get(&13).unwrap().prev_last_sample.is_none());
+
+        // Large gap: seq jumps by 50 protocol units (above tolerance).
+        let pkt2 = EncodedPacket {
+            data: template.data.clone(),
+            sequence: 50,
+            frame_samples: template.frame_samples,
+        };
+        mixer.feed(13, &pkt2).unwrap();
+
+        // After the silence-then-decode, prev_last_sample is cleared
+        // again because the decoded frame consumed it via the crossfade.
+        assert!(mixer.speakers.get(&13).unwrap().prev_last_sample.is_none());
+
+        // The buffer should contain padding samples from the silence
+        // insertion plus the two real frames.
+        let len = bufs.lock().unwrap()[&13].len();
+        assert!(len > 2 * 960, "expected silence + two frames worth of samples, got {len}");
+    }
+
+    #[test]
+    fn cold_start_fade_in_attenuates_first_240_samples() {
+        // Regression: a fresh decoder's first frame can begin at full
+        // speech amplitude (Opus has no warm-up lookahead).  Feeding
+        // that straight into the buffer creates a silence -> ~0.9 step,
+        // audible as a pop at the start of every utterance.  The
+        // cold-start fade-in must attenuate the first 5 ms of the very
+        // first frame.
+        use crate::audio::sample::AudioFrame;
+        let mut frame = AudioFrame {
+            data: vec![0u8; 960 * 4],
+            format: AudioFormat::MONO_48KHZ_F32,
+            sequence: 0,
+            is_silent: false,
+        };
+        // Fill with constant 0.8 amplitude (worst case onset).
+        for chunk in frame.data.chunks_exact_mut(4) {
+            chunk.copy_from_slice(&0.8_f32.to_le_bytes());
+        }
+
+        apply_cold_start_fade_in(&mut frame);
+
+        let samples = frame.as_f32_samples();
+        // First sample must be exactly zero (fade starts at w=0).
+        assert!(
+            samples[0].abs() < 1e-6,
+            "first sample after cold-start fade must be 0, got {}", samples[0]
+        );
+        // Sample at the 240-sample fade endpoint should be near 0.8
+        // (cosine fade reaches w=1 at t=1).
+        assert!(
+            (samples[239] - 0.8).abs() < 0.05,
+            "sample at end of fade should be ~0.8, got {}", samples[239]
+        );
+        // Samples after the fade must be untouched.
+        for &s in &samples[240..480] {
+            assert!(
+                (s - 0.8).abs() < 1e-6,
+                "samples past fade window must be unchanged, got {s}"
+            );
+        }
+        // Monotonically non-decreasing through the fade window so we
+        // know there is no overshoot or wobble.
+        for i in 1..240 {
+            assert!(
+                samples[i] + 1e-6 >= samples[i - 1],
+                "fade must be monotonic non-decreasing at {i}"
+            );
+        }
+    }
+
+    #[cfg(feature = "opus-codec")]
+    #[test]
+    fn fresh_speaker_decoder_marks_needs_fade_in() {
+        // The needs_fade_in flag must be true on creation and false
+        // after the first feed, so subsequent frames are continuous
+        // and never re-faded in mid-utterance.
+        let bufs = make_buffers();
+        let mut mixer = AudioMixer::new(bufs.clone(), AudioFormat::MONO_48KHZ_F32);
+
+        use crate::audio::encoder::{AudioEncoder, OpusEncoder, OpusEncoderConfig};
+        let config = OpusEncoderConfig::default();
+        let frame_size = config.frame_size;
+        let mut enc = OpusEncoder::new(config, AudioFormat::MONO_48KHZ_F32).unwrap();
+        let silent = crate::audio::sample::AudioFrame {
+            data: vec![0u8; frame_size * 4],
+            format: AudioFormat::MONO_48KHZ_F32,
+            sequence: 0,
+            is_silent: false,
+        };
+        let template = enc.encode(&silent).unwrap();
+
+        mixer.feed(17, &template).unwrap();
+        assert!(
+            !mixer.speakers.get(&17).unwrap().needs_fade_in,
+            "needs_fade_in must be cleared after the first decode"
+        );
+
+        // Subsequent feeds keep the flag false.
+        for i in 1..3_u64 {
+            let pkt = EncodedPacket {
+                data: template.data.clone(),
+                sequence: i * 2,
+                frame_samples: template.frame_samples,
+            };
+            mixer.feed(17, &pkt).unwrap();
+            assert!(
+                !mixer.speakers.get(&17).unwrap().needs_fade_in,
+                "needs_fade_in must stay false on iteration {i}"
+            );
+        }
     }
 
     #[cfg(feature = "opus-codec")]
@@ -624,5 +974,103 @@ mod tests {
             !locked[&42].is_empty(),
             "previously buffered samples should still be available"
         );
+    }
+
+    #[test]
+    fn insert_silence_does_not_evict_buffered_real_audio() {
+        // Regression: a gap fill (insert_silence) used to push up to
+        // 100 * 480 = 48_000 zero samples into a buffer capped at
+        // MAX_SPEAKER_BUFFER_SAMPLES (19_200), causing the cap-eviction
+        // to discard 28_800 samples of REAL decoded audio that had not
+        // yet been played.  This was audible as a 100 - 400 ms dropout
+        // every time `detect_certain_gap` fired and was the root cause
+        // of sustained underruns + repeated re-prime cycles in the
+        // rodio mixer source under network jitter.
+        let bufs = make_buffers();
+
+        // Pre-fill with a recognisable real signal at the maximum
+        // possible level (sentinel value 1.0) so we can verify it
+        // survives the silence insertion.
+        let real_samples: Vec<f32> = vec![1.0; MAX_SPEAKER_BUFFER_SAMPLES / 2];
+        let frame = crate::audio::sample::AudioFrame {
+            data: real_samples.iter().flat_map(|s| s.to_ne_bytes()).collect(),
+            format: AudioFormat::MONO_48KHZ_F32,
+            sequence: 0,
+            is_silent: false,
+        };
+        push_samples(&bufs, 1, &frame);
+        let before_len = bufs.lock().unwrap()[&1].len();
+        assert_eq!(before_len, MAX_SPEAKER_BUFFER_SAMPLES / 2);
+
+        // Request a gap fill that, naively inserted, would overflow
+        // the buffer by a large margin (100 units = 48_000 samples,
+        // current free space is only ~9_600 samples).
+        insert_silence(&bufs, 1, 100, AudioFormat::MONO_48KHZ_F32);
+
+        let locked = bufs.lock().unwrap();
+        let buf = &locked[&1];
+        // Buffer must not exceed the cap.
+        assert!(
+            buf.len() <= MAX_SPEAKER_BUFFER_SAMPLES,
+            "buffer overflowed cap: len={}, cap={MAX_SPEAKER_BUFFER_SAMPLES}",
+            buf.len(),
+        );
+        // The original real samples must still be present at the
+        // front of the buffer (they were the oldest, queued for
+        // imminent playback).
+        let real_count = real_samples.len();
+        for (i, &s) in buf.iter().take(real_count).enumerate() {
+            assert!(
+                (s - 1.0).abs() < f32::EPSILON,
+                "real sample {i} was overwritten or evicted: got {s}, expected 1.0",
+            );
+        }
+    }
+
+    #[test]
+    fn insert_silence_into_full_buffer_is_a_noop() {
+        // When the buffer is already at capacity, inserting silence
+        // must not evict any real audio.  Without the cap-aware fix,
+        // this call would replace 100 % of the buffer contents with
+        // zeros - the worst-case dropout.
+        let bufs = make_buffers();
+        let real_samples: Vec<f32> = (0..MAX_SPEAKER_BUFFER_SAMPLES)
+            .map(|i| (i as f32).sin())
+            .collect();
+        let frame = crate::audio::sample::AudioFrame {
+            data: real_samples.iter().flat_map(|s| s.to_ne_bytes()).collect(),
+            format: AudioFormat::MONO_48KHZ_F32,
+            sequence: 0,
+            is_silent: false,
+        };
+        push_samples(&bufs, 1, &frame);
+
+        insert_silence(&bufs, 1, 100, AudioFormat::MONO_48KHZ_F32);
+
+        let locked = bufs.lock().unwrap();
+        let buf = &locked[&1];
+        assert_eq!(buf.len(), MAX_SPEAKER_BUFFER_SAMPLES);
+        for (i, &s) in buf.iter().enumerate() {
+            let expected = real_samples[i];
+            assert!(
+                (s - expected).abs() < f32::EPSILON,
+                "sample {i} was overwritten by silence: got {s}, expected {expected}",
+            );
+        }
+    }
+
+    #[test]
+    fn detect_certain_gap_capped_at_buffer_capacity() {
+        // The maximum gap fill must not exceed the buffer capacity in
+        // 10 ms units, so that a single gap fill can never displace
+        // real already-decoded audio.
+        let huge_jump = detect_certain_gap(Some(0), 100_000);
+        assert!(
+            huge_jump <= MAX_SILENCE_FILL_UNITS,
+            "gap fill {huge_jump} exceeds buffer capacity {MAX_SILENCE_FILL_UNITS} units",
+        );
+        // Ensure samples produced by the cap fit in the buffer.
+        let max_samples = (huge_jump as usize) * (SAMPLES_PER_SEQ_UNIT as usize);
+        assert!(max_samples <= MAX_SPEAKER_BUFFER_SAMPLES);
     }
 }

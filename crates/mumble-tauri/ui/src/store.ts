@@ -211,6 +211,9 @@ interface AppState {
   /** Link embeds keyed by message_id. */
   linkEmbeds: Map<string, import("./types").LinkEmbed[]>;
 
+  /** Whether the user has opted out of requesting link previews. */
+  disableLinkPreviews: boolean;
+
   /** Monotonic counter incremented whenever the module-level reaction store changes. */
   reactionVersion: number;
 
@@ -528,6 +531,7 @@ function updateBadgeCount(): void {
 
 export const useAppStore = create<AppState>((set, get) => ({
   ...INITIAL,
+  disableLinkPreviews: false,
 
   connect: async (host, port, username, certLabel, password) => {
     manualDisconnectRequested = false;
@@ -1265,7 +1269,7 @@ export async function initEventListeners(
       enabled: prefs.enableNotifications ?? true,
     });
     await invoke("set_disable_dual_path", {
-      disabled: prefs.disableDualPath ?? false,
+      disabled: !(prefs.enableDualPath ?? false),
     });
     if (prefs.debugLogging) {
       await invoke("set_log_level", { filter: "debug" });
