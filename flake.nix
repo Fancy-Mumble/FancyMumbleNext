@@ -48,6 +48,10 @@
             gtk3
             libsoup_3
             libopus
+            gst_all_1.gstreamer
+            gst_all_1.gst-plugins-base
+            gst_all_1.gst-plugins-good
+
           ];
           shellHook = ''
             export LD_LIBRARY_PATH=${
