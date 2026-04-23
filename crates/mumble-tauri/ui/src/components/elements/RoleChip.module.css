@@ -1,0 +1,49 @@
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary, #e7e9ec);
+  border: 1px solid transparent;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip.colored {
+  background: color-mix(in srgb, var(--role-color) 22%, transparent);
+  border-color: color-mix(in srgb, var(--role-color) 65%, transparent);
+  color: color-mix(in srgb, var(--role-color) 95%, white 5%);
+}
+
+.chip.small {
+  padding: 0.05rem 0.4rem;
+  font-size: 0.7rem;
+}
+
+.chip.large {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.icon {
+  width: 1em;
+  height: 1em;
+  border-radius: 999px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.dot {
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: 999px;
+  background: var(--role-color, currentColor);
+  flex-shrink: 0;
+}

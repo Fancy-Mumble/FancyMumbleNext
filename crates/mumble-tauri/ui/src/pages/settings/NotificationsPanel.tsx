@@ -52,6 +52,11 @@ const EVENT_DEFS: EventDef[] = [
     description: "A new private or group message",
   },
   {
+    key: "mention",
+    label: "Mention",
+    description: "Someone mentioned you with @, @everyone, @here, or your role",
+  },
+  {
     key: "userJoin",
     label: "User joined server",
     description: "Someone connected to the server",
@@ -93,6 +98,7 @@ export const DEFAULT_NOTIFICATION_SOUNDS: NotificationSoundSettings = {
   events: {
     chatMessage: { enabled: true, sound: "dragon-3", volume: 0.5 },
     directMessage: { enabled: true, sound: "univ-033", volume: 0.7 },
+    mention: { enabled: true, sound: "univ-09", volume: 0.7 },
     userJoin: { enabled: true, sound: "univ-036", volume: 0.4 },
     userLeave: { enabled: true, sound: "univ-040", volume: 0.4 },
     userJoinChannel: { enabled: true, sound: "univ-036", volume: 0.5 },

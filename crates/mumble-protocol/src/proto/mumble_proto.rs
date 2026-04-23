@@ -476,7 +476,7 @@ pub struct Acl {
 }
 /// Nested message and enum types in `ACL`.
 pub mod acl {
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ChanGroup {
         #[prost(string, required, tag = "1")]
         pub name: ::prost::alloc::string::String,
@@ -492,6 +492,25 @@ pub mod acl {
         pub remove: ::prost::alloc::vec::Vec<u32>,
         #[prost(uint32, repeated, packed = "false", tag = "7")]
         pub inherited_members: ::prost::alloc::vec::Vec<u32>,
+        /// FancyMumble role customization extensions.
+        #[prost(string, optional, tag = "8")]
+        pub color: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(bytes = "vec", optional, tag = "9")]
+        pub icon: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+        #[prost(string, optional, tag = "10")]
+        pub style_preset: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(message, repeated, tag = "11")]
+        pub metadata: ::prost::alloc::vec::Vec<chan_group::KeyValue>,
+    }
+    /// Nested message and enum types in `ChanGroup`.
+    pub mod chan_group {
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct KeyValue {
+            #[prost(string, required, tag = "1")]
+            pub key: ::prost::alloc::string::String,
+            #[prost(string, optional, tag = "2")]
+            pub value: ::core::option::Option<::prost::alloc::string::String>,
+        }
     }
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct ChanAcl {

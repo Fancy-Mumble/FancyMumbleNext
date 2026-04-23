@@ -56,6 +56,8 @@ function makeSettings(overrides: Partial<AudioSettings> = {}): AudioSettings {
     bitrate_bps: 72000,
     frame_size_ms: 20,
     noise_suppression: true,
+    denoiser_algorithm: "rnnoise",
+    denoiser_params: {},
     selected_output_device: null,
     input_volume: 1,
     output_volume: 1,

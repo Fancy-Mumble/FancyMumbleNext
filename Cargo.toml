@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/fancy-utils",
+    "crates/fancy-denoiser-deepfilter",
     "crates/mumble-protocol",
     "crates/mumble-tauri",
 ]

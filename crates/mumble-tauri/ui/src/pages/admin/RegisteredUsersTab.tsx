@@ -1,16 +1,76 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { RegisteredUser, RegisteredUserUpdate } from "../../types";
+import { useNavigate } from "react-router-dom";
+import type { AclData, AclGroup, RegisteredUser, RegisteredUserUpdate } from "../../types";
 import { formatRelativeDate } from "../../utils/format";
 import SearchIcon from "../../assets/icons/action/search.svg?react";
+import KebabMenu, { type KebabMenuItem } from "../../components/elements/KebabMenu";
+import { RoleChip } from "../../components/elements/RoleChip";
+import { useAppStore } from "../../store";
+import { rootChannelId } from "./rootChannel";
+import { UserRoleManagerDialog } from "./UserRoleManagerDialog";
 import styles from "./AdminPanel.module.css";
+
+/** Builds a map of `user_id -> roles` from the root-channel ACL groups. */
+function buildUserRoleMap(groups: readonly AclGroup[]): Map<number, AclGroup[]> {
+  const result = new Map<number, AclGroup[]>();
+  for (const group of groups) {
+    const memberIds = new Set([...group.add, ...group.inherited_members]);
+    for (const id of memberIds) {
+      const existing = result.get(id);
+      if (existing) {
+        existing.push(group);
+      } else {
+        result.set(id, [group]);
+      }
+    }
+  }
+  return result;
+}
+
+interface UserActionsArgs {
+  readonly user: RegisteredUser;
+  readonly isEditing: boolean;
+  readonly onRename: () => void;
+  readonly onDelete: () => void;
+  readonly onManageRoles: () => void;
+}
+
+/** Builds the kebab-menu items for a user row. */
+function buildUserActions({ user, isEditing, onRename, onDelete, onManageRoles }: UserActionsArgs): KebabMenuItem[] {
+  return [
+    {
+      id: "rename",
+      label: isEditing ? "Editing..." : "Rename",
+      disabled: isEditing,
+      onClick: onRename,
+    },
+    {
+      id: "manage-roles",
+      label: "Manage roles",
+      onClick: onManageRoles,
+    },
+    {
+      id: "delete",
+      label: `Delete ${user.name}`,
+      danger: true,
+      onClick: onDelete,
+    },
+  ];
+}
 
 type SortKey = "name" | "last_seen" | "last_channel";
 type SortDir = "asc" | "desc";
 
 export function RegisteredUsersTab() {
+  const navigate = useNavigate();
+  const channels = useAppStore((s) => s.channels);
+  const rootId = useMemo(() => rootChannelId(channels), [channels]);
+
   const [users, setUsers] = useState<RegisteredUser[]>([]);
+  const [rootAcl, setRootAcl] = useState<AclData | null>(null);
+  const [roleDialogUser, setRoleDialogUser] = useState<RegisteredUser | null>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -39,6 +99,28 @@ export function RegisteredUsersTab() {
     setLoading(true);
     invoke("request_user_list").catch(() => setLoading(false));
   }, []);
+
+  // Subscribe to root-channel ACL so we can show role chips per user.
+  useEffect(() => {
+    let cancelled = false;
+    const unlisten = listen<AclData>("acl", (event) => {
+      if (!cancelled && event.payload.channel_id === rootId) {
+        setRootAcl(event.payload);
+      }
+    });
+    invoke("request_acl", { channelId: rootId }).catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten.then((f) => f());
+    };
+  }, [rootId]);
+
+  const rootGroups = useMemo<readonly AclGroup[]>(() => rootAcl?.groups ?? [], [rootAcl]);
+  const userRoleMap = useMemo(() => buildUserRoleMap(rootGroups), [rootGroups]);
+
+  const refetchAcl = useCallback(() => {
+    invoke("request_acl", { channelId: rootId }).catch(() => {});
+  }, [rootId]);
 
   const handleRefresh = useCallback(() => {
     setLoading(true);
@@ -127,6 +209,11 @@ export function RegisteredUsersTab() {
     return sortDir === "asc" ? " \u25B2" : " \u25BC";
   };
 
+  let emptyMessage: string;
+  if (loading) emptyMessage = "Loading...";
+  else if (users.length === 0) emptyMessage = "No registered users";
+  else emptyMessage = "No matching users";
+
   return (
     <>
       <h2 className={styles.panelTitle}>Registered Users</h2>
@@ -171,14 +258,15 @@ export function RegisteredUsersTab() {
               <th className={styles.sortable} onClick={() => toggleSort("last_channel")}>
                 Last Channel{sortArrow("last_channel")}
               </th>
+              <th>Roles</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={4} className={styles.emptyRow}>
-                  {loading ? "Loading..." : users.length === 0 ? "No registered users" : "No matching users"}
+                <td colSpan={5} className={styles.emptyRow}>
+                  {emptyMessage}
                 </td>
               </tr>
             ) : (
@@ -210,6 +298,20 @@ export function RegisteredUsersTab() {
                   </td>
                   <td className={styles.dimText}>{u.last_channel ?? "Unknown"}</td>
                   <td>
+                    <span className={styles.userRoleChips}>
+                      {(userRoleMap.get(u.user_id) ?? []).map((g) => (
+                        <RoleChip
+                          key={g.name}
+                          name={g.name}
+                          color={g.color}
+                          icon={g.icon}
+                          size="small"
+                          onClick={() => navigate(`/admin/role/${encodeURIComponent(g.name)}`)}
+                        />
+                      ))}
+                    </span>
+                  </td>
+                  <td>
                     {deletingId === u.user_id ? (
                       <span className={styles.inlineEdit}>
                         <span className={styles.confirmText}>Delete?</span>
@@ -217,23 +319,20 @@ export function RegisteredUsersTab() {
                         <button type="button" className={styles.refreshBtn} onClick={cancelDelete}>No</button>
                       </span>
                     ) : (
-                      <span className={styles.actionBtns}>
-                        <button
-                          type="button"
-                          className={styles.refreshBtn}
-                          onClick={() => startRename(u)}
-                          disabled={editingId !== null && editingId !== u.user_id}
-                        >
-                          Rename
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.removeBtn}
-                          onClick={() => confirmDelete(u.user_id)}
-                        >
-                          Delete
-                        </button>
-                      </span>
+                      <KebabMenu
+                        ariaLabel={`Actions for ${u.name}`}
+                        items={buildUserActions({
+                          user: u,
+                          isEditing: editingId === u.user_id,
+                          onRename: () => startRename(u),
+                          onDelete: () => confirmDelete(u.user_id),
+                          onManageRoles: () => {
+                            setRoleDialogUser(u);
+                            // Refresh ACL so the dialog has fresh group data.
+                            refetchAcl();
+                          },
+                        })}
+                      />
                     )}
                   </td>
                 </tr>
@@ -246,6 +345,15 @@ export function RegisteredUsersTab() {
       <div className={styles.statusBar}>
         {filtered.length} of {users.length} user{users.length === 1 ? "" : "s"}
       </div>
+
+      {roleDialogUser && (
+        <UserRoleManagerDialog
+          user={roleDialogUser}
+          acl={rootAcl}
+          onClose={() => setRoleDialogUser(null)}
+          onSaved={refetchAcl}
+        />
+      )}
     </>
   );
 }

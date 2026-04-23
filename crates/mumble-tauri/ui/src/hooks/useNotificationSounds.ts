@@ -15,7 +15,7 @@ function playSound(url: string, volume: number) {
   audio.play().catch(() => {});
 }
 
-function playSoundForEvent(
+export function playSoundForEvent(
   settings: NotificationSoundSettings,
   event: NotificationEvent,
 ) {
@@ -69,7 +69,15 @@ export function useNotificationSounds(
       }),
     );
 
+    // Self-mention notification (dispatched from MessageItem when a
+    // newly-rendered message contains an @-mention targeting the user).
+    const onSelfMention = () => {
+      playSoundForEvent(settingsRef.current, "mention");
+    };
+    globalThis.addEventListener("fancy:self-mention", onSelfMention);
+
     return () => {
+      globalThis.removeEventListener("fancy:self-mention", onSelfMention);
       for (const p of unlisteners) {
         p.then((f) => f());
       }

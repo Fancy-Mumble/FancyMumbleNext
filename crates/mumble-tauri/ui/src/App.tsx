@@ -16,6 +16,7 @@ import ConnectPage from "./pages/ConnectPage";
 const ChatPage = lazy(() => import("./pages/ChatPage"));
 const SettingsPage = lazy(() => import("./pages/settings"));
 const AdminPanel = lazy(() => import("./pages/admin"));
+const RoleEditorPage = lazy(() => import("./pages/admin/RoleEditorPage"));
 const WelcomePage = lazy(() => import("./pages/WelcomePage"));
 
 export default function App() {
@@ -108,6 +109,7 @@ export default function App() {
               <Route path="/chat" element={<ChatPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/admin" element={<AdminPanel />} />
+              <Route path="/admin/role/:groupName" element={<RoleEditorPage />} />
             </>
           )}
         </Routes>

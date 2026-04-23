@@ -642,13 +642,13 @@ Disabled filters are skipped. Provides `process()`, `reset()`, `push()`.
 |--------|------|-------------|------------|
 | `NoiseGate` | `noise_gate.rs` | Voice-activity gating with hysteresis | `open_threshold`, `close_threshold`, `hold_frames`, `attack_samples`, `release_samples` |
 | `AutomaticGainControl` | `automatic_gain.rs` | Envelope-follower AGC normalizing signal level | `target_level`, `max_gain`, `min_gain`, `attack`, `release` |
-| `SpectralDenoiser` | `denoiser.rs` | ML-based noise suppression (stub/passthrough) | `attenuation` |
+| `SpectralDenoiser` | `denoiser.rs` | RNN-based noise suppression (RNNoise via `nnnoiseless`, behind `rnnoise-denoiser` feature) | `attenuation` |
 | `VolumeFilter` | `volume.rs` | Linear gain (software volume knob) | `gain` (0.0–10.0) |
 
 **Recommended filter chain order** (outbound):
-1. `NoiseGate` - cheapest filter; silences quiet frames early.
-2. `AutomaticGainControl` - normalizes speech level.
-3. `SpectralDenoiser` - removes remaining background noise.
+1. `AutomaticGainControl` - normalises speech level so the denoiser sees the input it was trained on.
+2. `SpectralDenoiser` - removes background noise (fans, keyboard, traffic) using the RNNoise GRU.
+3. `NoiseGate` - silences quiet frames after denoising; sees a clean signal so it does not chatter.
 4. `VolumeFilter` - final user-controlled volume.
 
 ### 8.7 Pipelines

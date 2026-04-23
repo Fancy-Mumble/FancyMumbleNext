@@ -643,6 +643,17 @@ fn get_audio_settings(state: tauri::State<'_, AppState>) -> AudioSettings {
     state.audio_settings()
 }
 
+/// List the tunable knobs the given denoiser algorithm exposes.
+///
+/// The UI uses this to render dynamic sliders in advanced/expert
+/// mode without hard-coding the knob list per algorithm.
+#[tauri::command]
+fn get_denoiser_param_specs(
+    algorithm: mumble_protocol::audio::filter::denoiser::NoiseSuppressionAlgorithm,
+) -> Vec<mumble_protocol::audio::filter::denoiser::DenoiserParamSpec> {
+    mumble_protocol::audio::filter::denoiser::algorithm_param_specs(algorithm).to_vec()
+}
+
 /// Update audio settings.
 ///
 /// If any pipeline-relevant setting changes while voice is active, the
@@ -1779,6 +1790,7 @@ macro_rules! all_command_handlers {
             get_audio_devices,
             get_output_devices,
             get_audio_settings,
+            get_denoiser_param_specs,
             set_audio_settings,
             set_audio_backend,
             get_audio_backend,

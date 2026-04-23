@@ -1,10 +1,11 @@
 ﻿//! UI value types, event payloads, and configuration structs serialised
 //! to the React frontend.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Serialize, Deserialize, Serializer};
 
+use mumble_protocol::audio::filter::denoiser::NoiseSuppressionAlgorithm;
 use mumble_protocol::state::PchatProtocol;
 
 // --- Serialization helpers ----------------------------------------
@@ -674,6 +675,15 @@ pub struct AclGroupPayload {
     pub add: Vec<u32>,
     pub remove: Vec<u32>,
     pub inherited_members: Vec<u32>,
+    /// `FancyMumble` role customization fields. Optional/default to keep older servers working.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style_preset: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, String>,
 }
 
 /// A single ACL rule within a channel's ACL list.
@@ -734,6 +744,15 @@ pub struct AclGroupInput {
     pub remove: Vec<u32>,
     #[serde(default)]
     pub inherited_members: Vec<u32>,
+    /// `FancyMumble` role customization fields.
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub icon: Option<Vec<u8>>,
+    #[serde(default)]
+    pub style_preset: Option<String>,
+    #[serde(default)]
+    pub metadata: HashMap<String, String>,
 }
 
 /// An ACL entry from the frontend for ACL updates.
@@ -865,6 +884,15 @@ pub struct AudioSettings {
     /// Whether the noise gate (noise suppression) is enabled.
     #[serde(default = "AudioSettings::default_noise_suppression")]
     pub noise_suppression: bool,
+    /// Selected noise-suppression algorithm.  Only takes effect when
+    /// `noise_suppression` is true.
+    #[serde(default)]
+    pub denoiser_algorithm: NoiseSuppressionAlgorithm,
+    /// Per-algorithm tunable knobs (advanced/expert mode only).
+    /// Keyed by `DenoiserParamSpec::id`; missing entries fall back to
+    /// each spec's default.
+    #[serde(default)]
+    pub denoiser_params: BTreeMap<String, f32>,
     /// Selected output device name (None = system default).
     #[serde(default)]
     pub selected_output_device: Option<String>,
@@ -930,6 +958,8 @@ impl AudioSettings {
             || self.bitrate_bps != other.bitrate_bps
             || self.frame_size_ms != other.frame_size_ms
             || self.noise_suppression != other.noise_suppression
+            || self.denoiser_algorithm != other.denoiser_algorithm
+            || self.denoiser_params != other.denoiser_params
             || self.auto_input_sensitivity != other.auto_input_sensitivity
     }
 
@@ -953,6 +983,8 @@ impl Default for AudioSettings {
             bitrate_bps: 72_000,
             frame_size_ms: 20,
             noise_suppression: true,
+            denoiser_algorithm: NoiseSuppressionAlgorithm::default(),
+            denoiser_params: BTreeMap::new(),
             selected_output_device: None,
             input_volume: 1.0,
             output_volume: 1.0,

@@ -135,6 +135,7 @@
   cursor: pointer;
   appearance: auto;
   transition: border-color 0.2s;
+  margin-top: 6px;
 }
 
 .select:hover {

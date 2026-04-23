@@ -253,6 +253,17 @@ impl AppState {
                 add: g.add,
                 remove: g.remove,
                 inherited_members: g.inherited_members,
+                color: g.color,
+                icon: g.icon,
+                style_preset: g.style_preset,
+                metadata: g
+                    .metadata
+                    .into_iter()
+                    .map(|(key, value)| mumble_tcp::acl::chan_group::KeyValue {
+                        key,
+                        value: Some(value),
+                    })
+                    .collect(),
             })
             .collect();
 

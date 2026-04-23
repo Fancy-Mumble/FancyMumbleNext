@@ -101,6 +101,7 @@ mod voice_pipeline {
 
     use mumble_protocol::audio::encoder::{OpusEncoder, OpusEncoderConfig};
     use mumble_protocol::audio::filter::automatic_gain::{AgcConfig, AutomaticGainControl};
+    use mumble_protocol::audio::filter::denoiser::{DenoiserConfig, SpectralDenoiser};
     use mumble_protocol::audio::filter::noise_gate::{NoiseGate, NoiseGateConfig};
     use mumble_protocol::audio::filter::FilterChain;
     use mumble_protocol::audio::mixer::{AudioMixer, SpeakerBuffers};
@@ -355,6 +356,14 @@ mod voice_pipeline {
                 outbound_filters.push(Box::new(AutomaticGainControl::new(agc_config)));
             }
             if audio_settings.noise_suppression {
+                // RNN-based denoiser runs first so the gate sees clean
+                // audio and does not chatter on transient noise.
+                let denoiser_config = DenoiserConfig {
+                    algorithm: audio_settings.denoiser_algorithm,
+                    params: audio_settings.denoiser_params.clone(),
+                    ..DenoiserConfig::default()
+                };
+                outbound_filters.push(Box::new(SpectralDenoiser::new(denoiser_config)));
                 outbound_filters.push(Box::new(NoiseGate::new(NoiseGateConfig {
                     open_threshold: audio_settings.vad_threshold,
                     close_threshold: audio_settings.vad_threshold * audio_settings.noise_gate_close_ratio,

@@ -214,6 +214,10 @@ message PermissionDenied {
 
 message ACL {
 	message ChanGroup {
+		message KeyValue {
+			required string key = 1;
+			optional string value = 2;
+		}
 		required string name = 1;
 		optional bool inherited = 2 [default = true];
 		optional bool inherit = 3 [default = true];
@@ -221,6 +225,11 @@ message ACL {
 		repeated uint32 add = 5;
 		repeated uint32 remove = 6;
 		repeated uint32 inherited_members = 7;
+		// FancyMumble role customization extensions.
+		optional string color = 8;
+		optional bytes icon = 9;
+		optional string style_preset = 10;
+		repeated KeyValue metadata = 11;
 	}
 	message ChanACL {
 		optional bool apply_here = 1 [default = true];

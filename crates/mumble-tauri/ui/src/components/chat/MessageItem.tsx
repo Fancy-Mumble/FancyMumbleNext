@@ -10,6 +10,7 @@ import { isMobile } from "../../utils/platform";
 import { formatTimestamp, colorFor } from "../../utils/format";
 import { extractUrlsFromMessage } from "../../utils/extractUrls";
 import { extractOffloadInfo } from "../../messageOffload";
+import { containsSelfMention } from "../../utils/mentions";
 import PollCard, { getPoll } from "./PollCard";
 import MediaPreview from "./MediaPreview";
 import LinkPreviewCard from "./LinkPreviewCard";
@@ -22,6 +23,29 @@ const QUOTE_RE = /<!-- FANCY_QUOTE:(.+?) -->/g;
 /** Approximate height of the profile hover card, used for viewport clamping. */
 const HOVER_CARD_H = 340;
 const HOVER_CARD_MARGIN = 10;
+
+/**
+ * Set of message IDs we have already processed for self-mention
+ * notifications.  Module-scope so it survives unmount/remount cycles
+ * (e.g. when scrolling messages out of view) and prevents duplicate
+ * sound triggers when the same message re-renders.
+ */
+const NOTIFIED_SELF_MENTIONS = new Set<string>();
+
+/**
+ * Cap to keep memory bounded for long-running sessions.  When the set
+ * grows past this many entries, drop the oldest insertion (Set
+ * iteration order is insertion order).
+ */
+const NOTIFIED_SELF_MENTIONS_CAP = 2000;
+
+function markSelfMentionNotified(id: string) {
+  if (NOTIFIED_SELF_MENTIONS.size >= NOTIFIED_SELF_MENTIONS_CAP) {
+    const oldest = NOTIFIED_SELF_MENTIONS.values().next().value;
+    if (oldest !== undefined) NOTIFIED_SELF_MENTIONS.delete(oldest);
+  }
+  NOTIFIED_SELF_MENTIONS.add(id);
+}
 
 // --- Exported group avatar component ------------------------------
 
@@ -178,6 +202,34 @@ export default memo(function MessageItem({
 
   const linkEmbeds = useAppStore((s) => msg.message_id ? s.linkEmbeds.get(msg.message_id) : undefined);
   const disableLinkPreviews = useAppStore((s) => s.disableLinkPreviews);
+  const currentChannel = useAppStore((s) => s.currentChannel);
+
+  // Detect whether the receiver is mentioned by this message.  Pure
+  // memoised function over the body and own session.
+  const selfMention = useMemo(() => {
+    if (msg.is_own || ownSession == null) return false;
+    return containsSelfMention(msg.body, {
+      ownSession,
+      isInMessageChannel:
+        msg.channel_id != null && currentChannel === msg.channel_id,
+    });
+  }, [msg.body, msg.is_own, msg.channel_id, ownSession, currentChannel]);
+
+  // Fire the mention notification once per message id.
+  useEffect(() => {
+    if (!selfMention) return;
+    const key = msg.message_id ?? `${msg.sender_session ?? "?"}-${msg.timestamp ?? 0}`;
+    if (NOTIFIED_SELF_MENTIONS.has(key)) return;
+    // Only notify for recent arrivals (within 30s) to avoid replaying
+    // historical notifications when scrolling old messages.
+    const ts = msg.timestamp ?? 0;
+    if (ts > 0 && Date.now() - ts > 30_000) {
+      markSelfMentionNotified(key);
+      return;
+    }
+    markSelfMentionNotified(key);
+    globalThis.dispatchEvent(new CustomEvent("fancy:self-mention"));
+  }, [selfMention, msg.message_id, msg.sender_session, msg.timestamp]);
 
   useEffect(() => {
     if (!msg.message_id) return;
@@ -256,10 +308,10 @@ export default memo(function MessageItem({
 
   return (
     <div
-      className={`${styles.messageRow} ${msg.is_own ? styles.own : ""} ${msg.pinned ? styles.pinnedRow : ""}`}
+      className={`${styles.messageRow} ${msg.is_own ? styles.own : ""} ${msg.pinned ? styles.pinnedRow : ""} ${selfMention ? styles.selfMention : ""}`}
     >
       <div
-        className={`${styles.bubble} ${msg.is_own ? styles.ownBubble : ""} ${pureMedia ? styles.bubbleMedia : ""} ${msg.is_legacy ? styles.legacyBubble : ""}`}
+        className={`${styles.bubble} ${msg.is_own ? styles.ownBubble : ""} ${pureMedia ? styles.bubbleMedia : ""} ${msg.is_legacy ? styles.legacyBubble : ""} ${selfMention ? styles.selfMentionBubble : ""}`}
       >
         {!pureMedia && isFirstInGroup && (
           <span

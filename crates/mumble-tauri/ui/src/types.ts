@@ -235,6 +235,7 @@ export interface UserPreferences {
 export type NotificationEvent =
   | "chatMessage"
   | "directMessage"
+  | "mention"
   | "userJoin"
   | "userLeave"
   | "userJoinChannel"
@@ -307,6 +308,13 @@ export interface AudioSettings {
   frame_size_ms: number;
   /** Whether noise suppression (noise gate) is enabled. */
   noise_suppression: boolean;
+  /** Selected noise-suppression algorithm. Only takes effect when
+   * noise_suppression is true. */
+  denoiser_algorithm: NoiseSuppressionAlgorithm;
+  /** Per-algorithm tunable knobs (advanced/expert mode only).
+   *  Keyed by `DenoiserParamSpec.id`; missing entries fall back to
+   *  each spec's default. */
+  denoiser_params: Record<string, number>;
   /** Selected output device name (null = system default). */
   selected_output_device: string | null;
   /** Microphone volume multiplier (0.0-2.0, default 1.0). */
@@ -320,6 +328,39 @@ export interface AudioSettings {
 }
 
 export type VoiceState = "inactive" | "active" | "muted";
+
+/** Noise-suppression backend selectable from the audio settings.
+ *  Mirrors `mumble_protocol::audio::filter::denoiser::NoiseSuppressionAlgorithm`. */
+export type NoiseSuppressionAlgorithm =
+  | "none"
+  | "rnnoise"
+  | "deepfilternet"
+  | "omlsa_imcra"
+  | "spectral_subtraction";
+
+/** Display labels for `NoiseSuppressionAlgorithm`, kept in sync with
+ *  the Rust `label()` helper. */
+export const NOISE_SUPPRESSION_LABELS: Record<NoiseSuppressionAlgorithm, string> = {
+  none: "Off",
+  rnnoise: "RNNoise (recurrent neural network)",
+  deepfilternet: "DeepFilterNet (deep-learning SOTA)",
+  omlsa_imcra: "OMLSA + IMCRA (modern classical)",
+  spectral_subtraction: "Spectral subtraction (low-CPU classical)",
+};
+
+/** Schema for a single tunable denoiser parameter, returned by the
+ *  `get_denoiser_param_specs` Tauri command.  Mirrors the Rust
+ *  `DenoiserParamSpec` struct. */
+export interface DenoiserParamSpec {
+  id: string;
+  label: string;
+  description: string;
+  min: number;
+  max: number;
+  step: number;
+  default: number;
+  unit: string;
+}
 
 // --- User Stats (ping statistics) ---------------------------------
 
@@ -595,6 +636,14 @@ export interface AclGroup {
   add: number[];
   remove: number[];
   inherited_members: number[];
+  /** FancyMumble role customization: arbitrary CSS color string. */
+  color?: string | null;
+  /** Raw icon bytes (PNG/JPEG). */
+  icon?: number[] | null;
+  /** Named visual preset id. */
+  style_preset?: string | null;
+  /** Free-form key/value metadata. */
+  metadata?: Record<string, string>;
 }
 
 /** A single ACL rule within a channel's ACL list. */

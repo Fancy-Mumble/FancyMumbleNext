@@ -858,6 +858,20 @@
   border-top: 1px solid var(--color-glass-border);
 }
 
+/* Wraps the markdown input so the mention popup can position itself
+   relative to the input area instead of the entire composer. */
+.composerInputWrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+
+.composerInputWrap > * {
+  flex: 1;
+  min-width: 0;
+}
+
 .composerInput {
   flex: 1;
   padding: 12px 16px;
@@ -1142,4 +1156,37 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+
+/* --- Mention chips & self-mention highlight ------------------------ */
+
+.messageBody :global(.mention) {
+  display: inline-block;
+  padding: 0 4px;
+  margin: 0 1px;
+  border-radius: 4px;
+  font-weight: 500;
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.messageBody :global(.mention:hover) {
+  background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+
+.messageBody :global(.mention-everyone),
+.messageBody :global(.mention-here) {
+  background: color-mix(in srgb, var(--color-warning, #f0b232) 22%, transparent);
+  color: var(--color-warning, #f0b232);
+}
+
+.selfMention {
+  position: relative;
+}
+
+.selfMentionBubble {
+  background: color-mix(in srgb, var(--color-accent) 14%, var(--color-bg-elevated)) !important;
+  border-left: 3px solid var(--color-accent);
 }

@@ -30,6 +30,22 @@ thiserror = "2"
 # Audio codec (C libopus via audiopus_sys - reliable, well-tested)
 opus = { version = "0.3", optional = true }
 
+# Pure-Rust port of Xiph's RNNoise (GRU-based noise suppression).
+# Operates on 480-sample mono frames at 48 kHz - matches our pipeline.
+nnnoiseless = { version = "0.5", default-features = false, optional = true }
+
+# Real-valued FFT used by the classical spectral-subtraction denoiser
+# backend.  Pure Rust, no_std-compatible, ~50 KiB.
+realfft = "3"
+
+# OMLSA + IMCRA "modern classical" denoiser is inlined in
+# `src/audio/filter/denoiser/omlsa/`, so no external crate is required.
+
+# DeepFilterNet deep-learning denoiser (Schroeter et al. 2023,
+# arXiv:2305.08227).  Lives in its own crate to isolate the ONNX
+# runtime and bundled model.
+fancy-denoiser-deepfilter = { path = "../fancy-denoiser-deepfilter", optional = true }
+
 # OCB2-AES128 encryption for Mumble UDP
 aes = "0.8"
 
@@ -42,7 +58,7 @@ sha2 = { version = "0.10", optional = true }
 hmac = { version = "0.12", optional = true }
 rand = { version = "0.10.0", optional = true }
 rmp-serde = { version = "1", optional = true }
-serde = { version = "1", features = ["derive"], optional = true }
+serde = { version = "1", features = ["derive"] }
 serde_bytes = { version = "0.11", optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
 libloading = { version = "0.8", optional = true }
@@ -50,6 +66,12 @@ libloading = { version = "0.8", optional = true }
 [features]
 default = []
 opus-codec = ["opus"]
+# RNN-based noise suppression for the outbound audio pipeline.
+# Adds ~130 KiB of code + a small embedded model (~85 KiB).
+rnnoise-denoiser = ["nnnoiseless"]
+# DeepFilterNet deep-learning denoiser (SOTA, ~+0.4 PESQ vs. RNNoise).
+# Adds ~5 MiB of embedded ONNX model + tract-onnx runtime.
+deepfilternet-denoiser = ["fancy-denoiser-deepfilter"]
 persistent-chat = [
     "chacha20poly1305",
     "x25519-dalek",
@@ -59,7 +81,6 @@ persistent-chat = [
     "hmac",
     "rand",
     "rmp-serde",
-    "serde",
     "uuid",
     "serde_bytes",
     "libloading",
@@ -74,6 +95,7 @@ hound = "3.5"
 uuid = { version = "1", features = ["v4"] }
 rand = "0.10"
 rcgen = "0.13"
+serde_json = "1"
 
 [lints]
 workspace = true

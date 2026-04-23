@@ -11,6 +11,8 @@ export interface KebabMenuItem {
   readonly disabled?: boolean;
   /** Show a red notification dot next to this item. */
   readonly badge?: boolean;
+  /** Render the item with destructive styling (red). */
+  readonly danger?: boolean;
   readonly onClick: () => void;
 }
 
@@ -65,7 +67,12 @@ export default function KebabMenu({ items, ariaLabel = "More options", badge }: 
 
       {open && createPortal(
         <>
-          <div className={styles.backdrop} onClick={close} />
+          <button
+            type="button"
+            className={styles.backdrop}
+            onClick={close}
+            aria-label="Close menu"
+          />
           <div
             className={styles.menu}
             role="menu"
@@ -74,7 +81,11 @@ export default function KebabMenu({ items, ariaLabel = "More options", badge }: 
             {items.map((item) => (
               <button
                 key={item.id}
-                className={`${styles.menuItem} ${item.active ? styles.menuItemActive : ""}`}
+                className={[
+                  styles.menuItem,
+                  item.active ? styles.menuItemActive : "",
+                  item.danger ? styles.menuItemDanger : "",
+                ].filter(Boolean).join(" ")}
                 role="menuitem"
                 disabled={item.disabled}
                 onClick={() => {
