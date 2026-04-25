@@ -34,6 +34,10 @@ import type {
   ServerInfo,
   ServerLogEntry,
   ReadReceiptDeliverPayload,
+  FileServerConfig,
+  FileAccessMode,
+  UploadResponse,
+  DownloadEntry,
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator";
 import { registerPoll, registerVote } from "./components/chat/PollCard";
@@ -173,6 +177,15 @@ interface AppState {
   listenedChannels: Set<number>;
   unreadCounts: Record<number, number>;
   serverConfig: MumbleServerConfig;
+  /** File-server plugin configuration advertised by the server on connect.
+   *  `null` when the server has no file-server plugin. */
+  fileServerConfig: FileServerConfig | null;
+  /** Locally-saved downloads completed during the current session. Most
+   *  recent first. Cleared on disconnect / reset. */
+  downloads: DownloadEntry[];
+  /** Number of downloads completed since the user last opened the
+   *  Downloads panel. Used to drive the kebab-menu badge. */
+  unseenDownloadCount: number;
   /** Fancy Mumble version of the connected server (v2-encoded), null if not a fancy server. */
   serverFancyVersion: number | null;
   voiceState: VoiceState;
@@ -312,6 +325,25 @@ interface AppState {
   toggleDeafen: () => Promise<void>;
   selectUser: (session: number | null) => void;
   sendPluginData: (receiverSessions: number[], data: Uint8Array, dataId: string) => Promise<void>;
+  /** Upload a local file via the server-side file-server plugin. Returns the
+   *  signed download URL on success. Throws if no file-server is configured. */
+  uploadFile: (params: {
+    filePath: string;
+    channelId: number;
+    mode: FileAccessMode;
+    password?: string;
+    filename?: string;
+    mimeType?: string;
+    uploadId?: string;
+  }) => Promise<UploadResponse>;
+  /** Download a file (handling password / session-JWT pre-auth automatically)
+   *  to `destPath`. Returns the number of bytes written. */
+  downloadFile: (params: {
+    url: string;
+    destPath: string;
+    /** Optional password (only used when the file uses `mode=password`). */
+    password?: string;
+  }) => Promise<number>;
   /** Send a WebRTC screen-sharing signaling message via native proto. */
   sendWebRtcSignal: (targetSession: number, signalType: number, payload: string) => Promise<void>;
   /** Send a reaction (add/remove) on a persistent chat message via native proto. */
@@ -320,6 +352,15 @@ interface AppState {
   pinMessage: (channelId: number, messageId: string, unpin: boolean) => Promise<void>;
   /** Mark all unseen pin notifications as seen for a channel. */
   clearUnseenPins: (channelId: number) => void;
+  /** Append a completed download to the in-memory list and bump the
+   *  unseen badge count. */
+  addDownload: (entry: Omit<DownloadEntry, "id" | "downloadedAt">) => void;
+  /** Reset the unseen-downloads badge. Called when the panel opens. */
+  markDownloadsSeen: () => void;
+  /** Remove a single download from the list (does not delete the file). */
+  removeDownload: (id: string) => void;
+  /** Clear the entire downloads list. */
+  clearDownloads: () => void;
   /** Add a poll to the store (called locally when creating a poll). */
   addPoll: (poll: PollPayload, isOwn: boolean) => void;
   setError: (error: string | null) => void;
@@ -384,6 +425,9 @@ const INITIAL: Pick<
   | "listenedChannels"
   | "unreadCounts"
   | "serverConfig"
+  | "fileServerConfig"
+  | "downloads"
+  | "unseenDownloadCount"
   | "serverFancyVersion"
   | "voiceState"
   | "udpActive"
@@ -440,6 +484,9 @@ const INITIAL: Pick<
     allow_html: true,
     webrtc_sfu_available: false,
   },
+  fileServerConfig: null,
+  downloads: [],
+  unseenDownloadCount: 0,
   serverFancyVersion: null,
   voiceState: "inactive" as VoiceState,
   udpActive: false,
@@ -810,6 +857,47 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  uploadFile: async ({ filePath, channelId, mode, password, filename, mimeType, uploadId }) => {
+    const cfg = get().fileServerConfig;
+    if (!cfg) {
+      throw new Error("file-server is not configured for this server");
+    }
+    if (mode === "password" && !password) {
+      throw new Error("mode=password requires a password");
+    }
+    return await invoke<UploadResponse>("upload_file", {
+      request: {
+        baseUrl: cfg.baseUrl,
+        session: cfg.sessionId,
+        uploadToken: cfg.uploadToken,
+        channelId,
+        filePath,
+        filename,
+        mimeType,
+        mode,
+        password,
+        uploadId: uploadId ?? "",
+      },
+    });
+  },
+
+  downloadFile: async ({ url, destPath, password }) => {
+    const cfg = get().fileServerConfig;
+    let credential: { kind: "password" | "session"; value: string } | undefined;
+    if (password !== undefined) {
+      credential = { kind: "password", value: password };
+    } else if (cfg?.sessionJwt) {
+      credential = { kind: "session", value: cfg.sessionJwt };
+    }
+    return await invoke<number>("download_file", {
+      request: {
+        url,
+        destPath,
+        credential,
+      },
+    });
+  },
+
   sendWebRtcSignal: async (targetSession, signalType, payload) => {
     try {
       await invoke("send_webrtc_signal", {
@@ -844,6 +932,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       next.delete(channelId);
       return { unseenPinIds: next };
     });
+  },
+
+  addDownload: (entry) => {
+    const id = (globalThis.crypto?.randomUUID?.() ?? `dl-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const full: DownloadEntry = { ...entry, id, downloadedAt: Date.now() };
+    set((s) => ({
+      downloads: [full, ...s.downloads].slice(0, 200),
+      unseenDownloadCount: s.unseenDownloadCount + 1,
+    }));
+  },
+
+  markDownloadsSeen: () => {
+    set({ unseenDownloadCount: 0 });
+  },
+
+  removeDownload: (id) => {
+    set((s) => ({ downloads: s.downloads.filter((d) => d.id !== id) }));
+  },
+
+  clearDownloads: () => {
+    set({ downloads: [], unseenDownloadCount: 0 });
   },
 
   addPoll: (poll, isOwn) => {
@@ -1213,8 +1322,9 @@ export async function initEventListeners(
     await invoke("set_disable_dual_path", {
       disabled: !(prefs.enableDualPath ?? false),
     });
-    if (prefs.debugLogging) {
-      await invoke("set_log_level", { filter: "debug" });
+    const logLevel = prefs.logLevel ?? (prefs.debugLogging ? "debug" : "info");
+    if (logLevel !== "info") {
+      await invoke("set_log_level", { filter: logLevel });
     }
   } catch {
     // Preference store may not be ready yet - backend defaults to enabled.
@@ -1539,6 +1649,27 @@ export async function initEventListeners(
       (event) => {
         const { data_id, data, sender_session } = event.payload;
         const bytes = new Uint8Array(data);
+
+        if (data_id === "fancy-file-server-config") {
+          try {
+            const json = new TextDecoder().decode(bytes);
+            const raw = JSON.parse(json);
+            const cfg: FileServerConfig = {
+              baseUrl: raw.base_url,
+              sessionId: raw.session_id,
+              uploadToken: raw.upload_token,
+              sessionJwt: raw.session_jwt,
+              maxFileSizeBytes: raw.max_file_size_bytes,
+              deleteOnTtl: !!raw.delete_on_ttl,
+              ttlSeconds: raw.ttl_seconds ?? 0,
+              deleteOnDownload: !!raw.delete_on_download,
+              deleteOnDisconnect: !!raw.delete_on_disconnect,
+            };
+            useAppStore.setState({ fileServerConfig: cfg });
+          } catch (e) {
+            console.error("plugin-data file-server-config processing error:", e);
+          }
+        }
 
         if (data_id === "fancy-poll" || data_id === "fancy-poll-vote") {
           try {

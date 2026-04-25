@@ -13,8 +13,8 @@ mod state;
 
 use state::{
     AppState, AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus,
-    DebugStats, PhotoEntry, SearchResult, ServerConfig, ServerInfo, UserEntry,
-    VoiceState,
+    DebugStats, DownloadRequest, PhotoEntry, SearchResult, ServerConfig, ServerInfo,
+    UploadRequest, UploadResponse, UserEntry, VoiceState,
 };
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -830,6 +830,34 @@ async fn send_plugin_data(
     data_id: String,
 ) -> Result<(), String> {
     state.send_plugin_data(receiver_sessions, data, data_id).await
+}
+
+/// Upload a local file to the server-side `mumble-file-server` plugin and
+/// return the signed download URL.
+#[tauri::command]
+async fn upload_file(
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    request: UploadRequest,
+) -> Result<UploadResponse, String> {
+    state.upload_file(request, app_handle).await
+}
+
+/// Cancel an in-progress upload by its `upload_id`.
+#[tauri::command]
+fn cancel_upload(state: tauri::State<'_, AppState>, upload_id: String) {
+    let _ = state.cancel_upload(&upload_id);
+}
+
+/// Download a file (optionally performing the password / session-JWT
+/// pre-auth ticket exchange) and write it to disk. Returns the number
+/// of bytes written.
+#[tauri::command]
+async fn download_file(
+    state: tauri::State<'_, AppState>,
+    request: DownloadRequest,
+) -> Result<u64, String> {
+    state.download_file(request).await
 }
 
 /// Update the per-channel push notification mute preferences on the server.
@@ -1770,6 +1798,9 @@ macro_rules! all_command_handlers {
             set_user_texture,
             get_own_session,
             send_plugin_data,
+            upload_file,
+            cancel_upload,
+            download_file,
             send_push_update,
             send_subscribe_push,
             send_read_receipt,

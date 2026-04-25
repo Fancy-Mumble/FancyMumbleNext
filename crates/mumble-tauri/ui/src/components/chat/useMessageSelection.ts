@@ -234,6 +234,7 @@ export function useMessageSelection({
   const closeContextMenu = useCallback(() => setMsgContextMenu(null), []);
   const clearDeleteConfirm = useCallback(() => setDeleteConfirm(null), []);
   const clearToast = useCallback(() => setToast(null), []);
+  const showToast = useCallback((data: ToastData) => setToast(data), []);
 
   return {
     canDelete,
@@ -258,5 +259,6 @@ export function useMessageSelection({
     closeContextMenu,
     clearDeleteConfirm,
     clearToast,
+    showToast,
   };
 }

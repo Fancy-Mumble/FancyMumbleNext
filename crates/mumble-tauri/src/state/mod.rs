@@ -20,6 +20,8 @@ mod audio_tasks;
 mod channels;
 mod connection;
 mod event_handler;
+mod file_server;
+pub use file_server::{DownloadRequest, UploadRequest, UploadResponse};
 mod handler;
 pub(crate) mod hash_names;
 pub(crate) mod local_cache;
@@ -47,6 +49,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use tauri::AppHandle;
+use tokio_util::sync::CancellationToken;
 
 use offload::OffloadStore;
 
@@ -188,6 +191,8 @@ pub struct AppState {
     pub(super) inner: Arc<Mutex<SharedState>>,
     app_handle: Mutex<Option<AppHandle>>,
     start_time: Instant,
+    http_client: reqwest::Client,
+    pub(super) upload_cancels: Mutex<HashMap<String, CancellationToken>>,
 }
 
 impl AppState {
@@ -203,6 +208,8 @@ impl AppState {
             })),
             app_handle: Mutex::new(None),
             start_time: Instant::now(),
+            http_client: file_server::new_http_client(),
+            upload_cancels: Mutex::new(HashMap::new()),
         }
     }
 
@@ -213,6 +220,18 @@ impl AppState {
 
     pub(super) fn app_handle(&self) -> Option<AppHandle> {
         self.app_handle.lock().ok().and_then(|h| h.clone())
+    }
+
+    /// Cancel an in-progress upload by its `upload_id`.
+    /// Returns `true` if a matching upload was found and cancelled.
+    pub fn cancel_upload(&self, upload_id: &str) -> bool {
+        if let Ok(mut map) = self.upload_cancels.lock() {
+            if let Some(token) = map.remove(upload_id) {
+                token.cancel();
+                return true;
+            }
+        }
+        false
     }
 
     /// Recompute `user_count` for every channel based on current users.

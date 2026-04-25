@@ -20,6 +20,7 @@ const DEFAULTS: UserPreferences = {
   enableNotifications: true,
   enableDualPath: false,
   debugLogging: false,
+  logLevel: "info",
   disableTypingIndicators: false,
   disableOsmMaps: false,
   disableLinkPreviews: false,

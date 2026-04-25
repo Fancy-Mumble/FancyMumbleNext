@@ -48,6 +48,15 @@
   color: var(--color-danger-alt);
 }
 
+.info {
+  border: 1px solid var(--color-accent-border, rgba(88, 166, 255, 0.35));
+  background: linear-gradient(135deg, rgba(88, 166, 255, 0.16), rgba(88, 166, 255, 0.05));
+}
+
+.info .icon {
+  color: var(--color-accent, #58a6ff);
+}
+
 .icon {
   flex-shrink: 0;
   display: flex;

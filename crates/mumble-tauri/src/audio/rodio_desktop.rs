@@ -21,7 +21,7 @@ use mumble_protocol::audio::sample::{AudioFormat, AudioFrame};
 use mumble_protocol::error::{Error, Result};
 use rodio::microphone::MicrophoneBuilder;
 use rodio::source::Source;
-use tracing::debug;
+use tracing::{debug, trace};
 
 // -- Capture (Microphone) -------------------------------------------
 
@@ -343,7 +343,7 @@ impl Iterator for MumbleMixerSource {
         self.diag.samples_pulled += 1;
         // Log diagnostics every ~1 second (48000 samples at 48 kHz).
         if self.diag.samples_pulled.is_multiple_of(48_000) {
-            debug!(
+            trace!(
                 "rodio mixer diag: pulled={}, refills={}, underrun={}, partial={}, \
                  ramps={}, peak={:.4}, max_buf={}, lock_fail={}, reprimes={}, \
                  consec_empty={}, in_underrun={}",

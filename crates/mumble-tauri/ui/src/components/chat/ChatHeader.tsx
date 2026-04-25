@@ -54,6 +54,10 @@ interface ChatHeaderProps {
   readonly hasNewPins?: boolean;
   /** Called when the user opens the pinned messages panel. */
   readonly onPinnedMessages?: () => void;
+  /** Whether the user has unseen completed downloads. */
+  readonly hasNewDownloads?: boolean;
+  /** Called when the user opens the downloads panel. */
+  readonly onDownloads?: () => void;
 }
 
 function buildKebabItems({
@@ -62,7 +66,9 @@ function buildKebabItems({
   onToggleSilence,
   hasNewPins,
   onPinnedMessages,
-}: Pick<ChatHeaderProps, "onPollCreate" | "isSilenced" | "onToggleSilence" | "hasNewPins" | "onPinnedMessages">): KebabMenuItem[] {
+  hasNewDownloads,
+  onDownloads,
+}: Pick<ChatHeaderProps, "onPollCreate" | "isSilenced" | "onToggleSilence" | "hasNewPins" | "onPinnedMessages" | "hasNewDownloads" | "onDownloads">): KebabMenuItem[] {
   const items: KebabMenuItem[] = [];
   if (onPinnedMessages) {
     items.push({
@@ -71,6 +77,15 @@ function buildKebabItems({
       icon: <span style={{ fontSize: 15, lineHeight: 1 }}>📌</span>,
       badge: hasNewPins,
       onClick: onPinnedMessages,
+    });
+  }
+  if (onDownloads) {
+    items.push({
+      id: "downloads",
+      label: "Downloads",
+      icon: <FolderIcon width={16} height={16} />,
+      badge: hasNewDownloads,
+      onClick: onDownloads,
     });
   }
   if (onPollCreate) {
@@ -115,6 +130,8 @@ export default function ChatHeader({
   broadcastInfo,
   hasNewPins,
   onPinnedMessages,
+  hasNewDownloads,
+  onDownloads,
 }: ChatHeaderProps) {
   let prefix: string;
   if (isDm) prefix = "@";
@@ -245,9 +262,9 @@ export default function ChatHeader({
         )}
         {!privateBadge && (
           <KebabMenu
-            items={buildKebabItems({ onPollCreate, isSilenced, onToggleSilence, hasNewPins, onPinnedMessages })}
+            items={buildKebabItems({ onPollCreate, isSilenced, onToggleSilence, hasNewPins, onPinnedMessages, hasNewDownloads, onDownloads })}
             ariaLabel="Channel options"
-            badge={hasNewPins}
+            badge={hasNewPins || hasNewDownloads}
           />
         )}
         {!isInChannel && onJoin && (

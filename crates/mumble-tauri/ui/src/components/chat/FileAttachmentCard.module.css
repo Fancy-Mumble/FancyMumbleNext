@@ -1,0 +1,119 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.08));
+  border-radius: 0.5rem;
+  max-width: 28rem;
+  overflow: hidden;
+}
+
+.cardRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+
+/* ---- Inline media previews ---- */
+
+.previewImage {
+  width: 100%;
+  max-height: 260px;
+  object-fit: contain;
+  display: block;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.previewAudioWrap {
+  padding: 0.5rem 0.75rem 0;
+}
+
+.previewAudio {
+  width: 100%;
+  display: block;
+  height: 36px;
+}
+
+.previewVideo {
+  width: 100%;
+  max-height: 220px;
+  display: block;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.icon {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.375rem;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--accent, #6aa1ff);
+}
+
+.body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.filename {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--text-muted, rgba(255, 255, 255, 0.6));
+}
+
+.badge {
+  padding: 0.05rem 0.4rem;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.08);
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+}
+
+.expiry {
+  font-style: italic;
+}
+
+.error {
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--error, #ff6b6b);
+}
+
+.saveBtn {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 0.4rem 0.85rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--button-border, rgba(255, 255, 255, 0.15));
+  background: var(--button-bg, rgba(255, 255, 255, 0.05));
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.saveBtn:hover:not(:disabled) {
+  background: var(--button-bg-hover, rgba(255, 255, 255, 0.1));
+  border-color: var(--button-border-hover, rgba(255, 255, 255, 0.25));
+}
+
+.saveBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

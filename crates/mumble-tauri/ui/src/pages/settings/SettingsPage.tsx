@@ -109,7 +109,7 @@ export default function SettingsPage() {
   const [disableOsmMaps, setDisableOsmMaps] = useState(false);
   const [disableLinkPreviews, setDisableLinkPreviews] = useState(false);
   const [autoReconnect, setAutoReconnect] = useState(false);
-  const [debugLogging, setDebugLogging] = useState(false);
+  const [logLevel, setLogLevel] = useState<string>("info");
   const [useRodioBackend, setUseRodioBackend] = useState(true);
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("auto");
   const [convertToLocalTime, setConvertToLocalTime] = useState(true);
@@ -178,7 +178,7 @@ export default function SettingsPage() {
         setDisableOsmMaps(prefs.disableOsmMaps ?? false);
         setDisableLinkPreviews(prefs.disableLinkPreviews ?? false);
         setAutoReconnect(prefs.autoReconnect ?? false);
-        setDebugLogging(prefs.debugLogging ?? false);
+        setLogLevel(prefs.logLevel ?? (prefs.debugLogging ? "debug" : "info"));
         setTimeFormat(prefs.timeFormat);
         setConvertToLocalTime(prefs.convertToLocalTime);
       } catch {
@@ -480,17 +480,15 @@ export default function SettingsPage() {
     await updatePreferences({ userMode: next });
   }, [userMode]);
 
-  const handleToggleDebugLogging = useCallback(async () => {
-    const next = !debugLogging;
-    const filter = next ? "debug" : "info";
+  const handleLogLevelChange = useCallback(async (level: string) => {
     try {
-      await invoke("set_log_level", { filter });
-      setDebugLogging(next);
-      await updatePreferences({ debugLogging: next });
+      await invoke("set_log_level", { filter: level });
+      setLogLevel(level);
+      await updatePreferences({ logLevel: level });
     } catch (e) {
       console.error("Failed to set log level:", e);
     }
-  }, [debugLogging]);
+  }, []);
 
   const handleToggleAudioBackend = useCallback(async () => {
     const next = !useRodioBackend;
@@ -660,13 +658,13 @@ export default function SettingsPage() {
             <AdvancedPanel
               userMode={userMode}
               klipyApiKey={klipyApiKey}
-              debugLogging={debugLogging}
+              logLevel={logLevel}
               autoReconnect={autoReconnect}
               timeFormat={timeFormat}
               convertToLocalTime={convertToLocalTime}
               onToggleMode={handleToggleMode}
               onKlipyApiKeyChange={handleKlipyApiKeyChange}
-              onToggleDebugLogging={handleToggleDebugLogging}
+              onLogLevelChange={handleLogLevelChange}
               onToggleAutoReconnect={handleToggleAutoReconnect}
               onTimeFormatChange={handleTimeFormatChange}
               onConvertToLocalTimeChange={handleConvertToLocalTimeChange}

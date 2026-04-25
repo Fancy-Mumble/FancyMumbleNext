@@ -8,6 +8,8 @@ import ChatHeader from "./ChatHeader";
 import type { BroadcastInfo } from "./ChatHeader";
 import MobileCallControls from "./MobileCallControls";
 import PinnedMessagesPanel from "./PinnedMessagesPanel";
+import DownloadsPanel from "./DownloadsPanel";
+import UploadProgressItem, { type UploadPlaceholder } from "./UploadProgressItem";
 import ChatComposer from "./ChatComposer";
 import { usePolls } from "./usePolls";
 import { useReactions } from "./useReactions";
@@ -17,6 +19,8 @@ import ChevronDownIcon from "../../assets/icons/navigation/chevron-down.svg?reac
 import MessageSelectionBar from "./MessageSelectionBar";
 import ConfirmDialog from "../elements/ConfirmDialog";
 import Toast from "../elements/Toast";
+import FileShareDialog, { type FileShareChoice } from "./FileShareDialog";
+import { encodeFileAttachmentMarker, type FileAttachmentInfo } from "./FileAttachmentCard";
 import { usePersistentChat } from "../security/PersistentChatOverlays";
 import { BannerStack } from "../security/InfoBanner";
 import { textureToDataUrl } from "../../profileFormat";
@@ -95,6 +99,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   const [pendingQuotes, setPendingQuotes] = useState<ChatMessage[]>([]);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [showPinnedPanel, setShowPinnedPanel] = useState(false);
+  const [showDownloadsPanel, setShowDownloadsPanel] = useState(false);
   const {
     polls, pollMessages, showPollCreator, openPollCreator, closePollCreator,
     handlePollCreate, handlePollVote,
@@ -269,6 +274,16 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     setShowPinnedPanel(false);
   }, []);
 
+  const markDownloadsSeen = useAppStore((s) => s.markDownloadsSeen);
+  const unseenDownloadCount = useAppStore((s) => s.unseenDownloadCount);
+  const handleOpenDownloadsPanel = useCallback(() => {
+    setShowDownloadsPanel(true);
+    markDownloadsSeen();
+  }, [markDownloadsSeen]);
+  const handleCloseDownloadsPanel = useCallback(() => {
+    setShowDownloadsPanel(false);
+  }, []);
+
   const cancelEdit = useCallback(() => {
     setEditingMessage(null);
     setDraft("");
@@ -282,6 +297,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   useEffect(() => {
     setEditingMessage(null);
     setShowPinnedPanel(false);
+    setUploadPlaceholders([]);
   }, [selectedChannel, selectedDmUser]);
 
   const { sending, handleSend, sendMediaFile, handlePaste, handleGifSelect } = useChatSend({
@@ -298,6 +314,14 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     resetTyping();
   }, [handleSend, resetTyping]);
 
+  const fileServerConfig = useAppStore((s) => s.fileServerConfig);
+  const uploadFile = useAppStore((s) => s.uploadFile);
+  const sendMessageAction = useAppStore((s) => s.sendMessage);
+  const sendDmAction = useAppStore((s) => s.sendDm);
+  const [isUploading, setIsUploading] = useState(false);
+  const [shareDialog, setShareDialog] = useState<{ filePath: string; filename: string } | null>(null);
+  const [uploadPlaceholders, setUploadPlaceholders] = useState<UploadPlaceholder[]>([]);
+
   const {
     canDelete, selectionMode, selectedMsgIds,
     msgContextMenu, deleteConfirm, toast,
@@ -306,11 +330,125 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     handleTouchStart, cancelLongPress,
     handleCite, handleCopyText,
     handleScrollToMessage, removePendingQuote,
-    closeContextMenu, clearDeleteConfirm, clearToast,
+    closeContextMenu, clearDeleteConfirm, clearToast, showToast,
   } = useMessageSelection({
     selectedChannel, selectedDmUser,
     channel, messagesContainerRef, setPendingQuotes,
   });
+
+  const handleAttachFile = useCallback(async () => {
+    if (selectedChannel === null) return;
+    if (!fileServerConfig) {
+      showToast({
+        message: "File sharing is not enabled on this server.",
+        variant: "error",
+      });
+      return;
+    }
+    if (isUploading) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const picked = await open({ multiple: false, directory: false });
+      if (typeof picked !== "string") return;
+      const filename = picked.replaceAll("\\", "/").split("/").pop() ?? "file";
+      setShareDialog({ filePath: picked, filename });
+    } catch (e) {
+      console.error("file picker failed:", e);
+      const detail = e instanceof Error ? e.message : String(e);
+      showToast({ message: `File picker failed: ${detail}`, variant: "error" });
+    }
+  }, [fileServerConfig, selectedChannel, isUploading, showToast]);
+
+  const performUpload = useCallback(async (
+    filePath: string,
+    filename: string,
+    choice: FileShareChoice,
+  ) => {
+    if (selectedChannel === null) return;
+    const placeholderId = globalThis.crypto?.randomUUID?.() ?? `upload-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setUploadPlaceholders((prev) => [...prev, { id: placeholderId, filename, state: "uploading" }]);
+    // Scroll to show the placeholder after React re-renders.
+    requestAnimationFrame(() => {
+      const el = messagesContainerRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+    setIsUploading(true);
+    let unlisten: (() => void) | undefined;
+    try {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlisten = await listen<{ uploadId: string; bytesSent: number; totalBytes: number }>(
+        "upload-progress",
+        (event) => {
+          if (event.payload.uploadId !== placeholderId) return;
+          // Cap at 99: the stream is fully consumed but the server is still
+          // processing/responding. We never show 100% until the placeholder is
+          // removed on success, so the user can see "still in progress".
+          const pct =
+            event.payload.totalBytes > 0
+              ? Math.min(99, Math.round((event.payload.bytesSent / event.payload.totalBytes) * 100))
+              : 0;
+          setUploadPlaceholders((prev) =>
+            prev.map((p) => (p.id === placeholderId ? { ...p, progress: pct } : p)),
+          );
+        },
+      );
+      const resp = await uploadFile({
+        filePath,
+        channelId: selectedChannel,
+        mode: choice.mode,
+        password: choice.password,
+        filename,
+        uploadId: placeholderId,
+      });
+      const info: FileAttachmentInfo = {
+        url: resp.download_url,
+        filename,
+        sizeBytes: resp.size_bytes,
+        mode: resp.access_mode,
+        expiresAt: resp.expires_at,
+      };
+      const marker = encodeFileAttachmentMarker(info);
+      if (selectedDmUser !== null) {
+        await sendDmAction(selectedDmUser, marker);
+      } else {
+        await sendMessageAction(selectedChannel, marker);
+      }
+      setUploadPlaceholders((prev) => prev.filter((p) => p.id !== placeholderId));
+    } catch (e) {
+      console.error("file upload failed:", e);
+      const detail = e instanceof Error ? e.message : String(e);
+      // A cancelled upload is silently discarded — the placeholder is already
+      // removed by handleCancelUpload, so there is nothing to show.
+      if (detail === "upload cancelled") return;
+      setUploadPlaceholders((prev) =>
+        prev.map((p) =>
+          p.id === placeholderId ? { ...p, state: "error" as const, errorMessage: detail } : p,
+        ),
+      );
+    } finally {
+      unlisten?.();
+      setIsUploading(false);
+    }
+  }, [selectedChannel, selectedDmUser, uploadFile, sendMessageAction, sendDmAction, messagesContainerRef]);
+
+  const handleShareDialogSubmit = useCallback((choice: FileShareChoice) => {
+    const ctx = shareDialog;
+    setShareDialog(null);
+    if (ctx) void performUpload(ctx.filePath, ctx.filename, choice);
+  }, [shareDialog, performUpload]);
+
+  const handleShareDialogCancel = useCallback(() => setShareDialog(null), []);
+
+  const handleDismissUpload = useCallback((id: string) => {
+    setUploadPlaceholders((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
+  const handleCancelUpload = useCallback((id: string) => {
+    void import("@tauri-apps/api/core").then(({ invoke }) =>
+      invoke("cancel_upload", { uploadId: id }),
+    );
+    setUploadPlaceholders((prev) => prev.filter((p) => p.id !== id));
+  }, []);
 
   const {
     emojiPicker, handleReaction, handleMoreReactions,
@@ -438,6 +576,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           broadcastInfo={broadcastInfo}
           hasNewPins={hasNewPins}
           onPinnedMessages={handleOpenPinnedPanel}
+          hasNewDownloads={unseenDownloadCount > 0}
+          onDownloads={handleOpenDownloadsPanel}
         />
       )}
 
@@ -449,6 +589,10 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onNavigate={handleScrollToMessage}
           onUnpin={handlePin}
         />
+      )}
+
+      {showDownloadsPanel && (
+        <DownloadsPanel onClose={handleCloseDownloadsPanel} />
       )}
 
       <MobileCallControls />
@@ -579,6 +723,9 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
               onAddReaction={handleMoreReactions}
             />
           )}
+          {uploadPlaceholders.map((p) => (
+            <UploadProgressItem key={p.id} placeholder={p} onDismiss={handleDismissUpload} onCancel={handleCancelUpload} />
+          ))}
           {/* Bottom sentinel - scroll target for auto-scroll */}
           <div ref={bottomSentinelRef} aria-hidden="true" style={{ height: 0, overflow: "hidden" }} />
         </div>
@@ -609,6 +756,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onPaste={handlePaste}
           onFileSelected={sendMediaFile}
           onGifSelect={handleGifSelect}
+          onAttachFile={fileServerConfig ? handleAttachFile : undefined}
           disabled={sending || persistent.sendBlocked}
           hasPendingQuotes={pendingQuotes.length > 0}
           isEditing={editingMessage !== null}
@@ -685,6 +833,13 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
       )}
 
       {toast && <Toast {...toast} onDismiss={clearToast} />}
+
+      <FileShareDialog
+        open={shareDialog !== null}
+        filename={shareDialog?.filename ?? ""}
+        onSubmit={handleShareDialogSubmit}
+        onCancel={handleShareDialogCancel}
+      />
 
       {/* Emoji picker overlay */}
       {emojiPicker && (

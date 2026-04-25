@@ -1,0 +1,216 @@
+import { useCallback, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { useAppStore } from "../../store";
+import type { FileAccessMode } from "../../types";
+import styles from "./FileAttachmentCard.module.css";
+
+export interface FileAttachmentInfo {
+  /** Signed download URL returned by the file-server. */
+  readonly url: string;
+  /** Display filename (best-effort; may differ from the actual blob name). */
+  readonly filename: string;
+  /** File size in bytes (purely informational). */
+  readonly sizeBytes?: number;
+  /** Access mode used at upload time. */
+  readonly mode: FileAccessMode;
+  /** Unix-seconds expiry, or `null` if the file never expires. */
+  readonly expiresAt?: number | null;
+}
+
+interface FileAttachmentCardProps {
+  readonly info: FileAttachmentInfo;
+}
+
+/** HTML-comment marker used to embed a file attachment in a chat message
+ *  body. Renderers detect the marker and render a {@link FileAttachmentCard}
+ *  in place of the raw markdown link. Legacy clients see the inert comment. */
+export const FANCY_FILE_MARKER_RE = /<!-- FANCY_FILE:([A-Za-z0-9+/=]+) -->/;
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** Serialise a {@link FileAttachmentInfo} to the FANCY_FILE marker comment. */
+export function encodeFileAttachmentMarker(info: FileAttachmentInfo): string {
+  const json = JSON.stringify(info);
+  const b64 = bytesToBase64(new TextEncoder().encode(json));
+  return `<!-- FANCY_FILE:${b64} -->`;
+}
+
+/** Parse a FANCY_FILE marker payload (the captured base64 group) into a
+ *  {@link FileAttachmentInfo}, or `null` if it cannot be decoded. */
+export function decodeFileAttachmentPayload(b64: string): FileAttachmentInfo | null {
+  try {
+    const json = new TextDecoder().decode(base64ToBytes(b64));
+    const parsed = JSON.parse(json) as FileAttachmentInfo;
+    if (typeof parsed?.url !== "string" || typeof parsed?.filename !== "string") {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function formatBytes(bytes: number | undefined): string {
+  if (bytes === undefined) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KiB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb.toFixed(1)} MiB`;
+  return `${(mb / 1024).toFixed(2)} GiB`;
+}
+
+export { formatBytes };
+
+/** Best-effort preview category for a filename, used by the Downloads panel. */
+export type PreviewKind = "image" | "audio" | "video" | "text" | "other";
+
+const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif"]);
+const AUDIO_EXTS = new Set(["mp3", "wav", "ogg", "flac", "m4a", "aac", "opus", "oga"]);
+const VIDEO_EXTS = new Set(["mp4", "webm", "mov", "mkv", "m4v", "ogv"]);
+const TEXT_EXTS = new Set(["txt", "md", "log", "json", "csv", "xml", "html", "css", "js", "ts", "rs", "py", "yml", "yaml", "toml"]);
+
+export function previewKindForFilename(filename: string): PreviewKind {
+  const dot = filename.lastIndexOf(".");
+  if (dot < 0) return "other";
+  const ext = filename.slice(dot + 1).toLowerCase();
+  if (IMAGE_EXTS.has(ext)) return "image";
+  if (AUDIO_EXTS.has(ext)) return "audio";
+  if (VIDEO_EXTS.has(ext)) return "video";
+  if (TEXT_EXTS.has(ext)) return "text";
+  return "other";
+}
+
+export default function FileAttachmentCard({ info }: FileAttachmentCardProps) {
+  const downloadFile = useAppStore((s) => s.downloadFile);
+  const addDownload = useAppStore((s) => s.addDownload);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [savedPath, setSavedPath] = useState<string | null>(null);
+
+  const kind = previewKindForFilename(info.filename);
+  const previewable = kind === "image" || kind === "audio" || kind === "video";
+
+  // Post-download: local asset URL (works for any access mode).
+  // Pre-download: public files only - URL is a signed but open link.
+  const previewSrc = savedPath
+    ? convertFileSrc(savedPath)
+    : (info.mode === "public" && previewable ? info.url : null);
+
+  const onSave = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const dest = await save({ defaultPath: info.filename });
+      if (!dest) {
+        setBusy(false);
+        return;
+      }
+      let password: string | undefined;
+      if (info.mode === "password") {
+        const entered = window.prompt("This file requires a password:");
+        if (entered === null) {
+          setBusy(false);
+          return;
+        }
+        password = entered;
+      }
+      const written = await downloadFile({ url: info.url, destPath: dest, password });
+      addDownload({
+        filename: info.filename,
+        destPath: dest,
+        sizeBytes: written,
+        sourceUrl: info.url,
+        mode: info.mode,
+      });
+      setSaved(true);
+      setSavedPath(dest);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [downloadFile, addDownload, info]);
+
+  const preview = (() => {
+    if (!previewSrc) return null;
+    if (kind === "image") {
+      return (
+        <img
+          src={previewSrc}
+          alt={info.filename}
+          className={styles.previewImage}
+          loading="lazy"
+        />
+      );
+    }
+    if (kind === "audio") {
+      return (
+        <div className={styles.previewAudioWrap}>
+          <audio controls preload="none" src={previewSrc} className={styles.previewAudio}>
+            <track kind="captions" />
+          </audio>
+        </div>
+      );
+    }
+    if (kind === "video") {
+      return (
+        <video controls preload="metadata" src={previewSrc} className={styles.previewVideo}>
+          <track kind="captions" />
+        </video>
+      );
+    }
+    return null;
+  })();
+
+  return (
+    <div className={styles.card}>
+      {preview}
+      <div className={styles.cardRow}>
+        <div className={styles.icon} aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+        </div>
+        <div className={styles.body}>
+          <div className={styles.filename}>{info.filename}</div>
+          <div className={styles.meta}>
+            {formatBytes(info.sizeBytes)}
+            {info.mode !== "public" && <span className={styles.badge}>{info.mode}</span>}
+            {info.expiresAt && (
+              <span className={styles.expiry}>
+                expires {new Date(info.expiresAt * 1000).toLocaleString()}
+              </span>
+            )}
+          </div>
+          {error && <div className={styles.error}>{error}</div>}
+        </div>
+        <button
+          type="button"
+          className={styles.saveBtn}
+          onClick={onSave}
+          disabled={busy}
+          title={saved ? "Saved - download again" : "Download to disk"}
+        >
+          {busy ? "Saving\u2026" : saved ? "Saved" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}

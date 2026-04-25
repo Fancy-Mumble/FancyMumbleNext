@@ -6,6 +6,9 @@ members = [
     "crates/mumble-protocol",
     "crates/mumble-tauri",
 ]
+# The Mumble server-side plugin host crates (mumble-plugin-api, mumble-file-server,
+# mumble-plugin-host) live in the mumble-server repository under
+# 3rdparty/mumble-plugin-host/. They are not built from this workspace.
 # signal-bridge is excluded because it depends on AGPL-licensed
 # libsignal-protocol and is built separately as a dynamic library.
 exclude = ["crates/signal-bridge"]

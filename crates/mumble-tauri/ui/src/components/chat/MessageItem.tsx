@@ -14,6 +14,10 @@ import { containsSelfMention } from "../../utils/mentions";
 import PollCard, { getPoll } from "./PollCard";
 import MediaPreview from "./MediaPreview";
 import LinkPreviewCard from "./LinkPreviewCard";
+import FileAttachmentCard, {
+  FANCY_FILE_MARKER_RE,
+  decodeFileAttachmentPayload,
+} from "./FileAttachmentCard";
 import QuoteBlock from "../elements/QuoteBlock";
 import styles from "./ChatView.module.css";
 
@@ -139,6 +143,7 @@ export function MessageAvatar({
  */
 function isPureMedia(body: string): boolean {
   if (/<!-- FANCY_POLL:/.test(body)) return false;
+  if (/<!-- FANCY_FILE:/.test(body)) return false;
   if (QUOTE_RE.test(body)) { QUOTE_RE.lastIndex = 0; return false; }
   const hasMedia = /<img|<video/i.test(body);
   if (!hasMedia) return false;
@@ -289,6 +294,19 @@ export default memo(function MessageItem({
               isOwn={msg.is_own}
               onVote={onVote}
             />
+          </>
+        );
+      }
+    }
+
+    const fileMatch = FANCY_FILE_MARKER_RE.exec(bodyWithoutQuotes);
+    if (fileMatch) {
+      const info = decodeFileAttachmentPayload(fileMatch[1]);
+      if (info) {
+        return (
+          <>
+            {quoteBlocks}
+            <FileAttachmentCard info={info} />
           </>
         );
       }

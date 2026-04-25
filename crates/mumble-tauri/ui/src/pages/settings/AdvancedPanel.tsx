@@ -12,13 +12,13 @@ const TIME_FORMAT_OPTIONS: { value: TimeFormat; label: string }[] = [
 export function AdvancedPanel({
   userMode,
   klipyApiKey,
-  debugLogging,
+  logLevel,
   autoReconnect,
   timeFormat,
   convertToLocalTime,
   onToggleMode,
   onKlipyApiKeyChange,
-  onToggleDebugLogging,
+  onLogLevelChange,
   onToggleAutoReconnect,
   onTimeFormatChange,
   onConvertToLocalTimeChange,
@@ -27,13 +27,13 @@ export function AdvancedPanel({
 }: {
   userMode: UserMode;
   klipyApiKey: string;
-  debugLogging: boolean;
+  logLevel: string;
   autoReconnect: boolean;
   timeFormat: TimeFormat;
   convertToLocalTime: boolean;
   onToggleMode: () => void;
   onKlipyApiKeyChange: (key: string) => void;
-  onToggleDebugLogging: () => void;
+  onLogLevelChange: (level: string) => void;
   onToggleAutoReconnect: () => void;
   onTimeFormatChange: (fmt: TimeFormat) => void;
   onConvertToLocalTimeChange: () => void;
@@ -107,16 +107,22 @@ export function AdvancedPanel({
 
       {userMode === "developer" && (
         <section className={styles.section}>
-          <div className={styles.toggleRow}>
-            <div className={styles.toggleInfo}>
-              <h3 className={styles.sectionTitle}>Debug Logging</h3>
-              <p className={styles.fieldHint}>
-                Enable verbose debug logging in the Rust backend. Useful for
-                diagnosing protocol and connection issues.
-              </p>
-            </div>
-            <Toggle checked={debugLogging} onChange={onToggleDebugLogging} />
-          </div>
+          <h3 className={styles.sectionTitle}>Log Level</h3>
+          <p className={styles.fieldHint}>
+            Set the verbosity of Rust backend logging. Lower levels include all
+            messages from higher levels. Changes take effect immediately.
+          </p>
+          <select
+            className={styles.select}
+            value={logLevel}
+            onChange={(e) => onLogLevelChange(e.target.value)}
+          >
+            <option value="error">error &mdash; errors only</option>
+            <option value="warn">warn &mdash; warnings and errors</option>
+            <option value="info">info &mdash; general info (default)</option>
+            <option value="debug">debug &mdash; verbose diagnostics</option>
+            <option value="trace">trace &mdash; maximum verbosity</option>
+          </select>
         </section>
       )}
 

@@ -157,6 +157,67 @@ export interface EmbedMedia {
   height?: number;
 }
 
+/** Access mode for a file uploaded via the file-server plugin. */
+export type FileAccessMode = "public" | "password" | "session";
+
+/** Configuration for the server-side file-server plugin, advertised to the
+ *  client on connect via a `fancy-file-server-config` plugin-data message. */
+export interface FileServerConfig {
+  /** Base URL of the axum file server (no trailing slash). */
+  baseUrl: string;
+  /** Caller's Mumble session id (echoed back from the server). */
+  sessionId: number;
+  /** Per-session upload token used as `?token=` on `POST /files`. */
+  uploadToken: string;
+  /** Session JWT used as `Authorization: Bearer` on `POST /files/{id}/auth`
+   *  for `mode=session` downloads. */
+  sessionJwt: string;
+  /** Maximum allowed upload size in bytes. */
+  maxFileSizeBytes: number;
+  /** When true, files are deleted after the TTL expires. */
+  deleteOnTtl: boolean;
+  /** Time-to-live in seconds (only meaningful when `deleteOnTtl` is true). */
+  ttlSeconds: number;
+  /** When true, files are deleted after a single successful download. */
+  deleteOnDownload: boolean;
+  /** When true, all files uploaded by a session are deleted on disconnect. */
+  deleteOnDisconnect: boolean;
+}
+
+/** Successful upload response returned by `upload_file`. */
+export interface UploadResponse {
+  /** Random file id (also embedded in `download_url`). */
+  file_id: string;
+  /** Full shareable download URL with `?ex=&is=&hm=` parameters. */
+  download_url: string;
+  /** Access mode for this file. */
+  access_mode: FileAccessMode;
+  /** Unix-seconds expiry, or `null` if TTL disabled. */
+  expires_at: number | null;
+  /** File size in bytes. */
+  size_bytes: number;
+}
+
+/** A locally-saved download produced via {@link FileServerConfig}. Tracked
+ *  in-memory so the user can review/open files they downloaded during a
+ *  session via the Downloads panel. */
+export interface DownloadEntry {
+  /** Stable client-generated id (UUID-ish) used as the React key. */
+  id: string;
+  /** Display filename (best-effort, taken from the attachment metadata). */
+  filename: string;
+  /** Absolute path on disk where the file was written. */
+  destPath: string;
+  /** File size in bytes. */
+  sizeBytes: number;
+  /** The signed download URL the file came from. */
+  sourceUrl: string;
+  /** Access mode the file was shared with. */
+  mode: FileAccessMode;
+  /** `Date.now()` when the download completed. */
+  downloadedAt: number;
+}
+
 /** A link embed returned by the server after scraping Open Graph / oEmbed data. */
 export interface LinkEmbed {
   url: string;
@@ -199,8 +260,11 @@ export interface UserPreferences {
   /** When true, encrypted channels send a placeholder instead of the real
    *  message body in the plain TextMessage (disabling dual-path sending). */
   enableDualPath?: boolean;
-  /** Enable verbose debug logging in the Rust backend. */
+  /** Enable verbose debug logging in the Rust backend.
+   *  @deprecated use logLevel instead */
   debugLogging?: boolean;
+  /** Backend log level. One of: error, warn, info, debug, trace. */
+  logLevel?: string;
   /** Collapsed/expanded state of sidebar sections. */
   sidebarSections?: SidebarSections;
   /** Per-event notification sound configuration. */
