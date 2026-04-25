@@ -35,9 +35,11 @@ import type {
   ServerLogEntry,
   ReadReceiptDeliverPayload,
   FileServerConfig,
+  FileServerCapabilities,
   FileAccessMode,
   UploadResponse,
   DownloadEntry,
+  CustomServerEmote,
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator";
 import { registerPoll, registerVote } from "./components/chat/PollCard";
@@ -96,6 +98,51 @@ interface ReactionFetchResponseEvent {
 const volumeAppliedSessions = new Set<number>();
 
 const AUTO_RECONNECT_DELAY_MS = 3000;
+
+/** Default port the mumble-file-server plugin binds to (see file-server config). */
+const DEFAULT_FILE_SERVER_PORT = 64739;
+
+/** Build the file-server REST base URL.
+ *
+ *  Preference order:
+ *  1. `serverConfig.fancy_rest_api_url` (server-side override, used when the
+ *     HTTP interface is fronted by a reverse proxy / ingress on a different
+ *     hostname than the Mumble TCP port).
+ *  2. `http://<connect host>:64739` - the plugin's default loopback bind on
+ *     the same hostname the user connected to. */
+function fileServerBaseUrl(): string | null {
+  const state = useAppStore.getState();
+  const override = state.serverConfig.fancy_rest_api_url;
+  if (override && override.length > 0) return override.replace(/\/+$/, "");
+  const pending = state.pendingConnect;
+  if (!pending) return null;
+  // Normalize "localhost" to the IPv4 loopback. On Windows, "localhost"
+  // resolves to ::1 first, and Docker Desktop's IPv6 port forwarding is
+  // unreliable for published ports - the request times out even though
+  // `docker port` advertises both 0.0.0.0 and [::] mappings. Forcing
+  // IPv4 here avoids the misleading "request failed" probe error during
+  // local development.
+  const host = pending.host === "localhost" ? "127.0.0.1" : pending.host;
+  return `http://${host}:${DEFAULT_FILE_SERVER_PORT}`;
+}
+
+/** Probe `GET {baseUrl}/capabilities` and store the result in the Zustand
+ *  store.  Called whenever `serverConfig` changes so the Capabilities tab
+ *  and Custom-Emotes admin tab populate even when no `fancy-file-server-config`
+ *  plugin-data arrives (e.g. when the file-server plugin is loaded but the
+ *  user has no upload permissions, or the capabilities endpoint is reachable
+ *  via reverse proxy while the per-session config message is suppressed). */
+async function probeFileServerCapabilities(): Promise<void> {
+  const baseUrl = fileServerBaseUrl();
+  if (!baseUrl) return;
+  try {
+    const body = await invoke<string>("fetch_file_server_capabilities", { baseUrl });
+    const caps = JSON.parse(body) as FileServerCapabilities;
+    useAppStore.setState({ fileServerCapabilities: caps });
+  } catch (e) {
+    console.warn("file-server capabilities probe failed:", e);
+  }
+}
 
 let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let manualDisconnectRequested = false;
@@ -180,6 +227,11 @@ interface AppState {
   /** File-server plugin configuration advertised by the server on connect.
    *  `null` when the server has no file-server plugin. */
   fileServerConfig: FileServerConfig | null;
+  /** Capabilities fetched from `GET {baseUrl}/capabilities` after receiving
+   *  the file-server config. `null` when not yet fetched or no file-server. */
+  fileServerCapabilities: FileServerCapabilities | null;
+  /** Custom server emotes pushed via `fancy-server-emotes`. Cleared on disconnect. */
+  customServerEmotes: CustomServerEmote[];
   /** Locally-saved downloads completed during the current session. Most
    *  recent first. Cleared on disconnect / reset. */
   downloads: DownloadEntry[];
@@ -361,6 +413,16 @@ interface AppState {
   removeDownload: (id: string) => void;
   /** Clear the entire downloads list. */
   clearDownloads: () => void;
+  /** Upload a new custom server emote. Requires admin permission. */
+  addCustomEmote: (params: {
+    shortcode: string;
+    aliasEmoji: string;
+    description?: string;
+    filePath: string;
+    mimeType: string;
+  }) => Promise<void>;
+  /** Delete a custom server emote by shortcode. Requires admin permission. */
+  removeCustomEmote: (shortcode: string) => Promise<void>;
   /** Add a poll to the store (called locally when creating a poll). */
   addPoll: (poll: PollPayload, isOwn: boolean) => void;
   setError: (error: string | null) => void;
@@ -426,6 +488,8 @@ const INITIAL: Pick<
   | "unreadCounts"
   | "serverConfig"
   | "fileServerConfig"
+  | "fileServerCapabilities"
+  | "customServerEmotes"
   | "downloads"
   | "unseenDownloadCount"
   | "serverFancyVersion"
@@ -483,8 +547,11 @@ const INITIAL: Pick<
     max_image_message_length: 131072,
     allow_html: true,
     webrtc_sfu_available: false,
+    fancy_rest_api_url: null,
   },
   fileServerConfig: null,
+  fileServerCapabilities: null,
+  customServerEmotes: [],
   downloads: [],
   unseenDownloadCount: 0,
   serverFancyVersion: null,
@@ -953,6 +1020,36 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   clearDownloads: () => {
     set({ downloads: [], unseenDownloadCount: 0 });
+  },
+
+  addCustomEmote: async ({ shortcode, aliasEmoji, description, filePath, mimeType }) => {
+    const cfg = get().fileServerConfig;
+    if (!cfg) throw new Error("file-server is not configured for this server");
+    if (!cfg.canManageEmotes) throw new Error("you are not allowed to manage emotes");
+    await invoke("add_custom_emote", {
+      request: {
+        baseUrl: cfg.baseUrl,
+        sessionJwt: cfg.sessionJwt,
+        shortcode,
+        aliasEmoji,
+        description,
+        filePath,
+        mimeType,
+      },
+    });
+  },
+
+  removeCustomEmote: async (shortcode) => {
+    const cfg = get().fileServerConfig;
+    if (!cfg) throw new Error("file-server is not configured for this server");
+    if (!cfg.canManageEmotes) throw new Error("you are not allowed to manage emotes");
+    await invoke("remove_custom_emote", {
+      request: {
+        baseUrl: cfg.baseUrl,
+        sessionJwt: cfg.sessionJwt,
+        shortcode,
+      },
+    });
   },
 
   addPoll: (poll, isOwn) => {
@@ -1633,6 +1730,7 @@ export async function initEventListeners(
       try {
         const cfg = await invoke<MumbleServerConfig>("get_server_config");
         useAppStore.setState({ serverConfig: cfg });
+        void probeFileServerCapabilities();
       } catch (e) {
         console.error("get_server_config error:", e);
       }
@@ -1654,8 +1752,15 @@ export async function initEventListeners(
           try {
             const json = new TextDecoder().decode(bytes);
             const raw = JSON.parse(json);
+            // The server-wide override (advertised in `ServerConfig`)
+            // takes precedence over the per-plugin `base_url`. This
+            // matters when the HTTP interface is hosted behind a
+            // reverse proxy or ingress and reachable at a different
+            // hostname than the Mumble TCP port.
+            const override = useAppStore.getState().serverConfig.fancy_rest_api_url;
+            const baseUrl = (override && override.length > 0) ? override : raw.base_url;
             const cfg: FileServerConfig = {
-              baseUrl: raw.base_url,
+              baseUrl,
               sessionId: raw.session_id,
               uploadToken: raw.upload_token,
               sessionJwt: raw.session_jwt,
@@ -1664,10 +1769,40 @@ export async function initEventListeners(
               ttlSeconds: raw.ttl_seconds ?? 0,
               deleteOnDownload: !!raw.delete_on_download,
               deleteOnDisconnect: !!raw.delete_on_disconnect,
+              canManageEmotes: !!raw.can_manage_emotes,
+              canShareFiles: raw.can_share_files !== false,
+              canShareFilesPublic: raw.can_share_files_public !== false,
             };
             useAppStore.setState({ fileServerConfig: cfg });
           } catch (e) {
             console.error("plugin-data file-server-config processing error:", e);
+          }
+        }
+
+        if (data_id === "fancy-server-emotes") {
+          try {
+            const json = new TextDecoder().decode(bytes);
+            const raw = JSON.parse(json) as { emotes: Array<{
+              shortcode: string;
+              alias_emoji: string;
+              description?: string;
+              image_data_url: string;
+            }> };
+            const emotes: CustomServerEmote[] = (raw.emotes ?? []).map((e) => ({
+              shortcode: e.shortcode,
+              aliasEmoji: e.alias_emoji,
+              description: e.description,
+              imageDataUrl: e.image_data_url,
+            }));
+            useAppStore.setState({ customServerEmotes: emotes });
+            const reactions: ServerCustomReaction[] = emotes.map((e) => ({
+              shortcode: `:${e.shortcode}:`,
+              display: e.imageDataUrl,
+              label: e.description ?? e.aliasEmoji,
+            }));
+            setServerCustomReactions(reactions);
+          } catch (e) {
+            console.error("plugin-data server-emotes processing error:", e);
           }
         }
 

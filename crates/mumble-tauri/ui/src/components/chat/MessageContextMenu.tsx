@@ -224,19 +224,26 @@ export default function MessageContextMenu({
           <>
             <div className={styles.divider} />
             <div className={styles.reactorSection}>
-              {reactorEntries.map((entry) => (
-                <div key={`${entry.emoji}-${entry.name}`} className={styles.reactorItem}>
-                  <span className={styles.reactorEmoji}>{entry.emoji}</span>
-                  {entry.avatarUrl ? (
-                    <img src={entry.avatarUrl} alt="" className={styles.reactorAvatar} />
-                  ) : (
-                    <div className={styles.reactorAvatarFallback}>
-                      {entry.name.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <span className={styles.reactorName}>{entry.name}</span>
-                </div>
-              ))}
+              {reactorEntries.map((entry) => {
+                const isImageEmoji = entry.emoji.startsWith("data:image/");
+                return (
+                  <div key={`${entry.emoji}-${entry.name}`} className={styles.reactorItem}>
+                    {isImageEmoji ? (
+                      <img src={entry.emoji} alt="" className={styles.reactorEmojiImg} />
+                    ) : (
+                      <span className={styles.reactorEmoji}>{entry.emoji}</span>
+                    )}
+                    {entry.avatarUrl ? (
+                      <img src={entry.avatarUrl} alt="" className={styles.reactorAvatar} />
+                    ) : (
+                      <div className={styles.reactorAvatarFallback}>
+                        {entry.name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <span className={styles.reactorName}>{entry.name}</span>
+                  </div>
+                );
+              })}
             </div>
           </>
         )}

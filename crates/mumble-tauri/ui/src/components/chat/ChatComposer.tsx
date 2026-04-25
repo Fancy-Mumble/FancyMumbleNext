@@ -1,4 +1,4 @@
-import { AttachIcon, CloseIcon, EditIcon, GifIcon, SendIcon } from "../../icons";
+import { AttachIcon, CloseIcon, EditIcon, FileIcon, GifIcon, ImageIcon, SendIcon } from "../../icons";
 import { useState, useRef, useCallback, useMemo, useEffect, type ClipboardEvent } from "react";
 import MarkdownInput, { type MarkdownInputApi } from "./MarkdownInput";
 import GifPicker from "./GifPicker";
@@ -55,7 +55,9 @@ export default function ChatComposer({
   onCancelEdit,
 }: ChatComposerProps) {
   const [showGifPicker, setShowGifPicker] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
   const inputApi = useRef<MarkdownInputApi | null>(null);
 
   const [trigger, setTrigger] = useState<MentionTrigger | null>(null);
@@ -117,9 +119,41 @@ export default function ChatComposer({
     if (activeIndex >= candidates.length) setActiveIndex(0);
   }, [candidates.length, activeIndex]);
 
-  const handleAttach = useCallback(() => {
+  useEffect(() => {
+    if (!showAttachMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
+        setShowAttachMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showAttachMenu]);
+
+  const handleAttachBtnClick = useCallback(() => {
+    if (!onAttachFile) {
+      fileInputRef.current?.click();
+      return;
+    }
+    if (showAttachMenu) {
+      // Second click on the button when the menu is already open: go
+      // straight to the file picker without requiring a menu item click.
+      setShowAttachMenu(false);
+      void onAttachFile();
+    } else {
+      setShowAttachMenu(true);
+    }
+  }, [onAttachFile, showAttachMenu]);
+
+  const handlePickImage = useCallback(() => {
+    setShowAttachMenu(false);
     fileInputRef.current?.click();
   }, []);
+
+  const handlePickFile = useCallback(() => {
+    setShowAttachMenu(false);
+    void onAttachFile?.();
+  }, [onAttachFile]);
 
   const handleFileChange = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -218,16 +252,32 @@ export default function ChatComposer({
           onChange={handleFileChange}
         />
 
-        <button
-          className={styles.attachBtn}
-          onClick={handleAttach}
-          disabled={disabled}
-          title="Attach image, GIF, or video"
-        >
-          <AttachIcon width={20} height={20} />
-        </button>
+        <div ref={attachMenuRef} className={styles.attachMenuWrap}>
+          <button
+            type="button"
+            className={`${styles.attachBtn} ${showAttachMenu ? styles.attachBtnActive : ""}`}
+            onClick={handleAttachBtnClick}
+            disabled={disabled}
+            title={onAttachFile ? "Attach image or file" : "Attach image, GIF, or video"}
+          >
+            <AttachIcon width={20} height={20} />
+          </button>
+          {showAttachMenu && (
+            <div className={styles.attachMenu} role="menu">
+              <button type="button" className={styles.attachMenuItem} role="menuitem" onClick={handlePickImage}>
+                <ImageIcon width={15} height={15} />
+                Image / Video
+              </button>
+              <button type="button" className={styles.attachMenuItem} role="menuitem" onClick={handlePickFile}>
+                <FileIcon width={15} height={15} />
+                File
+              </button>
+            </div>
+          )}
+        </div>
 
         <button
+          type="button"
           className={`${styles.attachBtn} ${showGifPicker ? styles.attachBtnActive : ""}`}
           onClick={() => setShowGifPicker((s) => !s)}
           disabled={disabled}
@@ -235,22 +285,6 @@ export default function ChatComposer({
         >
           <GifIcon width={20} height={20} />
         </button>
-
-        {onAttachFile && (
-          <button
-            className={styles.attachBtn}
-            onClick={() => { void onAttachFile(); }}
-            disabled={disabled}
-            title="Attach a file via file-server"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-                 stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-                 strokeLinejoin="round" aria-hidden="true">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-            </svg>
-          </button>
-        )}
 
         <div className={styles.composerInputWrap}>
           {trigger && (

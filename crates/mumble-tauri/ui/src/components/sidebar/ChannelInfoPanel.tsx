@@ -18,10 +18,7 @@ import { UserListItem, colorFor } from "./UserListItem";
 import { UserContextMenu } from "./UserContextMenu";
 import type { UserContextMenuState } from "./UserContextMenu";
 import styles from "./ChannelInfoPanel.module.css";
-import { PERMISSIONS, PERM_KEY_OWNER } from "../../utils/permissions";
-
-/** Mumble permission bitmask: Write (bit 0). */
-const PERM_WRITE = 0x01;
+import { PERMISSIONS, PERM_KEY_OWNER, PERM_WRITE } from "../../utils/permissions";
 
 interface ChannelInfoPanelProps {
   readonly onClose: () => void;

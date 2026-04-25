@@ -208,6 +208,12 @@ pub struct ServerConfig {
     pub max_image_message_length: u32,
     pub allow_html: bool,
     pub webrtc_sfu_available: bool,
+    /// Optional override for the Fancy Mumble REST API base URL,
+    /// advertised by the server in `ServerConfig::fancy_rest_api_url`.
+    /// `None` (or empty) means clients should fall back to whatever the
+    /// individual plugin (e.g. file-server) reports in its plugin-data
+    /// config. Useful when the HTTP interface is behind a reverse proxy.
+    pub fancy_rest_api_url: Option<String>,
 }
 
 impl Default for ServerConfig {
@@ -218,6 +224,7 @@ impl Default for ServerConfig {
             max_image_message_length: 131072,
             allow_html: true,
             webrtc_sfu_available: false,
+            fancy_rest_api_url: None,
         }
     }
 }

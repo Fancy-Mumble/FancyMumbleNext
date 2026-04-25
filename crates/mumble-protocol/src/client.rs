@@ -511,7 +511,7 @@ impl<H: EventHandler> EventLoopCtx<'_, H> {
                         | ControlMessage::Ping(_)
                         | ControlMessage::PermissionQuery(_)
                 ) {
-                    debug!(type_id = ctrl.type_id(), "inbound control message");
+                    trace!(type_id = ctrl.type_id(), "inbound control message");
                 }
                 if let ControlMessage::UdpTunnel(ref data) = ctrl {
                     trace!("handle_server_message: UdpTunnel ({} bytes)", data.len());

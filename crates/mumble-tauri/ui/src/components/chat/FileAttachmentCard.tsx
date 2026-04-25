@@ -1,7 +1,10 @@
 import { useCallback, useState } from "react";
+import { createPortal } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useAppStore } from "../../store";
 import type { FileAccessMode } from "../../types";
+import { MediaLightbox } from "./MediaPreview";
 import styles from "./FileAttachmentCard.module.css";
 
 export interface FileAttachmentInfo {
@@ -99,6 +102,7 @@ export default function FileAttachmentCard({ info }: FileAttachmentCardProps) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [savedPath, setSavedPath] = useState<string | null>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const kind = previewKindForFilename(info.filename);
   const previewable = kind === "image" || kind === "audio" || kind === "video";
@@ -108,6 +112,22 @@ export default function FileAttachmentCard({ info }: FileAttachmentCardProps) {
   const previewSrc = savedPath
     ? convertFileSrc(savedPath)
     : (info.mode === "public" && previewable ? info.url : null);
+
+  const handleOpenInBrowser = useCallback(() => {
+    openUrl(info.url).catch(() => {
+      // Fallback for non-Tauri environments (e.g. Vite dev server) or when
+      // the opener plugin call fails for any reason.
+      window.open(info.url, "_blank", "noopener,noreferrer");
+    });
+  }, [info.url]);
+
+  const handleImageClick = useCallback(() => {
+    if (previewSrc) setLightboxOpen(true);
+  }, [previewSrc]);
+
+  const closeLightbox = useCallback(() => setLightboxOpen(false), []);
+
+  const canOpenInBrowser = info.mode === "public" || info.mode === "password";
 
   const onSave = useCallback(async () => {
     setBusy(true);
@@ -150,12 +170,19 @@ export default function FileAttachmentCard({ info }: FileAttachmentCardProps) {
     if (!previewSrc) return null;
     if (kind === "image") {
       return (
-        <img
-          src={previewSrc}
-          alt={info.filename}
-          className={styles.previewImage}
-          loading="lazy"
-        />
+        <button
+          type="button"
+          className={styles.previewImageBtn}
+          onClick={handleImageClick}
+          aria-label={`View ${info.filename} in lightbox`}
+        >
+          <img
+            src={previewSrc}
+            alt={info.filename}
+            className={styles.previewImage}
+            loading="lazy"
+          />
+        </button>
       );
     }
     if (kind === "audio") {
@@ -210,7 +237,24 @@ export default function FileAttachmentCard({ info }: FileAttachmentCardProps) {
         >
           {busy ? "Saving\u2026" : saved ? "Saved" : "Save"}
         </button>
+        {canOpenInBrowser && (
+          <button
+            type="button"
+            className={styles.openBtn}
+            onClick={handleOpenInBrowser}
+            title="Open in browser"
+          >
+            Open
+          </button>
+        )}
       </div>
+      {lightboxOpen && previewSrc && kind === "image" && createPortal(
+        <MediaLightbox
+          item={{ kind: "image", src: previewSrc, alt: info.filename }}
+          onClose={closeLightbox}
+        />,
+        document.body,
+      )}
     </div>
   );
 }

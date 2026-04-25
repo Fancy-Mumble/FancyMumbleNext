@@ -378,7 +378,7 @@ function VideoThumb({
 
 // --- Lightbox -----------------------------------------------------
 
-function Lightbox({
+export function MediaLightbox({
   item,
   onClose,
   senderName,
@@ -521,7 +521,7 @@ export default function MediaPreview({ html, messageId, compact = false, timesta
 
       {/* Lightbox - portalled to body to escape backdrop-filter containing blocks */}
       {!onOpenLightbox && lightboxIdx !== null && media[lightboxIdx] && createPortal(
-        <Lightbox
+        <MediaLightbox
           item={media[lightboxIdx]}
           onClose={closeLightbox}
           senderName={senderName}

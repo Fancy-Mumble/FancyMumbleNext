@@ -41,7 +41,7 @@ pub(super) fn new_http_client() -> Client {
         .pool_idle_timeout(Duration::from_secs(90))
         .pool_max_idle_per_host(4)
         .build()
-        .expect("build HTTP client")
+        .unwrap_or_else(|e| panic!("build HTTP client: {e}"))
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -218,7 +218,7 @@ fn build_progress_stream(
 ) -> impl futures_util::Stream<Item = Result<tokio_util::bytes::Bytes, std::io::Error>> {
     let tx = if !upload_id.is_empty() && file_size > 0 {
         let (tx, rx) = mpsc::unbounded_channel::<u64>();
-        let _ = tokio::spawn(emit_progress_events(upload_id, file_size, app_handle, rx));
+        drop(tokio::spawn(emit_progress_events(upload_id, file_size, app_handle, rx)));
         Some(tx)
     } else {
         drop(upload_id);
@@ -473,6 +473,7 @@ mod tests {
             mime_type: None,
             mode: FileAccessMode::Public,
             password: None,
+            upload_id: String::new(),
         };
         assert_eq!(detect_filename(&req), "nice.png");
     }
@@ -489,6 +490,7 @@ mod tests {
             mime_type: None,
             mode: FileAccessMode::Public,
             password: None,
+            upload_id: String::new(),
         };
         assert_eq!(detect_filename(&req), "raw.dat");
     }

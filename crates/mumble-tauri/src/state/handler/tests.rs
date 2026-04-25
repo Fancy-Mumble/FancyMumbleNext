@@ -1226,6 +1226,47 @@ fn server_config_webrtc_sfu_available() {
     assert!(state.server.config.webrtc_sfu_available);
 }
 
+#[test]
+fn server_config_fancy_rest_api_url_set_and_cleared() {
+    let (ctx, _) = make_ctx();
+
+    // Default: no override.
+    assert!(ctx
+        .shared
+        .lock()
+        .unwrap()
+        .server
+        .config
+        .fancy_rest_api_url
+        .is_none());
+
+    // Server advertises an override URL (whitespace gets trimmed).
+    let sc = mumble_tcp::ServerConfig {
+        fancy_rest_api_url: Some("  https://files.example.com  ".to_owned()),
+        ..Default::default()
+    };
+    sc.handle(&ctx);
+    assert_eq!(
+        ctx.shared.lock().unwrap().server.config.fancy_rest_api_url.as_deref(),
+        Some("https://files.example.com")
+    );
+
+    // Empty string clears the override (admin removed the config value).
+    let sc_clear = mumble_tcp::ServerConfig {
+        fancy_rest_api_url: Some(String::new()),
+        ..Default::default()
+    };
+    sc_clear.handle(&ctx);
+    assert!(ctx
+        .shared
+        .lock()
+        .unwrap()
+        .server
+        .config
+        .fancy_rest_api_url
+        .is_none());
+}
+
 // -- PermissionDenied ----------------------------------------------
 
 #[test]

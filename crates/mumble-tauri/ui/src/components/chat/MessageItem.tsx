@@ -303,9 +303,13 @@ export default memo(function MessageItem({
     if (fileMatch) {
       const info = decodeFileAttachmentPayload(fileMatch[1]);
       if (info) {
+        const textBeforeFile = bodyWithoutQuotes.slice(0, fileMatch.index).trim();
         return (
           <>
             {quoteBlocks}
+            {textBeforeFile && (
+              <MediaPreview html={textBeforeFile} messageId={`${index}-text`} compact={false} timeFormat={timeFormat} convertToLocalTime={convertToLocalTime} systemUses24h={systemUses24h} senderName={msg.sender_name} messageTimestamp={displayTimestamp} onOpenLightbox={onOpenLightbox} />
+            )}
             <FileAttachmentCard info={info} />
           </>
         );

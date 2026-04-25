@@ -119,6 +119,13 @@
   text-align: center;
 }
 
+.reactorEmojiImg {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
 .reactorAvatar {
   width: 20px;
   height: 20px;

@@ -345,6 +345,13 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
       });
       return;
     }
+    if (!fileServerConfig.canShareFiles) {
+      showToast({
+        message: "You don't have permission to share files in this channel.",
+        variant: "error",
+      });
+      return;
+    }
     if (isUploading) return;
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
@@ -408,10 +415,11 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         expiresAt: resp.expires_at,
       };
       const marker = encodeFileAttachmentMarker(info);
+      const body = choice.message ? `${choice.message}\n${marker}` : marker;
       if (selectedDmUser !== null) {
-        await sendDmAction(selectedDmUser, marker);
+        await sendDmAction(selectedDmUser, body);
       } else {
-        await sendMessageAction(selectedChannel, marker);
+        await sendMessageAction(selectedChannel, body);
       }
       setUploadPlaceholders((prev) => prev.filter((p) => p.id !== placeholderId));
     } catch (e) {
@@ -756,7 +764,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onPaste={handlePaste}
           onFileSelected={sendMediaFile}
           onGifSelect={handleGifSelect}
-          onAttachFile={fileServerConfig ? handleAttachFile : undefined}
+          onAttachFile={fileServerConfig?.canShareFiles ? handleAttachFile : undefined}
           disabled={sending || persistent.sendBlocked}
           hasPendingQuotes={pendingQuotes.length > 0}
           isEditing={editingMessage !== null}
@@ -837,6 +845,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
       <FileShareDialog
         open={shareDialog !== null}
         filename={shareDialog?.filename ?? ""}
+        canSharePublic={fileServerConfig?.canShareFilesPublic ?? true}
         onSubmit={handleShareDialogSubmit}
         onCancel={handleShareDialogCancel}
       />

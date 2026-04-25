@@ -22,6 +22,14 @@ impl HandleMessage for mumble_tcp::ServerConfig {
             if let Some(sfu) = self.webrtc_sfu_available {
                 state.server.config.webrtc_sfu_available = sfu;
             }
+            // Treat empty string as "no override" so an admin can
+            // clear a previously-set URL by blanking the config value.
+            state.server.config.fancy_rest_api_url = self
+                .fancy_rest_api_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned);
             if let Some(max) = self.max_users {
                 state.server.max_users = Some(max);
             }
@@ -31,6 +39,7 @@ impl HandleMessage for mumble_tcp::ServerConfig {
                 allow_html = state.server.config.allow_html,
                 max_users = ?state.server.max_users,
                 webrtc_sfu = state.server.config.webrtc_sfu_available,
+                fancy_rest_api_url = ?state.server.config.fancy_rest_api_url,
                 "server config received"
             );
         }

@@ -19,12 +19,7 @@ import ChannelIconList from "./modern/ChannelIconList";
 import ClassicChannelList from "./classic/ClassicChannelList";
 import { MembersTab } from "./MembersTab";
 import RecordingModal from "./RecordingModal";
-
-/** Mumble permission bitmask: Listen to channel (bit 11). */
-const PERM_LISTEN = 0x800;
-
-/** Mumble permission bitmask: Write / admin (bit 0). */
-const PERM_WRITE = 0x01;
+import { PERM_LISTEN, PERM_WRITE } from "../../utils/permissions";
 
 /** Check whether a channel's cached permissions include the Listen bit. */
 function canListen(channel: ChannelEntry | undefined): boolean {

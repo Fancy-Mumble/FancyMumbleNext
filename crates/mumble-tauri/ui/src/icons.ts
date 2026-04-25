@@ -73,6 +73,7 @@ export {
   ShieldCheck as ShieldCheckSvg,
   Shield as ShieldIcon,
   Star as StarIcon,
+  File as FileIcon,
   Trash2 as TrashIcon,
   UserRound as UserFilledIcon,
   User as UserIcon,

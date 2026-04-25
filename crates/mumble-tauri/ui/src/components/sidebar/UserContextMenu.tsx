@@ -8,9 +8,7 @@ import { canDeleteMessages } from "./ChannelEditorDialog";
 import ConfirmDialog from "../elements/ConfirmDialog";
 import Toast, { type ToastData } from "../elements/Toast";
 import styles from "./UserContextMenu.module.css";
-
-/** Mumble permission bitmask: Register users (root channel only). */
-const PERM_REGISTER = 0x40000;
+import { PERM_REGISTER } from "../../utils/permissions";
 
 // -- Local per-session state --------------------------------------
 

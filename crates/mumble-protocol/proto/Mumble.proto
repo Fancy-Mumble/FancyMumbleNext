@@ -378,6 +378,14 @@ message ServerConfig {
 	// True when the server has a WebRTC SFU module loaded and can
 	// relay screen-share streams server-side.
 	optional bool webrtc_sfu_available = 8;
+	// Optional public base URL of the Fancy Mumble REST API (file
+	// server, custom emotes, capabilities, ...). Set this when the
+	// server's HTTP interface is exposed under a different hostname
+	// than the Mumble TCP port - for example behind a reverse proxy
+	// or Kubernetes ingress. Clients should prefer this URL over any
+	// per-plugin `base_url` when contacting the REST API. Empty /
+	// unset means "no override; use whatever the plugin advertises".
+	optional string fancy_rest_api_url = 9;
 }
 
 message SuggestConfig {

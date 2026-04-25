@@ -15,6 +15,7 @@ use state::{
     AppState, AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus,
     DebugStats, DownloadRequest, PhotoEntry, SearchResult, ServerConfig, ServerInfo,
     UploadRequest, UploadResponse, UserEntry, VoiceState,
+    AddEmoteRequest, AddEmoteResponse, RemoveEmoteRequest,
 };
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -555,6 +556,35 @@ async fn fetch_public_servers() -> Result<Vec<PublicServer>, String> {
     Ok(servers)
 }
 
+/// Probe the file-server plugin's `GET /capabilities` endpoint.
+///
+/// Performed in Rust (rather than via browser `fetch`) so it works
+/// regardless of the file-server's CORS allow-list configuration and
+/// avoids preflight overhead.  Returns the raw JSON body on success;
+/// the frontend deserialises into [`FileServerCapabilities`].
+#[tauri::command]
+async fn fetch_file_server_capabilities(base_url: String) -> Result<String, String> {
+    let trimmed = base_url.trim_end_matches('/');
+    let url = format!("{trimmed}/capabilities");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("HTTP client init failed: {e}"))?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("request failed: {e}"))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {status}"));
+    }
+    response
+        .text()
+        .await
+        .map_err(|e| format!("read body failed: {e}"))
+}
+
 /// List available audio input devices (microphones).
 /// Only available on desktop (cpal is not supported on Android).
 #[cfg(not(target_os = "android"))]
@@ -858,6 +888,24 @@ async fn download_file(
     request: DownloadRequest,
 ) -> Result<u64, String> {
     state.download_file(request).await
+}
+
+/// Upload a custom server emote (admin-only on the server side).
+#[tauri::command]
+async fn add_custom_emote(
+    state: tauri::State<'_, AppState>,
+    request: AddEmoteRequest,
+) -> Result<AddEmoteResponse, String> {
+    state.add_custom_emote(request).await
+}
+
+/// Delete a custom server emote (admin-only on the server side).
+#[tauri::command]
+async fn remove_custom_emote(
+    state: tauri::State<'_, AppState>,
+    request: RemoveEmoteRequest,
+) -> Result<(), String> {
+    state.remove_custom_emote(request).await
 }
 
 /// Update the per-channel push notification mute preferences on the server.
@@ -1773,6 +1821,7 @@ macro_rules! all_command_handlers {
             delete_channel,
             ping_server,
             fetch_public_servers,
+            fetch_file_server_capabilities,
             get_audio_devices,
             get_output_devices,
             get_audio_settings,
@@ -1801,6 +1850,8 @@ macro_rules! all_command_handlers {
             upload_file,
             cancel_upload,
             download_file,
+            add_custom_emote,
+            remove_custom_emote,
             send_push_update,
             send_subscribe_push,
             send_read_receipt,

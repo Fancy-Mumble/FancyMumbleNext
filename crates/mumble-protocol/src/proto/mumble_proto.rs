@@ -815,6 +815,15 @@ pub struct ServerConfig {
     /// relay screen-share streams server-side.
     #[prost(bool, optional, tag = "8")]
     pub webrtc_sfu_available: ::core::option::Option<bool>,
+    /// Optional public base URL of the Fancy Mumble REST API (file
+    /// server, custom emotes, capabilities, ...). Set this when the
+    /// server's HTTP interface is exposed under a different hostname
+    /// than the Mumble TCP port - for example behind a reverse proxy
+    /// or Kubernetes ingress. Clients should prefer this URL over any
+    /// per-plugin `base_url` when contacting the REST API. Empty /
+    /// unset means "no override; use whatever the plugin advertises".
+    #[prost(string, optional, tag = "9")]
+    pub fancy_rest_api_url: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SuggestConfig {

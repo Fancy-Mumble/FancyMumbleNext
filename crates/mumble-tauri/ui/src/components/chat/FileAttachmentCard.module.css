@@ -25,6 +25,20 @@
   background: rgba(0, 0, 0, 0.25);
 }
 
+.previewImageBtn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+  line-height: 0;
+}
+
+.previewImageBtn:hover .previewImage {
+  opacity: 0.9;
+}
+
 .previewAudioWrap {
   padding: 0.5rem 0.75rem 0;
 }
@@ -116,4 +130,22 @@
 .saveBtn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.openBtn {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 0.4rem 0.85rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--color-accent-glow, rgba(100, 160, 255, 0.35));
+  background: var(--color-accent-subtle, rgba(100, 160, 255, 0.08));
+  color: var(--color-accent, #89b4fa);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.openBtn:hover {
+  background: var(--color-accent-medium, rgba(100, 160, 255, 0.15));
+  border-color: var(--color-accent, #89b4fa);
 }

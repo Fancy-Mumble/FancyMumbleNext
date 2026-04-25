@@ -19,6 +19,8 @@ mod audio;
 mod audio_tasks;
 mod channels;
 mod connection;
+mod emotes;
+pub use emotes::{AddEmoteRequest, AddEmoteResponse, RemoveEmoteRequest};
 mod event_handler;
 mod file_server;
 pub use file_server::{DownloadRequest, UploadRequest, UploadResponse};

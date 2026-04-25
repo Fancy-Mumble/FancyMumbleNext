@@ -89,6 +89,14 @@ export interface MumbleServerConfig {
   max_image_message_length: number;
   allow_html: boolean;
   webrtc_sfu_available: boolean;
+  /**
+   * Optional override for the Fancy Mumble REST API base URL, sent by
+   * the server when its HTTP interface is hosted behind a reverse
+   * proxy or ingress. When set, clients should prefer this URL over
+   * any per-plugin `base_url` advertised via plugin-data. `null` means
+   * "no override".
+   */
+  fancy_rest_api_url: string | null;
 }
 
 /** Aggregated server info from the backend (version, host, codec, etc.). */
@@ -182,6 +190,65 @@ export interface FileServerConfig {
   deleteOnDownload: boolean;
   /** When true, all files uploaded by a session are deleted on disconnect. */
   deleteOnDisconnect: boolean;
+  /** True when the connected user is allowed to add/remove custom server
+   *  emotes via the file-server's `/emotes` admin API. */
+  canManageEmotes: boolean;
+  /** True when the connected user is allowed to upload files at all
+   *  (server-wide hint; per-channel ACL is enforced at upload time). */
+  canShareFiles: boolean;
+  /** True when the connected user is allowed to share files via
+   *  publicly accessible links (`public` and `password` modes).  When
+   *  false, only `session`-scoped uploads are permitted. */
+  canShareFilesPublic: boolean;
+}
+
+/** Parsed semantic version triple as returned by `GET /capabilities`. */
+export interface FileServerVersionInfo {
+  major: number | null;
+  minor: number | null;
+  patch: number | null;
+  /** Human-readable "MAJOR.MINOR.PATCH" or "unknown". */
+  display: string;
+}
+
+/** Feature flags reported by `GET /capabilities`. */
+export interface FileServerFeatures {
+  file_uploads: boolean;
+  custom_emotes: boolean;
+  file_ttl: boolean;
+  delete_on_download: boolean;
+  delete_on_disconnect: boolean;
+}
+
+/** Storage limits reported by `GET /capabilities`. */
+export interface FileServerLimits {
+  max_file_size_bytes: number;
+  max_total_storage_bytes: number;
+  ttl_seconds: number;
+}
+
+/** Response from `GET {baseUrl}/capabilities`. Populated once per
+ *  connection after the `fancy-file-server-config` plugin-data arrives. */
+export interface FileServerCapabilities {
+  plugin: { name: string; version: string };
+  mumble_version: FileServerVersionInfo;
+  fancy_version: FileServerVersionInfo;
+  features: FileServerFeatures;
+  limits: FileServerLimits;
+}
+
+/** A custom emote pushed by the server via the `fancy-server-emotes`
+ *  plugin-data channel. The image is delivered inline as a base64 `data:`
+ *  URL so it can be rendered without a follow-up HTTP request. */
+export interface CustomServerEmote {
+  /** Unique short identifier (e.g. `myCustom`). */
+  shortcode: string;
+  /** Fallback unicode emoji shown when the image cannot be loaded. */
+  aliasEmoji: string;
+  /** Optional human-readable description. */
+  description?: string;
+  /** `data:<mime>;base64,<...>` URL containing the emote bytes. */
+  imageDataUrl: string;
 }
 
 /** Successful upload response returned by `upload_file`. */

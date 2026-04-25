@@ -1036,6 +1036,51 @@
   cursor: not-allowed;
 }
 
+/* --- Unified attach menu --------------------------------------- */
+
+.attachMenuWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.attachMenu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: 0 4px 16px var(--color-overlay-medium);
+  z-index: 100;
+  min-width: 160px;
+}
+
+.attachMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--color-text-secondary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  width: 100%;
+  text-align: left;
+}
+
+.attachMenuItem:hover {
+  background: var(--color-glass-hover);
+  color: var(--color-text-primary);
+}
+
 .attachBtnActive {
   color: var(--color-accent);
   border-color: var(--color-accent-glow);

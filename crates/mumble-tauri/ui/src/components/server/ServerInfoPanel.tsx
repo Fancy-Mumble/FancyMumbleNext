@@ -171,6 +171,7 @@ interface ServerInfoPanelProps {
 
 export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
   const udpActive = useAppStore((s) => s.udpActive);
+  const capabilities = useAppStore((s) => s.fileServerCapabilities);
   const [info, setInfo] = useState<ServerInfo | null>(null);
   const [devMode, setDevMode] = useState(false);
   const [debugStats, setDebugStats] = useState<DebugStats | null>(null);
@@ -402,6 +403,22 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
                     <LatencyAccordion />
                   </Accordion>
                 </>
+              )}
+
+              {capabilities && (
+                <Accordion title="File Server">
+                  <div className={styles.debugGrid}>
+                    <DebugRow label="Plugin" value={`${capabilities.plugin.name} v${capabilities.plugin.version}`} />
+                    <DebugRow label="Mumble Version" value={capabilities.mumble_version.display} />
+                    <DebugRow label="Fancy Version" value={capabilities.fancy_version.display} />
+                    <DebugRow label="Max File Size" value={`${(capabilities.limits.max_file_size_bytes / 1024 / 1024).toFixed(0)} MB`} />
+                    <DebugRow label="Max Storage" value={`${(capabilities.limits.max_total_storage_bytes / 1024 / 1024).toFixed(0)} MB`} />
+                    <DebugRow label="File TTL" value={capabilities.features.file_ttl ? `${capabilities.limits.ttl_seconds}s` : "disabled"} />
+                    <DebugRow label="Delete on Download" value={capabilities.features.delete_on_download} />
+                    <DebugRow label="Delete on Disconnect" value={capabilities.features.delete_on_disconnect} />
+                    <DebugRow label="Custom Emotes" value={capabilities.features.custom_emotes} />
+                  </div>
+                </Accordion>
               )}
             </section>
           )}
