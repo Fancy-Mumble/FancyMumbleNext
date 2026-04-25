@@ -150,7 +150,6 @@ impl LocalMessageCache {
                         channel_id: m.channel_id,
                         is_own: m.is_own,
                         dm_session: None,
-                        group_id: None,
                         message_id: Some(m.message_id.clone()),
                         timestamp: Some(m.timestamp),
                         is_legacy: false,

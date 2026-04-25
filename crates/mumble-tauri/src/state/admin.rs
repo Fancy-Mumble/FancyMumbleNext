@@ -151,6 +151,23 @@ impl AppState {
         }
     }
 
+    pub async fn request_user_comment(&self, user_id: u32) -> Result<(), String> {
+        let handle = {
+            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            state.conn.client_handle.clone()
+        };
+        let handle = handle.ok_or_else(|| "Not connected".to_owned())?;
+        handle
+            .send(command::RequestBlob {
+                session_texture: vec![],
+                session_comment: vec![],
+                channel_description: vec![],
+                user_id_comment: vec![user_id],
+            })
+            .await
+            .map_err(|e| e.to_string())
+    }
+
     pub async fn update_user_list(
         &self,
         users: Vec<RegisteredUserUpdate>,

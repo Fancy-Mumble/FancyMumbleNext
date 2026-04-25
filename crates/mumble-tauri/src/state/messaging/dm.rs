@@ -55,7 +55,6 @@ impl AppState {
                 channel_id: 0,
                 is_own: true,
                 dm_session: Some(target_session),
-                group_id: None,
                 message_id,
                 timestamp,
                 is_legacy: false,
@@ -77,7 +76,6 @@ impl AppState {
             let mut state = self.inner.lock().map_err(|e| e.to_string())?;
             state.msgs.selected_dm_user = Some(session);
             state.selected_channel = None;
-            state.msgs.selected_group = None;
             let _ = state.msgs.dm_unread.remove(&session);
         }
         self.emit_dm_unreads();

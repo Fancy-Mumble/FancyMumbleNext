@@ -5,15 +5,13 @@ import type { SearchResult, SearchCategory } from "../../types";
 import SearchIcon from "../../assets/icons/action/search.svg?react";
 import HashIcon from "../../assets/icons/general/hash.svg?react";
 import UserIcon from "../../assets/icons/user/user.svg?react";
-import UsersGroupIcon from "../../assets/icons/user/users-group.svg?react";
 import MessageIcon from "../../assets/icons/communication/message.svg?react";
 import styles from "./SuperSearch.module.css";
 
-const CATEGORY_ORDER: SearchCategory[] = ["channel", "user", "group", "message"];
+const CATEGORY_ORDER: SearchCategory[] = ["channel", "user", "message"];
 const CATEGORY_LABELS: Record<SearchCategory, string> = {
   channel: "Channels",
   user: "Users",
-  group: "Group Chats",
   message: "Messages",
 };
 
@@ -22,7 +20,6 @@ interface SuperSearchProps {
   readonly onClose: () => void;
   readonly onSelectChannel: (id: number) => void;
   readonly onSelectUser: (session: number) => void;
-  readonly onSelectGroup: (id: string) => void;
 }
 
 export function SuperSearch({
@@ -30,7 +27,6 @@ export function SuperSearch({
   onClose,
   onSelectChannel,
   onSelectUser,
-  onSelectGroup,
 }: SuperSearchProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -113,21 +109,12 @@ export function SuperSearch({
         case "user":
           if (r.id != null) onSelectUser(r.id);
           break;
-        case "group":
-          if (r.string_id) onSelectGroup(r.string_id);
-          break;
         case "message":
-          // Navigate to the channel/DM/group containing the message.
-          if (r.string_id && !r.id) {
-            // Group message - string_id is group UUID.
-            onSelectGroup(r.string_id);
-          } else if (r.id != null) {
-            onSelectChannel(r.id);
-          }
+          if (r.id != null) onSelectChannel(r.id);
           break;
       }
     },
-    [onClose, onSelectChannel, onSelectUser, onSelectGroup],
+    [onClose, onSelectChannel, onSelectUser],
   );
 
   const handleKeyDown = useCallback(
@@ -180,7 +167,7 @@ export function SuperSearch({
             ref={inputRef}
             className={styles.input}
             type="text"
-            placeholder="Search channels, users, groups, messages..."
+            placeholder="Search channels, users, messages..."
             value={query}
             onChange={handleChange}
           />
@@ -246,12 +233,6 @@ function ResultIcon({ category }: { readonly category: SearchCategory }) {
       return (
         <div className={`${styles.resultIcon} ${styles.resultIconUser}`}>
           <UserIcon width={14} height={14} />
-        </div>
-      );
-    case "group":
-      return (
-        <div className={`${styles.resultIcon} ${styles.resultIconGroup}`}>
-          <UsersGroupIcon width={14} height={14} />
         </div>
       );
     case "message":

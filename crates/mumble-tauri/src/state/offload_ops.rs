@@ -146,7 +146,6 @@ pub(super) fn find_message_body(
             let session: u32 = scope_id.parse().map_err(|_| "Invalid DM session")?;
             state.msgs.by_dm.get(&session)
         }
-        "group" => state.msgs.by_group.get(scope_id),
         _ => return Err(format!("Unknown scope: {scope}")),
     };
     let messages = messages.ok_or("No messages found for scope")?;
@@ -173,7 +172,6 @@ pub(super) fn set_message_body(
             let session: u32 = scope_id.parse().unwrap_or(0);
             state.msgs.by_dm.get_mut(&session)
         }
-        "group" => state.msgs.by_group.get_mut(scope_id),
         _ => None,
     };
     if let Some(messages) = messages {

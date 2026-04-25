@@ -171,6 +171,7 @@ impl HandlerContext {
                         session_texture: sessions.clone(),
                         session_comment: sessions,
                         channel_description: Vec::new(),
+                        user_id_comment: Vec::new(),
                     })
                     .await;
             }
@@ -205,6 +206,7 @@ impl HandlerContext {
                         session_texture: Vec::new(),
                         session_comment: Vec::new(),
                         channel_description: channel_ids,
+                        user_id_comment: Vec::new(),
                     })
                     .await;
             }

@@ -157,6 +157,7 @@ fn spawn_description_fetch(shared: Arc<Mutex<SharedState>>, id: u32) {
                     session_texture: Vec::new(),
                     session_comment: Vec::new(),
                     channel_description: vec![id],
+                    user_id_comment: Vec::new(),
                 })
                 .await;
         }

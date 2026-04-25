@@ -35,7 +35,6 @@ interface ChatHeaderProps {
   readonly memberCount: number;
   readonly isInChannel: boolean;
   readonly isDm?: boolean;
-  readonly isGroup?: boolean;
   readonly isPersisted?: boolean;
   readonly onJoin?: () => void;
   readonly onChannelInfoToggle?: () => void;
@@ -101,7 +100,6 @@ export default function ChatHeader({
   memberCount,
   isInChannel,
   isDm,
-  isGroup,
   isPersisted,
   onJoin,
   onChannelInfoToggle,
@@ -119,16 +117,14 @@ export default function ChatHeader({
   onPinnedMessages,
 }: ChatHeaderProps) {
   let prefix: string;
-  if (isGroup) prefix = "";
-  else if (isDm) prefix = "@";
+  if (isDm) prefix = "@";
   else prefix = "#";
 
   let subtitle: string;
-  if (isGroup) subtitle = `${memberCount} ${memberCount === 1 ? "member" : "members"}`;
-  else if (isDm) subtitle = "Direct Message";
+  if (isDm) subtitle = "Direct Message";
   else subtitle = `${memberCount} members`;
 
-  const privateBadge = isDm || isGroup;
+  const privateBadge = isDm;
   const isStreaming = !!broadcastInfo;
 
   return (
@@ -170,9 +166,6 @@ export default function ChatHeader({
       ) : (
         <div className={styles.headerInfo}>
           <h2 className={styles.channelName}>
-            {isGroup && (
-              <UsersGroupIcon width={18} height={18} style={{ marginRight: 6, verticalAlign: "text-bottom" }} />
-            )}
             {prefix} {channelName}
             {isPersisted && (
               <DatabaseIcon

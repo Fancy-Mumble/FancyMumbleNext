@@ -415,6 +415,7 @@ async fn request_user_blob(
             session_texture: if need_texture { vec![sess] } else { Vec::new() },
             session_comment: if need_comment { vec![sess] } else { Vec::new() },
             channel_description: Vec::new(),
+            user_id_comment: Vec::new(),
         })
         .await;
 }

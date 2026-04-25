@@ -13,7 +13,7 @@ mod state;
 
 use state::{
     AppState, AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus,
-    DebugStats, GroupChat, PhotoEntry, SearchResult, ServerConfig, ServerInfo, UserEntry,
+    DebugStats, PhotoEntry, SearchResult, ServerConfig, ServerInfo, UserEntry,
     VoiceState,
 };
 use std::collections::HashMap;
@@ -981,58 +981,6 @@ fn mark_dm_read(state: tauri::State<'_, AppState>, session: u32) {
     state.mark_dm_read(session);
 }
 
-// --- Group chat commands --------------------------------------
-
-/// Create a new group chat with the given name and member sessions.
-#[tauri::command]
-async fn create_group(
-    state: tauri::State<'_, AppState>,
-    name: String,
-    member_sessions: Vec<u32>,
-) -> Result<GroupChat, String> {
-    state.create_group(name, member_sessions).await
-}
-
-/// Get all known group chats.
-#[tauri::command]
-fn get_groups(state: tauri::State<'_, AppState>) -> Vec<GroupChat> {
-    state.groups()
-}
-
-/// Get messages for a specific group chat.
-#[tauri::command]
-fn get_group_messages(state: tauri::State<'_, AppState>, group_id: String) -> Vec<ChatMessage> {
-    state.group_messages(&group_id)
-}
-
-/// Select a group chat for viewing.
-#[tauri::command]
-fn select_group(state: tauri::State<'_, AppState>, group_id: String) -> Result<(), String> {
-    state.select_group(group_id)
-}
-
-/// Send a message to a group chat.
-#[tauri::command]
-async fn send_group_message(
-    state: tauri::State<'_, AppState>,
-    group_id: String,
-    body: String,
-) -> Result<(), String> {
-    state.send_group_message(group_id, body).await
-}
-
-/// Get group unread counts.
-#[tauri::command]
-fn get_group_unread_counts(state: tauri::State<'_, AppState>) -> HashMap<String, u32> {
-    state.group_unread_counts()
-}
-
-/// Mark a group chat as read.
-#[tauri::command]
-fn mark_group_read(state: tauri::State<'_, AppState>, group_id: String) {
-    state.mark_group_read(&group_id);
-}
-
 /// Enable or disable native OS notifications.
 #[tauri::command]
 fn set_notifications_enabled(
@@ -1279,6 +1227,16 @@ async fn update_user_list(
     users: Vec<state::types::RegisteredUserUpdate>,
 ) -> Result<(), String> {
     state.update_user_list(users).await
+}
+
+/// Request the full comment for an offline registered user by their user ID.
+/// The server responds (if a comment exists) with a `user-comment` event.
+#[tauri::command]
+async fn request_user_comment(
+    state: tauri::State<'_, AppState>,
+    user_id: u32,
+) -> Result<(), String> {
+    state.request_user_comment(user_id).await
 }
 
 /// Request the ban list from the server.
@@ -1827,13 +1785,6 @@ macro_rules! all_command_handlers {
             select_dm_user,
             get_dm_unread_counts,
             mark_dm_read,
-            create_group,
-            get_groups,
-            get_group_messages,
-            select_group,
-            send_group_message,
-            get_group_unread_counts,
-            mark_group_read,
             reset_app_data,
             set_log_level,
             set_notifications_enabled,
@@ -1859,6 +1810,7 @@ macro_rules! all_command_handlers {
             request_user_stats,
             request_user_list,
             update_user_list,
+            request_user_comment,
             request_ban_list,
             update_ban_list,
             request_acl,

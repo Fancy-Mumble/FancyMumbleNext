@@ -286,6 +286,14 @@ message UserList {
 		optional string name = 2;
 		optional string last_seen = 3;
 		optional uint32 last_channel = 4;
+		// Registered user avatar (PNG/JPEG bytes).
+		optional bytes texture = 5;
+		// SHA-1 hash of the comment when len >= 128; empty otherwise.
+		// If set without comment, the client must request the full text
+		// via RequestBlob.user_id_comment.
+		optional bytes comment_hash = 6;
+		// Full comment text when len < 128, or in blob responses.
+		optional string comment = 7;
 	}
 	repeated User users = 1;
 }
@@ -355,6 +363,8 @@ message RequestBlob {
 	repeated uint32 session_texture = 1;
 	repeated uint32 session_comment = 2;
 	repeated uint32 channel_description = 3;
+	// Registered user_ids whose comment should be fetched (offline support).
+	repeated uint32 user_id_comment = 4;
 }
 
 message ServerConfig {

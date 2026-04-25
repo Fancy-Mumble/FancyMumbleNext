@@ -22,7 +22,6 @@ import type {
   ConnectionStatus,
   MumbleServerConfig,
   VoiceState,
-  GroupChat,
   PersistenceMode,
   ChannelPersistenceState,
   KeyTrustState,
@@ -41,7 +40,7 @@ import { registerPoll, registerVote } from "./components/chat/PollCard";
 import { applyReaction, resetReactions, setServerCustomReactions, type ServerCustomReaction } from "./components/chat/reactionStore";
 import { applyReadStates, clearReadReceipts } from "./components/chat/readReceiptStore";
 import { offloadManager } from "./messageOffload";
-import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume, getMutedPushChannels, setMutedPushChannel } from "./preferencesStorage";
+import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume, getMutedPushChannels, setMutedPushChannel, getPreferences, updatePreferences } from "./preferencesStorage";
 import { loadProfileData } from "./pages/settings/profileData";
 import { serializeProfile, dataUrlToBytes } from "./profileFormat";
 
@@ -96,6 +95,7 @@ const AUTO_RECONNECT_DELAY_MS = 3000;
 
 let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let manualDisconnectRequested = false;
+let isRestoringVoice = false;
 
 function clearAutoReconnectTimer(): void {
   if (autoReconnectTimer !== null) {
@@ -190,16 +190,6 @@ interface AppState {
   dmMessages: ChatMessage[];
   /** DM unread counts keyed by user session. */
   dmUnreadCounts: Record<number, number>;
-
-  // -- Group chat state ------------------------------------------
-  /** All known group chats. */
-  groupChats: GroupChat[];
-  /** ID of the group chat currently being viewed (mutually exclusive with channel/DM). */
-  selectedGroup: string | null;
-  /** Messages for the currently viewed group chat. */
-  groupMessages: ChatMessage[];
-  /** Group unread counts keyed by group ID. */
-  groupUnreadCounts: Record<string, number>;
 
   // -- Poll state (in-memory, not persisted) ---------------------
   /** All known polls keyed by poll ID. */
@@ -359,12 +349,6 @@ interface AppState {
   sendDm: (targetSession: number, body: string) => Promise<void>;
   refreshDmMessages: (session: number) => Promise<void>;
 
-  // Group chat actions
-  createGroup: (name: string, memberSessions: number[]) => Promise<void>;
-  selectGroup: (groupId: string) => Promise<void>;
-  sendGroupMessage: (groupId: string, body: string) => Promise<void>;
-  refreshGroupMessages: (groupId: string) => Promise<void>;
-
   // Persistent chat actions
   fetchHistory: (channelId: number, beforeId?: string) => Promise<void>;
   getPersistenceMode: (channelId: number) => PersistenceMode;
@@ -408,10 +392,6 @@ const INITIAL: Pick<
   | "selectedDmUser"
   | "dmMessages"
   | "dmUnreadCounts"
-  | "groupChats"
-  | "selectedGroup"
-  | "groupMessages"
-  | "groupUnreadCounts"
   | "polls"
   | "pollMessages"
   | "linkEmbeds"
@@ -468,10 +448,6 @@ const INITIAL: Pick<
   selectedDmUser: null,
   dmMessages: [],
   dmUnreadCounts: {},
-  groupChats: [],
-  selectedGroup: null,
-  groupMessages: [],
-  groupUnreadCounts: {},
   polls: new Map(),
   pollMessages: [],
   linkEmbeds: new Map(),
@@ -515,15 +491,14 @@ const INITIAL: Pick<
  */
 let messageWriteSeq = 0;
 
-/** Update the taskbar badge with the total unread count (channels + DMs + groups). */
+/** Update the taskbar badge with the total unread count (channels + DMs). */
 function updateBadgeCount(): void {
-  const { unreadCounts, dmUnreadCounts, groupUnreadCounts, silencedChannels } = useAppStore.getState();
+  const { unreadCounts, dmUnreadCounts, silencedChannels } = useAppStore.getState();
   const channelSum = Object.entries(unreadCounts)
     .filter(([id]) => !silencedChannels.has(Number(id)))
     .reduce((a, [, b]) => a + b, 0);
   const dmSum = Object.values(dmUnreadCounts).reduce((a, b) => a + b, 0);
-  const groupSum = Object.values(groupUnreadCounts).reduce((a, b) => a + b, 0);
-  const total = channelSum + dmSum + groupSum;
+  const total = channelSum + dmSum;
   invoke("update_badge_count", { count: total > 0 ? total : null }).catch(() => {
     // Badge API may not be available on all platforms.
   });
@@ -573,7 +548,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   selectChannel: async (id) => {
-    set({ selectedChannel: id, selectedDmUser: null, dmMessages: [], selectedGroup: null, groupMessages: [] });
+    set({ selectedChannel: id, selectedDmUser: null, dmMessages: [] });
     const seq = ++messageWriteSeq;
     try {
       // Notify backend - marks channel as read and clears DM selection.
@@ -752,6 +727,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await invoke("enable_voice");
       set({ voiceState: "active", inCall: true });
+      updatePreferences({ voiceOnReconnect: true }).catch(() => {});
     } catch (e) {
       console.error("enable_voice error:", e);
     }
@@ -761,14 +737,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await invoke("disable_voice");
       set({ voiceState: "inactive", inCall: false, talkingSessions: new Set() });
+      updatePreferences({ voiceOnReconnect: false, voiceMutedOnReconnect: false }).catch(() => {});
     } catch (e) {
       console.error("disable_voice error:", e);
     }
   },
 
   toggleMute: async () => {
+    // Capture state BEFORE the await so pref write is deterministic and
+    // ordered relative to the user action, not the async Rust IPC delivery.
+    // "active" → will be muted; "muted" or "inactive" → will be active.
+    const willBeMuted = useAppStore.getState().voiceState === "active";
     try {
       await invoke("toggle_mute");
+      if (!isRestoringVoice) {
+        updatePreferences({ voiceOnReconnect: true, voiceMutedOnReconnect: willBeMuted }).catch(() => {});
+      }
     } catch (e) {
       console.error("toggle_mute error:", e);
     }
@@ -785,7 +769,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectUser: (session) => set({ selectedUser: session }),
 
   selectDmUser: async (session) => {
-    set({ selectedDmUser: session, selectedChannel: null, messages: [], selectedUser: session, selectedGroup: null, groupMessages: [] });
+    set({ selectedDmUser: session, selectedChannel: null, messages: [], selectedUser: session });
     try {
       await invoke("select_dm_user", { session });
       const dmMessages = await invoke<ChatMessage[]>("get_dm_messages", { session });
@@ -811,48 +795,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ dmMessages });
     } catch (e) {
       console.error("refresh dm messages error:", e);
-    }
-  },
-
-  // -- Group chat actions -----------------------------------------
-
-  createGroup: async (name, memberSessions) => {
-    try {
-      // The backend emits a "group-created" event that the listener below
-      // will pick up, so we do not append here to avoid duplicates.
-      await invoke<GroupChat>("create_group", { name, memberSessions });
-    } catch (e) {
-      console.error("create_group error:", e);
-    }
-  },
-
-  selectGroup: async (groupId) => {
-    set({ selectedGroup: groupId, selectedChannel: null, messages: [], selectedDmUser: null, dmMessages: [] });
-    try {
-      await invoke("select_group", { groupId });
-      const groupMessages = await invoke<ChatMessage[]>("get_group_messages", { groupId });
-      set({ groupMessages });
-    } catch (e) {
-      console.error("select_group error:", e);
-    }
-  },
-
-  sendGroupMessage: async (groupId, body) => {
-    try {
-      await invoke("send_group_message", { groupId, body });
-      const groupMessages = await invoke<ChatMessage[]>("get_group_messages", { groupId });
-      set({ groupMessages });
-    } catch (e) {
-      console.error("send_group_message error:", e);
-    }
-  },
-
-  refreshGroupMessages: async (groupId) => {
-    try {
-      const groupMessages = await invoke<ChatMessage[]>("get_group_messages", { groupId });
-      set({ groupMessages });
-    } catch (e) {
-      console.error("refresh group messages error:", e);
     }
   },
 
@@ -1369,6 +1311,28 @@ export async function initEventListeners(
 
           // Apply persisted per-user volumes to backend for all current users.
           applyStoredVolumesToNewUsers();
+
+          // Restore voice call state from before the disconnect.
+          // isRestoringVoice suppresses pref writes from the
+          // voice-state-changed listener during this sequence so that
+          // rapid "active" then "muted" events cannot race and
+          // clobber voiceMutedOnReconnect with false.
+          try {
+            const prefs = await getPreferences();
+            if (prefs.voiceOnReconnect) {
+              isRestoringVoice = true;
+              try {
+                await useAppStore.getState().enableVoice();
+                if (prefs.voiceMutedOnReconnect) {
+                  await useAppStore.getState().toggleMute();
+                }
+              } finally {
+                isRestoringVoice = false;
+              }
+            }
+          } catch {
+            // Voice restore is best-effort.
+          }
         });
     }),
   );
@@ -1478,37 +1442,6 @@ export async function initEventListeners(
       },
     ),
 
-    // -- Group chat events ------------------------------------------
-
-    // A new group chat was created (locally or by another member).
-    await listen<{ group: GroupChat }>("group-created", (event) => {
-      const group = event.payload.group;
-      useAppStore.setState((prev) => {
-        // Avoid duplicates.
-        if (prev.groupChats.some((g) => g.id === group.id)) return {};
-        return { groupChats: [...prev.groupChats, group] };
-      });
-    }),
-
-    // New group message arrived.
-    await listen<{ group_id: string }>("new-group-message", async (event) => {
-      const { selectedGroup } = useAppStore.getState();
-      if (selectedGroup === event.payload.group_id) {
-        await useAppStore
-          .getState()
-          .refreshGroupMessages(event.payload.group_id);
-      }
-    }),
-
-    // Group unread counts changed.
-    await listen<{ unreads: Record<string, number> }>(
-      "group-unread-changed",
-      (event) => {
-        useAppStore.setState({ groupUnreadCounts: event.payload.unreads });
-        updateBadgeCount();
-      },
-    ),
-
     // Server rejected the connection.
     await listen<{ reason: string; reject_type: number | null }>("connection-rejected", (event) => {
       const rt = event.payload.reject_type;
@@ -1554,6 +1487,11 @@ export async function initEventListeners(
     }),
 
     // Voice state changed (enable/disable voice calling).
+    // Pref writes are NOT done here: queued IPC messages can arrive in the
+    // wrong order (especially with a slow backend event loop) and corrupt
+    // voiceMutedOnReconnect. Prefs are written by the explicit action
+    // handlers (enableVoice, disableVoice, toggleMute) where ordering is
+    // deterministic relative to the user's intent.
     await listen<VoiceState>("voice-state-changed", (event) => {
       const updates: Partial<ReturnType<typeof useAppStore.getState>> = { voiceState: event.payload };
       if (event.payload === "inactive") {

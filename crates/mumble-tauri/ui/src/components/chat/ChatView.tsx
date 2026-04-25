@@ -22,6 +22,7 @@ import { BannerStack } from "../security/InfoBanner";
 import { textureToDataUrl } from "../../profileFormat";
 import ChatMessageList from "./ChatMessageList";
 import QuotePreviewStrip from "./QuotePreviewStrip";
+import MentionPopover from "./MentionPopover";
 import { useChatSend } from "./useChatSend";
 import { useChatScroll } from "./useChatScroll";
 import { useMessageSelection } from "./useMessageSelection";
@@ -55,14 +56,11 @@ interface ChatViewProps {
 
 /** Compute chat header label and member count based on the active mode. */
 function computeHeader(
-  isGroupMode: boolean,
-  activeGroup: { name: string; members: number[] } | undefined,
   isDmMode: boolean,
   dmPartner: { name: string } | undefined,
   channel: { name: string } | undefined,
   memberCount: number,
 ): [string, number] {
-  if (isGroupMode) return [activeGroup?.name ?? "Group Chat", activeGroup?.members.length ?? 0];
   if (isDmMode) return [dmPartner?.name ?? "Direct Message", 0];
   return [channel?.name ?? "Unknown", memberCount];
 }
@@ -90,15 +88,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
   const dmMessages = useAppStore((s) => s.dmMessages);
 
-  // Group chat state
-  const selectedGroup = useAppStore((s) => s.selectedGroup);
-  const groupMessages = useAppStore((s) => s.groupMessages);
-  const groupChats = useAppStore((s) => s.groupChats);
-
   const isDmMode = selectedDmUser !== null;
-  const isGroupMode = selectedGroup !== null;
   const dmPartner = isDmMode ? users.find((u) => u.session === selectedDmUser) : undefined;
-  const activeGroup = isGroupMode ? groupChats.find((g) => g.id === selectedGroup) : undefined;
 
   const [draft, setDraft] = useState("");
   const [pendingQuotes, setPendingQuotes] = useState<ChatMessage[]>([]);
@@ -145,11 +136,10 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
   /** Build the `MessageScope` for the current chat mode. */
   const currentScope = useCallback((): MessageScope | null => {
-    if (isGroupMode && selectedGroup) return { scope: "group", scopeId: selectedGroup };
     if (isDmMode && selectedDmUser !== null) return { scope: "dm", scopeId: String(selectedDmUser) };
     if (selectedChannel !== null) return { scope: "channel", scopeId: String(selectedChannel) };
     return null;
-  }, [isGroupMode, selectedGroup, isDmMode, selectedDmUser, selectedChannel]);
+  }, [isDmMode, selectedDmUser, selectedChannel]);
 
   const channel = channels.find((c) => c.id === selectedChannel);
   const memberCount = users.filter(
@@ -209,15 +199,12 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
   // Persistent chat hook (banners, key verification, custodian prompt).
   const persistent = usePersistentChat(
-    isDmMode || isGroupMode ? null : selectedChannel,
+    isDmMode ? null : selectedChannel,
     channel?.name ?? "Unknown",
   );
 
   /** Merge real messages with local-only poll messages for rendering. */
   const allMessages = useMemo(() => {
-    if (isGroupMode) {
-      return groupMessages;
-    }
     if (isDmMode) {
       return dmMessages;
     }
@@ -225,7 +212,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
       (m) => m.channel_id === selectedChannel,
     );
     return [...messages, ...channelPolls];
-  }, [isGroupMode, groupMessages, isDmMode, dmMessages, messages, pollMessages, selectedChannel]);
+  }, [isDmMode, dmMessages, messages, pollMessages, selectedChannel]);
 
   const hasNewPins = selectedChannel !== null
     && (unseenPinIds.get(selectedChannel)?.size ?? 0) > 0;
@@ -246,7 +233,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   // Auto-send read receipts and query on channel switch.
   const lastMessageId = allMessageIds[allMessageIds.length - 1];
   useReadReceipts(
-    isDmMode || isGroupMode ? null : selectedChannel,
+    isDmMode ? null : selectedChannel,
     lastMessageId,
   );
 
@@ -258,7 +245,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   const {
     messagesContainerRef, bottomSentinelRef, messagesInnerRef,
     newMsgCount, lastReadIdx, restoringKeys, handleScrollToBottom,
-  } = useChatScroll({ allMessages, selectedChannel, selectedDmUser, selectedGroup, currentScope });
+  } = useChatScroll({ allMessages, selectedChannel, selectedDmUser, currentScope });
 
   const lightboxRef = useRef<LightboxHandle>(null);
 
@@ -295,7 +282,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   useEffect(() => {
     setEditingMessage(null);
     setShowPinnedPanel(false);
-  }, [selectedChannel, selectedDmUser, selectedGroup]);
+  }, [selectedChannel, selectedDmUser]);
 
   const { sending, handleSend, sendMediaFile, handlePaste, handleGifSelect } = useChatSend({
     pendingQuotes,
@@ -321,7 +308,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     handleScrollToMessage, removePendingQuote,
     closeContextMenu, clearDeleteConfirm, clearToast,
   } = useMessageSelection({
-    selectedChannel, selectedDmUser, selectedGroup,
+    selectedChannel, selectedDmUser,
     channel, messagesContainerRef, setPendingQuotes,
   });
 
@@ -383,9 +370,9 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
   // Compute header values before any early returns (hooks can't be conditional).
   const [headerName, headerMemberCount] = computeHeader(
-    isGroupMode, activeGroup, isDmMode, dmPartner, channel, memberCount,
+    isDmMode, dmPartner, channel, memberCount,
   );
-  const showJoinButton = !isDmMode && !isGroupMode && !isInChannel;
+  const showJoinButton = !isDmMode && !isInChannel;
 
   // Build broadcastInfo for the header when a stream is active.
   const broadcastInfo = useMemo((): BroadcastInfo | undefined => {
@@ -406,8 +393,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     };
   }, [activeScreenShare, users, avatarBySession, screenShare.stopSharing, screenShare.stopWatching]);
 
-  // Empty state - no channel, DM, or group selected.
-  if (selectedChannel === null && !isDmMode && !isGroupMode) {
+  // Empty state - no channel or DM selected.
+  if (selectedChannel === null && !isDmMode) {
     return (
       <main className={styles.main}>
         <div className={styles.empty}>
@@ -430,9 +417,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         <ChatHeader
           channelName={headerName}
           memberCount={headerMemberCount}
-          isInChannel={isDmMode || isGroupMode || isInChannel}
+          isInChannel={isDmMode || isInChannel}
           isDm={isDmMode}
-          isGroup={isGroupMode}
           isPersisted={persistent.isPersisted}
           onJoin={showJoinButton ? () => joinChannel(selectedChannel!) : undefined}
           onChannelInfoToggle={onChannelInfoToggle}
@@ -614,7 +600,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
       <QuotePreviewStrip quotes={pendingQuotes} onRemove={removePendingQuote} />
 
       <div className={styles.composerWrapper}>
-        <TypingIndicator channelId={isDmMode || isGroupMode ? null : selectedChannel} />
+        <TypingIndicator channelId={isDmMode ? null : selectedChannel} />
 
         <ChatComposer
           draft={draft}
@@ -717,12 +703,12 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         allMessages={allMessages}
         selectedChannel={selectedChannel}
         selectedDmUser={selectedDmUser}
-        selectedGroup={selectedGroup}
         currentScope={currentScope}
         timeFormat={timeFormat}
         convertToLocalTime={convertToLocalTime}
         systemUses24h={systemUses24h}
       />
+      <MentionPopover />
     </main>
   );
 }

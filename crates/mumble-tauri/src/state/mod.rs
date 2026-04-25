@@ -38,7 +38,7 @@ pub mod types;
 // Re-export everything that lib.rs needs.
 pub use types::{
     AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus, DebugStats,
-    GroupChat, PhotoEntry, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
+    PhotoEntry, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
 };
 
 use std::collections::{HashMap, HashSet};
@@ -120,11 +120,11 @@ pub(super) struct PchatContext {
     pub pending_delete_ack: Option<tokio::sync::oneshot::Sender<DeleteAckResult>>,
 }
 
-/// Maximum number of in-memory messages retained per thread (channel, DM,
-/// or group).  Older messages remain available through the persistent local
-/// cache and can be loaded on demand via `fetch_older_messages`.  Capping
-/// the working set keeps long-running sessions from accumulating unbounded
-/// memory and prevents the UI from re-rendering ever-growing lists.
+/// Maximum number of in-memory messages retained per thread (channel or DM).
+/// Older messages remain available through the persistent local cache and
+/// can be loaded on demand via `fetch_older_messages`.  Capping the working
+/// set keeps long-running sessions from accumulating unbounded memory and
+/// prevents the UI from re-rendering ever-growing lists.
 pub(super) const MAX_MESSAGES_PER_THREAD: usize = 500;
 
 /// Append a message to a thread's `Vec<ChatMessage>` while enforcing the
@@ -137,18 +137,14 @@ pub(super) fn push_capped(messages: &mut Vec<ChatMessage>, msg: ChatMessage) {
     }
 }
 
-/// Message storage: channel, DM, and group messages with unread counts.
+/// Message storage: channel and DM messages with unread counts.
 #[derive(Default)]
 pub(super) struct MessageStore {
     pub by_channel: HashMap<u32, Vec<ChatMessage>>,
     pub by_dm: HashMap<u32, Vec<ChatMessage>>,
-    pub by_group: HashMap<String, Vec<ChatMessage>>,
     pub channel_unread: HashMap<u32, u32>,
     pub dm_unread: HashMap<u32, u32>,
-    pub group_unread: HashMap<String, u32>,
     pub selected_dm_user: Option<u32>,
-    pub selected_group: Option<String>,
-    pub group_chats: HashMap<String, GroupChat>,
 }
 
 /// Connection lifecycle state.
@@ -245,7 +241,6 @@ mod tests {
             channel_id: 0,
             is_own: false,
             dm_session: None,
-            group_id: None,
             message_id: Some(format!("id-{idx}")),
             timestamp: Some(idx as u64),
             is_legacy: false,

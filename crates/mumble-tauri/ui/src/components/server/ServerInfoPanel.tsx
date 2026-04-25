@@ -389,7 +389,6 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
                       <DebugRow label="App Uptime" value={formatDuration(debugStats.uptime_seconds)} />
                       <DebugRow label="Users" value={debugStats.user_count} />
                       <DebugRow label="Channels" value={debugStats.channel_count} />
-                      <DebugRow label="Groups" value={debugStats.group_count} />
                     </div>
                   </Accordion>
 
@@ -397,7 +396,6 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
                     <div className={styles.debugGrid}>
                       <DebugRow label="Channel Messages" value={debugStats.channel_message_count} />
                       <DebugRow label="DM Messages" value={debugStats.dm_message_count} />
-                      <DebugRow label="Group Messages" value={debugStats.group_message_count} />
                       <DebugRow label="Total Messages" value={debugStats.total_message_count} />
                       <DebugRow label="Offloaded" value={debugStats.offloaded_count} />
                     </div>

@@ -24,8 +24,6 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
   const selectedChannel = useAppStore((s) => s.selectedChannel);
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
   const sendDm = useAppStore((s) => s.sendDm);
-  const selectedGroup = useAppStore((s) => s.selectedGroup);
-  const sendGroupMessage = useAppStore((s) => s.sendGroupMessage);
   const users = useAppStore((s) => s.users);
   const channels = useAppStore((s) => s.channels);
   const rootId = (() => rootChannelId(channels))();
@@ -67,7 +65,6 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
   );
 
   const isDmMode = selectedDmUser !== null;
-  const isGroupMode = selectedGroup !== null;
 
   const [sending, setSending] = useState(false);
 
@@ -96,11 +93,7 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
     const html = quoteMarkers + htmlBody;
     if (!html) return;
 
-    if (isGroupMode && selectedGroup !== null) {
-      clearDraft();
-      clearQuotes();
-      await sendGroupMessage(selectedGroup, html);
-    } else if (isDmMode && selectedDmUser !== null) {
+    if (isDmMode && selectedDmUser !== null) {
       clearDraft();
       clearQuotes();
       await sendDm(selectedDmUser, html);
@@ -109,11 +102,11 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
       clearQuotes();
       await sendMessage(selectedChannel, html);
     }
-  }, [draft, pendingQuotes, editingMessage, editMessage, onEditComplete, isGroupMode, selectedGroup, sendGroupMessage, isDmMode, selectedDmUser, sendDm, selectedChannel, sendMessage, clearDraft, clearQuotes, renderBody]);
+  }, [draft, pendingQuotes, editingMessage, editMessage, onEditComplete, isDmMode, selectedDmUser, sendDm, selectedChannel, sendMessage, clearDraft, clearQuotes, renderBody]);
 
   const sendMediaFile = useCallback(
     async (file: File) => {
-      if (!isGroupMode && !isDmMode && selectedChannel === null) return;
+      if (!isDmMode && selectedChannel === null) return;
 
       const kind = mediaKind(file.type);
       if (!kind) {
@@ -148,9 +141,7 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
         }
 
         const html = mediaToHtml(dataUrl, sendKind, file.name || "clipboard.png");
-        if (isGroupMode && selectedGroup !== null) {
-          await sendGroupMessage(selectedGroup, html);
-        } else if (isDmMode && selectedDmUser !== null) {
+        if (isDmMode && selectedDmUser !== null) {
           await sendDm(selectedDmUser, html);
         } else if (selectedChannel !== null) {
           await sendMessage(selectedChannel, html);
@@ -162,7 +153,7 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
         setSending(false);
       }
     },
-    [isGroupMode, selectedGroup, sendGroupMessage, isDmMode, selectedDmUser, selectedChannel, serverConfig, sendMessage, sendDm],
+    [isDmMode, selectedDmUser, selectedChannel, serverConfig, sendMessage, sendDm],
   );
 
   // Shared image extraction logic used by both the React onPaste handler
@@ -269,15 +260,13 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
   const handleGifSelect = useCallback(
     async (url: string, alt: string) => {
       const html = `<img src="${url}" alt="${alt}" />`;
-      if (isGroupMode && selectedGroup !== null) {
-        await sendGroupMessage(selectedGroup, html);
-      } else if (isDmMode && selectedDmUser !== null) {
+      if (isDmMode && selectedDmUser !== null) {
         await sendDm(selectedDmUser, html);
       } else if (selectedChannel !== null) {
         await sendMessage(selectedChannel, html);
       }
     },
-    [isGroupMode, selectedGroup, sendGroupMessage, isDmMode, selectedDmUser, selectedChannel, sendMessage, sendDm],
+    [isDmMode, selectedDmUser, selectedChannel, sendMessage, sendDm],
   );
 
   return { sending, handleSend, sendMediaFile, handlePaste, handleGifSelect };

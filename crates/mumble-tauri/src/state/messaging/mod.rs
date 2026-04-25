@@ -1,7 +1,6 @@
 //! Messaging: channel messages, encryption, and message storage.
 
 mod dm;
-mod groups;
 mod unreads;
 
 use mumble_protocol::client::ClientHandle;
@@ -175,7 +174,6 @@ impl AppState {
             channel_id: msg_data.channel_id,
             is_own: true,
             dm_session: None,
-            group_id: None,
             message_id: msg_data.message_id,
             timestamp: msg_data.timestamp,
             is_legacy: false,

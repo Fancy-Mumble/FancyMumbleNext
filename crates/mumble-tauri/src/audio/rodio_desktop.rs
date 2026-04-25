@@ -521,7 +521,9 @@ impl super::MixingPlayback for RodioMixingPlayback {
 
     fn stop(&mut self) -> Result<()> {
         self.running.store(false, Ordering::Relaxed);
-        self._device_sink = None;
+        if let Some(mut sink) = self._device_sink.take() {
+            sink.log_on_drop(false);
+        }
         if let Ok(mut bufs) = self.buffers.lock() {
             bufs.values_mut().for_each(VecDeque::clear);
         }

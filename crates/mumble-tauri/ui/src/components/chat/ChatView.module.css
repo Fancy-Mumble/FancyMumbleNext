@@ -1190,3 +1190,111 @@
   background: color-mix(in srgb, var(--color-accent) 14%, var(--color-bg-elevated)) !important;
   border-left: 3px solid var(--color-accent);
 }
+
+/* --- Mention click popover ---------------------------------------- */
+
+.mentionPopover {
+  position: fixed;
+  z-index: 10000;
+  background: var(--color-bg-elevated, #1f1f24);
+  border: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  max-height: min(60vh, 480px);
+  display: flex;
+  flex-direction: column;
+}
+
+.mentionMemberList {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.mentionMemberHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 6px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.mentionMemberTitle {
+  color: var(--color-accent);
+}
+
+.mentionMemberCount {
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.6));
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.mentionMemberSubtitle {
+  padding: 0 14px 6px;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mentionMemberScroll {
+  overflow-y: auto;
+  padding: 4px 6px 8px;
+}
+
+.mentionMemberRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.mentionMemberRow:hover {
+  background: var(--color-glass-hover, rgba(255, 255, 255, 0.04));
+}
+
+.mentionMemberAvatar,
+.mentionMemberAvatarImg {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mentionMemberAvatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.mentionMemberAvatarImg {
+  object-fit: cover;
+}
+
+.mentionMemberName {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.mentionMemberOverflow {
+  padding: 6px 8px 2px;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
+  font-size: 12px;
+  font-style: italic;
+}
+
+.mentionMemberEmpty {
+  padding: 16px;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
+  font-size: 13px;
+  text-align: center;
+}

@@ -61,8 +61,6 @@ export interface ChatMessage {
   is_own: boolean;
   /** When set, this message is a DM. Value is the other user's session ID. */
   dm_session?: number | null;
-  /** When set, this message belongs to a group chat. Value is the group UUID. */
-  group_id?: string | null;
   /** Unique message identifier (Fancy Mumble extension). Absent on legacy servers. */
   message_id?: string | null;
   /** Unix epoch milliseconds (Fancy Mumble extension). Absent on legacy servers. */
@@ -77,18 +75,6 @@ export interface ChatMessage {
   pinned_by?: string | null;
   /** Unix epoch millis when the message was pinned. */
   pinned_at?: number | null;
-}
-
-/** A multi-member group chat, identified by a UUID. */
-export interface GroupChat {
-  /** Unique group identifier (UUID v4). */
-  id: string;
-  /** Human-readable group name chosen by the creator. */
-  name: string;
-  /** Session IDs of all members (including the creator). */
-  members: number[];
-  /** Session ID of the user who created the group. */
-  creator: number;
 }
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
@@ -229,6 +215,13 @@ export interface UserPreferences {
   disableLinkPreviews?: boolean;
   /** When true, automatically retry connecting after an unexpected disconnect. */
   autoReconnect?: boolean;
+  /** Last active sidebar tab — restored after reconnect. */
+  sidebarActiveTab?: "channels" | "members";
+  /** Whether voice (mic on/can-hear) was enabled when last disconnected.
+   *  On reconnect the call is re-enabled automatically when true. */
+  voiceOnReconnect?: boolean;
+  /** Whether the mic was muted (but still in-call) when last disconnected. */
+  voiceMutedOnReconnect?: boolean;
 }
 
 /** Identifiers for events that can trigger a notification sound. */
@@ -260,20 +253,16 @@ export interface NotificationSoundSettings {
 /** Persisted open/closed state for each sidebar section. */
 export interface SidebarSections {
   channels: boolean;
-  groups: boolean;
-  online: boolean;
 }
 
 /** Debug statistics returned by the backend for the developer info panel. */
 export interface DebugStats {
   channel_message_count: number;
   dm_message_count: number;
-  group_message_count: number;
   total_message_count: number;
   offloaded_count: number;
   channel_count: number;
   user_count: number;
-  group_count: number;
   connection_epoch: number;
   voice_state: string;
   uptime_seconds: number;
@@ -420,7 +409,7 @@ export interface UserStats {
 
 // --- Super Search -------------------------------------------------
 
-export type SearchCategory = "channel" | "user" | "group" | "message";
+export type SearchCategory = "channel" | "user" | "message";
 
 export interface SearchResult {
   category: SearchCategory;
@@ -435,7 +424,6 @@ export interface PhotoEntry {
   src: string;
   sender_name: string;
   channel_id?: number | null;
-  group_id?: string | null;
   dm_session?: number | null;
   context: string;
   timestamp?: number | null;
@@ -600,6 +588,20 @@ export interface RegisteredUser {
   name: string;
   last_seen?: string | null;
   last_channel?: number | null;
+  /** Avatar image bytes from the server's UserList response, if the user has one set. */
+  texture?: number[] | null;
+  /** Short comment (len < 128) included inline by the server. */
+  comment?: string | null;
+  /** SHA-1 hash bytes present when the comment is >= 128 chars.
+   * Indicates a comment exists that must be fetched via `request_user_comment`. */
+  comment_hash?: number[] | null;
+}
+
+/** Payload of the `user-comment` Tauri event, emitted when the server
+ * responds to a `request_user_comment` blob request. */
+export interface UserCommentPayload {
+  user_id: number;
+  comment: string;
 }
 
 /** Payload for renaming (name set) or deleting (name null) a registered user. */

@@ -54,12 +54,6 @@ export function useNotificationSounds(
     );
 
     unlisteners.push(
-      listen("new-group-message", () => {
-        playSoundForEvent(settingsRef.current, "directMessage");
-      }),
-    );
-
-    unlisteners.push(
       listen("webrtc-signal", (event) => {
         const { signal_type } = event.payload as { signal_type: number };
         // signal_type 0 = START

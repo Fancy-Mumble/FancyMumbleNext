@@ -8,38 +8,16 @@ use crate::state::SharedState;
 
 // -- Message classification ----------------------------------------
 
-/// Parsed group marker extracted from `<!-- FANCY_GROUP:uuid -->body`.
-struct GroupMarker {
-    group_id: String,
-    body: String,
-}
-
 /// Classification of an incoming `TextMessage`.
 enum MessageKind {
-    Group(GroupMarker),
     DirectMessage,
     Channel,
-}
-
-fn parse_group_marker(message: &str) -> Option<GroupMarker> {
-    const PREFIX: &str = "<!-- FANCY_GROUP:";
-    const SUFFIX: &str = " -->";
-
-    let rest = message.strip_prefix(PREFIX)?;
-    let end = rest.find(SUFFIX)?;
-    let group_id = rest[..end].to_string();
-    let body_start = PREFIX.len() + end + SUFFIX.len();
-    let body = message[body_start..].to_string();
-    Some(GroupMarker { group_id, body })
 }
 
 fn classify(tm: &mumble_tcp::TextMessage) -> MessageKind {
     let is_dm = !tm.session.is_empty() && tm.channel_id.is_empty();
     if is_dm {
-        match parse_group_marker(&tm.message) {
-            Some(marker) => MessageKind::Group(marker),
-            None => MessageKind::DirectMessage,
-        }
+        MessageKind::DirectMessage
     } else {
         MessageKind::Channel
     }
@@ -48,13 +26,6 @@ fn classify(tm: &mumble_tcp::TextMessage) -> MessageKind {
 // -- Deferred events emitted after releasing the lock --------------
 
 enum DeferredEvent {
-    GroupMessage {
-        group_id: String,
-        sender_name: String,
-        body: String,
-        sender_session: Option<u32>,
-    },
-    GroupUnreads,
     DirectMessage {
         sender_session: u32,
         sender_name: String,
@@ -95,13 +66,6 @@ impl<'a> DeferredEmitter<'a> {
     fn flush(self) {
         for event in &self.events {
             match event {
-                DeferredEvent::GroupMessage {
-                    group_id,
-                    sender_name,
-                    body,
-                    sender_session,
-                } => self.emit_group_message(group_id, sender_name, body, *sender_session),
-                DeferredEvent::GroupUnreads => self.emit_group_unreads(),
                 DeferredEvent::DirectMessage {
                     sender_session,
                     sender_name,
@@ -125,36 +89,6 @@ impl<'a> DeferredEmitter<'a> {
                 DeferredEvent::ChannelUnreads => self.emit_channel_unreads(),
             }
         }
-    }
-
-    fn emit_group_message(
-        &self,
-        group_id: &str,
-        sender_name: &str,
-        body: &str,
-        sender_session: Option<u32>,
-    ) {
-        self.ctx.emit(
-            "new-group-message",
-            NewGroupMessagePayload {
-                group_id: group_id.to_owned(),
-            },
-        );
-        self.ctx.request_user_attention();
-        let icon = self.lookup_texture(sender_session);
-        self.ctx
-            .send_notification_with_icon(sender_name, &strip_html_tags(body), icon.as_deref(), None);
-    }
-
-    fn emit_group_unreads(&self) {
-        let unreads = self
-            .ctx
-            .shared
-            .lock()
-            .map(|s| s.msgs.group_unread.clone())
-            .unwrap_or_default();
-        self.ctx
-            .emit("group-unread-changed", GroupUnreadPayload { unreads });
     }
 
     fn emit_direct_message(&self, sender_session: u32, sender_name: &str, body: &str) {
@@ -248,19 +182,11 @@ fn apply_edit(messages: &mut [ChatMessage], edit_id: &str, new_body: &str, edite
 fn emit_edit_events(
     kind: &MessageKind,
     tm: &mumble_tcp::TextMessage,
-    state: &SharedState,
+    _state: &SharedState,
     ctx: &HandlerContext,
     deferred: &mut DeferredEmitter<'_>,
 ) {
     match kind {
-        MessageKind::Group(marker) => {
-            deferred.push(DeferredEvent::GroupMessage {
-                group_id: marker.group_id.clone(),
-                sender_name: resolve_sender_name(state, tm.actor),
-                body: marker.body.clone(),
-                sender_session: tm.actor,
-            });
-        }
         MessageKind::DirectMessage => {
             if let Some(sid) = tm.actor {
                 ctx.emit("dm-edited", NewDmPayload { session: sid });
@@ -288,10 +214,6 @@ fn try_apply_edit(
             .as_millis() as u64
     });
     match kind {
-        MessageKind::Group(marker) => {
-            state.msgs.by_group.get_mut(&marker.group_id)
-                .is_some_and(|msgs| apply_edit(msgs, edit_id, &marker.body, edited_at))
-        }
         MessageKind::DirectMessage => {
             tm.actor
                 .and_then(|sid| state.msgs.by_dm.get_mut(&sid))
@@ -322,57 +244,6 @@ fn resolve_sender_hash(state: &SharedState, actor: Option<u32>) -> Option<String
         .and_then(|u| u.hash.clone())
 }
 
-fn handle_group_message(
-    marker: &GroupMarker,
-    tm: &mumble_tcp::TextMessage,
-    state: &mut SharedState,
-    deferred: &mut DeferredEmitter,
-) {
-    if !state.msgs.group_chats.contains_key(&marker.group_id) {
-        return;
-    }
-
-    let sender_name = resolve_sender_name(state, tm.actor);
-    let mut msg = ChatMessage {
-        sender_session: tm.actor,
-        sender_name,
-        sender_hash: resolve_sender_hash(state, tm.actor),
-        body: marker.body.clone(),
-        channel_id: 0,
-        is_own: false,
-        dm_session: None,
-        group_id: Some(marker.group_id.clone()),
-        message_id: tm.message_id.clone(),
-        timestamp: tm.timestamp,
-        is_legacy: false,
-        edited_at: None,
-        pinned: false,
-        pinned_by: None,
-        pinned_at: None,
-    };
-    msg.ensure_id();
-    state
-        .msgs.by_group
-        .entry(marker.group_id.clone())
-        .or_default()
-        .push(msg);
-
-    if state.msgs.selected_group.as_deref() != Some(&marker.group_id) {
-        *state
-            .msgs.group_unread
-            .entry(marker.group_id.clone())
-            .or_insert(0) += 1;
-        deferred.push(DeferredEvent::GroupUnreads);
-    }
-
-    deferred.push(DeferredEvent::GroupMessage {
-        group_id: marker.group_id.clone(),
-        sender_name: resolve_sender_name(state, tm.actor),
-        body: marker.body.clone(),
-        sender_session: tm.actor,
-    });
-}
-
 fn handle_direct_message(
     tm: &mumble_tcp::TextMessage,
     state: &mut SharedState,
@@ -391,7 +262,6 @@ fn handle_direct_message(
         channel_id: 0,
         is_own: false,
         dm_session: Some(sender_session),
-        group_id: None,
         message_id: tm.message_id.clone(),
         timestamp: tm.timestamp,
         is_legacy: false,
@@ -469,7 +339,6 @@ fn handle_channel_message(
             channel_id: ch_id,
             is_own: false,
             dm_session: None,
-            group_id: None,
             message_id: tm.message_id.clone(),
             timestamp: tm.timestamp,
             is_legacy,
@@ -539,9 +408,6 @@ impl HandleMessage for mumble_tcp::TextMessage {
             }
 
             match &kind {
-                MessageKind::Group(marker) => {
-                    handle_group_message(marker, self, &mut state, &mut deferred);
-                }
                 MessageKind::DirectMessage => {
                     handle_direct_message(self, &mut state, &mut deferred);
                 }
@@ -572,7 +438,6 @@ mod tests {
             sender_hash: None,
             edited_at: None,
             dm_session: None,
-            group_id: None,
             pinned: false,
             pinned_by: None,
             pinned_at: None,

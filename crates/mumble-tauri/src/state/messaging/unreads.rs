@@ -1,10 +1,10 @@
-//! Unread message tracking: per-channel, per-DM, and per-group counts.
+//! Unread message tracking: per-channel and per-DM counts.
 
 use std::collections::HashMap;
 
 use tauri::Emitter;
 
-use crate::state::types::{DmUnreadPayload, GroupUnreadPayload, UnreadPayload};
+use crate::state::types::{DmUnreadPayload, UnreadPayload};
 use crate::state::AppState;
 
 impl AppState {
@@ -47,27 +47,6 @@ impl AppState {
         if let Some(handle) = self.app_handle() {
             let unreads = self.dm_unread_counts();
             let _ = handle.emit("dm-unread-changed", DmUnreadPayload { unreads });
-        }
-    }
-
-    pub fn group_unread_counts(&self) -> HashMap<String, u32> {
-        self.inner
-            .lock()
-            .map(|s| s.msgs.group_unread.clone())
-            .unwrap_or_default()
-    }
-
-    pub fn mark_group_read(&self, group_id: &str) {
-        if let Ok(mut state) = self.inner.lock() {
-            let _ = state.msgs.group_unread.remove(group_id);
-        }
-        self.emit_group_unreads();
-    }
-
-    pub(in crate::state) fn emit_group_unreads(&self) {
-        if let Some(handle) = self.app_handle() {
-            let unreads = self.group_unread_counts();
-            let _ = handle.emit("group-unread-changed", GroupUnreadPayload { unreads });
         }
     }
 }

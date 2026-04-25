@@ -661,6 +661,17 @@ pub mod user_list {
         pub last_seen: ::core::option::Option<::prost::alloc::string::String>,
         #[prost(uint32, optional, tag = "4")]
         pub last_channel: ::core::option::Option<u32>,
+        /// Registered user avatar (PNG/JPEG bytes).
+        #[prost(bytes = "vec", optional, tag = "5")]
+        pub texture: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+        /// SHA-1 hash of the comment when len >= 128; empty otherwise.
+        /// If set without comment, the client must request the full text
+        /// via RequestBlob.user_id_comment.
+        #[prost(bytes = "vec", optional, tag = "6")]
+        pub comment_hash: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+        /// Full comment text when len < 128, or in blob responses.
+        #[prost(string, optional, tag = "7")]
+        pub comment: ::core::option::Option<::prost::alloc::string::String>,
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -780,6 +791,9 @@ pub struct RequestBlob {
     pub session_comment: ::prost::alloc::vec::Vec<u32>,
     #[prost(uint32, repeated, packed = "false", tag = "3")]
     pub channel_description: ::prost::alloc::vec::Vec<u32>,
+    /// Registered user_ids whose comment should be fetched (offline support).
+    #[prost(uint32, repeated, packed = "false", tag = "4")]
+    pub user_id_comment: ::prost::alloc::vec::Vec<u32>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ServerConfig {

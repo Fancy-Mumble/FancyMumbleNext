@@ -5,7 +5,6 @@ import HashIcon from "../../assets/icons/general/hash.svg?react";
 import ImageIcon from "../../assets/icons/general/image.svg?react";
 import SearchIcon from "../../assets/icons/action/search.svg?react";
 import UserIcon from "../../assets/icons/user/user.svg?react";
-import UsersGroupIcon from "../../assets/icons/user/users-group.svg?react";
 import MessageIcon from "../../assets/icons/communication/message.svg?react";
 import styles from "./SidebarSearchView.module.css";
 
@@ -19,11 +18,10 @@ const FILTERS: { key: SearchFilter; label: string }[] = [
   { key: "links", label: "Links" },
 ];
 
-const CATEGORY_ORDER: SearchCategory[] = ["channel", "user", "group", "message"];
+const CATEGORY_ORDER: SearchCategory[] = ["channel", "user", "message"];
 const CATEGORY_LABELS: Record<SearchCategory, string> = {
   channel: "Channels",
   user: "Users",
-  group: "Group Chats",
   message: "Messages",
 };
 
@@ -44,7 +42,6 @@ interface SidebarSearchViewProps {
   readonly channelName?: string;
   readonly onSelectChannel: (id: number) => void;
   readonly onSelectUser: (session: number) => void;
-  readonly onSelectGroup: (id: string) => void;
 }
 
 export function SidebarSearchView({
@@ -53,7 +50,6 @@ export function SidebarSearchView({
   channelName,
   onSelectChannel,
   onSelectUser,
-  onSelectGroup,
 }: SidebarSearchViewProps) {
   const [filter, setFilter] = useState<SearchFilter>("all");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -177,13 +173,11 @@ export function SidebarSearchView({
 
   const selectPhoto = useCallback(
     (p: PhotoEntry) => {
-      if (p.group_id) {
-        onSelectGroup(p.group_id);
-      } else if (p.channel_id != null) {
+      if (p.channel_id != null) {
         onSelectChannel(p.channel_id);
       }
     },
-    [onSelectChannel, onSelectGroup],
+    [onSelectChannel],
   );
 
   // Group results by category.
@@ -208,19 +202,12 @@ export function SidebarSearchView({
         case "user":
           if (r.id != null) onSelectUser(r.id);
           break;
-        case "group":
-          if (r.string_id) onSelectGroup(r.string_id);
-          break;
         case "message":
-          if (r.string_id && !r.id) {
-            onSelectGroup(r.string_id);
-          } else if (r.id != null) {
-            onSelectChannel(r.id);
-          }
+          if (r.id != null) onSelectChannel(r.id);
           break;
       }
     },
-    [onSelectChannel, onSelectUser, onSelectGroup],
+    [onSelectChannel, onSelectUser],
   );
 
   return (
@@ -343,12 +330,6 @@ function ResultIcon({ category }: { readonly category: SearchCategory }) {
       return (
         <div className={`${styles.resultIcon} ${styles.resultIconUser}`}>
           <UserIcon width={14} height={14} />
-        </div>
-      );
-    case "group":
-      return (
-        <div className={`${styles.resultIcon} ${styles.resultIconGroup}`}>
-          <UsersGroupIcon width={14} height={14} />
         </div>
       );
     case "message":

@@ -11,9 +11,9 @@
  * - Right-clicking a member opens the user context menu.
  */
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useContext } from "react";
 import type { ChannelEntry, UserEntry } from "../../../types";
-import { colorFor, avatarUrl, useHoverCardPosition, UserHoverCardPortal } from "../UserListItem";
+import { colorFor, avatarUrl, useHoverCardPosition, UserHoverCardPortal, RoleColorsContext } from "../UserListItem";
 import { parseComment } from "../../../profileFormat";
 import { useUserStats } from "../../../hooks/useUserStats";
 import { useStreamThumbnail } from "../../chat/useStreamPreview";
@@ -56,6 +56,8 @@ interface MemberItemProps {
 }
 
 function MemberItem({ user, isTalking, isBroadcasting, onContextMenu, onClick }: MemberItemProps) {
+  const roleColors = useContext(RoleColorsContext);
+  const roleColor = user.user_id != null ? (roleColors.get(user.user_id) ?? null) : null;
   const url = useMemo(() => avatarUrl(user), [user.texture]);
   const parsed = useMemo(
     () => (user.comment ? parseComment(user.comment) : null),
@@ -95,7 +97,10 @@ function MemberItem({ user, isTalking, isBroadcasting, onContextMenu, onClick }:
             user.name.charAt(0).toUpperCase()
           )}
         </div>
-        <span className={styles.memberName}>{user.name}</span>
+        <span
+          className={styles.memberName}
+          style={roleColor ? { color: roleColor } : undefined}
+        >{user.name}</span>
         {user.self_mute && (
           <MicOffSmallIcon className={styles.statusIcon} width={12} height={12} />
         )}

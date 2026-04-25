@@ -1,6 +1,4 @@
 ﻿import { useState, useRef, useCallback, useMemo, useEffect, type ClipboardEvent } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import MarkdownInput, { type MarkdownInputApi } from "./MarkdownInput";
 import GifPicker from "./GifPicker";
 import MentionAutocomplete, { type MentionCandidate, handleMentionKey } from "./MentionAutocomplete";
@@ -14,8 +12,7 @@ import { isMobile } from "../../utils/platform";
 import { useAppStore } from "../../store";
 import { formatUserMention, parseMentionTrigger, type MentionTrigger } from "../../utils/mentions";
 import { textureToDataUrl } from "../../profileFormat";
-import { rootChannelId } from "../../pages/admin/rootChannel";
-import type { AclData, AclGroup } from "../../types";
+import { useAclGroups } from "../../hooks/useAclGroups";
 
 interface ChatComposerProps {
   readonly draft: string;
@@ -45,33 +42,6 @@ function candidateInsertText(c: MentionCandidate): string {
   }
 }
 
-/**
- * Subscribe to the root-channel ACL so the chat composer can suggest
- * role mentions (e.g. `@admin`). Uses a small local cache and re-fetches
- * lazily on mount.
- */
-function useRoleCandidates(): readonly AclGroup[] {
-  const channels = useAppStore((s) => s.channels);
-  const rootId = useMemo(() => rootChannelId(channels), [channels]);
-  const [groups, setGroups] = useState<readonly AclGroup[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const unlisten = listen<AclData>("acl", (event) => {
-      if (!cancelled && event.payload.channel_id === rootId) {
-        setGroups(event.payload.groups);
-      }
-    });
-    invoke("request_acl", { channelId: rootId }).catch(() => {});
-    return () => {
-      cancelled = true;
-      unlisten.then((f) => f());
-    };
-  }, [rootId]);
-
-  return groups;
-}
-
 export default function ChatComposer({
   draft,
   onChange,
@@ -94,19 +64,26 @@ export default function ChatComposer({
   const users = useAppStore((s) => s.users);
   const selectedChannel = useAppStore((s) => s.selectedChannel);
   const ownSession = useAppStore((s) => s.ownSession);
-  const roleGroups = useRoleCandidates();
+  const roleGroups = useAclGroups();
 
   const candidates = useMemo<MentionCandidate[]>(() => {
     if (!trigger) return [];
     const q = trigger.query.toLowerCase();
 
     if (trigger.kind === "user") {
-      const inChannel = users.filter((u) => {
-        if (selectedChannel != null && u.channel_id !== selectedChannel) return false;
+      const allOthers = users.filter((u) => {
         if (u.session === ownSession) return false;
         return u.name.toLowerCase().includes(q);
       });
-      const userCandidates: MentionCandidate[] = inChannel
+      // Show users in the current channel first, then everyone else.
+      const inChannel = allOthers.filter(
+        (u) => selectedChannel != null && u.channel_id === selectedChannel,
+      );
+      const elsewhere = allOthers.filter(
+        (u) => selectedChannel == null || u.channel_id !== selectedChannel,
+      );
+      const ranked = [...inChannel, ...elsewhere];
+      const userCandidates: MentionCandidate[] = ranked
         .slice(0, MAX_CANDIDATES)
         .map((u) => ({
           kind: "user",

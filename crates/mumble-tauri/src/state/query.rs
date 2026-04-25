@@ -126,7 +126,6 @@ impl AppState {
             .map(|s| {
                 let channel_msgs: usize = s.msgs.by_channel.values().map(Vec::len).sum();
                 let dm_msgs: usize = s.msgs.by_dm.values().map(Vec::len).sum();
-                let group_msgs: usize = s.msgs.by_group.values().map(Vec::len).sum();
                 let offloaded = s
                     .offload_store
                     .as_ref()
@@ -135,12 +134,10 @@ impl AppState {
                 DebugStats {
                     channel_message_count: channel_msgs,
                     dm_message_count: dm_msgs,
-                    group_message_count: group_msgs,
-                    total_message_count: channel_msgs + dm_msgs + group_msgs,
+                    total_message_count: channel_msgs + dm_msgs,
                     offloaded_count: offloaded,
                     channel_count: s.channels.len(),
                     user_count: s.users.len(),
-                    group_count: s.msgs.group_chats.len(),
                     connection_epoch: s.conn.epoch,
                     voice_state: format!("{:?}", s.audio.voice_state),
                     uptime_seconds: self.start_time.elapsed().as_secs(),
@@ -149,12 +146,10 @@ impl AppState {
             .unwrap_or(DebugStats {
                 channel_message_count: 0,
                 dm_message_count: 0,
-                group_message_count: 0,
                 total_message_count: 0,
                 offloaded_count: 0,
                 channel_count: 0,
                 user_count: 0,
-                group_count: 0,
                 connection_epoch: 0,
                 voice_state: "Unknown".into(),
                 uptime_seconds: self.start_time.elapsed().as_secs(),

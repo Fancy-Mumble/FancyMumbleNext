@@ -851,7 +851,6 @@ fn text_message_channel_message() {
     assert_eq!(msgs[0].channel_id, 5);
     assert!(!msgs[0].is_own);
     assert!(msgs[0].dm_session.is_none());
-    assert!(msgs[0].group_id.is_none());
     drop(state);
 
     let names = emitter.event_names();
@@ -1111,134 +1110,7 @@ fn text_message_dm_always_requests_attention() {
 }
 
 // -- TextMessage (group) -------------------------------------------
-
-#[test]
-fn text_message_group() {
-    let (ctx, emitter) = make_ctx();
-    {
-        let mut state = ctx.shared.lock().unwrap();
-        state.conn.own_session = Some(1);
-        let _ = state.users.insert(10, make_user(10, "Charlie"));
-        let _ = state.msgs.group_chats.insert(
-            "g1".into(),
-            GroupChat {
-                id: "g1".into(),
-                name: "Test Group".into(),
-                members: vec![1, 10],
-                creator: 10,
-            },
-        );
-    }
-
-    let tm = mumble_tcp::TextMessage {
-        actor: Some(10),
-        session: vec![1], // targets sessions
-        message: "<!-- FANCY_GROUP:g1 -->Group hello!".into(),
-        ..Default::default()
-    };
-    tm.handle(&ctx);
-
-    let state = ctx.shared.lock().unwrap();
-    let msgs = state.msgs.by_group.get("g1").unwrap();
-    assert_eq!(msgs.len(), 1);
-    assert_eq!(msgs[0].body, "Group hello!");
-    assert_eq!(msgs[0].group_id, Some("g1".to_string()));
-    assert_eq!(msgs[0].sender_name, "Charlie");
-    drop(state);
-
-    let names = emitter.event_names();
-    assert!(names.contains(&"new-group-message".to_string()));
-    assert!(names.contains(&"group-unread-changed".to_string()));
-}
-
-#[test]
-fn text_message_group_no_unread_when_viewing() {
-    let (ctx, _) = make_ctx();
-    {
-        let mut state = ctx.shared.lock().unwrap();
-        state.conn.own_session = Some(1);
-        state.msgs.selected_group = Some("g1".into());
-        let _ = state.users.insert(10, make_user(10, "Charlie"));
-        let _ = state.msgs.group_chats.insert(
-            "g1".into(),
-            GroupChat {
-                id: "g1".into(),
-                name: "Test Group".into(),
-                members: vec![1, 10],
-                creator: 10,
-            },
-        );
-    }
-
-    let tm = mumble_tcp::TextMessage {
-        actor: Some(10),
-        session: vec![1],
-        message: "<!-- FANCY_GROUP:g1 -->Hello!".into(),
-        ..Default::default()
-    };
-    tm.handle(&ctx);
-
-    let state = ctx.shared.lock().unwrap();
-    assert_eq!(
-        state
-            .msgs.group_unread
-            .get("g1")
-            .copied()
-            .unwrap_or(0),
-        0
-    );
-}
-
-#[test]
-fn text_message_group_unknown_group_ignored() {
-    let (ctx, _) = make_ctx();
-    {
-        let mut state = ctx.shared.lock().unwrap();
-        state.conn.own_session = Some(1);
-        let _ = state.users.insert(10, make_user(10, "Charlie"));
-        // no group_chats entry for "unknown"
-    }
-
-    let tm = mumble_tcp::TextMessage {
-        actor: Some(10),
-        session: vec![1],
-        message: "<!-- FANCY_GROUP:unknown -->Body".into(),
-        ..Default::default()
-    };
-    tm.handle(&ctx);
-
-    let state = ctx.shared.lock().unwrap();
-    assert!(state.msgs.by_group.is_empty());
-}
-
-#[test]
-fn text_message_group_requests_attention() {
-    let (ctx, emitter) = make_ctx();
-    {
-        let mut state = ctx.shared.lock().unwrap();
-        state.conn.own_session = Some(1);
-        let _ = state.users.insert(10, make_user(10, "Charlie"));
-        let _ = state.msgs.group_chats.insert(
-            "g1".into(),
-            GroupChat {
-                id: "g1".into(),
-                name: "Test Group".into(),
-                members: vec![1, 10],
-                creator: 10,
-            },
-        );
-    }
-
-    let tm = mumble_tcp::TextMessage {
-        actor: Some(10),
-        session: vec![1],
-        message: "<!-- FANCY_GROUP:g1 -->Hey".into(),
-        ..Default::default()
-    };
-    tm.handle(&ctx);
-
-    assert!(emitter.attention_count() > 0);
-}
+// Group chat support has been removed; the related tests were deleted.
 
 // -- Reject --------------------------------------------------------
 
@@ -1415,57 +1287,6 @@ fn permission_denied_payload_contains_type_and_reason() {
 }
 
 // -- PluginDataTransmission ----------------------------------------
-
-#[test]
-fn plugin_data_creates_group_chat() {
-    let (ctx, emitter) = make_ctx();
-    let group = serde_json::json!({
-        "action": "create",
-        "group": {
-            "id": "g42",
-            "name": "Gamers",
-            "members": [1, 2],
-            "creator": 1
-        }
-    });
-    let pd = mumble_tcp::PluginDataTransmission {
-        sender_session: Some(1),
-        data_id: Some("fancy-group".into()),
-        data: Some(serde_json::to_vec(&group).unwrap()),
-        ..Default::default()
-    };
-    pd.handle(&ctx);
-
-    let state = ctx.shared.lock().unwrap();
-    assert!(state.msgs.group_chats.contains_key("g42"));
-    assert_eq!(state.msgs.group_chats["g42"].name, "Gamers");
-    assert_eq!(state.msgs.group_chats["g42"].members, vec![1, 2]);
-    assert_eq!(state.msgs.group_chats["g42"].creator, 1);
-    drop(state);
-
-    let names = emitter.event_names();
-    assert!(names.contains(&"group-created".to_string()));
-    assert!(names.contains(&"plugin-data".to_string()));
-}
-
-#[test]
-fn plugin_data_non_group_just_emits() {
-    let (ctx, emitter) = make_ctx();
-    let pd = mumble_tcp::PluginDataTransmission {
-        sender_session: Some(1),
-        data_id: Some("poll".into()),
-        data: Some(b"poll data".to_vec()),
-        ..Default::default()
-    };
-    pd.handle(&ctx);
-
-    let state = ctx.shared.lock().unwrap();
-    assert!(state.msgs.group_chats.is_empty());
-    drop(state);
-
-    let names = emitter.event_names();
-    assert_eq!(names, vec!["plugin-data"]);
-}
 
 #[test]
 fn plugin_data_payload_content() {

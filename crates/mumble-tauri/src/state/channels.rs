@@ -15,7 +15,6 @@ impl AppState {
             let mut state = self.inner.lock().map_err(|e| e.to_string())?;
             state.selected_channel = Some(channel_id);
             state.msgs.selected_dm_user = None;
-            state.msgs.selected_group = None;
             let _ = state.msgs.channel_unread.remove(&channel_id);
             state.conn.client_handle.clone()
         };

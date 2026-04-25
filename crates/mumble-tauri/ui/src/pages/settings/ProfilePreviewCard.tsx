@@ -24,6 +24,8 @@ interface ProfilePreviewCardProps {
   idlesecs?: number | null;
   /** Whether the user is registered on the server. */
   isRegistered?: boolean;
+  /** ACL role chips to display at the bottom of the card. */
+  groups?: readonly { name: string; color: string | null }[];
 }
 
 interface CardBgResult {
@@ -92,6 +94,7 @@ export function ProfilePreviewCard({
   onlinesecs,
   idlesecs,
   isRegistered,
+  groups,
 }: Readonly<ProfilePreviewCardProps>) {
   const nameStyle = profile.nameStyle ?? {};
   const decoration = DECORATIONS.find((d) => d.id === (profile.decoration ?? "none"));
@@ -237,6 +240,25 @@ export function ProfilePreviewCard({
             className={styles.previewBio}
             style={themeTextColor ? { color: "inherit" } : undefined}
           />
+        )}
+
+        {/* Role chips */}
+        {groups && groups.length > 0 && (
+          <div className={styles.previewGroupChips}>
+            {groups.map((g) => (
+              <span
+                key={g.name}
+                className={styles.previewGroupChip}
+                style={g.color ? {
+                  color: g.color,
+                  borderColor: `${g.color}55`,
+                  background: `${g.color}18`,
+                } : undefined}
+              >
+                {g.name}
+              </span>
+            ))}
+          </div>
         )}
       </div>
     </div>

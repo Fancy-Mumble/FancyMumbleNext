@@ -5,19 +5,18 @@ import { useAppStore } from "../../store";
 import type { ChannelEntry, UserEntry, SidebarSections } from "../../types";
 import { getPreferences, updatePreferences } from "../../preferencesStorage";
 import { SidebarSearchView } from "./SidebarSearchView";
-import { UserListItem, colorFor, avatarUrl } from "./UserListItem";
+import { UserListItem, RoleColorsContext, RoleGroupsContext, buildRoleColorMap, buildRoleGroupsMap } from "./UserListItem";
+import { useAclGroups } from "../../hooks/useAclGroups";
 import { UserContextMenu } from "./UserContextMenu";
 import type { UserContextMenuState } from "./UserContextMenu";
 import ChannelEditorDialog, { canEditChannel, canCreateChannel, canOnlyCreateTemp, canDeleteChannel } from "./ChannelEditorDialog";
 import styles from "./ChannelSidebar.module.css";
-import CheckIcon from "../../assets/icons/status/check.svg?react";
 import ListenBadgeIcon from "../../assets/icons/audio/listen-badge.svg?react";
 import MenuIcon from "../../assets/icons/navigation/menu.svg?react";
 import SearchIcon from "../../assets/icons/action/search.svg?react";
 import CloseIcon from "../../assets/icons/action/close.svg?react";
 import ChevronRightIcon from "../../assets/icons/navigation/chevron-right.svg?react";
 import PlusIcon from "../../assets/icons/action/plus.svg?react";
-import UsersGroupIcon from "../../assets/icons/user/users-group.svg?react";
 import MicIcon from "../../assets/icons/audio/mic.svg?react";
 import MicOffIcon from "../../assets/icons/audio/mic-off.svg?react";
 import MicOffSmallIcon from "../../assets/icons/audio/mic-off-small.svg?react";
@@ -28,12 +27,12 @@ import SettingsIcon from "../../assets/icons/general/settings.svg?react";
 import ShieldIcon from "../../assets/icons/status/shield.svg?react";
 import LogoutIcon from "../../assets/icons/action/logout.svg?react";
 import EditIcon from "../../assets/icons/action/edit.svg?react";
-import { isMobile } from "../../utils/platform";
 import { loadPersonalization } from "../../personalizationStorage";
 import type { ChannelViewerStyle } from "../../personalizationStorage";
 import ModernChannelList from "./flat/ModernChannelList";
 import ChannelIconList from "./modern/ChannelIconList";
 import ClassicChannelList from "./classic/ClassicChannelList";
+import { MembersTab } from "./MembersTab";
 import TrashIcon from "../../assets/icons/action/trash.svg?react";
 import BellIcon from "../../assets/icons/status/bell.svg?react";
 import BellOffIcon from "../../assets/icons/status/bell-off.svg?react";
@@ -53,136 +52,6 @@ function canListen(channel: ChannelEntry | undefined): boolean {
   if (!channel) return true; // channel not found - allow optimistically
   if (channel.permissions == null) return true; // not yet queried - allow optimistically
   return (channel.permissions & PERM_LISTEN) !== 0;
-}
-
-// --- Group creation modal -----------------------------------------
-
-interface GroupCreateModalProps {
-  readonly users: UserEntry[];
-  readonly ownSession: number | null;
-  readonly onClose: () => void;
-  readonly onCreate: (name: string, members: number[]) => Promise<void>;
-}
-
-function GroupCreateModal({ users, ownSession, onClose, onCreate }: GroupCreateModalProps) {
-  const [name, setName] = useState("");
-  const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [creating, setCreating] = useState(false);
-  const backdropRef = useRef<HTMLDivElement>(null);
-
-  const otherUsers = useMemo(
-    () => users.filter((u) => u.session !== ownSession),
-    [users, ownSession],
-  );
-
-  // Close on Escape key.
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose]);
-
-  const toggleMember = useCallback((session: number) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(session)) next.delete(session);
-      else next.add(session);
-      return next;
-    });
-  }, []);
-
-  const handleCreate = useCallback(async () => {
-    if (selected.size === 0 || !name.trim()) return;
-    setCreating(true);
-    try {
-      await onCreate(name.trim(), Array.from(selected));
-    } finally {
-      setCreating(false);
-    }
-  }, [name, selected, onCreate]);
-
-  const handleBackdropClick = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.target === backdropRef.current) onClose();
-    },
-    [onClose],
-  );
-
-  return createPortal(
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
-    <div
-      ref={backdropRef}
-      className={styles.modalBackdrop}
-      onClick={handleBackdropClick}
-      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
-    >
-      <div className={styles.modalContent}>
-        <h3 className={styles.modalTitle}>New Group Chat</h3>
-
-        <input
-          className={styles.modalInput}
-          type="text"
-          placeholder="Group name..."
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          autoFocus
-        />
-
-        <p className={styles.modalSubtitle}>Select members:</p>
-
-        <div className={styles.modalUserList}>
-          {otherUsers.map((u) => {
-            const isSelected = selected.has(u.session);
-            const url = avatarUrl(u);
-            return (
-              <button
-                key={u.session}
-                type="button"
-                className={`${styles.modalUserItem} ${isSelected ? styles.modalUserSelected : ""}`}
-                onClick={() => toggleMember(u.session)}
-              >
-                <div className={styles.modalCheckbox}>
-                  {isSelected && (
-                    <CheckIcon width={12} height={12} />
-                  )}
-                </div>
-                {url ? (
-                  <img src={url} alt={u.name} className={styles.userAvatarImg} style={{ width: 24, height: 24 }} />
-                ) : (
-                  <div
-                    className={styles.userAvatar}
-                    style={{ background: colorFor(u.name), width: 24, height: 24, fontSize: 11 }}
-                  >
-                    {u.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <span className={styles.userName}>{u.name}</span>
-              </button>
-            );
-          })}
-          {otherUsers.length === 0 && (
-            <p className={styles.modalEmpty}>No other users online</p>
-          )}
-        </div>
-
-        <div className={styles.modalActions}>
-          <button className={styles.modalCancelBtn} onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            className={styles.modalCreateBtn}
-            onClick={handleCreate}
-            disabled={creating || selected.size === 0 || !name.trim()}
-          >
-            {creating ? "Creating..." : `Create (${selected.size} selected)`}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
 }
 
 // --- Voice panel helpers -------------------------------------------
@@ -290,22 +159,19 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
   const mutedPushChannels = useAppStore((s) => s.mutedPushChannels);
   const navigate = useNavigate();
 
-  // Group chat state
-  const groupChats = useAppStore((s) => s.groupChats);
-  const selectedGroup = useAppStore((s) => s.selectedGroup);
-  const selectGroup = useAppStore((s) => s.selectGroup);
-  const groupUnreadCounts = useAppStore((s) => s.groupUnreadCounts);
-  const createGroup = useAppStore((s) => s.createGroup);
   const ownSession = useAppStore((s) => s.ownSession);
   const talkingSessions = useAppStore((s) => s.talkingSessions);
   const broadcastingSessions = useAppStore((s) => s.broadcastingSessions);
+
+  const aclGroups = useAclGroups();
+  const roleColors = useMemo(() => buildRoleColorMap(aclGroups), [aclGroups]);
+  const roleGroups = useMemo(() => buildRoleGroupsMap(aclGroups), [aclGroups]);
 
   const selectDmUser = useAppStore((s) => s.selectDmUser);
   const selectUser = useAppStore((s) => s.selectUser);
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
 
   const [channelViewerStyle, setChannelViewerStyle] = useState<ChannelViewerStyle>("flat");
-  const [showGroupModal, setShowGroupModal] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -382,17 +248,19 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
 
   // Section collapse state (all expanded by default, restored from prefs).
   const [channelsOpen, setChannelsOpen] = useState(true);
-  const [groupsOpen, setGroupsOpen] = useState(true);
-  const [onlineOpen, setOnlineOpen] = useState(true);
 
-  // Load persisted section states on mount.
+  // Sidebar tab — restored from persisted preferences on mount.
+  const [activeTab, setActiveTab] = useState<"channels" | "members">("channels");
+
+  // Load persisted section and tab states on mount.
   useEffect(() => {
     getPreferences().then((prefs) => {
       const s = prefs.sidebarSections;
       if (s) {
         setChannelsOpen(s.channels);
-        setGroupsOpen(s.groups);
-        setOnlineOpen(s.online);
+      }
+      if (prefs.sidebarActiveTab) {
+        setActiveTab(prefs.sidebarActiveTab);
       }
     });
   }, []);
@@ -403,12 +271,17 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
       const next = !current;
       setter(next);
       getPreferences().then((prefs) => {
-        const sections = prefs.sidebarSections ?? { channels: true, groups: true, online: true };
+        const sections = prefs.sidebarSections ?? { channels: true };
         updatePreferences({ sidebarSections: { ...sections, [section]: next } });
       });
     },
     [],
   );
+
+  const handleTabChange = useCallback((tab: "channels" | "members") => {
+    setActiveTab(tab);
+    updatePreferences({ sidebarActiveTab: tab }).catch(() => {});
+  }, []);
 
   // -- Context menu state ------------------------------------------
   const [ctxMenu, setCtxMenu] = useState<{
@@ -465,6 +338,8 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
   };
 
   return (
+    <RoleColorsContext.Provider value={roleColors}>
+    <RoleGroupsContext.Provider value={roleGroups}>
     <aside className={styles.sidebar}>
       {/* Header */}
       <div className={styles.header}>
@@ -518,10 +393,32 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
           channelName={searchChannelName}
           onSelectChannel={(id) => { selectChannel(id); onChannelSelect?.(); }}
           onSelectUser={(session) => { selectDmUser(session); onChannelSelect?.(); }}
-          onSelectGroup={(id) => { selectGroup(id); onChannelSelect?.(); }}
         />
       ) : (<>
 
+      {/* Tab bar (Channels | Members) */}
+      <div className={styles.tabBar} role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "channels"}
+          className={`${styles.tab} ${activeTab === "channels" ? styles.tabActive : ""}`}
+          onClick={() => handleTabChange("channels")}
+        >
+          Channels
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "members"}
+          className={`${styles.tab} ${activeTab === "members" ? styles.tabActive : ""}`}
+          onClick={() => handleTabChange("members")}
+        >
+          Members
+        </button>
+      </div>
+
+      {activeTab === "channels" && <>
       {/* Channel list header (always visible) */}
       <div className={styles.sectionHeaderBar}>
         <button
@@ -591,114 +488,19 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
           />
         )}
       </div>
-
-      {!isMobile && <>
-      <div className={styles.divider} />
-
-      {/* Group chats */}
-      <div className={`${styles.userSection} ${groupsOpen ? "" : styles.sectionCollapsed}`}>
-        <div className={styles.groupSectionHeader}>
-          <button
-            className={styles.collapsibleHeader}
-            onClick={() => toggleSection("groups", groupsOpen, setGroupsOpen)}
-            type="button"
-          >
-          <ChevronRightIcon
-              className={`${styles.collapseChevron} ${groupsOpen ? styles.collapseChevronOpen : ""}`}
-              width={12}
-              height={12}
-            />
-            <span>
-              Group Chats{groupChats.length > 0 ? ` - ${groupChats.length}` : ""}
-            </span>
-          </button>
-          <button
-            className={styles.newGroupBtn}
-            onClick={() => setShowGroupModal(true)}
-            title="New group chat"
-          >
-            <PlusIcon width={14} height={14} />
-          </button>
-        </div>
-        {groupsOpen && <div className={styles.userList}>
-          {groupChats.map((group) => {
-            const unread = groupUnreadCounts[group.id] ?? 0;
-            const isActive = selectedGroup === group.id;
-            const memberNames = group.members
-              .map((s) => users.find((u) => u.session === s)?.name)
-              .filter(Boolean)
-              .join(", ");
-            return (
-              <button
-                key={group.id}
-                type="button"
-                className={`${styles.userItem} ${isActive ? styles.userItemActive : ""}`}
-                onClick={() => { selectGroup(group.id); onChannelSelect?.(); }}
-                title={memberNames || group.name}
-              >
-                <div className={styles.userAvatarWrap}>
-                  <div
-                    className={styles.userAvatar}
-                    style={{ background: colorFor(group.name) }}
-                  >
-                    <UsersGroupIcon width={16} height={16} />
-                  </div>
-                </div>
-                <span className={styles.userName}>{group.name}</span>
-                {unread > 0 && (
-                  <span className={styles.unreadBadge}>
-                    {unread > 99 ? "99+" : unread}
-                  </span>
-                )}
-                <span className={styles.userChannelChip}>
-                  {group.members.length} {group.members.length === 1 ? "member" : "members"}
-                </span>
-              </button>
-            );
-          })}
-        </div>}
-      </div>
       </>}
 
-      <div className={styles.divider} />
-
-      {/* Online users */}
-      <div className={`${styles.userSection} ${onlineOpen ? "" : styles.sectionCollapsed}`}>
-        <button
-          className={styles.collapsibleHeader}
-          onClick={() => toggleSection("online", onlineOpen, setOnlineOpen)}
-          type="button"
-        >
-          <ChevronRightIcon
-            className={`${styles.collapseChevron} ${onlineOpen ? styles.collapseChevronOpen : ""}`}
-            width={12}
-            height={12}
-          />
-          <span>Online - {users.length}</span>
-        </button>
-        {onlineOpen &&
-          <div className={styles.userList}>
-            {users
-              .filter((u) => u.session !== ownSession)
-              .sort((a, b) => {
-                const aInChannel = currentChannel != null && a.channel_id === currentChannel ? 0 : 1;
-                const bInChannel = currentChannel != null && b.channel_id === currentChannel ? 0 : 1;
-                return aInChannel - bInChannel;
-              })
-              .map((user) => (
-              <UserListItem
-                key={user.session}
-                user={user}
-                channelName={channelName(user.channel_id)}
-                active={selectedDmUser === user.session}
-                isTalking={talkingSessions.has(user.session)}
-                onClick={() => selectDmUser(user.session)}
-                onContextMenu={(e) => openUserCtxMenu(e, user)}
-              />
-            ))}
-          </div>
-        }
-      </div>
+      {activeTab === "members" && (
+        <MembersTab
+          users={users}
+          channels={channels}
+          ownSession={ownSession}
+          selectedDmUser={selectedDmUser}
+          talkingSessions={talkingSessions}
+          onSelectDm={(session) => { selectDmUser(session); onChannelSelect?.(); }}
+          onUserContextMenu={openUserCtxMenu}
+        />
+      )}
 
       </>)}{/* end search-mode ternary */}
 
@@ -901,19 +703,6 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
         />
       )}
 
-      {/* Group creation modal */}
-      {showGroupModal && (
-        <GroupCreateModal
-          users={users}
-          ownSession={ownSession}
-          onClose={() => setShowGroupModal(false)}
-          onCreate={async (name, members) => {
-            await createGroup(name, members);
-            setShowGroupModal(false);
-          }}
-        />
-      )}
-
       {/* Channel editor dialog */}
       {channelEditor && (
         <ChannelEditorDialog
@@ -966,5 +755,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
         <RecordingModal onClose={() => setShowRecordingModal(false)} />
       )}
     </aside>
+    </RoleGroupsContext.Provider>
+    </RoleColorsContext.Provider>
   );
 }

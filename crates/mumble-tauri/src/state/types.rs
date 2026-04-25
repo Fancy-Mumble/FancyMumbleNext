@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use serde::{Serialize, Deserialize, Serializer};
+use serde::{Serialize, Serializer};
 
 use mumble_protocol::audio::filter::denoiser::NoiseSuppressionAlgorithm;
 use mumble_protocol::state::PchatProtocol;
@@ -132,10 +132,6 @@ pub struct ChatMessage {
     /// The value is the *other* user's session ID (the conversation partner).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dm_session: Option<u32>,
-    /// When set, this message belongs to a group chat.
-    /// The value is the group's unique ID.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_id: Option<String>,
     /// Unique message identifier (Fancy Mumble extension).
     /// `None` when the server/sender does not support extensions.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -269,7 +265,7 @@ pub struct ServerInfo {
     pub opus: bool,
 }
 
-// --- Group chat ----------------------------------------------------
+// --- Debug stats ---------------------------------------------------
 
 /// Debug statistics for the developer info panel.
 #[derive(Debug, Clone, Serialize)]
@@ -278,9 +274,7 @@ pub struct DebugStats {
     pub channel_message_count: usize,
     /// Number of DM messages in memory.
     pub dm_message_count: usize,
-    /// Number of group messages in memory.
-    pub group_message_count: usize,
-    /// Total messages (channel + DM + group).
+    /// Total messages (channel + DM).
     pub total_message_count: usize,
     /// Number of messages currently offloaded to disk.
     pub offloaded_count: usize,
@@ -288,30 +282,12 @@ pub struct DebugStats {
     pub channel_count: usize,
     /// Number of users connected to the server.
     pub user_count: usize,
-    /// Number of group chats active.
-    pub group_count: usize,
     /// Internal connection epoch counter.
     pub connection_epoch: u64,
     /// Current voice state as a string.
     pub voice_state: String,
     /// Seconds since the app was started.
     pub uptime_seconds: u64,
-}
-
-/// A multi-member group chat, identified by a UUID.
-///
-/// Groups are ephemeral (lifetime of the connection).  Membership is
-/// propagated via `PluginDataTransmission` with `data_id = "fancy-group"`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GroupChat {
-    /// Unique group identifier (UUID v4).
-    pub id: String,
-    /// Human-readable group name chosen by the creator.
-    pub name: String,
-    /// Session IDs of all members (including the creator).
-    pub members: Vec<u32>,
-    /// Session ID of the user who created the group.
-    pub creator: u32,
 }
 
 // --- Event payloads emitted to the frontend -----------------------
@@ -347,26 +323,6 @@ pub(crate) struct UnreadPayload {
 pub(crate) struct DmUnreadPayload {
     /// `session_id` -> unread DM count
     pub unreads: HashMap<u32, u32>,
-}
-
-/// Emitted when a new group message arrives.
-#[derive(Clone, Serialize)]
-pub(crate) struct NewGroupMessagePayload {
-    /// The group's unique ID.
-    pub group_id: String,
-}
-
-/// Emitted when group unread counts change.
-#[derive(Clone, Serialize)]
-pub(crate) struct GroupUnreadPayload {
-    /// `group_id` -> unread count.
-    pub unreads: HashMap<String, u32>,
-}
-
-/// Emitted when a group chat is created or updated.
-#[derive(Clone, Serialize)]
-pub(crate) struct GroupCreatedPayload {
-    pub group: GroupChat,
 }
 
 #[derive(Clone, Serialize)]
@@ -632,6 +588,22 @@ pub struct RegisteredUserPayload {
     pub last_seen: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_channel: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub texture: Option<Vec<u8>>,
+    /// Full comment when len < 128 (included inline by the server).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    /// SHA-1 hash of the comment when len >= 128. Presence means a comment
+    /// exists but the full text must be requested via `request_user_comment`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment_hash: Option<Vec<u8>>,
+}
+
+/// A single registered-user comment delivered via `RequestBlob.user_id_comment`.
+#[derive(Debug, Clone, Serialize)]
+pub struct UserCommentPayload {
+    pub user_id: u32,
+    pub comment: String,
 }
 
 /// A registered user update sent from the frontend.
@@ -795,7 +767,6 @@ pub enum SearchFilter {
 pub enum SearchCategory {
     Channel,
     User,
-    Group,
     Message,
 }
 
@@ -806,7 +777,7 @@ pub struct SearchResult {
     pub category: SearchCategory,
     /// Fuzzy match score (lower = better match, 0 = exact).
     pub score: u32,
-    /// Primary display text (channel name, username, group name, or message snippet).
+    /// Primary display text (channel name, username, or message snippet).
     pub title: String,
     /// Secondary context (e.g. channel name for a user, sender for a message).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -814,7 +785,7 @@ pub struct SearchResult {
     /// Numeric ID for channels (`channel_id`) or users (session).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<u32>,
-    /// String ID for groups (group UUID).
+    /// Optional opaque string ID for results that are not addressed by `u32`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub string_id: Option<String>,
 }
@@ -829,9 +800,6 @@ pub struct PhotoEntry {
     /// Channel ID when the photo is from a channel message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_id: Option<u32>,
-    /// Group ID when the photo is from a group message.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_id: Option<String>,
     /// DM session when the photo is from a direct message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dm_session: Option<u32>,
