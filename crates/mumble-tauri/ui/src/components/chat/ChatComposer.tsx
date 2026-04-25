@@ -1,13 +1,9 @@
-﻿import { useState, useRef, useCallback, useMemo, useEffect, type ClipboardEvent } from "react";
+import { AttachIcon, CloseIcon, EditIcon, GifIcon, SendIcon } from "../../icons";
+import { useState, useRef, useCallback, useMemo, useEffect, type ClipboardEvent } from "react";
 import MarkdownInput, { type MarkdownInputApi } from "./MarkdownInput";
 import GifPicker from "./GifPicker";
 import MentionAutocomplete, { type MentionCandidate, handleMentionKey } from "./MentionAutocomplete";
 import styles from "./ChatView.module.css";
-import AttachIcon from "../../assets/icons/action/attach.svg?react";
-import GifIcon from "../../assets/icons/communication/gif.svg?react";
-import SendIcon from "../../assets/icons/action/send.svg?react";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
-import EditIcon from "../../assets/icons/action/edit.svg?react";
 import { isMobile } from "../../utils/platform";
 import { useAppStore } from "../../store";
 import { formatUserMention, parseMentionTrigger, type MentionTrigger } from "../../utils/mentions";

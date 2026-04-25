@@ -1,6 +1,6 @@
+import { KebabMenuIcon } from "../../icons";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
-import KebabMenuIcon from "../../assets/icons/navigation/kebab-menu.svg?react";
 import styles from "./KebabMenu.module.css";
 
 export interface KebabMenuItem {

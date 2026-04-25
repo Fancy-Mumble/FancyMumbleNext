@@ -1,4 +1,5 @@
-﻿import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { ChevronDownIcon } from "../../icons";
+import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../store";
 import type { ChatMessage, TimeFormat } from "../../types";
@@ -15,7 +16,6 @@ import { usePolls } from "./usePolls";
 import { useReactions } from "./useReactions";
 import MessageContextMenu from "./MessageContextMenu";
 import MobileMessageActionSheet from "./MobileMessageActionSheet";
-import ChevronDownIcon from "../../assets/icons/navigation/chevron-down.svg?react";
 import MessageSelectionBar from "./MessageSelectionBar";
 import ConfirmDialog from "../elements/ConfirmDialog";
 import Toast from "../elements/Toast";

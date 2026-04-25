@@ -1,4 +1,5 @@
-﻿/**
+import { WarningIcon } from "../../icons";
+/**
  * ExternalLinkGuard
  *
  * Wraps any content that may contain sanitized bio HTML with external links
@@ -14,7 +15,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import WarningIcon from "../../assets/icons/status/warning.svg?react";
 import styles from "./ExternalLinkGuard.module.css";
 
 // --- Warning dialog -----------------------------------------------

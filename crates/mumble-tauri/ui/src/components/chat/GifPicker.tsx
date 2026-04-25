@@ -1,4 +1,5 @@
-﻿/**
+import { SearchIcon } from "../../icons";
+/**
  * GifPicker - popup GIF / Sticker search & browse powered by Klipy.
  *
  * Tabs: GIFs | Stickers
@@ -10,7 +11,6 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import SearchIcon from "../../assets/icons/action/search.svg?react";
 import styles from "./GifPicker.module.css";
 
 // --- Klipy API Types ----------------------------------------------

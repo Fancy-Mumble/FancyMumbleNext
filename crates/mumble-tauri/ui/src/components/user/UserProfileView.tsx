@@ -1,4 +1,5 @@
-﻿/**
+import { CloseIcon, MoonIcon, ShieldCheckIcon } from "../../icons";
+/**
  * Full-height right-side panel showing a user's full profile.
  *
  * Opened by clicking a username in the channel sidebar.
@@ -23,9 +24,6 @@ import {
   AVATAR_BORDERS,
 } from "../../pages/settings/profileData";
 import { resolveThemePalette } from "../../utils/colorUtils";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
-import ShieldCheckIcon from "../../assets/icons/status/shield-check.svg?react";
-import MoonIcon from "../../assets/icons/status/moon.svg?react";
 import styles from "./UserProfileView.module.css";
 
 // --- Helpers ------------------------------------------------------

@@ -1,3 +1,4 @@
+import { ChevronRightIcon, ListenBadgeIcon } from "../../../icons";
 /**
  * ClassicChannelList - the traditional Mumble hierarchical channel tree.
  *
@@ -12,8 +13,6 @@ import { useState, useMemo, useCallback } from "react";
 import type { ChannelEntry, UserEntry } from "../../../types";
 import { colorFor, avatarUrl } from "../UserListItem";
 import { PchatBadge } from "../PchatBadge";
-import ChevronRightIcon from "../../../assets/icons/navigation/chevron-right.svg?react";
-import ListenBadgeIcon from "../../../assets/icons/audio/listen-badge.svg?react";
 import styles from "./ClassicChannelList.module.css";
 
 const MAX_STACKED = 3;

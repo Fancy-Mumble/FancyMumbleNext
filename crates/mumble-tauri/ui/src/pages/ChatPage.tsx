@@ -1,3 +1,4 @@
+import { MenuIcon } from "../icons";
 import { lazy, Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store";
@@ -5,7 +6,6 @@ import { isMobile } from "../utils/platform";
 import { useSwipeDrawer } from "../hooks/useSwipeDrawer";
 import ChannelSidebar from "../components/sidebar/ChannelSidebar";
 import ChatView from "../components/chat/ChatView";
-import MenuIcon from "../assets/icons/navigation/menu.svg?react";
 import styles from "./ChatPage.module.css";
 
 const ServerInfoPanel = lazy(() => import("../components/server/ServerInfoPanel"));

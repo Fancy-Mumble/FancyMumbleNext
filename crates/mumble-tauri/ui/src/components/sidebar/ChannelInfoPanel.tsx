@@ -1,3 +1,4 @@
+import { CloseIcon, EditIcon, FolderIcon, KeyIcon, RefreshIcon, WarningFilledIcon } from "../../icons";
 /**
  * Right-side panel showing channel details (description, name).
  *
@@ -16,12 +17,6 @@ import { SafeHtml } from "../elements/SafeHtml";
 import { UserListItem, colorFor } from "./UserListItem";
 import { UserContextMenu } from "./UserContextMenu";
 import type { UserContextMenuState } from "./UserContextMenu";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
-import FolderIcon from "../../assets/icons/general/folder.svg?react";
-import EditIcon from "../../assets/icons/action/edit.svg?react";
-import KeyIcon from "../../assets/icons/status/key.svg?react";
-import WarningFilledIcon from "../../assets/icons/status/warning-filled.svg?react";
-import RefreshIcon from "../../assets/icons/action/refresh.svg?react";
 import styles from "./ChannelInfoPanel.module.css";
 import { PERMISSIONS, PERM_KEY_OWNER } from "../../utils/permissions";
 

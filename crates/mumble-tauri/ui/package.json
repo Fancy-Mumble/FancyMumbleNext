@@ -27,6 +27,7 @@
     "@tiptap/starter-kit": "^3.20.1",
     "dompurify": "^3.3.3",
     "leaflet": "^1.9.4",
+    "lucide-react": "^1.11.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-leaflet": "^5.0.0",
@@ -47,7 +48,6 @@
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.58.1",
     "vite": "^8.0.0",
-    "vite-plugin-svgr": "^4.5.0",
     "vitest": "^4.1.0"
   }
 }

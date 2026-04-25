@@ -1,3 +1,4 @@
+import { CloseIcon } from "../../icons";
 import { useCallback } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -8,7 +9,6 @@ import {
   previewKindForFilename,
   type PreviewKind,
 } from "./FileAttachmentCard";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
 import styles from "./DownloadsPanel.module.css";
 
 interface DownloadsPanelProps {

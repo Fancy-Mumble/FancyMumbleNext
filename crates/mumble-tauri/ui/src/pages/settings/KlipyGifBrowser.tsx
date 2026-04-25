@@ -1,5 +1,5 @@
+import { SearchIcon } from "../../icons";
 import { useState, useEffect, useCallback, useRef } from "react";
-import SearchIcon from "../../assets/icons/action/search.svg?react";
 import styles from "./KlipyGifBrowser.module.css";
 
 const KLIPY_BASE = "https://api.klipy.com/api/v1";

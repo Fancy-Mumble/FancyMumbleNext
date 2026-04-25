@@ -1,3 +1,4 @@
+import { ChevronDownIcon, Grid2x2Icon, ScreenShareIcon } from "../../icons";
 /**
  * Focused stream view - wraps ScreenShareViewer with:
  *
@@ -14,9 +15,6 @@ import ScreenShareViewer from "./ScreenShareViewer";
 import { useRemoteStream } from "./useScreenShare";
 import { useStreamThumbnail } from "./useStreamPreview";
 import { useAppStore } from "../../store";
-import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
-import ChevronDownIcon from "../../assets/icons/navigation/chevron-down.svg?react";
-import Grid2x2Icon from "../../assets/icons/general/grid-2x2.svg?react";
 import styles from "./StreamFocusView.module.css";
 import { useBroadcasterOrder, useDragStream } from "./useStreamDrag";
 import type { Broadcaster, PointerDragItemProps, PointerDragHandlers } from "./useStreamDrag";

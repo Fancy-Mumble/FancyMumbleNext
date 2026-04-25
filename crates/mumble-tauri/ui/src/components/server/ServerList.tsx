@@ -1,9 +1,7 @@
-﻿import { useMemo, useRef, useCallback, useState } from "react";
+import { PauseIcon, SearchIcon, UserFilledIcon } from "../../icons";
+import { useMemo, useRef, useCallback, useState } from "react";
 import type { SavedServer, ServerPingResult } from "../../types";
 import { isMobile } from "../../utils/platform";
-import UserFilledIcon from "../../assets/icons/user/user-filled.svg?react";
-import PauseIcon from "../../assets/icons/status/pause.svg?react";
-import SearchIcon from "../../assets/icons/action/search.svg?react";
 import SwipeableCard from "../elements/SwipeableCard";
 import styles from "./ServerList.module.css";
 

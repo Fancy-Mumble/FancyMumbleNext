@@ -1,10 +1,10 @@
+import { SearchIcon } from "../../icons";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useNavigate } from "react-router-dom";
 import type { AclData, AclGroup, RegisteredUser, RegisteredUserUpdate } from "../../types";
 import { formatRelativeDate } from "../../utils/format";
-import SearchIcon from "../../assets/icons/action/search.svg?react";
 import KebabMenu, { type KebabMenuItem } from "../../components/elements/KebabMenu";
 import { RoleChip } from "../../components/elements/RoleChip";
 import { useAppStore } from "../../store";

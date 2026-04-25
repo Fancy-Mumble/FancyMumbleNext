@@ -1,3 +1,4 @@
+import { CheckboxIcon, CopyIcon, EditIcon, EmojiPlusIcon, QuoteIcon, TrashIcon } from "../../icons";
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { ChatMessage } from "../../types";
@@ -5,12 +6,6 @@ import type { ReactionSummary } from "./reactionStore";
 import { getReadersForMessage } from "./readReceiptStore";
 import { useAppStore } from "../../store";
 import { QUICK_REACTIONS } from "../elements/MessageActionBar";
-import EmojiPlusIcon from "../../assets/icons/communication/emoji-plus.svg?react";
-import QuoteIcon from "../../assets/icons/communication/quote.svg?react";
-import CopyIcon from "../../assets/icons/action/copy.svg?react";
-import EditIcon from "../../assets/icons/action/edit.svg?react";
-import TrashIcon from "../../assets/icons/action/trash.svg?react";
-import CheckboxIcon from "../../assets/icons/status/checkbox.svg?react";
 import styles from "./MessageContextMenu.module.css";
 
 // -- Overflow-aware position computation --------------------------

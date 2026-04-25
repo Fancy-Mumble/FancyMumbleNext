@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useRef, useState } from "react";
+import { BlockIcon, HashIcon, HeadphonesIcon, HeadphonesOffIcon, ImageIcon, MessageMinusIcon, MicIcon, MicOffIcon, StarIcon, TrashIcon, UserPlusIcon, UserXIcon, VolumeIcon } from "../../icons";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import type { UserEntry } from "../../types";
@@ -6,19 +7,6 @@ import { useAppStore } from "../../store";
 import { canDeleteMessages } from "./ChannelEditorDialog";
 import ConfirmDialog from "../elements/ConfirmDialog";
 import Toast, { type ToastData } from "../elements/Toast";
-import VolumeIcon from "../../assets/icons/audio/volume.svg?react";
-import BlockIcon from "../../assets/icons/action/block.svg?react";
-import MicIcon from "../../assets/icons/audio/mic.svg?react";
-import MicOffIcon from "../../assets/icons/audio/mic-off.svg?react";
-import HeadphonesIcon from "../../assets/icons/audio/headphones.svg?react";
-import HeadphonesOffIcon from "../../assets/icons/audio/headphones-off.svg?react";
-import StarIcon from "../../assets/icons/status/star.svg?react";
-import UserPlusIcon from "../../assets/icons/user/user-plus.svg?react";
-import MessageMinusIcon from "../../assets/icons/communication/message-minus.svg?react";
-import ImageIcon from "../../assets/icons/general/image.svg?react";
-import TrashIcon from "../../assets/icons/action/trash.svg?react";
-import UserXIcon from "../../assets/icons/user/user-x.svg?react";
-import HashIcon from "../../assets/icons/general/hash.svg?react";
 import styles from "./UserContextMenu.module.css";
 
 /** Mumble permission bitmask: Register users (root channel only). */

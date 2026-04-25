@@ -1,11 +1,7 @@
+import { HashIcon, ImageIcon, MessageIcon, SearchIcon, UserIcon } from "../../icons";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { SearchResult, SearchCategory, PhotoEntry } from "../../types";
-import HashIcon from "../../assets/icons/general/hash.svg?react";
-import ImageIcon from "../../assets/icons/general/image.svg?react";
-import SearchIcon from "../../assets/icons/action/search.svg?react";
-import UserIcon from "../../assets/icons/user/user.svg?react";
-import MessageIcon from "../../assets/icons/communication/message.svg?react";
 import styles from "./SidebarSearchView.module.css";
 
 type SearchFilter = "all" | "messages" | "photos" | "users" | "links";

@@ -1,11 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import svgr from "vite-plugin-svgr";
 
 const port = Number(process.env.VITE_PORT) || 1420;
 
 export default defineConfig({
-  plugins: [react(), svgr()],
+  plugins: [react()],
 
   // Prevent Vite from clearing the terminal so Tauri logs stay visible.
   clearScreen: false,

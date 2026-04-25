@@ -1,4 +1,4 @@
-import TrashIcon from "../../assets/icons/action/trash.svg?react";
+import { TrashIcon } from "../../icons";
 import styles from "./MessageSelectionBar.module.css";
 
 interface MessageSelectionBarProps {

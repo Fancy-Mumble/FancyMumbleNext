@@ -1,8 +1,6 @@
+import { CheckIcon, CloseIcon, ErrorCircleIcon } from "../../icons";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import CheckIcon from "../../assets/icons/status/check.svg?react";
-import ErrorCircleIcon from "../../assets/icons/status/error-circle.svg?react";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
 import styles from "./Toast.module.css";
 
 export interface ToastData {

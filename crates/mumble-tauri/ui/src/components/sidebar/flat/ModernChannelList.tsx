@@ -1,3 +1,4 @@
+import { ChevronRightIcon, HeadphonesOffIcon, ListenBadgeIcon, MicOffSmallIcon, ScreenShareIcon } from "../../../icons";
 /**
  * ModernChannelList - a flat, always-visible channel viewer.
  *
@@ -19,12 +20,7 @@ import { useUserStats } from "../../../hooks/useUserStats";
 import { useStreamThumbnail } from "../../chat/useStreamPreview";
 import SwipeableCard from "../../elements/SwipeableCard";
 import { isMobile } from "../../../utils/platform";
-import ChevronRightIcon from "../../../assets/icons/navigation/chevron-right.svg?react";
-import ListenBadgeIcon from "../../../assets/icons/audio/listen-badge.svg?react";
 import { PchatBadge } from "../PchatBadge";
-import MicOffSmallIcon from "../../../assets/icons/audio/mic-off-small.svg?react";
-import HeadphonesOffIcon from "../../../assets/icons/audio/headphones-off.svg?react";
-import ScreenShareIcon from "../../../assets/icons/communication/screen-share.svg?react";
 import styles from "./ModernChannelList.module.css";
 
 const MAX_STACKED = 3;

@@ -1,5 +1,5 @@
+import { WarningIcon } from "../../icons";
 import type { PersistenceMode } from "../../types";
-import WarningIcon from "../../assets/icons/status/warning.svg?react";
 import styles from "./KeyShareWarningDialog.module.css";
 
 interface KeyShareWarningDialogProps {

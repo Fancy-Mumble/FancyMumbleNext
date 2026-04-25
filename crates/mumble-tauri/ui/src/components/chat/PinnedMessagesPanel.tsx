@@ -1,6 +1,6 @@
+import { CloseIcon } from "../../icons";
 import { useMemo } from "react";
 import type { ChatMessage } from "../../types";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
 import styles from "./PinnedMessagesPanel.module.css";
 
 const MAX_PREVIEW = 120;

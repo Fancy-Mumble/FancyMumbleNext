@@ -1,3 +1,4 @@
+import { MoonIcon, ShieldCheckIcon } from "../../icons";
 import type { FancyProfile } from "../../types";
 import { SafeHtml } from "../../components/elements/SafeHtml";
 import { formatDuration } from "../../utils/format";
@@ -9,8 +10,6 @@ import {
   FONTS,
   AVATAR_BORDERS,
 } from "./profileData";
-import ShieldCheckIcon from "../../assets/icons/status/shield-check.svg?react";
-import MoonIcon from "../../assets/icons/status/moon.svg?react";
 import styles from "./SettingsPage.module.css";
 
 interface ProfilePreviewCardProps {

@@ -1,3 +1,4 @@
+import { PlayIcon } from "../../icons";
 import { useCallback, useRef } from "react";
 import type {
   NotificationSoundSettings,
@@ -5,7 +6,6 @@ import type {
   NotificationEventConfig,
 } from "../../types";
 import { Toggle } from "./SharedControls";
-import PlayIcon from "../../assets/icons/status/play.svg?react";
 import styles from "./SettingsPage.module.css";
 import ns from "./NotificationsPanel.module.css";
 
@@ -172,8 +172,8 @@ export function NotificationsPanel({
     audio.play().catch(() => {});
   }, []);
 
-  const allEnabled = EVENT_DEFS.every((d) => settings.events[d.key].enabled);
-  const allDisabled = EVENT_DEFS.every((d) => !settings.events[d.key].enabled);
+  const allEnabled = EVENT_DEFS.every((d) => settings.events[d.key]?.enabled ?? DEFAULT_NOTIFICATION_SOUNDS.events[d.key].enabled);
+  const allDisabled = EVENT_DEFS.every((d) => !(settings.events[d.key]?.enabled ?? DEFAULT_NOTIFICATION_SOUNDS.events[d.key].enabled));
 
   return (
     <>
@@ -237,7 +237,7 @@ export function NotificationsPanel({
       {/* Per-event configuration */}
       {settings.masterEnabled &&
         EVENT_DEFS.map((def) => {
-          const cfg = settings.events[def.key];
+          const cfg = settings.events[def.key] ?? DEFAULT_NOTIFICATION_SOUNDS.events[def.key];
           return (
             <section key={def.key} className={styles.section}>
               <div className={styles.toggleRow}>

@@ -1,6 +1,6 @@
-﻿import { useState, useCallback, type ReactNode } from "react";
+import { ChevronRightIcon } from "../../icons";
+import { useState, useCallback, type ReactNode } from "react";
 import { eventToShortcut } from "./shortcutHelpers";
-import ChevronRightIcon from "../../assets/icons/navigation/chevron-right.svg?react";
 import styles from "./SettingsPage.module.css";
 
 export function Accordion({

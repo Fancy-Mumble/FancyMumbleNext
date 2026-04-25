@@ -1,17 +1,9 @@
+import { BellIcon, BellOffIcon, CloseIcon, DatabaseIcon, FolderIcon, PollIcon, ScreenShareIcon, SearchIcon, UsersGroupIcon } from "../../icons";
 import { isMobile } from "../../utils/platform";
 import type { KeyTrustLevel } from "../../types";
 import KeyTrustIndicator from "../security/KeyTrustIndicator";
 import KebabMenu, { type KebabMenuItem } from "../elements/KebabMenu";
-import PollIcon from "../../assets/icons/communication/poll.svg?react";
-import BellIcon from "../../assets/icons/status/bell.svg?react";
-import BellOffIcon from "../../assets/icons/status/bell-off.svg?react";
-import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
 import styles from "./ChatView.module.css";
-import UsersGroupIcon from "../../assets/icons/user/users-group.svg?react";
-import DatabaseIcon from "../../assets/icons/general/database.svg?react";
-import SearchIcon from "../../assets/icons/action/search.svg?react";
-import FolderIcon from "../../assets/icons/general/folder.svg?react";
 import { colorFor } from "../sidebar/UserListItem";
 
 /** Info about the active broadcast, passed in when streaming is active. */

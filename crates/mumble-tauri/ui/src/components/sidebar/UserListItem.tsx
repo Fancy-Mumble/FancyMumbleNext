@@ -1,4 +1,5 @@
-﻿import { memo, useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from "react";
+import { HeadphonesOffIcon, MicOffIcon, ScreenShareIcon, ShieldCheckIcon, StarIcon, VolumeIcon } from "../../icons";
+import { memo, useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import { useAppStore } from "../../store";
 import type { UserEntry, FancyProfile, AclGroup } from "../../types";
@@ -7,12 +8,6 @@ import { ProfilePreviewCard } from "../../pages/settings/ProfilePreviewCard";
 import { useUserStats } from "../../hooks/useUserStats";
 import { colorFor } from "../../utils/format";
 import { isMobile } from "../../utils/platform";
-import MicOffIcon from "../../assets/icons/audio/mic-off.svg?react";
-import HeadphonesOffIcon from "../../assets/icons/audio/headphones-off.svg?react";
-import StarIcon from "../../assets/icons/status/star.svg?react";
-import ShieldCheckIcon from "../../assets/icons/status/shield-check.svg?react";
-import VolumeIcon from "../../assets/icons/audio/volume.svg?react";
-import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
 import { useStreamThumbnail } from "../chat/useStreamPreview";
 import styles from "./UserListItem.module.css";
 

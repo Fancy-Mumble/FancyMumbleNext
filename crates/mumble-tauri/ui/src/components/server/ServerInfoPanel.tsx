@@ -1,3 +1,4 @@
+import { ChevronRightIcon, CloseIcon, RefreshCwIcon, ServerIcon } from "../../icons";
 /**
  * Right-side panel showing server connection details.
  *
@@ -18,10 +19,6 @@ import { formatBandwidth, formatDuration } from "../../utils/format";
 import { useAppStore } from "../../store";
 import { SafeHtml } from "../elements/SafeHtml";
 import ActivityLog from "./ActivityLog";
-import ChevronRightIcon from "../../assets/icons/navigation/chevron-right.svg?react";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
-import ServerIcon from "../../assets/icons/general/server.svg?react";
-import RefreshCwIcon from "../../assets/icons/action/refresh-cw.svg?react";
 import styles from "./ServerInfoPanel.module.css";
 
 function Accordion({ title, defaultOpen = false, children }: {

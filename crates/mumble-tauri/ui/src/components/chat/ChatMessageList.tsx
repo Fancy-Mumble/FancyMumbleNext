@@ -1,3 +1,4 @@
+import { CheckIcon } from "../../icons";
 import React, { useMemo } from "react";
 import type { ChatMessage, TimeFormat, UserEntry } from "../../types";
 import MessageItem, { MessageAvatar } from "./MessageItem";
@@ -5,7 +6,6 @@ import MessageActionBar from "../elements/MessageActionBar";
 import ReactionBar from "./ReactionBar";
 import ReadReceiptIndicator from "./ReadReceiptIndicator";
 import type { ReactionSummary } from "./reactionStore";
-import CheckIcon from "../../assets/icons/status/check.svg?react";
 import { dateKey, formatDateChip } from "../../utils/format";
 import { isHeavyContent } from "../../messageOffload";
 import type { PollPayload } from "./PollCreator";

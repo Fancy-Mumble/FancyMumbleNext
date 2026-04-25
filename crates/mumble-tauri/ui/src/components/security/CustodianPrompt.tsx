@@ -1,7 +1,5 @@
+import { CloseIcon, ShieldIcon, WarningIcon } from "../../icons";
 import { useEffect, useCallback } from "react";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
-import WarningIcon from "../../assets/icons/status/warning.svg?react";
-import ShieldIcon from "../../assets/icons/status/shield.svg?react";
 import styles from "./CustodianPrompt.module.css";
 
 interface Custodian {

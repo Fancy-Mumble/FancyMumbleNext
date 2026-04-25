@@ -1,11 +1,8 @@
+import { HashIcon, MessageIcon, SearchIcon, UserIcon } from "../../icons";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import type { SearchResult, SearchCategory } from "../../types";
-import SearchIcon from "../../assets/icons/action/search.svg?react";
-import HashIcon from "../../assets/icons/general/hash.svg?react";
-import UserIcon from "../../assets/icons/user/user.svg?react";
-import MessageIcon from "../../assets/icons/communication/message.svg?react";
 import styles from "./SuperSearch.module.css";
 
 const CATEGORY_ORDER: SearchCategory[] = ["channel", "user", "message"];
