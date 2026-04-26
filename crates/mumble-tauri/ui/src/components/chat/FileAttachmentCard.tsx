@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useAppStore } from "../../store";
+import { rebaseFileServerUrl, useAppStore } from "../../store";
 import type { FileAccessMode } from "../../types";
 import { MediaLightbox } from "./MediaPreview";
 import styles from "./FileAttachmentCard.module.css";
@@ -58,7 +58,7 @@ export function decodeFileAttachmentPayload(b64: string): FileAttachmentInfo | n
     if (typeof parsed?.url !== "string" || typeof parsed?.filename !== "string") {
       return null;
     }
-    return parsed;
+    return { ...parsed, url: rebaseFileServerUrl(parsed.url) };
   } catch {
     return null;
   }

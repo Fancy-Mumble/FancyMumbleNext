@@ -3,20 +3,9 @@ import { useAppStore } from "../../store";
 import { PERM_MANAGE_EMOTES } from "../../utils/permissions";
 import styles from "./AdminPanel.module.css";
 
-const ALLOWED_MIME = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"];
+import { inferMimeType } from "../../utils/media";
 
-function inferMimeType(path: string): string | null {
-  const ext = path.toLowerCase().split(".").pop() ?? "";
-  switch (ext) {
-    case "png": return "image/png";
-    case "jpg":
-    case "jpeg": return "image/jpeg";
-    case "gif": return "image/gif";
-    case "webp": return "image/webp";
-    case "svg": return "image/svg+xml";
-    default: return null;
-  }
-}
+const ALLOWED_MIME = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"];
 
 export function CustomEmotesTab() {
   const emotes = useAppStore((s) => s.customServerEmotes);

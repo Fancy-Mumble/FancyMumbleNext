@@ -126,6 +126,30 @@ function fileServerBaseUrl(): string | null {
   return `http://${host}:${DEFAULT_FILE_SERVER_PORT}`;
 }
 
+/** Rebase a URL returned by the file-server plugin so its origin matches
+ *  the current server override URL (e.g. `https://files.mumble.magical.rocks`).
+ *  The plugin embeds its own internal origin in download URLs; when the HTTP
+ *  interface is fronted by a reverse proxy this origin is wrong for public
+ *  access.  Only the scheme + host are replaced; path, query, and fragment
+ *  are preserved unchanged.
+ *
+ *  Returns the original URL unchanged if no override is configured or
+ *  parsing fails. */
+export function rebaseFileServerUrl(rawUrl: string): string {
+  const override = fileServerBaseUrl();
+  if (!override) return rawUrl;
+  try {
+    const u = new URL(rawUrl);
+    const o = new URL(override);
+    u.protocol = o.protocol;
+    u.hostname = o.hostname;
+    u.port = o.port;
+    return u.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 /** Probe `GET {baseUrl}/capabilities` and store the result in the Zustand
  *  store.  Called whenever `serverConfig` changes so the Capabilities tab
  *  and Custom-Emotes admin tab populate even when no `fancy-file-server-config`
@@ -932,7 +956,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (mode === "password" && !password) {
       throw new Error("mode=password requires a password");
     }
-    return await invoke<UploadResponse>("upload_file", {
+    const resp = await invoke<UploadResponse>("upload_file", {
       request: {
         baseUrl: cfg.baseUrl,
         session: cfg.sessionId,
@@ -946,6 +970,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         uploadId: uploadId ?? "",
       },
     });
+    return { ...resp, download_url: rebaseFileServerUrl(resp.download_url) };
   },
 
   downloadFile: async ({ url, destPath, password }) => {
@@ -1729,7 +1754,14 @@ export async function initEventListeners(
     await listen("server-config", async () => {
       try {
         const cfg = await invoke<MumbleServerConfig>("get_server_config");
-        useAppStore.setState({ serverConfig: cfg });
+        useAppStore.setState((state) => {
+          const next: { serverConfig: MumbleServerConfig; fileServerConfig?: FileServerConfig } = { serverConfig: cfg };
+          const override = cfg.fancy_rest_api_url;
+          if (override && override.length > 0 && state.fileServerConfig) {
+            next.fileServerConfig = { ...state.fileServerConfig, baseUrl: override.replace(/\/+$/, "") };
+          }
+          return next;
+        });
         void probeFileServerCapabilities();
       } catch (e) {
         console.error("get_server_config error:", e);

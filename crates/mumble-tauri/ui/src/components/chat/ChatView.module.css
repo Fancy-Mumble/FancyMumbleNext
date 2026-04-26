@@ -811,6 +811,7 @@
 
 .composerWrapper {
   position: relative;
+  z-index: 30;
 }
 
 /* --- Edit mode banner ------------------------------------------- */
