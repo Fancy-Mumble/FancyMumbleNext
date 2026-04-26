@@ -77,6 +77,7 @@ pub enum NoiseSuppressionAlgorithm {
     /// Provided by the [`fancy_denoiser_deepfilter`] crate.  Falls back
     /// to `Rnnoise` when the `deepfilternet-denoiser` cargo feature is
     /// not enabled.
+    #[serde(rename = "deepfilternet")]
     DeepFilterNet,
 }
 
@@ -89,6 +90,22 @@ impl NoiseSuppressionAlgorithm {
         Self::OmlsaImcra,
         Self::SpectralSubtraction,
     ];
+
+    /// Whether this algorithm has a real backend in the current build.
+    #[must_use]
+    pub fn is_available(self) -> bool {
+        match self {
+            Self::None | Self::OmlsaImcra | Self::SpectralSubtraction => true,
+            Self::Rnnoise => cfg!(feature = "rnnoise-denoiser"),
+            Self::DeepFilterNet => cfg!(feature = "deepfilternet-denoiser"),
+        }
+    }
+
+    /// Variants that actually do something in the current build.
+    #[must_use]
+    pub fn available() -> Vec<Self> {
+        Self::ALL.iter().copied().filter(|a| a.is_available()).collect()
+    }
 
     /// Human-readable label for UI display.
     pub fn label(self) -> &'static str {
@@ -315,6 +332,49 @@ mod tests {
     fn algorithm_serde_uses_snake_case() {
         let json = serde_json::to_string(&NoiseSuppressionAlgorithm::SpectralSubtraction).unwrap();
         assert_eq!(json, "\"spectral_subtraction\"");
+    }
+
+    #[test]
+    fn unconditionally_available_algorithms_are_always_listed() {
+        // `None`, `OmlsaImcra` and `SpectralSubtraction` have no
+        // optional dependencies, so they must always be reported as
+        // available regardless of which cargo features are enabled.
+        let available = NoiseSuppressionAlgorithm::available();
+        assert!(available.contains(&NoiseSuppressionAlgorithm::None));
+        assert!(available.contains(&NoiseSuppressionAlgorithm::OmlsaImcra));
+        assert!(available.contains(&NoiseSuppressionAlgorithm::SpectralSubtraction));
+        assert_eq!(NoiseSuppressionAlgorithm::None.is_available(), true);
+    }
+
+    #[test]
+    fn deepfilternet_availability_tracks_cargo_feature() {
+        let expected = cfg!(feature = "deepfilternet-denoiser");
+        assert_eq!(
+            NoiseSuppressionAlgorithm::DeepFilterNet.is_available(),
+            expected,
+            "DeepFilterNet availability must match its cargo feature flag",
+        );
+    }
+
+    #[test]
+    fn algorithm_serde_tags_match_frontend_contract() {
+        // The TypeScript `NoiseSuppressionAlgorithm` union and the
+        // persisted audio settings rely on these exact string tags.
+        // Changing them silently breaks the settings dropdown.
+        let cases = [
+            (NoiseSuppressionAlgorithm::None, "\"none\""),
+            (NoiseSuppressionAlgorithm::Rnnoise, "\"rnnoise\""),
+            (NoiseSuppressionAlgorithm::DeepFilterNet, "\"deepfilternet\""),
+            (NoiseSuppressionAlgorithm::OmlsaImcra, "\"omlsa_imcra\""),
+            (NoiseSuppressionAlgorithm::SpectralSubtraction, "\"spectral_subtraction\""),
+        ];
+        for (variant, expected) in cases {
+            let json = serde_json::to_string(&variant).expect("serialise");
+            assert_eq!(json, expected, "wire tag for {variant:?}");
+            let round: NoiseSuppressionAlgorithm =
+                serde_json::from_str(expected).expect("deserialise");
+            assert_eq!(round, variant);
+        }
     }
 
     #[test]
