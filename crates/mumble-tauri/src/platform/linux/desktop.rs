@@ -141,7 +141,7 @@ pub fn install_desktop_entry() {
     let icon_dest = icon_dir.join(format!("{ICON_NAME}.png"));
 
     // Ship the icon embedded in the binary so it works in dev mode too.
-    let icon_bytes = include_bytes!("../icons/icon.png");
+    let icon_bytes = include_bytes!("../../../icons/icon.png");
 
     let needs_icon = std::fs::metadata(&icon_dest)
         .map(|m| m.len() != icon_bytes.len() as u64)

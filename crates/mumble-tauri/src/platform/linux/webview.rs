@@ -24,6 +24,10 @@ impl AppImageEnv {
     /// Applies all environment variable workarounds before `GTK` starts.
     fn apply_workarounds(&self) {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        // AppImage-specific workaround for blank windows on some NVIDIA setups.
+        if std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
+            std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
+        }
         if let Some(new_ld) = self.host_first_library_path() {
             std::env::set_var("LD_LIBRARY_PATH", new_ld);
         }
@@ -83,9 +87,8 @@ impl AppImageEnv {
         Some(merged.join(":"))
     }
 
-    /// Overrides `GDK_BACKEND=x11` (set by the `linuxdeploy` GTK hook) with
-    /// `wayland` when `WAYLAND_DISPLAY` is set.  On native Wayland desktops
-    /// (e.g. Sway) there is no Xauthority cookie, so X11 mode fails entirely.
+    /// In AppImage on Wayland, force `GDK_BACKEND=wayland` to override
+    /// the `x11` default from `pre_init` / `linuxdeploy`.
     fn set_wayland_backend(&self) {
         if std::env::var_os("WAYLAND_DISPLAY").is_some() {
             std::env::set_var("GDK_BACKEND", "wayland");
@@ -186,12 +189,20 @@ fn autodetect_plugin_available() -> bool {
 
 /// Must be the very first call in `main()` on Linux.
 ///
-/// `AppRun` sets `LD_LIBRARY_PATH` with `AppDir` paths first, causing the
-/// dynamic linker to map the bundled `libwebkit2gtk-4.1.so.0` before any
-/// Rust code runs.  To fix this, we re-exec with a host-first
-/// `LD_LIBRARY_PATH` so the system `WebKitGTK` and its helper processes
-/// are always version-matched.  `_FANCY_REEXEC=1` prevents infinite loops.
+/// Sets GTK/WebKit env vars early and, in `AppImage`, re-execs with a
+/// host-first `LD_LIBRARY_PATH` (`_FANCY_REEXEC=1` avoids re-exec loops).
+///
+/// See <https://github.com/winfunc/opcode/issues/26>
 pub fn pre_init() {
+    // Temporary Linux workaround: disable WebKit compositing and default to
+    // X11 before GTK init, unless the caller already provided overrides.
+    if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+    }
+    if std::env::var_os("GDK_BACKEND").is_none() {
+        std::env::set_var("GDK_BACKEND", "x11");
+    }
+
     // Re-exec with host-first LD_LIBRARY_PATH before any AppImage libs load.
     let Some(env) = AppImageEnv::detect() else {
         return;
