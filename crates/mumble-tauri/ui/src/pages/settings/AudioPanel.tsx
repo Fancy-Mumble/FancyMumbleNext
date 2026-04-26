@@ -148,6 +148,15 @@ export function AudioPanel({
   const [ampTick, setAmpTick] = useState(0);
   const rafHandle = useRef(0);
 
+  const [availableAlgorithms, setAvailableAlgorithms] = useState<
+    NoiseSuppressionAlgorithm[]
+  >(["none", "omlsa_imcra", "spectral_subtraction"]);
+  useEffect(() => {
+    invoke<NoiseSuppressionAlgorithm[]>("get_available_denoiser_algorithms")
+      .then(setAvailableAlgorithms)
+      .catch(() => { /* keep the conservative default */ });
+  }, []);
+
   const toggleMicTest = useCallback(async () => {
     if (micTestingRef.current) {
       await invoke("stop_mic_test").catch(() => {});
@@ -351,8 +360,9 @@ export function AudioPanel({
                 })
               }
             >
-              {(Object.keys(NOISE_SUPPRESSION_LABELS) as NoiseSuppressionAlgorithm[]).map(
-                (algo) => (
+              {(Object.keys(NOISE_SUPPRESSION_LABELS) as NoiseSuppressionAlgorithm[])
+                .filter((algo) => availableAlgorithms.includes(algo))
+                .map((algo) => (
                   <option key={algo} value={algo}>
                     {NOISE_SUPPRESSION_LABELS[algo]}
                   </option>
