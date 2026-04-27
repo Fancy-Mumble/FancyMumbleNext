@@ -103,6 +103,15 @@ pub(crate) fn get_denoiser_param_specs(
     mumble_protocol::audio::filter::denoiser::algorithm_param_specs(algorithm).to_vec()
 }
 
+/// List the noise-suppression algorithms whose backends are actually
+/// compiled into this build.
+#[tauri::command]
+pub(crate) fn get_available_denoiser_algorithms()
+ -> Vec<mumble_protocol::audio::filter::denoiser::NoiseSuppressionAlgorithm>
+{
+    mumble_protocol::audio::filter::denoiser::NoiseSuppressionAlgorithm::available()
+}
+
 /// Update audio settings.
 ///
 /// If any pipeline-relevant setting changes while voice is active, the

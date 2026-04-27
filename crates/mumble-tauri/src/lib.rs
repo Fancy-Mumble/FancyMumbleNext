@@ -183,6 +183,7 @@ macro_rules! all_command_handlers {
             commands::audio::get_output_devices,
             commands::audio::get_audio_settings,
             commands::audio::get_denoiser_param_specs,
+            commands::audio::get_available_denoiser_algorithms,
             commands::audio::set_audio_settings,
             commands::audio::set_audio_backend,
             commands::audio::get_audio_backend,
