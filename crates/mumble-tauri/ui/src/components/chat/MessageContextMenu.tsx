@@ -1,4 +1,4 @@
-import { CheckboxIcon, CopyIcon, EditIcon, EmojiPlusIcon, QuoteIcon, TrashIcon } from "../../icons";
+import { ArrowUpRightIcon, CheckboxIcon, CopyIcon, EditIcon, EmojiPlusIcon, QuoteIcon, TrashIcon } from "../../icons";
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { ChatMessage } from "../../types";
@@ -51,6 +51,10 @@ interface MessageContextMenuProps {
   readonly onEdit?: (msg: ChatMessage) => void;
   /** Pin or unpin a message. */
   readonly onPin?: (msg: ChatMessage) => void;
+  /** Pop the given image source out into a frameless, always-on-top window. */
+  readonly onPopOutImage?: (msg: ChatMessage, src: string) => void;
+  /** Image source to pop out (when the message contains at least one image). */
+  readonly popOutImageSrc?: string | null;
   /** Reactions on the context-menu's target message. */
   readonly reactions?: readonly ReactionSummary[];
   /** Avatar data-URLs keyed by cert hash. */
@@ -75,6 +79,8 @@ export default function MessageContextMenu({
   onCopyText,
   onEdit,
   onPin,
+  onPopOutImage,
+  popOutImageSrc,
   reactions,
   avatarByHash,
   allMessageIds,
@@ -200,6 +206,14 @@ export default function MessageContextMenu({
           <button type="button" className={styles.menuItem} onClick={() => { onPin(menu.message); onClose(); }}>
             <span className={styles.menuIcon}>📌</span>
             {menu.message.pinned ? "Unpin message" : "Pin message"}
+          </button>
+        )}
+        {onPopOutImage && popOutImageSrc && (
+          <button type="button" className={styles.menuItem} onClick={() => { onPopOutImage(menu.message, popOutImageSrc); onClose(); }}>
+            <span className={styles.menuIcon}>
+              <ArrowUpRightIcon width={14} height={14} />
+            </span>
+            Pop out image
           </button>
         )}
         {canDelete && (

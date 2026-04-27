@@ -17,7 +17,7 @@
 pub struct PermissionEntry {
     /// Bitmask value (always a single bit).
     pub bit: u32,
-    /// SCREAMING_SNAKE identifier suffix.  The frontend gets a constant
+    /// `SCREAMING_SNAKE` identifier suffix.  The frontend gets a constant
     /// named `PERM_${ident}` (e.g. `PERM_WRITE`) and the Rust side gets
     /// `permissions::${ident}` (e.g. `permissions::WRITE`).
     pub ident: &'static str,

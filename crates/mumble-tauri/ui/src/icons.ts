@@ -13,6 +13,7 @@
 
 export {
   Paperclip as AttachIcon,
+  ArrowUpRight as ArrowUpRightIcon,
   Bell as BellIcon,
   BellOff as BellOffIcon,
   Ban as BlockIcon,

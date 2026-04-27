@@ -19,8 +19,40 @@ const SettingsPage = lazy(() => import("./pages/settings"));
 const AdminPanel = lazy(() => import("./pages/admin"));
 const RoleEditorPage = lazy(() => import("./pages/admin/RoleEditorPage"));
 const WelcomePage = lazy(() => import("./pages/WelcomePage"));
+const PopoutPage = lazy(() => import("./pages/PopoutPage"));
+
+/**
+ * Returns true when this webview window is an image popout window.
+ * Popout windows are spawned by `open_image_popout` and use a window
+ * label of the form `popout-<id>`.
+ */
+function isPopoutWindow(): boolean {
+  // Tauri exposes the window label via the `__TAURI_METADATA__` global, but
+  // checking the `?popout=` query string set by the popout URL is simpler
+  // and works in browser dev as well.
+  if (new URLSearchParams(window.location.search).has("popout")) return true;
+  // Fallback: detect via the Tauri window label using the IPC global.
+  // We run this synchronously by reading the document title fallback.
+  const tauriInternals = (window as unknown as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } }).__TAURI_INTERNALS__;
+  const label = tauriInternals?.metadata?.currentWindow?.label;
+  return !!label && label.startsWith("popout-");
+}
 
 export default function App() {
+  // Popout windows render a stripped-down, decoration-free image viewer.
+  // Render them before any of the heavy main-app effects run.
+  if (isPopoutWindow()) {
+    return (
+      <Suspense fallback={null}>
+        <PopoutPage />
+      </Suspense>
+    );
+  }
+
+  return <MainApp />;
+}
+
+function MainApp() {
   const navigate = useNavigate();
   const [firstRun, setFirstRun] = useState<boolean | null>(null);
   const [notifSounds, setNotifSounds] =

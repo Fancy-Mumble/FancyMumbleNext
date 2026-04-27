@@ -20,7 +20,7 @@ import MessageSelectionBar from "./MessageSelectionBar";
 import ConfirmDialog from "../elements/ConfirmDialog";
 import Toast from "../elements/Toast";
 import FileShareDialog, { type FileShareChoice } from "./FileShareDialog";
-import { encodeFileAttachmentMarker, type FileAttachmentInfo } from "./FileAttachmentCard";
+import { encodeFileAttachmentMarker, decodeFileAttachmentPayload, previewKindForFilename, FANCY_FILE_MARKER_RE, type FileAttachmentInfo } from "./FileAttachmentCard";
 import { usePersistentChat } from "../security/PersistentChatOverlays";
 import { BannerStack } from "../security/InfoBanner";
 import { textureToDataUrl } from "../../profileFormat";
@@ -67,6 +67,20 @@ function computeHeader(
 ): [string, number] {
   if (isDmMode) return [dmPartner?.name ?? "Direct Message", 0];
   return [channel?.name ?? "Unknown", memberCount];
+}
+
+/** Find the first poppable image source in a message body, or null if none. */
+function findPopOutImageSrc(body: string): string | null {
+  const inline = /<img[^>]+src="([^"]+)"/i.exec(body);
+  if (inline?.[1]) return inline[1];
+  const fileMatch = FANCY_FILE_MARKER_RE.exec(body);
+  if (fileMatch) {
+    const info: FileAttachmentInfo | null = decodeFileAttachmentPayload(fileMatch[1]);
+    if (info && previewKindForFilename(info.filename) === "image" && info.mode === "public") {
+      return info.url;
+    }
+  }
+  return null;
 }
 
 export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatViewProps) {
@@ -264,6 +278,30 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     const channelId = msg.channel_id ?? selectedChannel ?? 0;
     pinMessage(channelId, msg.message_id, !!msg.pinned);
   }, [selectedChannel, pinMessage]);
+
+  const handlePopOutImage = useCallback((msg: ChatMessage, src: string) => {
+    const captionRaw = msg.body
+      .replaceAll(/<!--[\s\S]*?-->/g, "")
+      .replaceAll(/<img\b[^>]*>/gi, "")
+      .replaceAll(/<br\s*\/?>/gi, "\n")
+      .replaceAll(/<[^>]*>/g, "")
+      .replaceAll("&lt;", "<")
+      .replaceAll("&gt;", ">")
+      .replaceAll("&amp;", "&")
+      .trim();
+    const caption = captionRaw.length > 0 ? captionRaw.slice(0, 280) : null;
+    const senderAvatar = msg.sender_hash ? avatarByHash.get(msg.sender_hash) ?? null : null;
+    const payload = {
+      src,
+      sender_name: msg.sender_name || null,
+      sender_avatar: senderAvatar,
+      caption,
+      timestamp_ms: msg.timestamp ?? null,
+    };
+    invoke("open_image_popout", { payload }).catch((err) => {
+      console.error("Failed to open image popout:", err);
+    });
+  }, [avatarByHash]);
 
   const handleOpenPinnedPanel = useCallback(() => {
     setShowPinnedPanel(true);
@@ -798,6 +836,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onCopyText={handleCopyText}
           onEdit={handleEdit}
           onPin={handlePin}
+          onPopOutImage={handlePopOutImage}
+          popOutImageSrc={findPopOutImageSrc(msgContextMenu.message.body)}
           reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
           avatarByHash={avatarByHash}
           allMessageIds={allMessageIds}
@@ -817,6 +857,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           onCopyText={handleCopyText}
           onEdit={handleEdit}
           onPin={handlePin}
+          onPopOutImage={handlePopOutImage}
+          popOutImageSrc={findPopOutImageSrc(msgContextMenu.message.body)}
           reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
           allMessageIds={allMessageIds}
           channelId={selectedChannel ?? undefined}

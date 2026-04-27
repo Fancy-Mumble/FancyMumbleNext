@@ -1,4 +1,4 @@
-import { CheckboxIcon, CopyIcon, EditIcon, EmojiPlusIcon, QuoteIcon, TrashIcon } from "../../icons";
+import { ArrowUpRightIcon, CheckboxIcon, CopyIcon, EditIcon, EmojiPlusIcon, QuoteIcon, TrashIcon } from "../../icons";
 import { useCallback, useMemo } from "react";
 import type { ChatMessage } from "../../types";
 import type { ReactionSummary } from "./reactionStore";
@@ -39,6 +39,10 @@ interface MobileMessageActionSheetProps {
   readonly onEdit?: (msg: ChatMessage) => void;
   /** Pin or unpin a message. */
   readonly onPin?: (msg: ChatMessage) => void;
+  /** Pop the given image source out into a frameless, always-on-top window. */
+  readonly onPopOutImage?: (msg: ChatMessage, src: string) => void;
+  /** Image source to pop out (when the message contains at least one image). */
+  readonly popOutImageSrc?: string | null;
   /** Existing reactions on this message (for showing reactor names on mobile). */
   readonly reactions?: readonly ReactionSummary[];
   /** Ordered message IDs for read-receipt watermark comparison. */
@@ -61,6 +65,8 @@ export default function MobileMessageActionSheet({
   onCopyText,
   onEdit,
   onPin,
+  onPopOutImage,
+  popOutImageSrc,
   reactions,
   allMessageIds,
   channelId,
@@ -224,6 +230,14 @@ export default function MobileMessageActionSheet({
           <button type="button" className={styles.actionItem} onClick={act((m) => onPin(m))}>
             <span className={styles.actionIcon}>📌</span>
             {message.pinned ? "Unpin message" : "Pin message"}
+          </button>
+        )}
+        {onPopOutImage && popOutImageSrc && (
+          <button type="button" className={styles.actionItem} onClick={act((m) => onPopOutImage(m, popOutImageSrc))}>
+            <span className={styles.actionIcon}>
+              <ArrowUpRightIcon width={16} height={16} />
+            </span>
+            Pop out image
           </button>
         )}
         {canDelete && (

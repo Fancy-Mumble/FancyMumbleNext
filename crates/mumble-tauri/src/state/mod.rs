@@ -195,6 +195,9 @@ pub struct AppState {
     start_time: Instant,
     http_client: reqwest::Client,
     pub(super) upload_cancels: Mutex<HashMap<String, CancellationToken>>,
+    /// Image sources pending pickup by freshly-opened image popout windows.
+    /// Keyed by random id; each entry is consumed once by `take_popout_image`.
+    pub(super) popout_images: Mutex<HashMap<String, super::PopoutImagePayload>>,
 }
 
 impl AppState {
@@ -212,6 +215,7 @@ impl AppState {
             start_time: Instant::now(),
             http_client: file_server::new_http_client(),
             upload_cancels: Mutex::new(HashMap::new()),
+            popout_images: Mutex::new(HashMap::new()),
         }
     }
 
