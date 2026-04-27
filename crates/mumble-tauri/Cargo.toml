@@ -52,6 +52,29 @@ tauri-plugin-window-state = "2"
 mumble-protocol = { path = "../mumble-protocol", features = ["opus-codec", "persistent-chat", "rnnoise-denoiser"] }
 oboe = "0.6.1"
 
+# Windows-only: native window subclassing for aspect-ratio constraints
+# (see crates/mumble-tauri/src/platform/window/windows.rs).
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+] }
+
+# macOS-only: NSWindow.setContentAspectRatio: for native aspect-ratio
+# constraints (see crates/mumble-tauri/src/platform/window/macos.rs).
+# objc2-foundation gives us NSRect / NSSize; we send AppKit messages
+# through raw `AnyObject` pointers so objc2-app-kit is not needed.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5"
+objc2-foundation = { version = "0.2", features = ["NSGeometry"] }
+
+# Linux-only: gtk_window_set_geometry_hints for native aspect-ratio
+# constraints (see crates/mumble-tauri/src/platform/window/linux.rs).
+# The gtk version must match the one tao/tauri pulls in (0.18).
+[target.'cfg(all(unix, not(any(target_os = "android", target_os = "macos", target_os = "ios"))))'.dependencies]
+gtk = { version = "0.18", default-features = false }
+
 [lints]
 workspace = true
 

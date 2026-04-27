@@ -265,6 +265,7 @@ macro_rules! all_command_handlers {
             commands::image::process_background,
             commands::popout::open_image_popout,
             commands::popout::take_popout_image,
+            commands::window::set_window_aspect_ratio,
         ]
     };
 }
