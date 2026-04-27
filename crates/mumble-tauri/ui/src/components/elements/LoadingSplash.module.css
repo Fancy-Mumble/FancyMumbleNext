@@ -1,0 +1,56 @@
+.root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: var(--color-bg, #1a1a1a);
+  color: var(--color-text, #e8e8e8);
+  font-family: var(--font-family, system-ui, sans-serif);
+  z-index: 9999;
+  /* Avoid pointer events that could swallow user input.  This is
+     purely informational. */
+  pointer-events: none;
+  /* Soft fade-in so an instant load doesn't flash the splash. */
+  animation: fadeIn 220ms ease-out 120ms backwards;
+}
+
+.spinner {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 3px solid var(--color-border, rgba(255, 255, 255, 0.15));
+  border-top-color: var(--color-accent, #6aa8ff);
+  animation: spin 900ms linear infinite;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.subtitle {
+  font-size: 13px;
+  opacity: 0.72;
+  min-height: 1.3em;
+  text-align: center;
+  max-width: min(82vw, 420px);
+  transition: opacity 220ms ease;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 0s; }
+  .root { animation: none; }
+}

@@ -12,6 +12,7 @@ import { DEFAULT_NOTIFICATION_SOUNDS } from "./pages/settings/NotificationsPanel
 import type { NotificationSoundSettings } from "./types";
 import TitleBar from "./components/layout/TitleBar";
 import ConnectPage from "./pages/ConnectPage";
+import LoadingSplash from "./components/elements/LoadingSplash";
 
 const ChatPage = lazy(() => import("./pages/ChatPage"));
 const SettingsPage = lazy(() => import("./pages/settings"));
@@ -91,12 +92,12 @@ export default function App() {
   }, [navigate]);
 
   // Wait until we know the first-run status before rendering routes.
-  if (firstRun === null) return null;
+  if (firstRun === null) return <LoadingSplash />;
 
   return (
     <div className="app">
       <TitleBar />
-      <Suspense fallback={null}>
+      <Suspense fallback={<LoadingSplash />}>
         <Routes>
           {firstRun ? (
             <>

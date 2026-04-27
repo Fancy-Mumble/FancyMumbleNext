@@ -4,7 +4,13 @@
  */
 
 import { load } from "@tauri-apps/plugin-store";
-import type { AudioSettings, UserPreferences, UserMode, NotificationSoundSettings } from "./types";
+import type {
+  AudioSettings,
+  NotificationSoundSettings,
+  RegisteredUser,
+  UserMode,
+  UserPreferences,
+} from "./types";
 
 const STORE_FILE = "preferences.json";
 const KEY = "preferences";
@@ -253,4 +259,43 @@ export async function saveNotificationSounds(
   window.dispatchEvent(
     new CustomEvent("notification-sounds-changed", { detail: settings }),
   );
+}
+
+// -- Registered (offline) members cache (per-server) ---------------
+
+/**
+ * Cache of the registered-user list returned by `request_user_list`,
+ * keyed by server address ("host:port").  Lets the members tab render
+ * the offline list immediately on open while a fresh request is in
+ * flight in the background.
+ */
+const REGISTERED_USERS_KEY = "registeredUsersCache";
+
+interface RegisteredUsersCacheEntry {
+  readonly users: readonly RegisteredUser[];
+  readonly cachedAt: number;
+}
+
+type RegisteredUsersCacheMap = Record<string, RegisteredUsersCacheEntry>;
+
+/** Return the cached registered users for a server, or null if none. */
+export async function getCachedRegisteredUsers(
+  serverKey: string,
+): Promise<RegisteredUsersCacheEntry | null> {
+  const store = await getStore();
+  const map =
+    (await store.get<RegisteredUsersCacheMap>(REGISTERED_USERS_KEY)) ?? {};
+  return map[serverKey] ?? null;
+}
+
+/** Persist the registered-user list for a server. */
+export async function saveCachedRegisteredUsers(
+  serverKey: string,
+  users: readonly RegisteredUser[],
+): Promise<void> {
+  const store = await getStore();
+  const map =
+    (await store.get<RegisteredUsersCacheMap>(REGISTERED_USERS_KEY)) ?? {};
+  map[serverKey] = { users, cachedAt: Date.now() };
+  await store.set(REGISTERED_USERS_KEY, map);
 }

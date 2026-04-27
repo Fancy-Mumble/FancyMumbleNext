@@ -362,6 +362,13 @@ interface AppState {
   /** Certificate label used for the active connection. Stays set until explicit disconnect. */
   connectedCertLabel: string | null;
 
+  /** Human-readable label describing the current post-connect bootstrap
+   *  stage ("Negotiating with server...", "Fetching channels...", etc.).
+   *  Non-null implies bootstrapping is in progress: the connect-page
+   *  loading bar stays visible until this clears, so the chat view is
+   *  only revealed once it actually has data.  `null` when idle. */
+  bootstrapStage: string | null;
+
   // Actions
   connect: (host: string, port: number, username: string, certLabel?: string | null, password?: string | null) => Promise<void>;
   disconnect: () => Promise<void>;
@@ -554,6 +561,7 @@ const INITIAL: Pick<
   | "passwordAttempted"
   | "pendingConnect"
   | "connectedCertLabel"
+  | "bootstrapStage"
 > = {
   status: "disconnected",
   channels: [],
@@ -616,6 +624,7 @@ const INITIAL: Pick<
   passwordAttempted: false,
   pendingConnect: null,
   connectedCertLabel: null,
+  bootstrapStage: null,
 };
 
 // --- Store --------------------------------------------------------
@@ -655,6 +664,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       passwordRequired: false,
       pendingConnect: { host, port, username, certLabel: certLabel ?? null },
       connectedCertLabel: certLabel ?? null,
+      bootstrapStage: "Negotiating with server...",
     });
     try {
       await invoke("connect", {
@@ -665,7 +675,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         password: password ?? null,
       });
     } catch (e) {
-      set({ status: "disconnected", error: String(e), pendingConnect: null, connectedCertLabel: null });
+      set({
+        status: "disconnected",
+        error: String(e),
+        pendingConnect: null,
+        connectedCertLabel: null,
+        bootstrapStage: null,
+      });
     }
   },
 
@@ -1485,21 +1501,26 @@ export async function initEventListeners(
         silencedChannels: silenced,
         mutedPushChannels: mutedPush,
         userVolumes: storedVolumes,
+        bootstrapStage: "Fetching channels and users...",
       });
-      navigate("/chat");
 
-      // Load channels/users/messages lazily in the background.
+      // Load channels/users/messages, then resolve identity, then
+      // hand off to the chat view.  We delay `navigate("/chat")` until
+      // the visible bootstrap is done so the connect-page progress bar
+      // stays visible until the chat view actually has data.
       useAppStore
         .getState()
         .refreshState()
         .then(async () => {
           // Fetch the channel the user is currently in.
+          useAppStore.setState({ bootstrapStage: "Locating your channel..." });
           const currentCh = await invoke<number | null>("get_current_channel");
           if (currentCh !== null) {
             useAppStore.setState({ currentChannel: currentCh });
           }
 
           // Fetch our own session ID.
+          useAppStore.setState({ bootstrapStage: "Identifying you to the server..." });
           const ownSession = await invoke<number | null>("get_own_session");
           useAppStore.setState({ ownSession });
 
@@ -1544,6 +1565,10 @@ export async function initEventListeners(
           // Apply persisted per-user volumes to backend for all current users.
           applyStoredVolumesToNewUsers();
 
+          // Visible bootstrap is done - drop the loading bar and reveal the chat view.
+          useAppStore.setState({ bootstrapStage: null });
+          navigate("/chat");
+
           // Restore voice call state from before the disconnect.
           // isRestoringVoice suppresses pref writes from the
           // voice-state-changed listener during this sequence so that
@@ -1565,6 +1590,13 @@ export async function initEventListeners(
           } catch {
             // Voice restore is best-effort.
           }
+        })
+        .catch((err) => {
+          // If the bootstrap chain fails, surface it but never leave the UI
+          // stranded on a permanent loading bar.
+          console.error("Post-connect bootstrap error:", err);
+          useAppStore.setState({ bootstrapStage: null });
+          navigate("/chat");
         });
     }),
   );
@@ -1685,6 +1717,7 @@ export async function initEventListeners(
           status: "disconnected",
           error: passwordAttempted ? event.payload.reason : null,
           passwordRequired: true,
+          bootstrapStage: null,
           // pendingConnect was set by the connect action - keep it.
         });
       } else {
@@ -1692,6 +1725,7 @@ export async function initEventListeners(
           status: "disconnected",
           error: event.payload.reason,
           pendingConnect: null,
+          bootstrapStage: null,
         });
       }
       navigate("/");

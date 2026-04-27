@@ -3,6 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AclGroup, ChannelEntry, RegisteredUser, UserCommentPayload, UserEntry } from "../../types";
 import { useAclGroups } from "../../hooks/useAclGroups";
+import { useAppStore } from "../../store";
+import {
+  getCachedRegisteredUsers,
+  saveCachedRegisteredUsers,
+} from "../../preferencesStorage";
 import { UserListItem } from "./UserListItem";
 import styles from "./ChannelSidebar.module.css";
 
@@ -179,6 +184,39 @@ export function buildMemberGroups(
   return result;
 }
 
+/** Skeleton placeholder shown while the registered-user list loads.
+ *  Renders a couple of faux groups so the layout matches the real
+ *  content and avoids a noticeable jump when data arrives. */
+function MembersSkeleton() {
+  const sections: ReadonlyArray<{ key: string; rows: number; titleWidth: number }> = [
+    { key: "s1", rows: 4, titleWidth: 64 },
+    { key: "s2", rows: 3, titleWidth: 92 },
+  ];
+  return (
+    <>
+      {sections.map((section) => (
+        <section key={section.key} className={styles.memberGroup}>
+          <div className={styles.membersGroupTitle}>
+            <span
+              className={styles.skeletonShimmer}
+              style={{ display: "inline-block", width: section.titleWidth, height: 10, borderRadius: 4 }}
+              aria-hidden="true"
+            />
+          </div>
+          <div className={styles.memberGroupBody}>
+            {Array.from({ length: section.rows }).map((_, i) => (
+              <div key={`${section.key}-${i}`} className={styles.skeletonRow} aria-hidden="true">
+                <span className={`${styles.skeletonShimmer} ${styles.skeletonAvatar}`} />
+                <span className={`${styles.skeletonShimmer} ${styles.skeletonName}`} />
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </>
+  );
+}
+
 /**
  * Members tab for the sidebar.  Lists every user (online + offline
  * registered) grouped by their primary ACL role.  The whole tab scrolls
@@ -195,14 +233,68 @@ export function MembersTab({
 }: MembersTabProps) {
   const [registered, setRegistered] = useState<readonly RegisteredUser[]>([]);
   const [fetchedComments, setFetchedComments] = useState<ReadonlyMap<number, string>>(new Map());
+  const [loading, setLoading] = useState<boolean>(true);
   /** Tracks user_ids for which a blob request has already been sent
    * to avoid redundant requests if the hover card is opened repeatedly. */
   const requestedRef = useRef<Set<number>>(new Set());
   const aclGroups = useAclGroups();
+  const pendingConnect = useAppStore((s) => s.pendingConnect);
+  const serverKey = pendingConnect ? `${pendingConnect.host}:${pendingConnect.port}` : null;
 
   useEffect(() => {
+    /** Minimum visible time for the spinner so it doesn't flash on
+     *  fast LAN responses. */
+    const MIN_SPINNER_MS = 450;
+    const startedAt = Date.now();
+    let cancelled = false;
+    let pendingPayload: readonly RegisteredUser[] | null = null;
+    let cacheEntryUsers: readonly RegisteredUser[] | null = null;
+    let minTimer: number | null = null;
+    let minElapsed = false;
+
+    setRegistered([]);
+    setLoading(true);
+
+    const flush = () => {
+      if (cancelled) return;
+      const next = pendingPayload ?? cacheEntryUsers;
+      if (next) setRegistered(next);
+      setLoading(false);
+    };
+
+    const scheduleFlush = () => {
+      if (cancelled) return;
+      const elapsed = Date.now() - startedAt;
+      if (elapsed >= MIN_SPINNER_MS) {
+        flush();
+      } else if (minTimer === null) {
+        minTimer = window.setTimeout(() => {
+          minElapsed = true;
+          flush();
+        }, MIN_SPINNER_MS - elapsed);
+      }
+    };
+
+    if (serverKey) {
+      getCachedRegisteredUsers(serverKey)
+        .then((entry) => {
+          if (cancelled || !entry) return;
+          cacheEntryUsers = entry.users;
+          if (pendingPayload === null) scheduleFlush();
+        })
+        .catch(() => {});
+    }
+
     const unlistenList = listen<RegisteredUser[]>("user-list", (event) => {
-      setRegistered(event.payload);
+      pendingPayload = event.payload;
+      if (serverKey) {
+        saveCachedRegisteredUsers(serverKey, event.payload).catch(() => {});
+      }
+      if (minElapsed || Date.now() - startedAt >= MIN_SPINNER_MS) {
+        flush();
+      } else {
+        scheduleFlush();
+      }
     });
     const unlistenComment = listen<UserCommentPayload>("user-comment", (event) => {
       const { user_id, comment } = event.payload;
@@ -212,12 +304,16 @@ export function MembersTab({
         return next;
       });
     });
-    invoke("request_user_list").catch(() => {});
+    invoke("request_user_list").catch(() => {
+      scheduleFlush();
+    });
     return () => {
+      cancelled = true;
+      if (minTimer !== null) window.clearTimeout(minTimer);
       unlistenList.then((f) => f());
       unlistenComment.then((f) => f());
     };
-  }, []);
+  }, [serverKey]);
 
   const handleRequestComment = (userId: number) => {
     if (requestedRef.current.has(userId)) return;
@@ -239,6 +335,20 @@ export function MembersTab({
     () => groups.reduce((sum, g) => sum + g.rows.length, 0),
     [groups],
   );
+
+  if (loading && totalMembers === 0) {
+    return (
+      <div
+        className={styles.membersTab}
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+        aria-label="Loading members"
+      >
+        <MembersSkeleton />
+      </div>
+    );
+  }
 
   if (totalMembers === 0) {
     return (
@@ -275,6 +385,31 @@ export function MembersTab({
           </div>
         </section>
       ))}
+      {loading && (
+        <section
+          className={styles.memberGroup}
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+          aria-label="Loading offline members"
+        >
+          <div className={styles.membersGroupTitle}>
+            <span
+              className={styles.skeletonShimmer}
+              style={{ display: "inline-block", width: 110, height: 10, borderRadius: 4 }}
+              aria-hidden="true"
+            />
+          </div>
+          <div className={styles.memberGroupBody}>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={`offline-skel-${i}`} className={styles.skeletonRow} aria-hidden="true">
+                <span className={`${styles.skeletonShimmer} ${styles.skeletonAvatar}`} />
+                <span className={`${styles.skeletonShimmer} ${styles.skeletonName}`} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

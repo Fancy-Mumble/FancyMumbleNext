@@ -21,6 +21,9 @@ interface Props {
   disabled?: boolean;
   /** ID of the server currently being connected to (shows pause button). */
   connectingId?: string | null;
+  /** Stage label rendered as the meta line on the connecting card.  When
+   *  null/undefined falls back to the static "Connecting..." string. */
+  connectingMessage?: string | null;
 }
 
 /** Quality tier based on latency. */
@@ -157,6 +160,7 @@ export default function ServerList({
   onEdit,
   disabled,
   connectingId,
+  connectingMessage,
 }: Readonly<Props>) {
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -264,7 +268,7 @@ export default function ServerList({
                 <div className={styles.info}>
                   <div className={styles.label}>{s.label || s.host}</div>
                   <div className={styles.meta}>
-                    {isThisConnecting ? "Connecting..." : s.username}
+                    {isThisConnecting ? (connectingMessage ?? "Connecting...") : s.username}
                   </div>
                 </div>
 

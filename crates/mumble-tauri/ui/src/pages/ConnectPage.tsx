@@ -62,8 +62,14 @@ const STEPS_NORMAL: StepDef[] = [
 ];
 
 export default function ConnectPage() {
-  const { connect, disconnect, status, error, passwordRequired, pendingConnect, retryWithPassword, dismissPasswordPrompt } = useAppStore();
-  const isConnecting = status === "connecting";
+  const {
+    connect, disconnect, status, error, passwordRequired, pendingConnect,
+    retryWithPassword, dismissPasswordPrompt, bootstrapStage,
+  } = useAppStore();
+  // Keep the loading bar up not just while the TLS handshake runs, but
+  // through the post-connect data bootstrap (channels, users, own session,
+  // server info).  Otherwise the user would land on an empty chat view.
+  const isConnecting = status === "connecting" || bootstrapStage !== null;
 
   /* -- which server card is actively connecting ------------------- */
   const [connectingServerId, setConnectingServerId] = useState<string | null>(null);
@@ -364,6 +370,7 @@ export default function ConnectPage() {
               onCancelConnect={handleCancelConnect}
               disabled={isConnecting}
               connectingId={connectingServerId}
+              connectingMessage={bootstrapStage}
             />
             <button
               className={styles.publicLink}
