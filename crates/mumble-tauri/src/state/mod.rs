@@ -190,14 +190,14 @@ pub(super) struct SharedState {
 
 /// Central state managed by Tauri and shared across all commands.
 pub struct AppState {
-    pub(super) inner: Arc<Mutex<SharedState>>,
+    pub(crate) inner: Arc<Mutex<SharedState>>,
     app_handle: Mutex<Option<AppHandle>>,
     start_time: Instant,
     http_client: reqwest::Client,
     pub(super) upload_cancels: Mutex<HashMap<String, CancellationToken>>,
     /// Image sources pending pickup by freshly-opened image popout windows.
     /// Keyed by random id; each entry is consumed once by `take_popout_image`.
-    pub(super) popout_images: Mutex<HashMap<String, super::PopoutImagePayload>>,
+    pub(crate) popout_images: Mutex<HashMap<String, crate::commands::popout::PopoutImagePayload>>,
 }
 
 impl AppState {
