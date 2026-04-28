@@ -14,6 +14,7 @@ import type { SavedServer, ServerPingResult, UserMode } from "../types";
 import ServerList from "../components/server/ServerList";
 import ServerEditSheet from "../components/server/ServerEditSheet";
 import PublicServerList from "../components/server/PublicServerList";
+import BrandLogo from "../components/elements/BrandLogo";
 import PasswordDialog from "../components/server/PasswordDialog";
 import styles from "./ConnectPage.module.css";
 
@@ -339,7 +340,7 @@ export default function ConnectPage() {
       <div className={cardClass}>
         {/* Logo - always visible */}
         <div className={styles.logo}>
-          <div className={styles.logoIcon}>M</div>
+          <BrandLogo size={64} className={styles.logoIcon} />
           <h1 className={styles.title}>Fancy Mumble</h1>
           <p className={styles.subtitle}>
             {view === "servers" || view === "public"

@@ -346,6 +346,12 @@ export interface UserPreferences {
   disableLinkPreviews?: boolean;
   /** When true, automatically retry connecting after an unexpected disconnect. */
   autoReconnect?: boolean;
+  /** When true, app updates are downloaded and installed automatically on
+   *  startup (Discord-style). When false, the user is prompted. */
+  autoUpdateOnStartup?: boolean;
+  /** Version string the user chose to skip in the updater bootstrapper.
+   *  Updates matching this version are silently ignored on startup. */
+  skippedUpdateVersion?: string | null;
   /** Last active sidebar tab — restored after reconnect. */
   sidebarActiveTab?: "channels" | "members";
   /** Whether voice (mic on/can-hear) was enabled when last disconnected.

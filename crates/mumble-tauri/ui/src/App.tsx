@@ -13,13 +13,15 @@ import type { NotificationSoundSettings } from "./types";
 import TitleBar from "./components/layout/TitleBar";
 import ConnectPage from "./pages/ConnectPage";
 import LoadingSplash from "./components/elements/LoadingSplash";
+import { isUpdaterWindow } from "./updater";
+import UpdaterWindow from "./updater/UpdaterWindow";
+import PopoutPage from "./pages/PopoutPage";
 
 const ChatPage = lazy(() => import("./pages/ChatPage"));
 const SettingsPage = lazy(() => import("./pages/settings"));
 const AdminPanel = lazy(() => import("./pages/admin"));
 const RoleEditorPage = lazy(() => import("./pages/admin/RoleEditorPage"));
 const WelcomePage = lazy(() => import("./pages/WelcomePage"));
-const PopoutPage = lazy(() => import("./pages/PopoutPage"));
 
 /**
  * Returns true when this webview window is an image popout window.
@@ -38,18 +40,20 @@ function isPopoutWindow(): boolean {
   return !!label && label.startsWith("popout-");
 }
 
-export default function App() {
-  // Popout windows render a stripped-down, decoration-free image viewer.
-  // Render them before any of the heavy main-app effects run.
-  if (isPopoutWindow()) {
-    return (
-      <Suspense fallback={null}>
-        <PopoutPage />
-      </Suspense>
-    );
-  }
+const enum WindowKind { Main, Popout, Updater }
 
-  return <MainApp />;
+function getWindowKind(): WindowKind {
+  if (isUpdaterWindow()) return WindowKind.Updater;
+  if (isPopoutWindow()) return WindowKind.Popout;
+  return WindowKind.Main;
+}
+
+export default function App() {
+  switch (getWindowKind()) {
+    case WindowKind.Updater: return <UpdaterWindow />;
+    case WindowKind.Popout:  return <PopoutPage />;
+    default:                 return <MainApp />;
+  }
 }
 
 function MainApp() {
@@ -74,6 +78,12 @@ function MainApp() {
       setKlipyApiKey(prefs.klipyApiKey);
       setKlipyApiKeyBanner(prefs.klipyApiKey);
       useAppStore.setState({ disableLinkPreviews: prefs.disableLinkPreviews ?? false });
+      // Inform the Rust updater whether to auto-install on startup.
+      invoke("updater_set_auto_install", { enabled: prefs.autoUpdateOnStartup ?? false })
+        .catch(() => undefined);
+      // Inform the Rust updater of the version (if any) the user chose to skip.
+      invoke("updater_set_skipped_version", { version: prefs.skippedUpdateVersion ?? null })
+        .catch(() => undefined);
     });
     getNotificationSounds().then((ns) => {
       if (ns) setNotifSounds(ns);

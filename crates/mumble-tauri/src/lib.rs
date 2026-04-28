@@ -15,6 +15,8 @@ mod audio;
 pub(crate) mod commands;
 pub mod platform;
 mod state;
+#[cfg(not(target_os = "android"))]
+mod updater;
 
 use state::AppState;
 use std::sync::OnceLock;
@@ -56,6 +58,15 @@ pub fn run() {
             if let Err(e) = platform::desktop::tray::setup_tray(app) {
                 tracing::warn!("Failed to create system tray icon: {e}");
             }
+            #[cfg(not(target_os = "android"))]
+            {
+                // Force-hide the main window: the window-state plugin may
+                // have just shown it after restoring saved geometry.
+                if let Some(win) = app.get_webview_window(updater::MAIN_WINDOW_LABEL) {
+                    let _ = win.hide();
+                }
+                updater::init(app.handle());
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -65,6 +76,12 @@ pub fn run() {
                         s.prefs.app_focused = *focused;
                     }
                 }
+            }
+            #[cfg(not(target_os = "android"))]
+            if matches!(event, tauri::WindowEvent::Destroyed)
+                && window.label() == updater::UPDATER_WINDOW_LABEL
+            {
+                updater::show_main_window(&window.app_handle().clone());
             }
         })
         .build(tauri::generate_context!())
@@ -138,10 +155,26 @@ fn create_base_builder() -> tauri::Builder<tauri::Wry> {
     );
 
     #[cfg(not(target_os = "android"))]
-    let builder = builder.plugin(tauri_plugin_window_state::Builder::new().build());
+    let builder = builder.plugin(
+        tauri_plugin_window_state::Builder::new()
+            // Restore size/position/maximised state, but NEVER restore
+            // visibility. The updater module decides whether the main
+            // window should appear on launch.
+            .with_state_flags(
+                tauri_plugin_window_state::StateFlags::all()
+                    & !tauri_plugin_window_state::StateFlags::VISIBLE,
+            )
+            // Don't track the updater window - it has a fixed size set
+            // in window.rs that must not be overridden by stale state.
+            .with_denylist(&[updater::UPDATER_WINDOW_LABEL])
+            .build(),
+    );
 
     #[cfg(not(target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+
+    #[cfg(not(target_os = "android"))]
+    let builder = updater::register_plugins(builder);
 
     builder
 }
@@ -267,6 +300,18 @@ macro_rules! all_command_handlers {
             commands::popout::open_image_popout,
             commands::popout::take_popout_image,
             commands::window::set_window_aspect_ratio,
+            #[cfg(not(target_os = "android"))]
+            updater::commands::updater_check,
+            #[cfg(not(target_os = "android"))]
+            updater::commands::updater_pending,
+            #[cfg(not(target_os = "android"))]
+            updater::commands::updater_download_and_install,
+            #[cfg(not(target_os = "android"))]
+            updater::commands::updater_dismiss,
+            #[cfg(not(target_os = "android"))]
+            updater::commands::updater_set_auto_install,
+            #[cfg(not(target_os = "android"))]
+            updater::commands::updater_set_skipped_version,
         ]
     };
 }

@@ -31,6 +31,8 @@ const DEFAULTS: UserPreferences = {
   disableOsmMaps: false,
   disableLinkPreviews: false,
   autoReconnect: false,
+  autoUpdateOnStartup: false,
+  skippedUpdateVersion: null,
 };
 
 async function getStore() {

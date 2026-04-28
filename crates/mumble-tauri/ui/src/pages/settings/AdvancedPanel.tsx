@@ -14,32 +14,36 @@ export function AdvancedPanel({
   klipyApiKey,
   logLevel,
   autoReconnect,
+  autoUpdateOnStartup,
   timeFormat,
   convertToLocalTime,
   onToggleMode,
   onKlipyApiKeyChange,
   onLogLevelChange,
   onToggleAutoReconnect,
+  onToggleAutoUpdate,
   onTimeFormatChange,
   onConvertToLocalTimeChange,
   onToggleDeveloperMode,
   onReset,
-}: {
+}: Readonly<{
   userMode: UserMode;
   klipyApiKey: string;
   logLevel: string;
   autoReconnect: boolean;
+  autoUpdateOnStartup: boolean;
   timeFormat: TimeFormat;
   convertToLocalTime: boolean;
   onToggleMode: () => void;
   onKlipyApiKeyChange: (key: string) => void;
   onLogLevelChange: (level: string) => void;
   onToggleAutoReconnect: () => void;
+  onToggleAutoUpdate: () => void;
   onTimeFormatChange: (fmt: TimeFormat) => void;
   onConvertToLocalTimeChange: () => void;
   onToggleDeveloperMode: () => void;
   onReset: () => void;
-}) {
+}>) {
   const [confirming, setConfirming] = useState(false);
 
   return (
@@ -136,6 +140,24 @@ export function AdvancedPanel({
             </p>
           </div>
           <Toggle checked={autoReconnect} onChange={onToggleAutoReconnect} />
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.toggleRow}>
+          <div className={styles.toggleInfo}>
+            <h3 className={styles.sectionTitle}>Auto-update on startup</h3>
+            <p className={styles.fieldHint}>
+              When enabled, available updates are downloaded and installed
+              automatically when Fancy Mumble starts. A small progress window
+              appears during the download. When disabled, you will be asked
+              before each update.
+            </p>
+          </div>
+          <Toggle
+            checked={autoUpdateOnStartup}
+            onChange={onToggleAutoUpdate}
+          />
         </div>
       </section>
 

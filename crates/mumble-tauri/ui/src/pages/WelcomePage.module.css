@@ -32,18 +32,7 @@
 }
 
 .logoIcon {
-  width: 52px;
-  height: 52px;
   margin: 0 auto 12px;
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--color-accent), var(--color-purple));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  font-weight: 700;
-  color: white;
-  box-shadow: 0 4px 16px var(--color-accent-glow);
 }
 
 .title {

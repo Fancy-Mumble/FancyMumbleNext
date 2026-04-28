@@ -1,0 +1,39 @@
+/**
+ * Reusable Fancy Mumble brand mark.
+ *
+ * Hardened against accidental overrides: explicit !important on the
+ * dimensions guarantees a square box no matter what class merging
+ * arrangement the consumer uses.
+ *
+ * Uses literal color values rather than CSS custom properties so it
+ * renders identically in the main app, the welcome wizard, and the
+ * isolated updater bootstrapper window (which loads no theme).
+ */
+.logo {
+  box-sizing: border-box !important;
+  display: grid !important;
+  place-items: center !important;
+  aspect-ratio: 1 / 1 !important;
+  flex: 0 0 auto !important;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #2aabee 0%, #7c3aed 100%);
+  color: #ffffff;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  box-shadow: 0 4px 20px rgba(42, 171, 238, 0.35);
+  overflow: hidden;
+}
+
+/*
+ * The capital M sits between the baseline and the cap-height. With
+ * `line-height: 1` the inline-box equals the font-size, but the
+ * baseline is offset from the bottom by the font's descender ratio
+ * (typically ~20% in Inter / Segoe UI). This pushes the rendered
+ * glyph slightly above geometric centre. The translate compensates.
+ */
+.glyph {
+  display: block;
+  transform: translateY(0.06em);
+}
+

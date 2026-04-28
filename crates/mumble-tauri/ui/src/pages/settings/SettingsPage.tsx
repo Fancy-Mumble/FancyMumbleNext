@@ -109,6 +109,7 @@ export default function SettingsPage() {
   const [disableOsmMaps, setDisableOsmMaps] = useState(false);
   const [disableLinkPreviews, setDisableLinkPreviews] = useState(false);
   const [autoReconnect, setAutoReconnect] = useState(false);
+  const [autoUpdateOnStartup, setAutoUpdateOnStartup] = useState(false);
   const [logLevel, setLogLevel] = useState<string>("info");
   const [useRodioBackend, setUseRodioBackend] = useState(true);
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("auto");
@@ -178,6 +179,7 @@ export default function SettingsPage() {
         setDisableOsmMaps(prefs.disableOsmMaps ?? false);
         setDisableLinkPreviews(prefs.disableLinkPreviews ?? false);
         setAutoReconnect(prefs.autoReconnect ?? false);
+        setAutoUpdateOnStartup(prefs.autoUpdateOnStartup ?? false);
         setLogLevel(prefs.logLevel ?? (prefs.debugLogging ? "debug" : "info"));
         setTimeFormat(prefs.timeFormat);
         setConvertToLocalTime(prefs.convertToLocalTime);
@@ -474,6 +476,15 @@ export default function SettingsPage() {
     });
   }, []);
 
+  const handleToggleAutoUpdate = useCallback(() => {
+    setAutoUpdateOnStartup((prev) => {
+      const next = !prev;
+      updatePreferences({ autoUpdateOnStartup: next });
+      invoke("updater_set_auto_install", { enabled: next }).catch(() => undefined);
+      return next;
+    });
+  }, []);
+
   const handleToggleDeveloperMode = useCallback(async () => {
     const next: UserMode = userMode === "developer" ? "expert" : "developer";
     setUserMode(next);
@@ -660,12 +671,14 @@ export default function SettingsPage() {
               klipyApiKey={klipyApiKey}
               logLevel={logLevel}
               autoReconnect={autoReconnect}
+              autoUpdateOnStartup={autoUpdateOnStartup}
               timeFormat={timeFormat}
               convertToLocalTime={convertToLocalTime}
               onToggleMode={handleToggleMode}
               onKlipyApiKeyChange={handleKlipyApiKeyChange}
               onLogLevelChange={handleLogLevelChange}
               onToggleAutoReconnect={handleToggleAutoReconnect}
+              onToggleAutoUpdate={handleToggleAutoUpdate}
               onTimeFormatChange={handleTimeFormatChange}
               onConvertToLocalTimeChange={handleConvertToLocalTimeChange}
               onToggleDeveloperMode={handleToggleDeveloperMode}

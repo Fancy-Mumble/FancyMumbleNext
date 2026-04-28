@@ -50,7 +50,9 @@ cpal = "0.17.3"
 rodio = { version = "0.22", features = ["recording"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-window-state = "2"
-
+# Auto-updater (desktop only). All updater logic lives in `src/updater/`.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 # Android: mumble-protocol with Opus codec + oboe for native audio I/O.
 [target.'cfg(target_os = "android")'.dependencies]
 mumble-protocol = { path = "../mumble-protocol", features = ["opus-codec", "persistent-chat", "rnnoise-denoiser"] }
