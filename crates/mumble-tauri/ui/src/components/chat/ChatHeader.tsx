@@ -1,17 +1,9 @@
+import { BellIcon, BellOffIcon, CloseIcon, DatabaseIcon, FolderIcon, PollIcon, ScreenShareIcon, SearchIcon, UsersGroupIcon } from "../../icons";
 import { isMobile } from "../../utils/platform";
 import type { KeyTrustLevel } from "../../types";
 import KeyTrustIndicator from "../security/KeyTrustIndicator";
 import KebabMenu, { type KebabMenuItem } from "../elements/KebabMenu";
-import PollIcon from "../../assets/icons/communication/poll.svg?react";
-import BellIcon from "../../assets/icons/status/bell.svg?react";
-import BellOffIcon from "../../assets/icons/status/bell-off.svg?react";
-import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
 import styles from "./ChatView.module.css";
-import UsersGroupIcon from "../../assets/icons/user/users-group.svg?react";
-import DatabaseIcon from "../../assets/icons/general/database.svg?react";
-import SearchIcon from "../../assets/icons/action/search.svg?react";
-import FolderIcon from "../../assets/icons/general/folder.svg?react";
 import { colorFor } from "../sidebar/UserListItem";
 
 /** Info about the active broadcast, passed in when streaming is active. */
@@ -35,7 +27,6 @@ interface ChatHeaderProps {
   readonly memberCount: number;
   readonly isInChannel: boolean;
   readonly isDm?: boolean;
-  readonly isGroup?: boolean;
   readonly isPersisted?: boolean;
   readonly onJoin?: () => void;
   readonly onChannelInfoToggle?: () => void;
@@ -51,14 +42,44 @@ interface ChatHeaderProps {
   readonly sfuAvailable?: boolean;
   /** When a stream is active, display broadcast info in the header. */
   readonly broadcastInfo?: BroadcastInfo;
+  /** Whether there are unseen pin changes (shows red dot on kebab & menu item). */
+  readonly hasNewPins?: boolean;
+  /** Called when the user opens the pinned messages panel. */
+  readonly onPinnedMessages?: () => void;
+  /** Whether the user has unseen completed downloads. */
+  readonly hasNewDownloads?: boolean;
+  /** Called when the user opens the downloads panel. */
+  readonly onDownloads?: () => void;
 }
 
 function buildKebabItems({
   onPollCreate,
   isSilenced,
   onToggleSilence,
-}: Pick<ChatHeaderProps, "onPollCreate" | "isSilenced" | "onToggleSilence">): KebabMenuItem[] {
+  hasNewPins,
+  onPinnedMessages,
+  hasNewDownloads,
+  onDownloads,
+}: Pick<ChatHeaderProps, "onPollCreate" | "isSilenced" | "onToggleSilence" | "hasNewPins" | "onPinnedMessages" | "hasNewDownloads" | "onDownloads">): KebabMenuItem[] {
   const items: KebabMenuItem[] = [];
+  if (onPinnedMessages) {
+    items.push({
+      id: "pinned-messages",
+      label: "Pinned messages",
+      icon: <span style={{ fontSize: 15, lineHeight: 1 }}>📌</span>,
+      badge: hasNewPins,
+      onClick: onPinnedMessages,
+    });
+  }
+  if (onDownloads) {
+    items.push({
+      id: "downloads",
+      label: "Downloads",
+      icon: <FolderIcon width={16} height={16} />,
+      badge: hasNewDownloads,
+      onClick: onDownloads,
+    });
+  }
   if (onPollCreate) {
     items.push({
       id: "create-poll",
@@ -86,7 +107,6 @@ export default function ChatHeader({
   memberCount,
   isInChannel,
   isDm,
-  isGroup,
   isPersisted,
   onJoin,
   onChannelInfoToggle,
@@ -100,18 +120,20 @@ export default function ChatHeader({
   onToggleScreenShare,
   sfuAvailable,
   broadcastInfo,
+  hasNewPins,
+  onPinnedMessages,
+  hasNewDownloads,
+  onDownloads,
 }: ChatHeaderProps) {
   let prefix: string;
-  if (isGroup) prefix = "";
-  else if (isDm) prefix = "@";
+  if (isDm) prefix = "@";
   else prefix = "#";
 
   let subtitle: string;
-  if (isGroup) subtitle = `${memberCount} ${memberCount === 1 ? "member" : "members"}`;
-  else if (isDm) subtitle = "Direct Message";
+  if (isDm) subtitle = "Direct Message";
   else subtitle = `${memberCount} members`;
 
-  const privateBadge = isDm || isGroup;
+  const privateBadge = isDm;
   const isStreaming = !!broadcastInfo;
 
   return (
@@ -153,9 +175,6 @@ export default function ChatHeader({
       ) : (
         <div className={styles.headerInfo}>
           <h2 className={styles.channelName}>
-            {isGroup && (
-              <UsersGroupIcon width={18} height={18} style={{ marginRight: 6, verticalAlign: "text-bottom" }} />
-            )}
             {prefix} {channelName}
             {isPersisted && (
               <DatabaseIcon
@@ -235,8 +254,9 @@ export default function ChatHeader({
         )}
         {!privateBadge && (
           <KebabMenu
-            items={buildKebabItems({ onPollCreate, isSilenced, onToggleSilence })}
+            items={buildKebabItems({ onPollCreate, isSilenced, onToggleSilence, hasNewPins, onPinnedMessages, hasNewDownloads, onDownloads })}
             ariaLabel="Channel options"
+            badge={hasNewPins || hasNewDownloads}
           />
         )}
         {!isInChannel && onJoin && (

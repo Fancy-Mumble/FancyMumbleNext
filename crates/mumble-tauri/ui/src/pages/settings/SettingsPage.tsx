@@ -7,6 +7,7 @@ import type { AudioDevice, AudioSettings, FancyProfile, UserMode, TimeFormat } f
 import { getPreferences, updatePreferences, getSavedAudioSettings, saveAudioSettings } from "../../preferencesStorage";
 import { serializeProfile, dataUrlToBytes } from "../../profileFormat";
 import { setKlipyApiKey } from "../../components/chat/GifPicker";
+import { setKlipyApiKey as setKlipyApiKeyBanner } from "./KlipyGifBrowser";
 import { useAppStore } from "../../store";
 import {
   type ShortcutBindings,
@@ -20,6 +21,7 @@ import { ProfilePanel } from "./ProfilePanel";
 import { AudioPanel } from "./AudioPanel";
 import { ShortcutsPanel } from "./ShortcutsPanel";
 import { AdvancedPanel } from "./AdvancedPanel";
+import { PrivacyPanel } from "./PrivacyPanel";
 import { IdentitiesPanel } from "./IdentitiesPanel";
 import { PersonalizationPanel } from "./PersonalizationPanel";
 import { NotificationsPanel, DEFAULT_NOTIFICATION_SOUNDS } from "./NotificationsPanel";
@@ -31,7 +33,7 @@ import styles from "./SettingsPage.module.css";
 
 // -- Types & constants ----------------------------------------------
 
-type Tab = "profile" | "voice" | "shortcuts" | "identities" | "advanced" | "personalize" | "notifications";
+type Tab = "profile" | "voice" | "shortcuts" | "identities" | "advanced" | "personalize" | "notifications" | "privacy";
 
 const DEFAULT_AUDIO: AudioSettings = {
   selected_device: null,
@@ -45,6 +47,8 @@ const DEFAULT_AUDIO: AudioSettings = {
   bitrate_bps: 72000,
   frame_size_ms: 20,
   noise_suppression: true,
+  denoiser_algorithm: "rnnoise",
+  denoiser_params: {},
   selected_output_device: null,
   input_volume: 1,
   output_volume: 1,
@@ -74,6 +78,7 @@ const TABS: TabDef<Tab>[] = [
   { id: "shortcuts", label: "Shortcuts", icon: "⌨️" },
   { id: "identities", label: "Identities", icon: "🔑" },
   { id: "notifications", label: "Notifications", icon: "🔔" },
+  { id: "privacy", label: "Privacy", icon: "🔒" },
   { id: "personalize", label: "Personalize", icon: "🎨" },
   { id: "advanced", label: "Advanced", icon: "⚙️" },
 ];
@@ -98,9 +103,14 @@ export default function SettingsPage() {
   const [defaultUsername, setDefaultUsername] = useState("");
   const [klipyApiKey, setKlipyApiKeyState] = useState("");
   const [enableNotifications, setEnableNotifications] = useState(true);
-  const [disableDualPath, setDisableDualPath] = useState(false);
+  const [enableDualPath, setEnableDualPath] = useState(false);
   const [disableReadReceipts, setDisableReadReceipts] = useState(false);
-  const [debugLogging, setDebugLogging] = useState(false);
+  const [disableTypingIndicators, setDisableTypingIndicators] = useState(false);
+  const [disableOsmMaps, setDisableOsmMaps] = useState(false);
+  const [disableLinkPreviews, setDisableLinkPreviews] = useState(false);
+  const [autoReconnect, setAutoReconnect] = useState(false);
+  const [autoUpdateOnStartup, setAutoUpdateOnStartup] = useState(false);
+  const [logLevel, setLogLevel] = useState<string>("info");
   const [useRodioBackend, setUseRodioBackend] = useState(true);
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("auto");
   const [convertToLocalTime, setConvertToLocalTime] = useState(true);
@@ -161,10 +171,16 @@ export default function SettingsPage() {
         setDefaultUsername(prefs.defaultUsername);
         setKlipyApiKeyState(prefs.klipyApiKey ?? "");
         setKlipyApiKey(prefs.klipyApiKey);
+        setKlipyApiKeyBanner(prefs.klipyApiKey);
         setEnableNotifications(prefs.enableNotifications ?? true);
-        setDisableDualPath(prefs.disableDualPath ?? false);
+        setEnableDualPath(prefs.enableDualPath ?? false);
         setDisableReadReceipts(prefs.disableReadReceipts ?? false);
-        setDebugLogging(prefs.debugLogging ?? false);
+        setDisableTypingIndicators(prefs.disableTypingIndicators ?? false);
+        setDisableOsmMaps(prefs.disableOsmMaps ?? false);
+        setDisableLinkPreviews(prefs.disableLinkPreviews ?? false);
+        setAutoReconnect(prefs.autoReconnect ?? false);
+        setAutoUpdateOnStartup(prefs.autoUpdateOnStartup ?? false);
+        setLogLevel(prefs.logLevel ?? (prefs.debugLogging ? "debug" : "info"));
         setTimeFormat(prefs.timeFormat);
         setConvertToLocalTime(prefs.convertToLocalTime);
       } catch {
@@ -355,6 +371,7 @@ export default function SettingsPage() {
   const handleKlipyApiKeyChange = useCallback(async (key: string) => {
     setKlipyApiKeyState(key);
     setKlipyApiKey(key);
+    setKlipyApiKeyBanner(key);
     await updatePreferences({ klipyApiKey: key });
   }, []);
 
@@ -408,10 +425,10 @@ export default function SettingsPage() {
   );
 
   const handleToggleDualPath = useCallback(async () => {
-    setDisableDualPath((prev) => {
+    setEnableDualPath((prev) => {
       const next = !prev;
-      updatePreferences({ disableDualPath: next });
-      invoke("set_disable_dual_path", { disabled: next }).catch((e) =>
+      updatePreferences({ enableDualPath: next });
+      invoke("set_disable_dual_path", { disabled: !next }).catch((e) =>
         console.error("set_disable_dual_path error:", e),
       );
       return next;
@@ -426,23 +443,63 @@ export default function SettingsPage() {
     });
   }, []);
 
+  const handleToggleTypingIndicators = useCallback(() => {
+    setDisableTypingIndicators((prev) => {
+      const next = !prev;
+      updatePreferences({ disableTypingIndicators: next });
+      return next;
+    });
+  }, []);
+
+  const handleToggleOsmMaps = useCallback(() => {
+    setDisableOsmMaps((prev) => {
+      const next = !prev;
+      updatePreferences({ disableOsmMaps: next });
+      return next;
+    });
+  }, []);
+
+  const handleToggleLinkPreviews = useCallback(() => {
+    setDisableLinkPreviews((prev) => {
+      const next = !prev;
+      updatePreferences({ disableLinkPreviews: next });
+      useAppStore.setState({ disableLinkPreviews: next });
+      return next;
+    });
+  }, []);
+
+  const handleToggleAutoReconnect = useCallback(() => {
+    setAutoReconnect((prev) => {
+      const next = !prev;
+      updatePreferences({ autoReconnect: next });
+      return next;
+    });
+  }, []);
+
+  const handleToggleAutoUpdate = useCallback(() => {
+    setAutoUpdateOnStartup((prev) => {
+      const next = !prev;
+      updatePreferences({ autoUpdateOnStartup: next });
+      invoke("updater_set_auto_install", { enabled: next }).catch(() => undefined);
+      return next;
+    });
+  }, []);
+
   const handleToggleDeveloperMode = useCallback(async () => {
     const next: UserMode = userMode === "developer" ? "expert" : "developer";
     setUserMode(next);
     await updatePreferences({ userMode: next });
   }, [userMode]);
 
-  const handleToggleDebugLogging = useCallback(async () => {
-    const next = !debugLogging;
-    const filter = next ? "debug" : "info";
+  const handleLogLevelChange = useCallback(async (level: string) => {
     try {
-      await invoke("set_log_level", { filter });
-      setDebugLogging(next);
-      await updatePreferences({ debugLogging: next });
+      await invoke("set_log_level", { filter: level });
+      setLogLevel(level);
+      await updatePreferences({ logLevel: level });
     } catch (e) {
       console.error("Failed to set log level:", e);
     }
-  }, [debugLogging]);
+  }, []);
 
   const handleToggleAudioBackend = useCallback(async () => {
     const next = !useRodioBackend;
@@ -593,20 +650,35 @@ export default function SettingsPage() {
             />
           )}
 
+          {tab === "privacy" && (
+            <PrivacyPanel
+              enableDualPath={enableDualPath}
+              disableReadReceipts={disableReadReceipts}
+              disableTypingIndicators={disableTypingIndicators}
+              disableOsmMaps={disableOsmMaps}
+              disableLinkPreviews={disableLinkPreviews}
+              onToggleDualPath={handleToggleDualPath}
+              onToggleReadReceipts={handleToggleReadReceipts}
+              onToggleTypingIndicators={handleToggleTypingIndicators}
+              onToggleOsmMaps={handleToggleOsmMaps}
+              onToggleLinkPreviews={handleToggleLinkPreviews}
+            />
+          )}
+
           {tab === "advanced" && (
             <AdvancedPanel
               userMode={userMode}
               klipyApiKey={klipyApiKey}
-              disableDualPath={disableDualPath}
-              disableReadReceipts={disableReadReceipts}
-              debugLogging={debugLogging}
+              logLevel={logLevel}
+              autoReconnect={autoReconnect}
+              autoUpdateOnStartup={autoUpdateOnStartup}
               timeFormat={timeFormat}
               convertToLocalTime={convertToLocalTime}
               onToggleMode={handleToggleMode}
               onKlipyApiKeyChange={handleKlipyApiKeyChange}
-              onToggleDualPath={handleToggleDualPath}
-              onToggleReadReceipts={handleToggleReadReceipts}
-              onToggleDebugLogging={handleToggleDebugLogging}
+              onLogLevelChange={handleLogLevelChange}
+              onToggleAutoReconnect={handleToggleAutoReconnect}
+              onToggleAutoUpdate={handleToggleAutoUpdate}
               onTimeFormatChange={handleTimeFormatChange}
               onConvertToLocalTimeChange={handleConvertToLocalTimeChange}
               onToggleDeveloperMode={handleToggleDeveloperMode}

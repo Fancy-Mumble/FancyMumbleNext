@@ -10,6 +10,7 @@ mod channel_remove;
 mod channel_state;
 mod codec_version;
 mod custom_reactions_config;
+mod link_preview;
 mod pchat;
 mod permission_denied;
 mod permission_query;
@@ -20,6 +21,7 @@ mod reject;
 mod server_config;
 mod server_sync;
 mod text_message;
+mod typing_indicator;
 mod user_list;
 mod user_remove;
 mod user_state;
@@ -106,7 +108,7 @@ impl HandlerContext {
         let enabled = self
             .shared
             .lock()
-            .map(|s| s.notifications_enabled)
+            .map(|s| s.prefs.notifications_enabled)
             .unwrap_or(true);
         if enabled {
             self.emitter
@@ -152,9 +154,13 @@ pub(crate) fn dispatch(msg: &ControlMessage, ctx: &HandlerContext) {
         ControlMessage::PchatSenderKeyDistribution(m) => m.handle(ctx),
         ControlMessage::PchatReactionDeliver(m) => m.handle(ctx),
         ControlMessage::PchatReactionFetchResponse(m) => m.handle(ctx),
+        ControlMessage::PchatPinDeliver(m) => m.handle(ctx),
+        ControlMessage::PchatPinFetchResponse(m) => m.handle(ctx),
         ControlMessage::WebRtcSignal(m) => m.handle(ctx),
         ControlMessage::FancyCustomReactionsConfig(m) => m.handle(ctx),
         ControlMessage::FancyReadReceiptDeliver(m) => m.handle(ctx),
+        ControlMessage::FancyTypingIndicator(m) => m.handle(ctx),
+        ControlMessage::FancyLinkPreviewResponse(m) => m.handle(ctx),
         ControlMessage::BanList(m) => m.handle(ctx),
         ControlMessage::UserList(m) => m.handle(ctx),
         ControlMessage::Acl(m) => m.handle(ctx),

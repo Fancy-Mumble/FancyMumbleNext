@@ -1,8 +1,5 @@
+import { HeadphonesIcon, HeadphonesOffIcon, MicIcon, MicOffIcon } from "../../icons";
 import { useAppStore } from "../../store";
-import MicIcon from "../../assets/icons/audio/mic.svg?react";
-import MicOffIcon from "../../assets/icons/audio/mic-off.svg?react";
-import HeadphonesIcon from "../../assets/icons/audio/headphones.svg?react";
-import HeadphonesOffIcon from "../../assets/icons/audio/headphones-off.svg?react";
 import styles from "./MobileCallControls.module.css";
 
 /**

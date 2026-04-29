@@ -16,6 +16,19 @@ impl HandleMessage for mumble_tcp::Acl {
                 add: g.add.clone(),
                 remove: g.remove.clone(),
                 inherited_members: g.inherited_members.clone(),
+                color: g.color.clone(),
+                icon: g.icon.clone(),
+                style_preset: g.style_preset.clone(),
+                metadata: g
+                    .metadata
+                    .iter()
+                    .map(|kv| {
+                        (
+                            kv.key.clone(),
+                            kv.value.clone().unwrap_or_default(),
+                        )
+                    })
+                    .collect(),
             })
             .collect();
 

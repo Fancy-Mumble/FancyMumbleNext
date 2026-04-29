@@ -1,0 +1,239 @@
+/* --- File Share Dialog ----------------------------------------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-overlay-heavy);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+.dialog {
+  width: 460px;
+  max-width: 95vw;
+  background: var(--color-surface);
+  border: 1px solid var(--color-glass-border);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px var(--color-overlay-strong);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--color-glass-border);
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted, #999);
+  cursor: pointer;
+  font-size: 18px;
+  transition: background 0.15s;
+}
+
+.closeBtn:hover {
+  background: var(--color-glass-hover);
+}
+
+.body {
+  padding: 16px 20px 20px;
+}
+
+.message {
+  font-size: 13px;
+  color: var(--color-text-secondary, #aaa);
+  margin: 0 0 14px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.modeList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.modeOption {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-glass-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.modeOption:hover {
+  background: var(--color-glass-hover);
+}
+
+.modeOptionActive {
+  border-color: var(--color-primary, #89b4fa);
+  background: rgba(137, 180, 250, 0.08);
+}
+
+.modeOptionDisabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modeOptionDisabled:hover {
+  background: transparent;
+}
+
+.radio {
+  margin-top: 3px;
+  accent-color: var(--color-primary, #89b4fa);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.modeText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.modeName {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--color-text, #cdd6f4);
+}
+
+.modeDesc {
+  font-size: 12px;
+  color: var(--color-text-secondary, #aaa);
+  line-height: 1.4;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-muted, #999);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: var(--color-background);
+  border: 1px solid var(--color-glass-border);
+  border-radius: 8px;
+  color: var(--color-text, #cdd6f4);
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.input:focus {
+  border-color: var(--color-primary, #89b4fa);
+}
+
+.textarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--color-background);
+  border: 1px solid var(--color-glass-border);
+  border-radius: 8px;
+  color: var(--color-text, #cdd6f4);
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 52px;
+  line-height: 1.4;
+}
+
+.textarea:focus {
+  border-color: var(--color-primary, #89b4fa);
+}
+
+.textarea::placeholder {
+  color: var(--color-text-muted, #999);
+}
+
+.labelOptional {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-text-muted, #999);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.cancelBtn {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--color-glass-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text, #cdd6f4);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.cancelBtn:hover {
+  background: var(--color-glass-hover);
+}
+
+.uploadBtn {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  background: var(--color-primary, #89b4fa);
+  color: var(--color-surface);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.uploadBtn:hover {
+  opacity: 0.9;
+}
+
+.uploadBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

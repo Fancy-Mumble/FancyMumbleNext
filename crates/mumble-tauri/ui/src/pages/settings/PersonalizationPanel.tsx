@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { PersonalizationData, BubbleStyle, FontSize, BgFit, ChannelViewerStyle } from "../../personalizationStorage";
 import { THEMES, applyTheme } from "../../themes";
@@ -6,6 +6,7 @@ import type { ThemeId } from "../../themes";
 import { ImageEditor } from "./ImageEditor";
 import { SliderField, Toggle } from "./SharedControls";
 import { FONT_FAMILIES, applyFont } from "../../utils/fonts";
+import { FileDropZone } from "../../components/elements/FileDropZone";
 import styles from "./SettingsPage.module.css";
 
 interface PersonalizationPanelProps {
@@ -58,7 +59,6 @@ function base64ToDataUrl(base64: string): string {
 const BLUR_DEBOUNCE_MS = 500;
 
 export function PersonalizationPanel({ data, onChange, isExpert }: PersonalizationPanelProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [editorImage, setEditorImage] = useState<string | null>(null);
   const [blurring, setBlurring] = useState(false);
 
@@ -119,15 +119,11 @@ export function PersonalizationPanel({ data, onChange, isExpert }: Personalizati
     [onChange, runProcessing],
   );
 
-  // Pick an image file
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleFileChange = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = () => setEditorImage(reader.result as string);
     reader.readAsDataURL(file);
-    e.target.value = "";
-  };
+  }, []);
 
   // After crop/resize in ImageEditor, store the original and reprocess.
   const handleEditorConfirm = useCallback(
@@ -262,48 +258,22 @@ export function PersonalizationPanel({ data, onChange, isExpert }: Personalizati
           Set a custom background image for your chat view.
         </p>
 
-        {/* Preview */}
-        {hasBackground && previewImage && (
-          <div className={styles.bgPreview}>
-            <img
-              src={previewImage}
-              alt="Chat background preview"
-              className={styles.bgPreviewImg}
-              style={{ opacity: data.chatBgOpacity }}
-            />
-            {blurring && (
-              <div className={styles.bgPreviewOverlay}>Processing...</div>
-            )}
-          </div>
-        )}
-
-        {/* Upload / Remove buttons */}
-        <input
-          ref={fileInputRef}
-          type="file"
+        {/* Upload / Remove */}
+        <FileDropZone
           accept="image/png,image/jpeg,image/webp"
-          style={{ display: "none" }}
-          onChange={handleFileChange}
+          onFile={handleFileChange}
+          label="Drop a background image here or click to browse"
+          preview={
+            hasBackground && previewImage ? (
+              <img
+                src={previewImage}
+                alt="Chat background preview"
+                style={{ opacity: data.chatBgOpacity }}
+              />
+            ) : undefined
+          }
+          onRemove={hasBackground ? handleRemove : undefined}
         />
-
-        <div className={styles.avatarActions}>
-          <button
-            type="button"
-            className={styles.ghostBtn}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {hasBackground ? "Change Image" : "Choose Image"}
-          </button>
-          {hasBackground && (
-            <button
-              type="button"
-              className={styles.ghostBtn}
-              onClick={handleRemove}
-            >
-              Remove
-            </button>
-          )}
-        </div>
       </section>
 
       {/* Blur & Appearance */}

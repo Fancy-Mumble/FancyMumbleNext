@@ -5,5 +5,7 @@
 #![allow(unused_crate_dependencies, reason = "all dependencies are used by the library target, not main.rs")]
 
 fn main() {
+    mumble_tauri::platform::pre_init();
+
     mumble_tauri::run();
 }

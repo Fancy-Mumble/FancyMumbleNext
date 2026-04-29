@@ -151,3 +151,63 @@ impl AudioDeviceFactory for PlatformAudioFactory {
 
 #[cfg(target_os = "android")]
 pub use android::OboeAudioFactory as PlatformAudioFactory;
+
+/// Soft-clip a sample to the [-1.0, 1.0] range.
+///
+/// Samples within [-0.9, 0.9] pass through unchanged.  Beyond that
+/// threshold the signal is smoothly compressed using `tanh` so it
+/// asymptotically approaches +/-1.0 without ever exceeding it.  This
+/// avoids the harsh distortion of hard clipping while preserving
+/// dynamics for normal-level audio.
+#[inline]
+pub(crate) fn soft_clip(sample: f32) -> f32 {
+    const KNEE: f32 = 0.9;
+    if sample.abs() <= KNEE {
+        return sample;
+    }
+    let sign = sample.signum();
+    let excess = sample.abs() - KNEE;
+    let compressed = KNEE + (1.0 - KNEE) * (excess / (1.0 - KNEE)).tanh();
+    sign * compressed
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "unwrap is acceptable in test code")]
+    use super::*;
+
+    #[test]
+    fn soft_clip_passes_through_below_knee() {
+        for &v in &[0.0, 0.5, -0.5, 0.89, -0.89] {
+            assert_eq!(soft_clip(v), v, "below knee should pass through unchanged");
+        }
+    }
+
+    #[test]
+    fn soft_clip_compresses_above_knee() {
+        let out = soft_clip(1.2);
+        assert!(out > 0.9, "should be above knee: {out}");
+        assert!(out < 1.0, "should be below 1.0: {out}");
+    }
+
+    #[test]
+    fn soft_clip_never_exceeds_one() {
+        for i in 1..100 {
+            let v = i as f32;
+            assert!(soft_clip(v).abs() <= 1.0, "soft_clip({v}) exceeded 1.0");
+            assert!(soft_clip(-v).abs() <= 1.0, "soft_clip({}) exceeded 1.0", -v);
+        }
+    }
+
+    #[test]
+    fn soft_clip_is_symmetric() {
+        for &v in &[0.95, 1.0, 1.5, 3.0] {
+            let pos = soft_clip(v);
+            let neg = soft_clip(-v);
+            assert!(
+                (pos + neg).abs() < 1e-6,
+                "asymmetric: soft_clip({v})={pos}, soft_clip({})={neg}", -v
+            );
+        }
+    }
+}

@@ -39,6 +39,14 @@
   line-height: 1;
 }
 
+.pillEmojiImg {
+  width: 1.1rem;
+  height: 1.1rem;
+  object-fit: contain;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
 .pillCount {
   font-size: 0.72rem;
   color: var(--color-text-secondary);

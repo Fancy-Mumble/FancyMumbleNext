@@ -1,6 +1,6 @@
+import { KebabMenuIcon } from "../../icons";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
-import KebabMenuIcon from "../../assets/icons/navigation/kebab-menu.svg?react";
 import styles from "./KebabMenu.module.css";
 
 export interface KebabMenuItem {
@@ -9,15 +9,21 @@ export interface KebabMenuItem {
   readonly icon?: React.ReactNode;
   readonly active?: boolean;
   readonly disabled?: boolean;
+  /** Show a red notification dot next to this item. */
+  readonly badge?: boolean;
+  /** Render the item with destructive styling (red). */
+  readonly danger?: boolean;
   readonly onClick: () => void;
 }
 
 interface KebabMenuProps {
   readonly items: KebabMenuItem[];
   readonly ariaLabel?: string;
+  /** Show a red notification dot on the trigger button. */
+  readonly badge?: boolean;
 }
 
-export default function KebabMenu({ items, ariaLabel = "More options" }: KebabMenuProps) {
+export default function KebabMenu({ items, ariaLabel = "More options", badge }: KebabMenuProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
@@ -56,11 +62,17 @@ export default function KebabMenu({ items, ariaLabel = "More options" }: KebabMe
         title={ariaLabel}
       >
         <KebabMenuIcon width={18} height={18} />
+        {badge && <span className={styles.badgeDot} />}
       </button>
 
       {open && createPortal(
         <>
-          <div className={styles.backdrop} onClick={close} />
+          <button
+            type="button"
+            className={styles.backdrop}
+            onClick={close}
+            aria-label="Close menu"
+          />
           <div
             className={styles.menu}
             role="menu"
@@ -69,7 +81,11 @@ export default function KebabMenu({ items, ariaLabel = "More options" }: KebabMe
             {items.map((item) => (
               <button
                 key={item.id}
-                className={`${styles.menuItem} ${item.active ? styles.menuItemActive : ""}`}
+                className={[
+                  styles.menuItem,
+                  item.active ? styles.menuItemActive : "",
+                  item.danger ? styles.menuItemDanger : "",
+                ].filter(Boolean).join(" ")}
                 role="menuitem"
                 disabled={item.disabled}
                 onClick={() => {
@@ -79,6 +95,7 @@ export default function KebabMenu({ items, ariaLabel = "More options" }: KebabMe
               >
                 {item.icon && <span className={styles.menuItemIcon}>{item.icon}</span>}
                 {item.label}
+                {item.badge && <span className={styles.itemBadgeDot} />}
               </button>
             ))}
           </div>

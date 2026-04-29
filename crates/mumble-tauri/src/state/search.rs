@@ -1,4 +1,4 @@
-﻿//! Fuzzy super-search across users, channels, groups, and messages.
+//! Fuzzy super-search across users, channels, and messages.
 
 use fancy_utils::fuzzy;
 
@@ -48,7 +48,6 @@ impl AppState {
         let scoped = channel_id.is_some();
         let search_channels = !scoped && filter == SearchFilter::All;
         let search_users = !scoped && matches!(filter, SearchFilter::All | SearchFilter::Users);
-        let search_groups = !scoped && filter == SearchFilter::All;
         let search_messages = matches!(filter, SearchFilter::All | SearchFilter::Messages | SearchFilter::Photos | SearchFilter::Links);
 
         let mut results = Vec::new();
@@ -58,9 +57,6 @@ impl AppState {
         }
         if search_users {
             results.extend(search_users_fuzzy(&state, &query_lower));
-        }
-        if search_groups {
-            results.extend(search_groups_fuzzy(&state, &query_lower));
         }
         if search_messages {
             results.extend(search_messages_fuzzy(&state, &query_lower, query, filter, channel_id, scoped));
@@ -83,7 +79,7 @@ impl AppState {
         let mut entries: Vec<PhotoEntry> = Vec::new();
 
         // Channel messages
-        for (channel_id, msgs) in &state.messages {
+        for (channel_id, msgs) in &state.msgs.by_channel {
             let ch_name = state
                 .channels
                 .get(channel_id)
@@ -97,7 +93,6 @@ impl AppState {
                     msg,
                     Some(*channel_id),
                     None,
-                    None,
                     format!("in #{ch_name}"),
                     &mut entries,
                 );
@@ -105,39 +100,16 @@ impl AppState {
         }
 
         // DM messages
-        for msgs in state.dm_messages.values() {
+        for msgs in state.msgs.by_dm.values() {
             for msg in msgs {
                 if !body_has_image(&msg.body) {
                     continue;
                 }
                 collect_photos_from_message(
                     msg,
-                    None,
                     None,
                     msg.dm_session,
                     format!("DM with {}", msg.sender_name),
-                    &mut entries,
-                );
-            }
-        }
-
-        // Group messages
-        for (group_id, msgs) in &state.group_messages {
-            let group_name = state
-                .group_chats
-                .get(group_id)
-                .map(|g| g.name.as_str())
-                .unwrap_or("Group");
-            for msg in msgs {
-                if !body_has_image(&msg.body) {
-                    continue;
-                }
-                collect_photos_from_message(
-                    msg,
-                    None,
-                    Some(group_id.clone()),
-                    None,
-                    format!("in {group_name}"),
                     &mut entries,
                 );
             }
@@ -192,28 +164,6 @@ fn search_users_fuzzy(state: &super::SharedState, query_lower: &str) -> Vec<Sear
     results
 }
 
-fn search_groups_fuzzy(state: &super::SharedState, query_lower: &str) -> Vec<SearchResult> {
-    let mut results: Vec<SearchResult> = state
-        .group_chats
-        .values()
-        .filter_map(|g| {
-            let score = fuzzy::fuzzy_score(query_lower, &g.name.to_lowercase(), SCORE_CUTOFF)?;
-            let member_count = g.members.len();
-            Some(SearchResult {
-                category: SearchCategory::Group, score, title: g.name.clone(),
-                subtitle: Some(format!(
-                    "{member_count} {}",
-                    if member_count == 1 { "member" } else { "members" }
-                )),
-                id: None, string_id: Some(g.id.clone()),
-            })
-        })
-        .collect();
-    results.sort_by_key(|r| r.score);
-    results.truncate(MAX_PER_CATEGORY);
-    results
-}
-
 fn search_messages_fuzzy(
     state: &super::SharedState,
     query_lower: &str,
@@ -226,7 +176,7 @@ fn search_messages_fuzzy(
     let filter_links = filter == SearchFilter::Links;
     let mut msg_results: Vec<SearchResult> = Vec::new();
 
-    for (ch_id, msgs) in &state.messages {
+    for (ch_id, msgs) in &state.msgs.by_channel {
         if channel_id.is_some_and(|scope| *ch_id != scope) {
             continue;
         }
@@ -237,15 +187,9 @@ fn search_messages_fuzzy(
     }
 
     if !scoped {
-        for msgs in state.dm_messages.values() {
+        for msgs in state.msgs.by_dm.values() {
             msg_results.extend(collect_dm_message_results(
                 msgs.iter(), filter_photos, filter_links, query_lower, query,
-            ));
-        }
-        for (group_id, msgs) in &state.group_messages {
-            let group_name = state.group_chats.get(group_id).map(|g| g.name.as_str()).unwrap_or("Group");
-            msg_results.extend(collect_group_message_results(
-                msgs.iter(), group_id, group_name, filter_photos, filter_links, query_lower, query,
             ));
         }
     }
@@ -298,7 +242,6 @@ fn extract_attr(tag: &str, attr: &str) -> Option<String> {
 fn collect_photos_from_message(
     msg: &ChatMessage,
     channel_id: Option<u32>,
-    group_id: Option<String>,
     dm_session: Option<u32>,
     context: String,
     entries: &mut Vec<PhotoEntry>,
@@ -308,7 +251,6 @@ fn collect_photos_from_message(
             src,
             sender_name: msg.sender_name.clone(),
             channel_id,
-            group_id: group_id.clone(),
             dm_session,
             context: context.clone(),
             timestamp: msg.timestamp,
@@ -365,29 +307,6 @@ fn collect_dm_message_results<'a>(
             subtitle: Some(format!("DM with {}", msg.sender_name)),
             id: msg.dm_session,
             string_id: msg.message_id.clone(),
-        })
-    })
-    .collect()
-}
-
-fn collect_group_message_results<'a>(
-    msgs: impl Iterator<Item = &'a ChatMessage>,
-    group_id: &'a str,
-    group_name: &'a str,
-    filter_photos: bool,
-    filter_links: bool,
-    query_lower: &'a str,
-    query: &'a str,
-) -> Vec<SearchResult> {
-    msgs.filter_map(|msg| {
-        let score = score_one_message(&msg.body, filter_photos, filter_links, query_lower)?;
-        Some(SearchResult {
-            category: SearchCategory::Message,
-            score,
-            title: fuzzy::snippet(&msg.body, query, 80),
-            subtitle: Some(format!("{} in {group_name}", msg.sender_name)),
-            id: None,
-            string_id: Some(group_id.to_owned()),
         })
     })
     .collect()

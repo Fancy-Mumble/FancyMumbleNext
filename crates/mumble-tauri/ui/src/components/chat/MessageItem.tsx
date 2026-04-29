@@ -1,15 +1,23 @@
-import { useState, useCallback, useRef, useMemo } from "react";
+import { memo, useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { ChatMessage, UserEntry, TimeFormat } from "../../types";
 import type { PollPayload } from "./PollCreator";
+import { useAppStore, requestLinkPreview } from "../../store";
 import { parseComment } from "../../profileFormat";
 import { ProfilePreviewCard } from "../../pages/settings/ProfilePreviewCard";
 import { useUserStats } from "../../hooks/useUserStats";
 import { isMobile } from "../../utils/platform";
 import { formatTimestamp, colorFor } from "../../utils/format";
+import { extractUrlsFromMessage } from "../../utils/extractUrls";
 import { extractOffloadInfo } from "../../messageOffload";
+import { containsSelfMention } from "../../utils/mentions";
 import PollCard, { getPoll } from "./PollCard";
 import MediaPreview from "./MediaPreview";
+import LinkPreviewCard from "./LinkPreviewCard";
+import FileAttachmentCard, {
+  FANCY_FILE_MARKER_RE,
+  decodeFileAttachmentPayload,
+} from "./FileAttachmentCard";
 import QuoteBlock from "../elements/QuoteBlock";
 import styles from "./ChatView.module.css";
 
@@ -19,6 +27,29 @@ const QUOTE_RE = /<!-- FANCY_QUOTE:(.+?) -->/g;
 /** Approximate height of the profile hover card, used for viewport clamping. */
 const HOVER_CARD_H = 340;
 const HOVER_CARD_MARGIN = 10;
+
+/**
+ * Set of message IDs we have already processed for self-mention
+ * notifications.  Module-scope so it survives unmount/remount cycles
+ * (e.g. when scrolling messages out of view) and prevents duplicate
+ * sound triggers when the same message re-renders.
+ */
+const NOTIFIED_SELF_MENTIONS = new Set<string>();
+
+/**
+ * Cap to keep memory bounded for long-running sessions.  When the set
+ * grows past this many entries, drop the oldest insertion (Set
+ * iteration order is insertion order).
+ */
+const NOTIFIED_SELF_MENTIONS_CAP = 2000;
+
+function markSelfMentionNotified(id: string) {
+  if (NOTIFIED_SELF_MENTIONS.size >= NOTIFIED_SELF_MENTIONS_CAP) {
+    const oldest = NOTIFIED_SELF_MENTIONS.values().next().value;
+    if (oldest !== undefined) NOTIFIED_SELF_MENTIONS.delete(oldest);
+  }
+  NOTIFIED_SELF_MENTIONS.add(id);
+}
 
 // --- Exported group avatar component ------------------------------
 
@@ -112,6 +143,7 @@ export function MessageAvatar({
  */
 function isPureMedia(body: string): boolean {
   if (/<!-- FANCY_POLL:/.test(body)) return false;
+  if (/<!-- FANCY_FILE:/.test(body)) return false;
   if (QUOTE_RE.test(body)) { QUOTE_RE.lastIndex = 0; return false; }
   const hasMedia = /<img|<video/i.test(body);
   if (!hasMedia) return false;
@@ -153,7 +185,7 @@ interface MessageItemProps {
   readonly readReceiptIndicator?: React.ReactNode;
 }
 
-export default function MessageItem({
+export default memo(function MessageItem({
   msg,
   index,
   polls,
@@ -172,6 +204,45 @@ export default function MessageItem({
   const offloadInfo = extractOffloadInfo(msg.body);
   const offloaded = offloadInfo !== null;
   const pureMedia = !offloaded && isPureMedia(msg.body);
+
+  const linkEmbeds = useAppStore((s) => msg.message_id ? s.linkEmbeds.get(msg.message_id) : undefined);
+  const disableLinkPreviews = useAppStore((s) => s.disableLinkPreviews);
+  const currentChannel = useAppStore((s) => s.currentChannel);
+
+  // Detect whether the receiver is mentioned by this message.  Pure
+  // memoised function over the body and own session.
+  const selfMention = useMemo(() => {
+    if (msg.is_own || ownSession == null) return false;
+    return containsSelfMention(msg.body, {
+      ownSession,
+      isInMessageChannel:
+        msg.channel_id != null && currentChannel === msg.channel_id,
+    });
+  }, [msg.body, msg.is_own, msg.channel_id, ownSession, currentChannel]);
+
+  // Fire the mention notification once per message id.
+  useEffect(() => {
+    if (!selfMention) return;
+    const key = msg.message_id ?? `${msg.sender_session ?? "?"}-${msg.timestamp ?? 0}`;
+    if (NOTIFIED_SELF_MENTIONS.has(key)) return;
+    // Only notify for recent arrivals (within 30s) to avoid replaying
+    // historical notifications when scrolling old messages.
+    const ts = msg.timestamp ?? 0;
+    if (ts > 0 && Date.now() - ts > 30_000) {
+      markSelfMentionNotified(key);
+      return;
+    }
+    markSelfMentionNotified(key);
+    globalThis.dispatchEvent(new CustomEvent("fancy:self-mention"));
+  }, [selfMention, msg.message_id, msg.sender_session, msg.timestamp]);
+
+  useEffect(() => {
+    if (!msg.message_id) return;
+    if (disableLinkPreviews) return;
+    const urls = extractUrlsFromMessage(msg.body);
+    if (urls.length === 0) return;
+    requestLinkPreview(urls, msg.message_id);
+  }, [msg.message_id, msg.body, disableLinkPreviews]);
 
   // Always resolve a displayable timestamp: prefer server-side, fall back to local time.
   const displayTimestamp = msg.timestamp ?? Date.now();
@@ -228,6 +299,23 @@ export default function MessageItem({
       }
     }
 
+    const fileMatch = FANCY_FILE_MARKER_RE.exec(bodyWithoutQuotes);
+    if (fileMatch) {
+      const info = decodeFileAttachmentPayload(fileMatch[1]);
+      if (info) {
+        const textBeforeFile = bodyWithoutQuotes.slice(0, fileMatch.index).trim();
+        return (
+          <>
+            {quoteBlocks}
+            {textBeforeFile && (
+              <MediaPreview html={textBeforeFile} messageId={`${index}-text`} compact={false} timeFormat={timeFormat} convertToLocalTime={convertToLocalTime} systemUses24h={systemUses24h} senderName={msg.sender_name} messageTimestamp={displayTimestamp} onOpenLightbox={onOpenLightbox} />
+            )}
+            <FileAttachmentCard info={info} />
+          </>
+        );
+      }
+    }
+
     if (quoteBlocks.length > 0 && !bodyWithoutQuotes) {
       return <>{quoteBlocks}</>;
     }
@@ -242,10 +330,10 @@ export default function MessageItem({
 
   return (
     <div
-      className={`${styles.messageRow} ${msg.is_own ? styles.own : ""}`}
+      className={`${styles.messageRow} ${msg.is_own ? styles.own : ""} ${msg.pinned ? styles.pinnedRow : ""} ${selfMention ? styles.selfMention : ""}`}
     >
       <div
-        className={`${styles.bubble} ${msg.is_own ? styles.ownBubble : ""} ${pureMedia ? styles.bubbleMedia : ""} ${msg.is_legacy ? styles.legacyBubble : ""}`}
+        className={`${styles.bubble} ${msg.is_own ? styles.ownBubble : ""} ${pureMedia ? styles.bubbleMedia : ""} ${msg.is_legacy ? styles.legacyBubble : ""} ${selfMention ? styles.selfMentionBubble : ""}`}
       >
         {!pureMedia && isFirstInGroup && (
           <span
@@ -258,6 +346,7 @@ export default function MessageItem({
               {formatTimestamp(displayTimestamp, timeFormat, convertToLocalTime, systemUses24h)}
             </time>
             {msg.edited_at != null && <span className={styles.editedBadge}>(edited)</span>}
+            {msg.pinned && <span className={styles.pinnedBadge}>📌 pinned</span>}
             {msg.is_own && readReceiptIndicator}
           </span>
         )}
@@ -267,12 +356,16 @@ export default function MessageItem({
               {formatTimestamp(displayTimestamp, timeFormat, convertToLocalTime, systemUses24h)}
             </time>
             {msg.edited_at != null && <span className={styles.editedBadge}>(edited)</span>}
+            {msg.pinned && <span className={styles.pinnedBadge}>📌 pinned</span>}
             {msg.is_own && readReceiptIndicator}
           </span>
         )}
         <div className={styles.messageBody}>{renderBody()}</div>
+        {!disableLinkPreviews && linkEmbeds && linkEmbeds.length > 0 && (
+          <LinkPreviewCard embeds={linkEmbeds} allowExternalResources />
+        )}
         {children}
       </div>
     </div>
   );
-}
+});

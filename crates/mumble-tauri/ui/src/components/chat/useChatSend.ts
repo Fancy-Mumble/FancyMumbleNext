@@ -1,8 +1,12 @@
 import { useState, useCallback, useEffect, useRef, type ClipboardEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useAppStore } from "../../store";
-import type { ChatMessage } from "../../types";
+import type { AclData, AclGroup, ChatMessage } from "../../types";
 import { markdownToHtml } from "./MarkdownInput";
 import { mediaKind, fileToDataUrl, fitImage, fitVideo, mediaToHtml } from "../../utils/media";
+import { applyMentionsToHtml, type MentionResolver } from "../../utils/mentions";
+import { rootChannelId } from "../../pages/admin/rootChannel";
 
 interface UseChatSendOptions {
   pendingQuotes: ChatMessage[];
@@ -20,11 +24,47 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
   const selectedChannel = useAppStore((s) => s.selectedChannel);
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
   const sendDm = useAppStore((s) => s.sendDm);
-  const selectedGroup = useAppStore((s) => s.selectedGroup);
-  const sendGroupMessage = useAppStore((s) => s.sendGroupMessage);
+  const users = useAppStore((s) => s.users);
+  const channels = useAppStore((s) => s.channels);
+  const rootId = (() => rootChannelId(channels))();
+
+  // Subscribe to root-channel ACL so the resolver can attach role colors.
+  const [roleGroups, setRoleGroups] = useState<readonly AclGroup[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const unlisten = listen<AclData>("acl", (event) => {
+      if (!cancelled && event.payload.channel_id === rootId) {
+        setRoleGroups(event.payload.groups);
+      }
+    });
+    invoke("request_acl", { channelId: rootId }).catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten.then((f) => f());
+    };
+  }, [rootId]);
+
+  // Resolver used to convert <@SESSION> markers into named chips on send.
+  const mentionResolver = useRef<MentionResolver>({
+    resolveSession: () => null,
+  });
+  mentionResolver.current = {
+    resolveSession: (session) => {
+      const u = users.find((x) => x.session === session);
+      return u ? { name: u.name } : null;
+    },
+    resolveRole: (name) => {
+      const g = roleGroups.find((x) => x.name === name);
+      return g ? { color: g.color ?? null } : null;
+    },
+  };
+
+  const renderBody = useCallback(
+    (text: string) => applyMentionsToHtml(markdownToHtml(text), mentionResolver.current),
+    [],
+  );
 
   const isDmMode = selectedDmUser !== null;
-  const isGroupMode = selectedGroup !== null;
 
   const [sending, setSending] = useState(false);
 
@@ -34,7 +74,7 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
 
     // Edit mode: update the existing message instead of sending a new one.
     if (editingMessage?.message_id && text) {
-      const htmlBody = markdownToHtml(text);
+      const htmlBody = renderBody(text);
       const channelId = editingMessage.channel_id;
       if (channelId != null) {
         clearDraft();
@@ -49,15 +89,11 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
       .filter((q) => q.message_id)
       .map((q) => `<!-- FANCY_QUOTE:${q.message_id} -->`)
       .join("");
-    const htmlBody = text ? markdownToHtml(text) : "";
+    const htmlBody = text ? renderBody(text) : "";
     const html = quoteMarkers + htmlBody;
     if (!html) return;
 
-    if (isGroupMode && selectedGroup !== null) {
-      clearDraft();
-      clearQuotes();
-      await sendGroupMessage(selectedGroup, html);
-    } else if (isDmMode && selectedDmUser !== null) {
+    if (isDmMode && selectedDmUser !== null) {
       clearDraft();
       clearQuotes();
       await sendDm(selectedDmUser, html);
@@ -66,11 +102,11 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
       clearQuotes();
       await sendMessage(selectedChannel, html);
     }
-  }, [draft, pendingQuotes, editingMessage, editMessage, onEditComplete, isGroupMode, selectedGroup, sendGroupMessage, isDmMode, selectedDmUser, sendDm, selectedChannel, sendMessage, clearDraft, clearQuotes]);
+  }, [draft, pendingQuotes, editingMessage, editMessage, onEditComplete, isDmMode, selectedDmUser, sendDm, selectedChannel, sendMessage, clearDraft, clearQuotes, renderBody]);
 
   const sendMediaFile = useCallback(
     async (file: File) => {
-      if (!isGroupMode && !isDmMode && selectedChannel === null) return;
+      if (!isDmMode && selectedChannel === null) return;
 
       const kind = mediaKind(file.type);
       if (!kind) {
@@ -105,9 +141,7 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
         }
 
         const html = mediaToHtml(dataUrl, sendKind, file.name || "clipboard.png");
-        if (isGroupMode && selectedGroup !== null) {
-          await sendGroupMessage(selectedGroup, html);
-        } else if (isDmMode && selectedDmUser !== null) {
+        if (isDmMode && selectedDmUser !== null) {
           await sendDm(selectedDmUser, html);
         } else if (selectedChannel !== null) {
           await sendMessage(selectedChannel, html);
@@ -119,7 +153,7 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
         setSending(false);
       }
     },
-    [isGroupMode, selectedGroup, sendGroupMessage, isDmMode, selectedDmUser, selectedChannel, serverConfig, sendMessage, sendDm],
+    [isDmMode, selectedDmUser, selectedChannel, serverConfig, sendMessage, sendDm],
   );
 
   // Shared image extraction logic used by both the React onPaste handler
@@ -226,15 +260,13 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
   const handleGifSelect = useCallback(
     async (url: string, alt: string) => {
       const html = `<img src="${url}" alt="${alt}" />`;
-      if (isGroupMode && selectedGroup !== null) {
-        await sendGroupMessage(selectedGroup, html);
-      } else if (isDmMode && selectedDmUser !== null) {
+      if (isDmMode && selectedDmUser !== null) {
         await sendDm(selectedDmUser, html);
       } else if (selectedChannel !== null) {
         await sendMessage(selectedChannel, html);
       }
     },
-    [isGroupMode, selectedGroup, sendGroupMessage, isDmMode, selectedDmUser, selectedChannel, sendMessage, sendDm],
+    [isDmMode, selectedDmUser, selectedChannel, sendMessage, sendDm],
   );
 
   return { sending, handleSend, sendMediaFile, handlePaste, handleGifSelect };

@@ -19,21 +19,23 @@ interface SafeHtmlProps {
   readonly html: string;
   /** Optional CSS class applied to the wrapper div. */
   readonly className?: string;
+  /** Inline styles applied to the wrapper div. */
+  readonly style?: React.CSSProperties;
   /** Rendered when `html` is empty or only whitespace. */
   readonly fallback?: React.ReactNode;
 }
 
-export function SafeHtml({ html, className, fallback }: SafeHtmlProps) {
+export function SafeHtml({ html, className, style, fallback }: SafeHtmlProps) {
   const clean = useMemo(() => sanitizeHtml(html), [html]);
 
   if (!clean && fallback) {
-    return <div className={className}>{fallback}</div>;
+    return <div className={className} style={style}>{fallback}</div>;
   }
 
   if (!clean) return null;
 
   return (
-    <ExternalLinkGuard className={className}>
+    <ExternalLinkGuard className={className} style={style}>
       <div dangerouslySetInnerHTML={{ __html: clean }} />
     </ExternalLinkGuard>
   );

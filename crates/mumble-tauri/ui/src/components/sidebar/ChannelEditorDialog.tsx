@@ -4,12 +4,12 @@ import type { ChannelEntry, PchatProtocol } from "../../types";
 import { useAppStore } from "../../store";
 import { BioEditor } from "../../pages/settings/BioEditor";
 import styles from "./ChannelEditorDialog.module.css";
-
-/** Mumble permission bitmask constants (must match ACL.h on the server). */
-const PERM_WRITE = 0x01;
-const PERM_MAKE_CHANNEL = 0x40;
-const PERM_MAKE_TEMP_CHANNEL = 0x400;
-export const PERM_DELETE_MESSAGE = 0x1000;
+import {
+  PERM_WRITE,
+  PERM_MAKE_CHANNEL,
+  PERM_MAKE_TEMP_CHANNEL,
+  PERM_DELETE_MESSAGE,
+} from "../../utils/permissions";
 
 /** Check whether a channel's cached permissions include a specific bit.
  *  Returns `false` when permissions have not been queried yet. */

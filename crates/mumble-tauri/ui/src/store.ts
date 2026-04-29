@@ -22,7 +22,6 @@ import type {
   ConnectionStatus,
   MumbleServerConfig,
   VoiceState,
-  GroupChat,
   PersistenceMode,
   ChannelPersistenceState,
   KeyTrustState,
@@ -35,15 +34,42 @@ import type {
   ServerInfo,
   ServerLogEntry,
   ReadReceiptDeliverPayload,
+  FileServerConfig,
+  FileServerCapabilities,
+  FileAccessMode,
+  UploadResponse,
+  DownloadEntry,
+  CustomServerEmote,
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator";
 import { registerPoll, registerVote } from "./components/chat/PollCard";
 import { applyReaction, resetReactions, setServerCustomReactions, type ServerCustomReaction } from "./components/chat/reactionStore";
 import { applyReadStates, clearReadReceipts } from "./components/chat/readReceiptStore";
 import { offloadManager } from "./messageOffload";
-import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume, getMutedPushChannels, setMutedPushChannel } from "./preferencesStorage";
+import { getSilencedChannels, setSilencedChannel, getUserVolumes, saveUserVolume, getMutedPushChannels, setMutedPushChannel, getPreferences, updatePreferences } from "./preferencesStorage";
 import { loadProfileData } from "./pages/settings/profileData";
 import { serializeProfile, dataUrlToBytes } from "./profileFormat";
+
+/** Event payload for a pin state change delivered by the server. */
+interface PinDeliverEvent {
+  channel_id: number;
+  message_id: string;
+  pinned: boolean;
+  pinner_hash: string;
+  pinner_name: string;
+  timestamp: number;
+}
+
+/** Event payload for a batch of stored pins from the server. */
+interface PinFetchResponseEvent {
+  channel_id: number;
+  pins: {
+    message_id: string;
+    pinner_hash: string;
+    pinner_name: string;
+    timestamp: number;
+  }[];
+}
 
 /** Event payload for a single reaction delivered by the server. */
 interface ReactionDeliverEvent {
@@ -70,6 +96,122 @@ interface ReactionFetchResponseEvent {
 
 /** Sessions that have already had their stored volume applied this connection. */
 const volumeAppliedSessions = new Set<number>();
+
+const AUTO_RECONNECT_DELAY_MS = 3000;
+
+/** Default port the mumble-file-server plugin binds to (see file-server config). */
+const DEFAULT_FILE_SERVER_PORT = 64739;
+
+/** Build the file-server REST base URL.
+ *
+ *  Preference order:
+ *  1. `serverConfig.fancy_rest_api_url` (server-side override, used when the
+ *     HTTP interface is fronted by a reverse proxy / ingress on a different
+ *     hostname than the Mumble TCP port).
+ *  2. `http://<connect host>:64739` - the plugin's default loopback bind on
+ *     the same hostname the user connected to. */
+function fileServerBaseUrl(): string | null {
+  const state = useAppStore.getState();
+  const override = state.serverConfig.fancy_rest_api_url;
+  if (override && override.length > 0) return override.replace(/\/+$/, "");
+  const pending = state.pendingConnect;
+  if (!pending) return null;
+  // Normalize "localhost" to the IPv4 loopback. On Windows, "localhost"
+  // resolves to ::1 first, and Docker Desktop's IPv6 port forwarding is
+  // unreliable for published ports - the request times out even though
+  // `docker port` advertises both 0.0.0.0 and [::] mappings. Forcing
+  // IPv4 here avoids the misleading "request failed" probe error during
+  // local development.
+  const host = pending.host === "localhost" ? "127.0.0.1" : pending.host;
+  return `http://${host}:${DEFAULT_FILE_SERVER_PORT}`;
+}
+
+/** Rebase a URL returned by the file-server plugin so its origin matches
+ *  the current server override URL (e.g. `https://files.mumble.magical.rocks`).
+ *  The plugin embeds its own internal origin in download URLs; when the HTTP
+ *  interface is fronted by a reverse proxy this origin is wrong for public
+ *  access.  Only the scheme + host are replaced; path, query, and fragment
+ *  are preserved unchanged.
+ *
+ *  Returns the original URL unchanged if no override is configured or
+ *  parsing fails. */
+export function rebaseFileServerUrl(rawUrl: string): string {
+  const override = fileServerBaseUrl();
+  if (!override) return rawUrl;
+  try {
+    const u = new URL(rawUrl);
+    const o = new URL(override);
+    u.protocol = o.protocol;
+    u.hostname = o.hostname;
+    u.port = o.port;
+    return u.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
+/** Probe `GET {baseUrl}/capabilities` and store the result in the Zustand
+ *  store.  Called whenever `serverConfig` changes so the Capabilities tab
+ *  and Custom-Emotes admin tab populate even when no `fancy-file-server-config`
+ *  plugin-data arrives (e.g. when the file-server plugin is loaded but the
+ *  user has no upload permissions, or the capabilities endpoint is reachable
+ *  via reverse proxy while the per-session config message is suppressed). */
+async function probeFileServerCapabilities(): Promise<void> {
+  const baseUrl = fileServerBaseUrl();
+  if (!baseUrl) return;
+  try {
+    const body = await invoke<string>("fetch_file_server_capabilities", { baseUrl });
+    const caps = JSON.parse(body) as FileServerCapabilities;
+    useAppStore.setState({ fileServerCapabilities: caps });
+  } catch (e) {
+    console.warn("file-server capabilities probe failed:", e);
+  }
+}
+
+let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let manualDisconnectRequested = false;
+let isRestoringVoice = false;
+
+function clearAutoReconnectTimer(): void {
+  if (autoReconnectTimer !== null) {
+    clearTimeout(autoReconnectTimer);
+    autoReconnectTimer = null;
+  }
+}
+
+async function attemptAutoReconnect(
+  fallbackTarget: { host: string; port: number; username: string; certLabel: string | null },
+): Promise<void> {
+  if (manualDisconnectRequested) return;
+
+  const { getPreferences } = await import("./preferencesStorage");
+  const prefs = await getPreferences().catch(() => null);
+  if (!prefs?.autoReconnect) return;
+
+  const state = useAppStore.getState();
+  if (state.status === "connected" || state.passwordRequired) return;
+
+  const target = state.pendingConnect ?? fallbackTarget;
+  await state.connect(target.host, target.port, target.username, target.certLabel ?? null);
+
+  const after = useAppStore.getState();
+  if (
+    after.status !== "connected"
+    && !after.passwordRequired
+    && !manualDisconnectRequested
+  ) {
+    scheduleAutoReconnect(target);
+  }
+}
+
+function scheduleAutoReconnect(
+  fallbackTarget: { host: string; port: number; username: string; certLabel: string | null },
+): void {
+  clearAutoReconnectTimer();
+  autoReconnectTimer = setTimeout(() => {
+    void attemptAutoReconnect(fallbackTarget);
+  }, AUTO_RECONNECT_DELAY_MS);
+}
 
 /**
  * Apply persisted per-user volumes to any users that just appeared.
@@ -106,6 +248,20 @@ interface AppState {
   listenedChannels: Set<number>;
   unreadCounts: Record<number, number>;
   serverConfig: MumbleServerConfig;
+  /** File-server plugin configuration advertised by the server on connect.
+   *  `null` when the server has no file-server plugin. */
+  fileServerConfig: FileServerConfig | null;
+  /** Capabilities fetched from `GET {baseUrl}/capabilities` after receiving
+   *  the file-server config. `null` when not yet fetched or no file-server. */
+  fileServerCapabilities: FileServerCapabilities | null;
+  /** Custom server emotes pushed via `fancy-server-emotes`. Cleared on disconnect. */
+  customServerEmotes: CustomServerEmote[];
+  /** Locally-saved downloads completed during the current session. Most
+   *  recent first. Cleared on disconnect / reset. */
+  downloads: DownloadEntry[];
+  /** Number of downloads completed since the user last opened the
+   *  Downloads panel. Used to drive the kebab-menu badge. */
+  unseenDownloadCount: number;
   /** Fancy Mumble version of the connected server (v2-encoded), null if not a fancy server. */
   serverFancyVersion: number | null;
   voiceState: VoiceState;
@@ -124,27 +280,30 @@ interface AppState {
   /** DM unread counts keyed by user session. */
   dmUnreadCounts: Record<number, number>;
 
-  // -- Group chat state ------------------------------------------
-  /** All known group chats. */
-  groupChats: GroupChat[];
-  /** ID of the group chat currently being viewed (mutually exclusive with channel/DM). */
-  selectedGroup: string | null;
-  /** Messages for the currently viewed group chat. */
-  groupMessages: ChatMessage[];
-  /** Group unread counts keyed by group ID. */
-  groupUnreadCounts: Record<string, number>;
-
   // -- Poll state (in-memory, not persisted) ---------------------
   /** All known polls keyed by poll ID. */
   polls: Map<string, PollPayload>;
   /** Synthetic local-only messages for rendering polls in the chat flow. */
   pollMessages: ChatMessage[];
 
+  // -- Link embed state (in-memory, not persisted) ---------------
+  /** Link embeds keyed by message_id. */
+  linkEmbeds: Map<string, import("./types").LinkEmbed[]>;
+
+  /** Whether the user has opted out of requesting link previews. */
+  disableLinkPreviews: boolean;
+
   /** Monotonic counter incremented whenever the module-level reaction store changes. */
   reactionVersion: number;
 
+  /** Unseen pin message IDs per channel (channel_id -> set of message_ids). */
+  unseenPinIds: Map<number, Set<string>>;
+
   /** Monotonic counter incremented whenever the module-level read receipt store changes. */
   readReceiptVersion: number;
+
+  /** Map of channel_id -> set of session IDs currently typing. */
+  typingUsers: Map<number, Set<number>>;
 
   // -- Screen share state (in-memory) ----------------------------
   /** Whether we are currently sharing our own screen. */
@@ -203,6 +362,13 @@ interface AppState {
   /** Certificate label used for the active connection. Stays set until explicit disconnect. */
   connectedCertLabel: string | null;
 
+  /** Human-readable label describing the current post-connect bootstrap
+   *  stage ("Negotiating with server...", "Fetching channels...", etc.).
+   *  Non-null implies bootstrapping is in progress: the connect-page
+   *  loading bar stays visible until this clears, so the chat view is
+   *  only revealed once it actually has data.  `null` when idle. */
+  bootstrapStage: string | null;
+
   // Actions
   connect: (host: string, port: number, username: string, certLabel?: string | null, password?: string | null) => Promise<void>;
   disconnect: () => Promise<void>;
@@ -242,10 +408,52 @@ interface AppState {
   toggleDeafen: () => Promise<void>;
   selectUser: (session: number | null) => void;
   sendPluginData: (receiverSessions: number[], data: Uint8Array, dataId: string) => Promise<void>;
+  /** Upload a local file via the server-side file-server plugin. Returns the
+   *  signed download URL on success. Throws if no file-server is configured. */
+  uploadFile: (params: {
+    filePath: string;
+    channelId: number;
+    mode: FileAccessMode;
+    password?: string;
+    filename?: string;
+    mimeType?: string;
+    uploadId?: string;
+  }) => Promise<UploadResponse>;
+  /** Download a file (handling password / session-JWT pre-auth automatically)
+   *  to `destPath`. Returns the number of bytes written. */
+  downloadFile: (params: {
+    url: string;
+    destPath: string;
+    /** Optional password (only used when the file uses `mode=password`). */
+    password?: string;
+  }) => Promise<number>;
   /** Send a WebRTC screen-sharing signaling message via native proto. */
   sendWebRtcSignal: (targetSession: number, signalType: number, payload: string) => Promise<void>;
   /** Send a reaction (add/remove) on a persistent chat message via native proto. */
   sendReaction: (channelId: number, messageId: string, emoji: string, action: "add" | "remove") => Promise<void>;
+  /** Pin or unpin a message in a persistent channel. */
+  pinMessage: (channelId: number, messageId: string, unpin: boolean) => Promise<void>;
+  /** Mark all unseen pin notifications as seen for a channel. */
+  clearUnseenPins: (channelId: number) => void;
+  /** Append a completed download to the in-memory list and bump the
+   *  unseen badge count. */
+  addDownload: (entry: Omit<DownloadEntry, "id" | "downloadedAt">) => void;
+  /** Reset the unseen-downloads badge. Called when the panel opens. */
+  markDownloadsSeen: () => void;
+  /** Remove a single download from the list (does not delete the file). */
+  removeDownload: (id: string) => void;
+  /** Clear the entire downloads list. */
+  clearDownloads: () => void;
+  /** Upload a new custom server emote. Requires admin permission. */
+  addCustomEmote: (params: {
+    shortcode: string;
+    aliasEmoji: string;
+    description?: string;
+    filePath: string;
+    mimeType: string;
+  }) => Promise<void>;
+  /** Delete a custom server emote by shortcode. Requires admin permission. */
+  removeCustomEmote: (shortcode: string) => Promise<void>;
   /** Add a poll to the store (called locally when creating a poll). */
   addPoll: (poll: PollPayload, isOwn: boolean) => void;
   setError: (error: string | null) => void;
@@ -274,12 +482,6 @@ interface AppState {
   selectDmUser: (session: number) => Promise<void>;
   sendDm: (targetSession: number, body: string) => Promise<void>;
   refreshDmMessages: (session: number) => Promise<void>;
-
-  // Group chat actions
-  createGroup: (name: string, memberSessions: number[]) => Promise<void>;
-  selectGroup: (groupId: string) => Promise<void>;
-  sendGroupMessage: (groupId: string, body: string) => Promise<void>;
-  refreshGroupMessages: (groupId: string) => Promise<void>;
 
   // Persistent chat actions
   fetchHistory: (channelId: number, beforeId?: string) => Promise<void>;
@@ -316,6 +518,11 @@ const INITIAL: Pick<
   | "listenedChannels"
   | "unreadCounts"
   | "serverConfig"
+  | "fileServerConfig"
+  | "fileServerCapabilities"
+  | "customServerEmotes"
+  | "downloads"
+  | "unseenDownloadCount"
   | "serverFancyVersion"
   | "voiceState"
   | "udpActive"
@@ -324,14 +531,13 @@ const INITIAL: Pick<
   | "selectedDmUser"
   | "dmMessages"
   | "dmUnreadCounts"
-  | "groupChats"
-  | "selectedGroup"
-  | "groupMessages"
-  | "groupUnreadCounts"
   | "polls"
   | "pollMessages"
+  | "linkEmbeds"
   | "reactionVersion"
+  | "unseenPinIds"
   | "readReceiptVersion"
+  | "typingUsers"
   | "isSharingOwn"
   | "webrtcConnecting"
   | "webrtcError"
@@ -355,6 +561,7 @@ const INITIAL: Pick<
   | "passwordAttempted"
   | "pendingConnect"
   | "connectedCertLabel"
+  | "bootstrapStage"
 > = {
   status: "disconnected",
   channels: [],
@@ -372,7 +579,13 @@ const INITIAL: Pick<
     max_image_message_length: 131072,
     allow_html: true,
     webrtc_sfu_available: false,
+    fancy_rest_api_url: null,
   },
+  fileServerConfig: null,
+  fileServerCapabilities: null,
+  customServerEmotes: [],
+  downloads: [],
+  unseenDownloadCount: 0,
   serverFancyVersion: null,
   voiceState: "inactive" as VoiceState,
   udpActive: false,
@@ -381,14 +594,13 @@ const INITIAL: Pick<
   selectedDmUser: null,
   dmMessages: [],
   dmUnreadCounts: {},
-  groupChats: [],
-  selectedGroup: null,
-  groupMessages: [],
-  groupUnreadCounts: {},
   polls: new Map(),
   pollMessages: [],
+  linkEmbeds: new Map(),
   reactionVersion: 0,
+  unseenPinIds: new Map(),
   readReceiptVersion: 0,
+  typingUsers: new Map(),
   isSharingOwn: false,
   webrtcConnecting: false,
   webrtcError: null,
@@ -412,6 +624,7 @@ const INITIAL: Pick<
   passwordAttempted: false,
   pendingConnect: null,
   connectedCertLabel: null,
+  bootstrapStage: null,
 };
 
 // --- Store --------------------------------------------------------
@@ -425,15 +638,14 @@ const INITIAL: Pick<
  */
 let messageWriteSeq = 0;
 
-/** Update the taskbar badge with the total unread count (channels + DMs + groups). */
+/** Update the taskbar badge with the total unread count (channels + DMs). */
 function updateBadgeCount(): void {
-  const { unreadCounts, dmUnreadCounts, groupUnreadCounts, silencedChannels } = useAppStore.getState();
+  const { unreadCounts, dmUnreadCounts, silencedChannels } = useAppStore.getState();
   const channelSum = Object.entries(unreadCounts)
     .filter(([id]) => !silencedChannels.has(Number(id)))
     .reduce((a, [, b]) => a + b, 0);
   const dmSum = Object.values(dmUnreadCounts).reduce((a, b) => a + b, 0);
-  const groupSum = Object.values(groupUnreadCounts).reduce((a, b) => a + b, 0);
-  const total = channelSum + dmSum + groupSum;
+  const total = channelSum + dmSum;
   invoke("update_badge_count", { count: total > 0 ? total : null }).catch(() => {
     // Badge API may not be available on all platforms.
   });
@@ -441,14 +653,18 @@ function updateBadgeCount(): void {
 
 export const useAppStore = create<AppState>((set, get) => ({
   ...INITIAL,
+  disableLinkPreviews: false,
 
   connect: async (host, port, username, certLabel, password) => {
+    manualDisconnectRequested = false;
+    clearAutoReconnectTimer();
     set({
       status: "connecting",
       error: null,
       passwordRequired: false,
       pendingConnect: { host, port, username, certLabel: certLabel ?? null },
       connectedCertLabel: certLabel ?? null,
+      bootstrapStage: "Negotiating with server...",
     });
     try {
       await invoke("connect", {
@@ -459,11 +675,19 @@ export const useAppStore = create<AppState>((set, get) => ({
         password: password ?? null,
       });
     } catch (e) {
-      set({ status: "disconnected", error: String(e), pendingConnect: null, connectedCertLabel: null });
+      set({
+        status: "disconnected",
+        error: String(e),
+        pendingConnect: null,
+        connectedCertLabel: null,
+        bootstrapStage: null,
+      });
     }
   },
 
   disconnect: async () => {
+    manualDisconnectRequested = true;
+    clearAutoReconnectTimer();
     try {
       // Clean up offloaded temp files before resetting state.
       await offloadManager.dispose();
@@ -478,7 +702,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   selectChannel: async (id) => {
-    set({ selectedChannel: id, selectedDmUser: null, dmMessages: [], selectedGroup: null, groupMessages: [] });
+    set({ selectedChannel: id, selectedDmUser: null, dmMessages: [] });
     const seq = ++messageWriteSeq;
     try {
       // Notify backend - marks channel as read and clears DM selection.
@@ -657,6 +881,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await invoke("enable_voice");
       set({ voiceState: "active", inCall: true });
+      updatePreferences({ voiceOnReconnect: true }).catch(() => {});
     } catch (e) {
       console.error("enable_voice error:", e);
     }
@@ -666,14 +891,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await invoke("disable_voice");
       set({ voiceState: "inactive", inCall: false, talkingSessions: new Set() });
+      updatePreferences({ voiceOnReconnect: false, voiceMutedOnReconnect: false }).catch(() => {});
     } catch (e) {
       console.error("disable_voice error:", e);
     }
   },
 
   toggleMute: async () => {
+    // Capture state BEFORE the await so pref write is deterministic and
+    // ordered relative to the user action, not the async Rust IPC delivery.
+    // "active" → will be muted; "muted" or "inactive" → will be active.
+    const willBeMuted = useAppStore.getState().voiceState === "active";
     try {
       await invoke("toggle_mute");
+      if (!isRestoringVoice) {
+        updatePreferences({ voiceOnReconnect: true, voiceMutedOnReconnect: willBeMuted }).catch(() => {});
+      }
     } catch (e) {
       console.error("toggle_mute error:", e);
     }
@@ -690,7 +923,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectUser: (session) => set({ selectedUser: session }),
 
   selectDmUser: async (session) => {
-    set({ selectedDmUser: session, selectedChannel: null, messages: [], selectedUser: session, selectedGroup: null, groupMessages: [] });
+    set({ selectedDmUser: session, selectedChannel: null, messages: [], selectedUser: session });
     try {
       await invoke("select_dm_user", { session });
       const dmMessages = await invoke<ChatMessage[]>("get_dm_messages", { session });
@@ -719,48 +952,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  // -- Group chat actions -----------------------------------------
-
-  createGroup: async (name, memberSessions) => {
-    try {
-      // The backend emits a "group-created" event that the listener below
-      // will pick up, so we do not append here to avoid duplicates.
-      await invoke<GroupChat>("create_group", { name, memberSessions });
-    } catch (e) {
-      console.error("create_group error:", e);
-    }
-  },
-
-  selectGroup: async (groupId) => {
-    set({ selectedGroup: groupId, selectedChannel: null, messages: [], selectedDmUser: null, dmMessages: [] });
-    try {
-      await invoke("select_group", { groupId });
-      const groupMessages = await invoke<ChatMessage[]>("get_group_messages", { groupId });
-      set({ groupMessages });
-    } catch (e) {
-      console.error("select_group error:", e);
-    }
-  },
-
-  sendGroupMessage: async (groupId, body) => {
-    try {
-      await invoke("send_group_message", { groupId, body });
-      const groupMessages = await invoke<ChatMessage[]>("get_group_messages", { groupId });
-      set({ groupMessages });
-    } catch (e) {
-      console.error("send_group_message error:", e);
-    }
-  },
-
-  refreshGroupMessages: async (groupId) => {
-    try {
-      const groupMessages = await invoke<ChatMessage[]>("get_group_messages", { groupId });
-      set({ groupMessages });
-    } catch (e) {
-      console.error("refresh group messages error:", e);
-    }
-  },
-
   sendPluginData: async (receiverSessions, data, dataId) => {
     try {
       await invoke("send_plugin_data", {
@@ -771,6 +962,48 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (e) {
       console.error("send_plugin_data error:", e);
     }
+  },
+
+  uploadFile: async ({ filePath, channelId, mode, password, filename, mimeType, uploadId }) => {
+    const cfg = get().fileServerConfig;
+    if (!cfg) {
+      throw new Error("file-server is not configured for this server");
+    }
+    if (mode === "password" && !password) {
+      throw new Error("mode=password requires a password");
+    }
+    const resp = await invoke<UploadResponse>("upload_file", {
+      request: {
+        baseUrl: cfg.baseUrl,
+        session: cfg.sessionId,
+        uploadToken: cfg.uploadToken,
+        channelId,
+        filePath,
+        filename,
+        mimeType,
+        mode,
+        password,
+        uploadId: uploadId ?? "",
+      },
+    });
+    return { ...resp, download_url: rebaseFileServerUrl(resp.download_url) };
+  },
+
+  downloadFile: async ({ url, destPath, password }) => {
+    const cfg = get().fileServerConfig;
+    let credential: { kind: "password" | "session"; value: string } | undefined;
+    if (password !== undefined) {
+      credential = { kind: "password", value: password };
+    } else if (cfg?.sessionJwt) {
+      credential = { kind: "session", value: cfg.sessionJwt };
+    }
+    return await invoke<number>("download_file", {
+      request: {
+        url,
+        destPath,
+        credential,
+      },
+    });
   },
 
   sendWebRtcSignal: async (targetSession, signalType, payload) => {
@@ -791,6 +1024,73 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (e) {
       console.error("send_reaction error:", e);
     }
+  },
+
+  pinMessage: async (channelId, messageId, unpin) => {
+    try {
+      await invoke("pin_message", { channelId, messageId, unpin });
+    } catch (e) {
+      console.error("pin_message error:", e);
+    }
+  },
+
+  clearUnseenPins: (channelId) => {
+    set((s) => {
+      const next = new Map(s.unseenPinIds);
+      next.delete(channelId);
+      return { unseenPinIds: next };
+    });
+  },
+
+  addDownload: (entry) => {
+    const id = (globalThis.crypto?.randomUUID?.() ?? `dl-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const full: DownloadEntry = { ...entry, id, downloadedAt: Date.now() };
+    set((s) => ({
+      downloads: [full, ...s.downloads].slice(0, 200),
+      unseenDownloadCount: s.unseenDownloadCount + 1,
+    }));
+  },
+
+  markDownloadsSeen: () => {
+    set({ unseenDownloadCount: 0 });
+  },
+
+  removeDownload: (id) => {
+    set((s) => ({ downloads: s.downloads.filter((d) => d.id !== id) }));
+  },
+
+  clearDownloads: () => {
+    set({ downloads: [], unseenDownloadCount: 0 });
+  },
+
+  addCustomEmote: async ({ shortcode, aliasEmoji, description, filePath, mimeType }) => {
+    const cfg = get().fileServerConfig;
+    if (!cfg) throw new Error("file-server is not configured for this server");
+    if (!cfg.canManageEmotes) throw new Error("you are not allowed to manage emotes");
+    await invoke("add_custom_emote", {
+      request: {
+        baseUrl: cfg.baseUrl,
+        sessionJwt: cfg.sessionJwt,
+        shortcode,
+        aliasEmoji,
+        description,
+        filePath,
+        mimeType,
+      },
+    });
+  },
+
+  removeCustomEmote: async (shortcode) => {
+    const cfg = get().fileServerConfig;
+    if (!cfg) throw new Error("file-server is not configured for this server");
+    if (!cfg.canManageEmotes) throw new Error("you are not allowed to manage emotes");
+    await invoke("remove_custom_emote", {
+      request: {
+        baseUrl: cfg.baseUrl,
+        sessionJwt: cfg.sessionJwt,
+        shortcode,
+      },
+    });
   },
 
   addPoll: (poll, isOwn) => {
@@ -1106,6 +1406,21 @@ export function onWebRtcSignal(handler: WebRtcSignalHandler): () => void {
   };
 }
 
+/** Set of request_ids already sent to avoid duplicate requests. */
+const pendingPreviewRequests = new Set<string>();
+
+/** Request link previews from the server for the given URLs. */
+export async function requestLinkPreview(urls: string[], requestId: string): Promise<void> {
+  if (pendingPreviewRequests.has(requestId)) return;
+  pendingPreviewRequests.add(requestId);
+  try {
+    await invoke("request_link_preview", { urls, requestId });
+  } catch (e) {
+    console.error("request_link_preview failed:", e);
+    pendingPreviewRequests.delete(requestId);
+  }
+}
+
 /**
  * Subscribe to backend events and translate them into store updates.
  * Call once from the root `<App>` component; returns cleanup functions.
@@ -1143,10 +1458,11 @@ export async function initEventListeners(
       enabled: prefs.enableNotifications ?? true,
     });
     await invoke("set_disable_dual_path", {
-      disabled: prefs.disableDualPath ?? false,
+      disabled: !(prefs.enableDualPath ?? false),
     });
-    if (prefs.debugLogging) {
-      await invoke("set_log_level", { filter: "debug" });
+    const logLevel = prefs.logLevel ?? (prefs.debugLogging ? "debug" : "info");
+    if (logLevel !== "info") {
+      await invoke("set_log_level", { filter: logLevel });
     }
   } catch {
     // Preference store may not be ready yet - backend defaults to enabled.
@@ -1155,6 +1471,8 @@ export async function initEventListeners(
   // Server fully connected (ServerSync received).
   unlisteners.push(
     await listen("server-connected", async () => {
+      manualDisconnectRequested = false;
+      clearAutoReconnectTimer();
       // Load silenced channels for this server (pendingConnect still available).
       const pending = useAppStore.getState().pendingConnect;
       let silenced = new Set<number>();
@@ -1183,21 +1501,26 @@ export async function initEventListeners(
         silencedChannels: silenced,
         mutedPushChannels: mutedPush,
         userVolumes: storedVolumes,
+        bootstrapStage: "Fetching channels and users...",
       });
-      navigate("/chat");
 
-      // Load channels/users/messages lazily in the background.
+      // Load channels/users/messages, then resolve identity, then
+      // hand off to the chat view.  We delay `navigate("/chat")` until
+      // the visible bootstrap is done so the connect-page progress bar
+      // stays visible until the chat view actually has data.
       useAppStore
         .getState()
         .refreshState()
         .then(async () => {
           // Fetch the channel the user is currently in.
+          useAppStore.setState({ bootstrapStage: "Locating your channel..." });
           const currentCh = await invoke<number | null>("get_current_channel");
           if (currentCh !== null) {
             useAppStore.setState({ currentChannel: currentCh });
           }
 
           // Fetch our own session ID.
+          useAppStore.setState({ bootstrapStage: "Identifying you to the server..." });
           const ownSession = await invoke<number | null>("get_own_session");
           useAppStore.setState({ ownSession });
 
@@ -1241,6 +1564,39 @@ export async function initEventListeners(
 
           // Apply persisted per-user volumes to backend for all current users.
           applyStoredVolumesToNewUsers();
+
+          // Visible bootstrap is done - drop the loading bar and reveal the chat view.
+          useAppStore.setState({ bootstrapStage: null });
+          navigate("/chat");
+
+          // Restore voice call state from before the disconnect.
+          // isRestoringVoice suppresses pref writes from the
+          // voice-state-changed listener during this sequence so that
+          // rapid "active" then "muted" events cannot race and
+          // clobber voiceMutedOnReconnect with false.
+          try {
+            const prefs = await getPreferences();
+            if (prefs.voiceOnReconnect) {
+              isRestoringVoice = true;
+              try {
+                await useAppStore.getState().enableVoice();
+                if (prefs.voiceMutedOnReconnect) {
+                  await useAppStore.getState().toggleMute();
+                }
+              } finally {
+                isRestoringVoice = false;
+              }
+            }
+          } catch {
+            // Voice restore is best-effort.
+          }
+        })
+        .catch((err) => {
+          // If the bootstrap chain fails, surface it but never leave the UI
+          // stranded on a permanent loading bar.
+          console.error("Post-connect bootstrap error:", err);
+          useAppStore.setState({ bootstrapStage: null });
+          navigate("/chat");
         });
     }),
   );
@@ -1260,6 +1616,10 @@ export async function initEventListeners(
       useAppStore.setState({ ...INITIAL, error: reason, passwordRequired: pwRequired, pendingConnect: pending });
       invoke("update_badge_count", { count: null }).catch(() => {});
       navigate("/");
+
+      if (!manualDisconnectRequested && !pwRequired && pending) {
+        scheduleAutoReconnect(pending);
+      }
     }),
   );
 
@@ -1292,12 +1652,29 @@ export async function initEventListeners(
     }),
 
     // New text message arrived.
-    await listen<{ channel_id: number }>("new-message", async (event) => {
+    await listen<{ channel_id: number; sender_session: number | null }>("new-message", async (event) => {
+      const { channel_id, sender_session } = event.payload;
+
+      // Clear the sender's typing indicator immediately.
+      if (sender_session != null) {
+        useAppStore.setState((prev) => {
+          const channelSet = prev.typingUsers.get(channel_id);
+          if (!channelSet?.has(sender_session)) return prev;
+          const next = new Map(prev.typingUsers);
+          const updated = new Set(channelSet);
+          updated.delete(sender_session);
+          if (updated.size === 0) {
+            next.delete(channel_id);
+          } else {
+            next.set(channel_id, updated);
+          }
+          return { typingUsers: next };
+        });
+      }
+
       const { selectedChannel } = useAppStore.getState();
-      if (selectedChannel === event.payload.channel_id) {
-        await useAppStore
-          .getState()
-          .refreshMessages(event.payload.channel_id);
+      if (selectedChannel === channel_id) {
+        await useAppStore.getState().refreshMessages(channel_id);
       }
     }),
 
@@ -1329,37 +1706,6 @@ export async function initEventListeners(
       },
     ),
 
-    // -- Group chat events ------------------------------------------
-
-    // A new group chat was created (locally or by another member).
-    await listen<{ group: GroupChat }>("group-created", (event) => {
-      const group = event.payload.group;
-      useAppStore.setState((prev) => {
-        // Avoid duplicates.
-        if (prev.groupChats.some((g) => g.id === group.id)) return {};
-        return { groupChats: [...prev.groupChats, group] };
-      });
-    }),
-
-    // New group message arrived.
-    await listen<{ group_id: string }>("new-group-message", async (event) => {
-      const { selectedGroup } = useAppStore.getState();
-      if (selectedGroup === event.payload.group_id) {
-        await useAppStore
-          .getState()
-          .refreshGroupMessages(event.payload.group_id);
-      }
-    }),
-
-    // Group unread counts changed.
-    await listen<{ unreads: Record<string, number> }>(
-      "group-unread-changed",
-      (event) => {
-        useAppStore.setState({ groupUnreadCounts: event.payload.unreads });
-        updateBadgeCount();
-      },
-    ),
-
     // Server rejected the connection.
     await listen<{ reason: string; reject_type: number | null }>("connection-rejected", (event) => {
       const rt = event.payload.reject_type;
@@ -1371,6 +1717,7 @@ export async function initEventListeners(
           status: "disconnected",
           error: passwordAttempted ? event.payload.reason : null,
           passwordRequired: true,
+          bootstrapStage: null,
           // pendingConnect was set by the connect action - keep it.
         });
       } else {
@@ -1378,6 +1725,7 @@ export async function initEventListeners(
           status: "disconnected",
           error: event.payload.reason,
           pendingConnect: null,
+          bootstrapStage: null,
         });
       }
       navigate("/");
@@ -1405,6 +1753,11 @@ export async function initEventListeners(
     }),
 
     // Voice state changed (enable/disable voice calling).
+    // Pref writes are NOT done here: queued IPC messages can arrive in the
+    // wrong order (especially with a slow backend event loop) and corrupt
+    // voiceMutedOnReconnect. Prefs are written by the explicit action
+    // handlers (enableVoice, disableVoice, toggleMute) where ordering is
+    // deterministic relative to the user's intent.
     await listen<VoiceState>("voice-state-changed", (event) => {
       const updates: Partial<ReturnType<typeof useAppStore.getState>> = { voiceState: event.payload };
       if (event.payload === "inactive") {
@@ -1435,7 +1788,15 @@ export async function initEventListeners(
     await listen("server-config", async () => {
       try {
         const cfg = await invoke<MumbleServerConfig>("get_server_config");
-        useAppStore.setState({ serverConfig: cfg });
+        useAppStore.setState((state) => {
+          const next: { serverConfig: MumbleServerConfig; fileServerConfig?: FileServerConfig } = { serverConfig: cfg };
+          const override = cfg.fancy_rest_api_url;
+          if (override && override.length > 0 && state.fileServerConfig) {
+            next.fileServerConfig = { ...state.fileServerConfig, baseUrl: override.replace(/\/+$/, "") };
+          }
+          return next;
+        });
+        void probeFileServerCapabilities();
       } catch (e) {
         console.error("get_server_config error:", e);
       }
@@ -1452,6 +1813,64 @@ export async function initEventListeners(
       (event) => {
         const { data_id, data, sender_session } = event.payload;
         const bytes = new Uint8Array(data);
+
+        if (data_id === "fancy-file-server-config") {
+          try {
+            const json = new TextDecoder().decode(bytes);
+            const raw = JSON.parse(json);
+            // The server-wide override (advertised in `ServerConfig`)
+            // takes precedence over the per-plugin `base_url`. This
+            // matters when the HTTP interface is hosted behind a
+            // reverse proxy or ingress and reachable at a different
+            // hostname than the Mumble TCP port.
+            const override = useAppStore.getState().serverConfig.fancy_rest_api_url;
+            const baseUrl = (override && override.length > 0) ? override : raw.base_url;
+            const cfg: FileServerConfig = {
+              baseUrl,
+              sessionId: raw.session_id,
+              uploadToken: raw.upload_token,
+              sessionJwt: raw.session_jwt,
+              maxFileSizeBytes: raw.max_file_size_bytes,
+              deleteOnTtl: !!raw.delete_on_ttl,
+              ttlSeconds: raw.ttl_seconds ?? 0,
+              deleteOnDownload: !!raw.delete_on_download,
+              deleteOnDisconnect: !!raw.delete_on_disconnect,
+              canManageEmotes: !!raw.can_manage_emotes,
+              canShareFiles: raw.can_share_files !== false,
+              canShareFilesPublic: raw.can_share_files_public !== false,
+            };
+            useAppStore.setState({ fileServerConfig: cfg });
+          } catch (e) {
+            console.error("plugin-data file-server-config processing error:", e);
+          }
+        }
+
+        if (data_id === "fancy-server-emotes") {
+          try {
+            const json = new TextDecoder().decode(bytes);
+            const raw = JSON.parse(json) as { emotes: Array<{
+              shortcode: string;
+              alias_emoji: string;
+              description?: string;
+              image_data_url: string;
+            }> };
+            const emotes: CustomServerEmote[] = (raw.emotes ?? []).map((e) => ({
+              shortcode: e.shortcode,
+              aliasEmoji: e.alias_emoji,
+              description: e.description,
+              imageDataUrl: e.image_data_url,
+            }));
+            useAppStore.setState({ customServerEmotes: emotes });
+            const reactions: ServerCustomReaction[] = emotes.map((e) => ({
+              shortcode: `:${e.shortcode}:`,
+              display: e.imageDataUrl,
+              label: e.description ?? e.aliasEmoji,
+            }));
+            setServerCustomReactions(reactions);
+          } catch (e) {
+            console.error("plugin-data server-emotes processing error:", e);
+          }
+        }
 
         if (data_id === "fancy-poll" || data_id === "fancy-poll-vote") {
           try {
@@ -1503,6 +1922,22 @@ export async function initEventListeners(
     ),
   );
 
+  // -- Link preview response events --------------------------------
+
+  unlisteners.push(
+    await listen<{ request_id: string; embeds: import("./types").LinkEmbed[] }>(
+      "link-preview-response",
+      (event) => {
+        const { request_id, embeds } = event.payload;
+        if (!request_id || !Array.isArray(embeds) || embeds.length === 0) return;
+        const prev = useAppStore.getState().linkEmbeds;
+        const next = new Map(prev);
+        next.set(request_id, embeds);
+        useAppStore.setState({ linkEmbeds: next });
+      },
+    ),
+  );
+
   // -- Custom reactions config event --------------------------------
 
   unlisteners.push(
@@ -1528,6 +1963,41 @@ export async function initEventListeners(
         useAppStore.setState((prev) => ({
           readReceiptVersion: prev.readReceiptVersion + 1,
         }));
+      },
+    ),
+  );
+
+  // -- Typing indicator events ------------------------------------
+
+  unlisteners.push(
+    await listen<{ session: number; channel_id: number }>(
+      "typing-indicator",
+      (event) => {
+        const { session, channel_id } = event.payload;
+        useAppStore.setState((prev) => {
+          const next = new Map(prev.typingUsers);
+          const channelSet = new Set(next.get(channel_id));
+          channelSet.add(session);
+          next.set(channel_id, channelSet);
+          return { typingUsers: next };
+        });
+
+        // Auto-expire after 5 seconds.
+        setTimeout(() => {
+          useAppStore.setState((prev) => {
+            const next = new Map(prev.typingUsers);
+            const channelSet = next.get(channel_id);
+            if (!channelSet) return prev;
+            const updated = new Set(channelSet);
+            updated.delete(session);
+            if (updated.size === 0) {
+              next.delete(channel_id);
+            } else {
+              next.set(channel_id, updated);
+            }
+            return { typingUsers: next };
+          });
+        }, 5000);
       },
     ),
   );
@@ -1749,6 +2219,53 @@ export async function initEventListeners(
           applyReaction(r.message_id, r.emoji, "add", r.sender_hash, resolvedName);
         }
         useAppStore.setState((s) => ({ reactionVersion: s.reactionVersion + 1 }));
+      },
+    ),
+
+    // Pin/unpin delivered by the server (persistent channels).
+    await listen<PinDeliverEvent>(
+      "pchat-pin-deliver",
+      (event) => {
+        const { channel_id, message_id, pinned, pinner_hash, pinner_name, timestamp } = event.payload;
+        const resolvedName = useAppStore.getState().users.find((u) => u.hash === pinner_hash)?.name ?? pinner_name;
+        useAppStore.setState((s) => {
+          const nextUnseen = new Map(s.unseenPinIds);
+          const channelSet = new Set(nextUnseen.get(channel_id));
+          if (pinned) {
+            channelSet.add(message_id);
+          } else {
+            channelSet.delete(message_id);
+          }
+          if (channelSet.size > 0) nextUnseen.set(channel_id, channelSet);
+          else nextUnseen.delete(channel_id);
+
+          return {
+            messages: s.messages.map((m) =>
+              m.message_id === message_id
+                ? { ...m, pinned, pinned_by: pinned ? resolvedName : null, pinned_at: pinned ? timestamp : null }
+                : m,
+            ),
+            unseenPinIds: nextUnseen,
+          };
+        });
+      },
+    ),
+
+    // Batch pin fetch response (historical pins for persistent channels).
+    await listen<PinFetchResponseEvent>(
+      "pchat-pin-fetch-response",
+      (event) => {
+        const { users } = useAppStore.getState();
+        const pinnedIds = new Map(event.payload.pins.map((p) => {
+          const resolvedName = users.find((u) => u.hash === p.pinner_hash)?.name ?? p.pinner_name;
+          return [p.message_id, { pinned_by: resolvedName, pinned_at: p.timestamp }] as const;
+        }));
+        useAppStore.setState((s) => ({
+          messages: s.messages.map((m) => {
+            const pin = m.message_id ? pinnedIds.get(m.message_id) : undefined;
+            return pin ? { ...m, pinned: true, pinned_by: pin.pinned_by, pinned_at: pin.pinned_at } : m;
+          }),
+        }));
       },
     ),
 

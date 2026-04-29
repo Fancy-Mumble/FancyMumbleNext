@@ -30,7 +30,6 @@ export interface LightboxProps {
   readonly allMessages: ChatMessage[];
   readonly selectedChannel: number | null;
   readonly selectedDmUser: number | null;
-  readonly selectedGroup: string | null;
   readonly currentScope: () => MessageScope | null;
   readonly timeFormat?: TimeFormat;
   readonly convertToLocalTime?: boolean;
@@ -484,7 +483,7 @@ function LightboxOverlay({
 export const Lightbox = forwardRef<LightboxHandle, LightboxProps>(
   function Lightbox(
     {
-      allMessages, selectedChannel, selectedDmUser, selectedGroup,
+      allMessages, selectedChannel, selectedDmUser,
       currentScope, timeFormat = "auto", convertToLocalTime = true,
       systemUses24h,
     },
@@ -567,7 +566,7 @@ export const Lightbox = forwardRef<LightboxHandle, LightboxProps>(
     // Close when switching conversations.
     useEffect(() => {
       setLightboxIndex(null);
-    }, [selectedChannel, selectedDmUser, selectedGroup]);
+    }, [selectedChannel, selectedDmUser]);
 
     useImperativeHandle(ref, () => ({ open: handleOpenLightbox }), [handleOpenLightbox]);
 

@@ -63,7 +63,6 @@ function makeMsg(id: string, body: string, channelId = 1): ChatMessage {
     channel_id: channelId,
     is_own: false,
     dm_session: null,
-    group_id: null,
     message_id: id,
     timestamp: Date.now(),
     is_legacy: false,

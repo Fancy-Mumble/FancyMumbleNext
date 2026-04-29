@@ -144,4 +144,26 @@ describe("ReactionBar rendering", () => {
     );
     expect(screen.getByText("3")).toBeTruthy();
   });
+
+  it("renders an img element (not text) for data URL custom emotes", () => {
+    const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const reactions = [makeSummary(dataUrl, [["hash-alice", "Alice"]])];
+    const { container } = render(<ReactionBar reactions={reactions} onToggle={onToggle} onAdd={onAdd} />);
+
+    // alt="" makes it a decorative image (role=presentation), use DOM query instead of getByRole
+    const img = container.querySelector("img");
+    expect(img).toBeTruthy();
+    expect(img?.getAttribute("src")).toBe(dataUrl);
+    // aria-label uses :custom: placeholder instead of the raw data URL
+    const pill = screen.getByLabelText(":custom: 1");
+    expect(pill).toBeTruthy();
+  });
+
+  it("does NOT render img for regular unicode emoji", () => {
+    const reactions = [makeSummary("\u{1F44D}", [["hash-alice", "Alice"]])];
+    const { container } = render(<ReactionBar reactions={reactions} onToggle={onToggle} onAdd={onAdd} />);
+
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByText("\u{1F44D}")).toBeTruthy();
+  });
 });

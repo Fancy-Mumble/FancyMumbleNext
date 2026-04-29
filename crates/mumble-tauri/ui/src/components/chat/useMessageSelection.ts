@@ -9,7 +9,6 @@ import styles from "./ChatView.module.css";
 interface UseMessageSelectionOptions {
   selectedChannel: number | null;
   selectedDmUser: number | null;
-  selectedGroup: string | null;
   channel: ChannelEntry | undefined;
   messagesContainerRef: React.RefObject<HTMLDivElement | null>;
   setPendingQuotes: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
@@ -18,7 +17,6 @@ interface UseMessageSelectionOptions {
 export function useMessageSelection({
   selectedChannel,
   selectedDmUser,
-  selectedGroup,
   channel,
   messagesContainerRef,
   setPendingQuotes,
@@ -176,12 +174,12 @@ export function useMessageSelection({
   /** Clear selection when switching channels. */
   useEffect(() => {
     exitSelectionMode();
-  }, [selectedChannel, selectedDmUser, selectedGroup, exitSelectionMode]);
+  }, [selectedChannel, selectedDmUser, exitSelectionMode]);
 
   /** Clear pending quotes when the active conversation changes. */
   useEffect(() => {
     setPendingQuotes([]);
-  }, [selectedChannel, selectedDmUser, selectedGroup, setPendingQuotes]);
+  }, [selectedChannel, selectedDmUser, setPendingQuotes]);
 
   // --- Text-selection bulk trigger ---------------------------------
   useEffect(() => {
@@ -236,6 +234,7 @@ export function useMessageSelection({
   const closeContextMenu = useCallback(() => setMsgContextMenu(null), []);
   const clearDeleteConfirm = useCallback(() => setDeleteConfirm(null), []);
   const clearToast = useCallback(() => setToast(null), []);
+  const showToast = useCallback((data: ToastData) => setToast(data), []);
 
   return {
     canDelete,
@@ -260,5 +259,6 @@ export function useMessageSelection({
     closeContextMenu,
     clearDeleteConfirm,
     clearToast,
+    showToast,
   };
 }

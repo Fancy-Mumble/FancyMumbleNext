@@ -80,7 +80,13 @@ const ALLOWED_ATTRS: Record<string, Set<string>> = {
   "*": new Set(["class", "title"]),
   a: new Set(["href", "target", "rel"]),
   font: new Set(["color", "size", "face"]),
-  span: new Set(["style"]),
+  span: new Set([
+    "style",
+    "data-mention-session",
+    "data-mention-role",
+    "data-mention-everyone",
+    "data-mention-here",
+  ]),
   td: new Set(["colspan", "rowspan"]),
   th: new Set(["colspan", "rowspan"]),
 };
@@ -372,7 +378,7 @@ function VideoThumb({
 
 // --- Lightbox -----------------------------------------------------
 
-function Lightbox({
+export function MediaLightbox({
   item,
   onClose,
   senderName,
@@ -515,7 +521,7 @@ export default function MediaPreview({ html, messageId, compact = false, timesta
 
       {/* Lightbox - portalled to body to escape backdrop-filter containing blocks */}
       {!onOpenLightbox && lightboxIdx !== null && media[lightboxIdx] && createPortal(
-        <Lightbox
+        <MediaLightbox
           item={media[lightboxIdx]}
           onClose={closeLightbox}
           senderName={senderName}

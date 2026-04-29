@@ -1,11 +1,7 @@
+import { CopyIcon, EmojiPlusIcon, KebabMenuIcon, QuoteIcon, TrashIcon } from "../../icons";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { ChatMessage } from "../../types";
-import EmojiPlusIcon from "../../assets/icons/communication/emoji-plus.svg?react";
-import QuoteIcon from "../../assets/icons/communication/quote.svg?react";
-import KebabMenuIcon from "../../assets/icons/navigation/kebab-menu.svg?react";
-import CopyIcon from "../../assets/icons/action/copy.svg?react";
-import TrashIcon from "../../assets/icons/action/trash.svg?react";
 import styles from "./MessageActionBar.module.css";
 
 // -- Quick reactions shown as emoji buttons -----------------------

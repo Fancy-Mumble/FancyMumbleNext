@@ -50,7 +50,7 @@ impl AppState {
             // Read force_tcp_audio from current audio settings.
             let force_tcp = inner
                 .lock()
-                .map(|s| s.audio_settings.force_tcp_audio)
+                .map(|s| s.audio.settings.force_tcp_audio)
                 .unwrap_or(false);
 
             let config = ClientConfig {
@@ -69,7 +69,7 @@ impl AppState {
                 ..ClientConfig::default()
             };
 
-            let epoch = inner.lock().map(|s| s.connection_epoch).unwrap_or(0);
+            let epoch = inner.lock().map(|s| s.conn.epoch).unwrap_or(0);
             let handler = TauriEventHandler {
                 shared: inner.clone(),
                 app: app_handle.clone(),
@@ -84,7 +84,7 @@ impl AppState {
         // Store the task handle so disconnect() can abort it if the user
         // cancels before the TCP handshake completes.
         if let Ok(mut state) = self.inner.lock() {
-            state.connect_task_handle = Some(connect_task);
+            state.conn.connect_task_handle = Some(connect_task);
         }
 
         Ok(())
@@ -100,20 +100,20 @@ impl AppState {
             use tauri::Manager;
             if let Some(app_handle) = self.app_handle() {
                 if let Some(handle) =
-                    app_handle.try_state::<crate::connection_service::ConnectionServiceHandle>()
+                    app_handle.try_state::<crate::platform::android::connection_service::ConnectionServiceHandle>()
                 {
-                    crate::connection_service::stop_service(&handle);
+                    crate::platform::android::connection_service::stop_service(&handle);
                 }
             }
         }
 
         let (handle, join, connect_task) = {
             let mut guard = self.inner.lock().map_err(|e| e.to_string())?;
-            guard.user_initiated_disconnect = true;
+            guard.conn.user_initiated_disconnect = true;
             (
-                guard.client_handle.take(),
-                guard.event_loop_handle.take(),
-                guard.connect_task_handle.take(),
+                guard.conn.client_handle.take(),
+                guard.conn.event_loop_handle.take(),
+                guard.conn.connect_task_handle.take(),
             )
         };
 
@@ -146,31 +146,31 @@ impl AppState {
             // Persist signal bridge sender key state before dropping pchat.
             // Note: on_disconnected may have already cleared pchat, so this
             // is a safety net for cases where disconnect() runs first.
-            if let Some(ref pchat) = state.pchat {
+            if let Some(ref pchat) = state.pchat_ctx.pchat {
                 pchat.save_signal_state();
                 pchat.save_local_cache();
             }
 
-            state.status = ConnectionStatus::Disconnected;
-            state.client_handle = None;
-            state.connect_task_handle = None;
-            state.event_loop_handle = None;
+            state.conn.status = ConnectionStatus::Disconnected;
+            state.conn.client_handle = None;
+            state.conn.connect_task_handle = None;
+            state.conn.event_loop_handle = None;
             state.users.clear();
             state.channels.clear();
-            state.messages.clear();
-            state.own_session = None;
-            state.synced = false;
+            state.msgs.by_channel.clear();
+            state.conn.own_session = None;
+            state.conn.synced = false;
             state.permanently_listened.clear();
             state.selected_channel = None;
             state.current_channel = None;
-            state.unread_counts.clear();
-            state.server_config = ServerConfig::default();
-            state.voice_state = VoiceState::Inactive;
-            state.root_permissions = None;
-            state.pchat = None;
-            state.pchat_seed = None;
-            state.pchat_identity_dir = None;
-            state.pending_key_shares.clear();
+            state.msgs.channel_unread.clear();
+            state.server.config = ServerConfig::default();
+            state.audio.voice_state = VoiceState::Inactive;
+            state.server.root_permissions = None;
+            state.pchat_ctx.pchat = None;
+            state.pchat_ctx.seed = None;
+            state.pchat_ctx.identity_dir = None;
+            state.pchat_ctx.pending_key_shares.clear();
         }
 
         Ok(())
@@ -195,43 +195,43 @@ fn reset_state_for_connect(
     let mut state = inner.lock().map_err(|e| e.to_string())?;
 
     // Abort the old event-loop task (if any).
-    if let Some(handle) = state.event_loop_handle.take() {
+    if let Some(handle) = state.conn.event_loop_handle.take() {
         handle.abort();
     }
     // Abort any stale connecting-phase task (in case a previous
     // connect() was cancelled before the handshake completed).
-    if let Some(task) = state.connect_task_handle.take() {
+    if let Some(task) = state.conn.connect_task_handle.take() {
         task.abort();
     }
 
-    state.connection_epoch += 1;
-    state.status = ConnectionStatus::Connecting;
-    state.own_name = username.to_owned();
-    state.connected_host = host.to_owned();
-    state.connected_port = port;
+    state.conn.epoch += 1;
+    state.conn.status = ConnectionStatus::Connecting;
+    state.conn.own_name = username.to_owned();
+    state.server.host = host.to_owned();
+    state.server.port = port;
     state.users.clear();
     state.channels.clear();
-    state.messages.clear();
-    state.own_session = None;
-    state.client_handle = None;
-    state.synced = false;
+    state.msgs.by_channel.clear();
+    state.conn.own_session = None;
+    state.conn.client_handle = None;
+    state.conn.synced = false;
     state.permanently_listened.clear();
     state.selected_channel = None;
     state.current_channel = None;
-    state.unread_counts.clear();
-    state.server_config = ServerConfig::default();
-    state.voice_state = VoiceState::Inactive;
-    state.root_permissions = None;
+    state.msgs.channel_unread.clear();
+    state.server.config = ServerConfig::default();
+    state.audio.voice_state = VoiceState::Inactive;
+    state.server.root_permissions = None;
     // Save signal state before dropping pchat (connect-time reset).
-    if let Some(ref pchat) = state.pchat {
+    if let Some(ref pchat) = state.pchat_ctx.pchat {
         pchat.save_signal_state();
         pchat.save_local_cache();
     }
-    state.pchat = None;
-    state.pchat_seed = None;
-    state.pchat_identity_dir = None;
-    state.pending_key_shares.clear();
-    state.tauri_app_handle = Some(app_handle.clone());
+    state.pchat_ctx.pchat = None;
+    state.pchat_ctx.seed = None;
+    state.pchat_ctx.identity_dir = None;
+    state.pchat_ctx.pending_key_shares.clear();
+    state.conn.tauri_app_handle = Some(app_handle.clone());
 
     Ok(())
 }
@@ -248,7 +248,7 @@ fn init_identity(
         let hash_names_path = data_dir.join("hash_names.json");
         let resolver = super::hash_names::DefaultHashNameResolver::new(hash_names_path);
         if let Ok(mut state) = inner.lock() {
-            state.hash_name_resolver = Some(std::sync::Arc::new(resolver));
+            state.pchat_ctx.hash_name_resolver = Some(std::sync::Arc::new(resolver));
         }
     }
 
@@ -265,8 +265,8 @@ fn init_identity(
         match store.load_or_generate_seed(identity_label) {
             Ok(seed) => {
                 if let Ok(mut state) = inner.lock() {
-                    state.pchat_seed = Some(seed);
-                    state.pchat_identity_dir = Some(store.identity_dir(identity_label));
+                    state.pchat_ctx.seed = Some(seed);
+                    state.pchat_ctx.identity_dir = Some(store.identity_dir(identity_label));
                 }
             }
             Err(e) => {
@@ -291,9 +291,9 @@ async fn handle_connect_result(
     match result {
         Ok((handle, join)) => {
             if let Ok(mut state) = inner.lock() {
-                state.client_handle = Some(handle.clone());
-                state.event_loop_handle = Some(join);
-                state.connect_task_handle = None;
+                state.conn.client_handle = Some(handle.clone());
+                state.conn.event_loop_handle = Some(join);
+                state.conn.connect_task_handle = None;
             }
 
             // Send Authenticate command.
@@ -345,9 +345,9 @@ async fn handle_connect_result(
 /// Clear connection handles and set status to `Disconnected`.
 fn mark_disconnected(inner: &SharedInner) {
     if let Ok(mut state) = inner.lock() {
-        state.status = ConnectionStatus::Disconnected;
-        state.client_handle = None;
-        state.event_loop_handle = None;
-        state.connect_task_handle = None;
+        state.conn.status = ConnectionStatus::Disconnected;
+        state.conn.client_handle = None;
+        state.conn.event_loop_handle = None;
+        state.conn.connect_task_handle = None;
     }
 }

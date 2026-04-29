@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -210,6 +210,8 @@ jobs:
       - name: Build Tauri app
         working-directory: crates/mumble-tauri
         env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_CONFIG: >-
             ${{ runner.os == 'Windows'
                 && '{"bundle":{"resources":["signal-bridge/*.dll"]}}'
@@ -225,8 +227,11 @@ jobs:
           path: |
             target/release/bundle/**/*.deb
             target/release/bundle/**/*.AppImage
+            target/release/bundle/**/*.AppImage.sig
             target/release/bundle/**/*.msi
+            target/release/bundle/**/*.msi.sig
             target/release/bundle/**/*.exe
+            target/release/bundle/**/*.exe.sig
           if-no-files-found: warn
 
   # ----------------------------------------------------------------
@@ -394,6 +399,40 @@ jobs:
       - name: List artifacts
         run: find artifacts -type f | head -50
 
+      - name: Generate latest.json for auto-updater
+        id: latest_json
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          BASE="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}"
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          read_sig() { [ -f "$1" ] && cat "$1" || echo ""; }
+          find_one() { find artifacts -type f -name "$1" | head -n1; }
+
+          WIN_NSIS=$(find_one "*-setup.exe" || true)
+          WIN_NSIS_SIG=$(find_one "*-setup.exe.sig" || true)
+          LINUX_APPIMAGE=$(find_one "*.AppImage" || true)
+          LINUX_APPIMAGE_SIG=$(find_one "*.AppImage.sig" || true)
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg pub_date "$PUB_DATE" \
+            --arg win_url   "$BASE/$(basename "${WIN_NSIS:-missing}")" \
+            --arg win_sig   "$(read_sig "${WIN_NSIS_SIG:-/dev/null}")" \
+            --arg lin_url   "$BASE/$(basename "${LINUX_APPIMAGE:-missing}")" \
+            --arg lin_sig   "$(read_sig "${LINUX_APPIMAGE_SIG:-/dev/null}")" \
+            '{
+              version: $version,
+              notes: "See release notes on GitHub.",
+              pub_date: $pub_date,
+              platforms: (
+                (if $win_sig != "" then {"windows-x86_64": {signature: $win_sig, url: $win_url}} else {} end)
+                + (if $lin_sig != "" then {"linux-x86_64":   {signature: $lin_sig, url: $lin_url}} else {} end)
+              )
+            }' > latest.json
+          cat latest.json
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -405,8 +444,12 @@ jobs:
           files: |
             artifacts/**/*.deb
             artifacts/**/*.AppImage
+            artifacts/**/*.AppImage.sig
             artifacts/**/*.msi
+            artifacts/**/*.msi.sig
             artifacts/**/*.exe
+            artifacts/**/*.exe.sig
             artifacts/**/*.apk
             artifacts/**/*.so
             artifacts/**/*.dll
+            latest.json

@@ -148,6 +148,13 @@
   color: var(--color-accent);
 }
 
+.emojiImage {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  display: block;
+}
+
 /* ---- Mobile adjustments ---- */
 
 @media (max-width: 768px) {

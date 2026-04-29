@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { initEventListeners } from "./store";
+import { initEventListeners, useAppStore } from "./store";
 import { getPreferences, getSavedAudioSettings, isFirstRun, getNotificationSounds } from "./preferencesStorage";
 import { setKlipyApiKey } from "./components/chat/GifPicker";
+import { setKlipyApiKey as setKlipyApiKeyBanner } from "./pages/settings/KlipyGifBrowser";
 import { loadShortcuts, applyGlobalShortcut } from "./pages/settings/shortcutHelpers";
 import { useVisualViewport } from "./hooks/useVisualViewport";
 import { useNotificationSounds } from "./hooks/useNotificationSounds";
@@ -11,12 +12,51 @@ import { DEFAULT_NOTIFICATION_SOUNDS } from "./pages/settings/NotificationsPanel
 import type { NotificationSoundSettings } from "./types";
 import TitleBar from "./components/layout/TitleBar";
 import ConnectPage from "./pages/ConnectPage";
-import ChatPage from "./pages/ChatPage";
-import SettingsPage from "./pages/settings";
-import AdminPanel from "./pages/admin";
-import WelcomePage from "./pages/WelcomePage";
+import LoadingSplash from "./components/elements/LoadingSplash";
+import { isUpdaterWindow } from "./updater";
+import UpdaterWindow from "./updater/UpdaterWindow";
+import PopoutPage from "./pages/PopoutPage";
+
+const ChatPage = lazy(() => import("./pages/ChatPage"));
+const SettingsPage = lazy(() => import("./pages/settings"));
+const AdminPanel = lazy(() => import("./pages/admin"));
+const RoleEditorPage = lazy(() => import("./pages/admin/RoleEditorPage"));
+const WelcomePage = lazy(() => import("./pages/WelcomePage"));
+
+/**
+ * Returns true when this webview window is an image popout window.
+ * Popout windows are spawned by `open_image_popout` and use a window
+ * label of the form `popout-<id>`.
+ */
+function isPopoutWindow(): boolean {
+  // Tauri exposes the window label via the `__TAURI_METADATA__` global, but
+  // checking the `?popout=` query string set by the popout URL is simpler
+  // and works in browser dev as well.
+  if (new URLSearchParams(window.location.search).has("popout")) return true;
+  // Fallback: detect via the Tauri window label using the IPC global.
+  // We run this synchronously by reading the document title fallback.
+  const tauriInternals = (window as unknown as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } }).__TAURI_INTERNALS__;
+  const label = tauriInternals?.metadata?.currentWindow?.label;
+  return !!label && label.startsWith("popout-");
+}
+
+const enum WindowKind { Main, Popout, Updater }
+
+function getWindowKind(): WindowKind {
+  if (isUpdaterWindow()) return WindowKind.Updater;
+  if (isPopoutWindow()) return WindowKind.Popout;
+  return WindowKind.Main;
+}
 
 export default function App() {
+  switch (getWindowKind()) {
+    case WindowKind.Updater: return <UpdaterWindow />;
+    case WindowKind.Popout:  return <PopoutPage />;
+    default:                 return <MainApp />;
+  }
+}
+
+function MainApp() {
   const navigate = useNavigate();
   const [firstRun, setFirstRun] = useState<boolean | null>(null);
   const [notifSounds, setNotifSounds] =
@@ -36,6 +76,14 @@ export default function App() {
     isFirstRun().then(setFirstRun);
     getPreferences().then((prefs) => {
       setKlipyApiKey(prefs.klipyApiKey);
+      setKlipyApiKeyBanner(prefs.klipyApiKey);
+      useAppStore.setState({ disableLinkPreviews: prefs.disableLinkPreviews ?? false });
+      // Inform the Rust updater whether to auto-install on startup.
+      invoke("updater_set_auto_install", { enabled: prefs.autoUpdateOnStartup ?? false })
+        .catch(() => undefined);
+      // Inform the Rust updater of the version (if any) the user chose to skip.
+      invoke("updater_set_skipped_version", { version: prefs.skippedUpdateVersion ?? null })
+        .catch(() => undefined);
     });
     getNotificationSounds().then((ns) => {
       if (ns) setNotifSounds(ns);
@@ -86,26 +134,29 @@ export default function App() {
   }, [navigate]);
 
   // Wait until we know the first-run status before rendering routes.
-  if (firstRun === null) return null;
+  if (firstRun === null) return <LoadingSplash />;
 
   return (
     <div className="app">
       <TitleBar />
-      <Routes>
-        {firstRun ? (
-          <>
-            <Route path="/welcome" element={<WelcomePage onComplete={() => setFirstRun(false)} />} />
-            <Route path="*" element={<Navigate to="/welcome" replace />} />
-          </>
-        ) : (
-          <>
-            <Route path="/" element={<ConnectPage />} />
-            <Route path="/chat" element={<ChatPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/admin" element={<AdminPanel />} />
-          </>
-        )}
-      </Routes>
+      <Suspense fallback={<LoadingSplash />}>
+        <Routes>
+          {firstRun ? (
+            <>
+              <Route path="/welcome" element={<WelcomePage onComplete={() => setFirstRun(false)} />} />
+              <Route path="*" element={<Navigate to="/welcome" replace />} />
+            </>
+          ) : (
+            <>
+              <Route path="/" element={<ConnectPage />} />
+              <Route path="/chat" element={<ChatPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/admin" element={<AdminPanel />} />
+              <Route path="/admin/role/:groupName" element={<RoleEditorPage />} />
+            </>
+          )}
+        </Routes>
+      </Suspense>
     </div>
   );
 }

@@ -1,8 +1,7 @@
+import { CheckDoubleIcon, CheckSingleIcon } from "../../icons";
 import { useMemo } from "react";
 import { useAppStore } from "../../store";
 import { allActiveUsersRead, getReadersForMessage } from "./readReceiptStore";
-import CheckSingleIcon from "../../assets/icons/status/check-single.svg?react";
-import CheckDoubleIcon from "../../assets/icons/status/check-double.svg?react";
 import styles from "./ReadReceiptIndicator.module.css";
 
 interface ReadReceiptIndicatorProps {

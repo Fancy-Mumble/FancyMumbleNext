@@ -1,0 +1,267 @@
+.root {
+  --updater-accent: #2aabee;
+  --updater-accent-hover: #229ed9;
+  --updater-bg: linear-gradient(135deg, #0e0e16 0%, #1a1a2e 50%, #16213e 100%);
+  --updater-surface: rgba(20, 20, 40, 0.55);
+  --updater-border: rgba(255, 255, 255, 0.08);
+  --updater-text: #ffffff;
+  --updater-text-muted: rgba(255, 255, 255, 0.65);
+
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--updater-bg);
+  color: var(--updater-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
+  overflow: hidden;
+  user-select: none;
+  /* Whole window background acts as a drag region. */
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+/* Re-enable normal pointer interaction for anything interactive. */
+.body button,
+.body a,
+.body pre,
+.body input,
+.body textarea {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.closeBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--updater-text-muted);
+  cursor: pointer;
+  z-index: 10;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  transition: background-color 120ms, color 120ms;
+}
+
+.closeBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--updater-text);
+}
+
+.closeBtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 32px 32px 16px;
+  overflow: none;
+  min-height: 0;
+}
+
+.logo {
+  margin: 0 0 14px;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--updater-text-muted);
+  margin: 0 0 18px;
+}
+
+.versions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--updater-text-muted);
+  margin-bottom: 14px;
+}
+
+.versionPill {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--updater-surface);
+  border: 1px solid var(--updater-border);
+  color: var(--updater-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.versionPill.next {
+  background: rgba(42, 171, 238, 0.15);
+  border-color: rgba(42, 171, 238, 0.45);
+  color: var(--updater-accent);
+}
+
+.notes {
+  width: 100%;
+  min-height: 280px;
+  max-height: 380px;
+  overflow-y: auto;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--updater-text-muted);
+  background: var(--updater-surface);
+  border: 1px solid var(--updater-border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 0;
+  white-space: pre-wrap;
+  user-select: text;
+  flex: 0 0 auto;
+}
+
+.progressWrap {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+.progressBar {
+  position: relative;
+  height: 6px;
+  width: 100%;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.progressFill {
+  position: absolute;
+  inset: 0;
+  width: 0%;
+  background: linear-gradient(90deg, var(--updater-accent), #7c3aed);
+  border-radius: 999px;
+  transition: width 120ms ease-out;
+}
+
+.progressFill.indeterminate {
+  width: 35%;
+  animation: slide 1.4s ease-in-out infinite;
+}
+
+@keyframes slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(285%); }
+}
+
+.progressLabel {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--updater-text-muted);
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 32px 28px;
+  gap: 0;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.skipLink {
+  align-self: center;
+  margin: 0 0 10px;
+  padding: 4px 6px;
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  color: var(--updater-text-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.25);
+  text-underline-offset: 3px;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  transition: color 120ms, text-decoration-color 120ms;
+}
+
+.skipLink:hover {
+  color: var(--updater-text);
+  text-decoration-color: var(--updater-text-muted);
+}
+
+.skipLink[aria-pressed="true"] {
+  color: var(--updater-accent);
+  text-decoration-color: var(--updater-accent);
+}
+
+.btn {
+  flex: 1;
+  padding: 11px 16px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms, transform 80ms;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btnPrimary {
+  background: var(--updater-accent);
+  color: #ffffff;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: var(--updater-accent-hover);
+}
+
+.btnSecondary {
+  background: transparent;
+  color: var(--updater-text);
+  border-color: var(--updater-border);
+}
+
+.btnSecondary:hover:not(:disabled) {
+  background: var(--updater-surface);
+}
+
+.error {
+  width: 100%;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: rgba(220, 38, 38, 0.18);
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  color: #fecaca;
+  font-size: 12px;
+  text-align: left;
+}

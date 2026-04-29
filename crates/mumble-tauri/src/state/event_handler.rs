@@ -59,9 +59,9 @@ impl EventEmitter for TauriEmitter {
             use tauri::Manager;
             if let Some(cs_handle) = self
                 .app
-                .try_state::<crate::connection_service::ConnectionServiceHandle>()
+                .try_state::<crate::platform::android::connection_service::ConnectionServiceHandle>()
             {
-                crate::connection_service::show_chat_notification(
+                crate::platform::android::connection_service::show_chat_notification(
                     &cs_handle,
                     title,
                     body,
@@ -133,23 +133,27 @@ impl EventHandler for TauriEventHandler {
                 );
             }
 
-            let packet = EncodedPacket {
-                data: audio.opus_data.clone(),
-                sequence: audio.frame_number,
-                frame_samples: 960,
-            };
-
             // Determine what to emit INSIDE the lock, then emit OUTSIDE.
             // Calling app.emit() while holding SharedState causes a deadlock:
             // the webview dispatches the JS event synchronously, JS may invoke
             // a Tauri command that tries to re-lock SharedState, and both
             // threads wait on each other.
+            //
+            // The opus payload is only cloned (into `EncodedPacket`) when a
+            // mixer is actually present, so audio packets received before the
+            // pipeline is initialised cost nothing.
             let emit_action: Option<bool> = 'action: {
                 let Ok(mut state) = self.shared.lock() else {
                     break 'action None;
                 };
-                let Some(ref mut mixer) = state.audio_mixer else {
+                let Some(ref mut mixer) = state.audio.mixer else {
                     break 'action None;
+                };
+
+                let packet = EncodedPacket {
+                    data: audio.opus_data.clone(),
+                    sequence: audio.frame_number,
+                    frame_samples: 960,
                 };
 
                 if let Err(e) = mixer.feed(session, &packet) {
@@ -158,9 +162,9 @@ impl EventHandler for TauriEventHandler {
 
                 if is_terminator {
                     mixer.reset_speaker(session);
-                    state.talking_sessions.remove(&session).then_some(false)
+                    state.audio.talking_sessions.remove(&session).then_some(false)
                 } else {
-                    state.talking_sessions.insert(session).then_some(true)
+                    state.audio.talking_sessions.insert(session).then_some(true)
                 }
             };
             // SharedState lock is released here.
@@ -177,45 +181,45 @@ impl EventHandler for TauriEventHandler {
             // If the epoch has moved on, a newer `connect()` call has already
             // claimed the shared state.  Silently bail - this callback comes
             // from an orphaned / aborted event loop.
-            if state.connection_epoch != self.epoch {
+            if state.conn.epoch != self.epoch {
                 debug!(
                     handler_epoch = self.epoch,
-                    current_epoch = state.connection_epoch,
+                    current_epoch = state.conn.epoch,
                     "stale on_disconnected ignored"
                 );
                 return;
             }
 
-            state.status = ConnectionStatus::Disconnected;
-            state.client_handle = None;
-            state.event_loop_handle = None;
+            state.conn.status = ConnectionStatus::Disconnected;
+            state.conn.client_handle = None;
+            state.conn.event_loop_handle = None;
             // Stop audio pipelines on disconnect.
-            if let Some(handle) = state.outbound_task_handle.take() {
+            if let Some(handle) = state.audio.outbound_task_handle.take() {
                 handle.abort();
             }
-            if let Some(mut playback) = state.mixing_playback.take() {
+            if let Some(mut playback) = state.audio.mixing_playback.take() {
                 let _ = playback.stop();
             }
-            state.audio_mixer = None;
-            state.voice_state = VoiceState::Inactive;
-            state.talking_sessions.clear();
-            state.server_fancy_version = None;
-            state.server_version_info = ServerVersionInfo::default();
-            state.max_users = None;
-            state.max_bandwidth = None;
-            state.opus = false;
-            state.root_permissions = None;
+            state.audio.mixer = None;
+            state.audio.voice_state = VoiceState::Inactive;
+            state.audio.talking_sessions.clear();
+            state.server.fancy_version = None;
+            state.server.version_info = ServerVersionInfo::default();
+            state.server.max_users = None;
+            state.server.max_bandwidth = None;
+            state.server.opus = false;
+            state.server.root_permissions = None;
             // Save signal state before dropping pchat.
-            if let Some(ref pchat) = state.pchat {
+            if let Some(ref pchat) = state.pchat_ctx.pchat {
                 pchat.save_signal_state();
                 pchat.save_local_cache();
             }
-            state.pchat = None;
-            state.pchat_seed = None;
-            state.pchat_identity_dir = None;
-            state.pending_key_shares.clear();
-            user_initiated = state.user_initiated_disconnect;
-            state.user_initiated_disconnect = false;
+            state.pchat_ctx.pchat = None;
+            state.pchat_ctx.seed = None;
+            state.pchat_ctx.identity_dir = None;
+            state.pchat_ctx.pending_key_shares.clear();
+            user_initiated = state.conn.user_initiated_disconnect;
+            state.conn.user_initiated_disconnect = false;
         }
         let reason = if user_initiated { None } else { Some("Connection to server was lost.") };
         let _ = self.app.emit("server-disconnected", reason);
@@ -225,9 +229,9 @@ impl EventHandler for TauriEventHandler {
         {
             use tauri::Manager;
             if let Some(handle) =
-                self.app.try_state::<crate::connection_service::ConnectionServiceHandle>()
+                self.app.try_state::<crate::platform::android::connection_service::ConnectionServiceHandle>()
             {
-                crate::connection_service::stop_service(&handle);
+                crate::platform::android::connection_service::stop_service(&handle);
             }
 
             // Keep FCM topic subscriptions active after disconnect so the

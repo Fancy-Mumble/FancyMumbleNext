@@ -17,7 +17,7 @@ impl HandleMessage for mumble_tcp::UserState {
         let (is_synced, own_channel_changed, remote_channel_move, is_new_user, user_name, old_snapshot, new_snapshot, move_channel_name) = {
             let mut state_guard = ctx.shared.lock().ok();
             if let Some(ref mut state) = state_guard {
-                let resolver = state.hash_name_resolver.clone();
+                let resolver = state.pchat_ctx.hash_name_resolver.clone();
                 let is_new_user = !state.users.contains_key(&session);
 
                 let old_snapshot = state.users.get(&session).map(|u| MuteDeafSnapshot {
@@ -43,7 +43,7 @@ impl HandleMessage for mumble_tcp::UserState {
 
                 let (own_ch, remote_ch) = if let Some((ch, prev)) = channel_move {
                     set_channel_outcome(
-                        state.own_session, session, ch, prev, is_new_user, &mut state.current_channel,
+                        state.conn.own_session, session, ch, prev, is_new_user, &mut state.current_channel,
                     )
                 } else {
                     (false, None)
@@ -54,7 +54,7 @@ impl HandleMessage for mumble_tcp::UserState {
                     .and_then(|ch| state.channels.get(&ch))
                     .map(|c| c.name.clone());
 
-                (state.synced, own_ch, remote_ch, is_new_user, user_name, old_snapshot, new_snapshot, move_channel_name)
+                (state.conn.synced, own_ch, remote_ch, is_new_user, user_name, old_snapshot, new_snapshot, move_channel_name)
             } else {
                 (false, false, None, false, String::new(), None, MuteDeafSnapshot::default(), None)
             }
@@ -148,15 +148,15 @@ fn handle_own_channel_change(ctx: &HandlerContext, ch: u32) {
         use tauri::Manager;
         let info = ctx.shared.lock().ok().and_then(|s| {
             let channel_name = s.channels.get(&ch).map(|c| c.name.clone())?;
-            let host = s.connected_host.clone();
-            let app = s.tauri_app_handle.clone()?;
+            let host = s.server.host.clone();
+            let app = s.conn.tauri_app_handle.clone()?;
             Some((app, host, channel_name))
         });
         if let Some((app, host, channel_name)) = info {
             if let Some(handle) =
-                app.try_state::<crate::connection_service::ConnectionServiceHandle>()
+                app.try_state::<crate::platform::android::connection_service::ConnectionServiceHandle>()
             {
-                crate::connection_service::update_service_channel(&handle, &host, &channel_name);
+                crate::platform::android::connection_service::update_service_channel(&handle, &host, &channel_name);
             }
         }
     }
@@ -250,13 +250,13 @@ fn set_channel_outcome(
 fn should_fetch_pchat_history(shared: &Arc<Mutex<SharedState>>, ch: u32) -> bool {
     let Ok(s) = shared.lock() else { return false };
     let mode = s.channels.get(&ch).and_then(|c| c.pchat_protocol);
-    let already_fetched = s.pchat.as_ref().is_some_and(|p| p.fetched_channels.contains(&ch));
-    s.pchat.is_some() && mode.is_some_and(|m| m.is_encrypted()) && !already_fetched
+    let already_fetched = s.pchat_ctx.pchat.as_ref().is_some_and(|p| p.fetched_channels.contains(&ch));
+    s.pchat_ctx.pchat.is_some() && mode.is_some_and(|m| m.is_encrypted()) && !already_fetched
 }
 
 fn mark_channel_fetched(shared: &Arc<Mutex<SharedState>>, ch: u32) {
     let Ok(mut state) = shared.lock() else { return };
-    if let Some(ref mut pchat) = state.pchat {
+    if let Some(ref mut pchat) = state.pchat_ctx.pchat {
         let _ = pchat.fetched_channels.insert(ch);
     }
 }
@@ -266,7 +266,7 @@ fn maybe_derive_archive_key_for_join(
     ch: u32,
 ) -> Option<(std::path::PathBuf, [u8; 32], String)> {
     let Ok(mut s) = shared.lock() else { return None };
-    let p = s.pchat.as_mut()?;
+    let p = s.pchat_ctx.pchat.as_mut()?;
     if p.key_manager.has_key(ch, PchatProtocol::FancyV1FullArchive) {
         return None;
     }
@@ -284,7 +284,7 @@ fn derive_channel_key_as_originator(
 ) -> Option<(std::path::PathBuf, [u8; 32], String)> {
     let Ok(mut s) = shared.lock() else { return None };
     let mode = s.channels.get(&ch).and_then(|c| c.pchat_protocol);
-    let p = s.pchat.as_mut()?;
+    let p = s.pchat_ctx.pchat.as_mut()?;
     let cert = p.own_cert_hash.clone();
     match mode {
         Some(PchatProtocol::FancyV1FullArchive) => {
@@ -343,7 +343,7 @@ async fn pchat_init_task(shared: Arc<Mutex<SharedState>>, ch: u32) {
         let s = shared.lock().ok();
         if let Some(ref s) = s {
             let pchat_mode = s.channels.get(&ch).and_then(|c| c.pchat_protocol);
-            s.pchat.as_ref().is_some_and(|p| pchat_mode.is_some_and(|m| p.key_manager.has_key(ch, m)))
+            s.pchat_ctx.pchat.as_ref().is_some_and(|p| pchat_mode.is_some_and(|m| p.key_manager.has_key(ch, m)))
         } else {
             false
         }
@@ -359,7 +359,7 @@ async fn pchat_init_task(shared: Arc<Mutex<SharedState>>, ch: u32) {
         let s = shared.lock().ok();
         if let Some(ref s) = s {
             let pchat_mode = s.channels.get(&ch).and_then(|c| c.pchat_protocol);
-            s.pchat.as_ref().map(|p| pchat_mode.map(|m| !p.key_manager.has_key(ch, m)).unwrap_or(false)).unwrap_or(false)
+            s.pchat_ctx.pchat.as_ref().map(|p| pchat_mode.map(|m| !p.key_manager.has_key(ch, m)).unwrap_or(false)).unwrap_or(false)
         } else {
             false
         }
@@ -373,7 +373,7 @@ async fn pchat_init_task(shared: Arc<Mutex<SharedState>>, ch: u32) {
         pchat::send_key_holder_report_async(&shared, ch).await;
     }
 
-    let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
+    let handle = shared.lock().ok().and_then(|s| s.conn.client_handle.clone());
     let fetch_sent = if let Some(handle) = handle {
         let fetch = mumble_tcp::PchatFetch {
             channel_id: Some(ch),
@@ -409,12 +409,13 @@ async fn request_user_blob(
     need_texture: bool,
     need_comment: bool,
 ) {
-    let Some(handle) = shared.lock().ok().and_then(|s| s.client_handle.clone()) else { return };
+    let Some(handle) = shared.lock().ok().and_then(|s| s.conn.client_handle.clone()) else { return };
     let _ = handle
         .send(command::RequestBlob {
             session_texture: if need_texture { vec![sess] } else { Vec::new() },
             session_comment: if need_comment { vec![sess] } else { Vec::new() },
             channel_description: Vec::new(),
+            user_id_comment: Vec::new(),
         })
         .await;
 }

@@ -1,3 +1,4 @@
+import { ArrowUpRightIcon, CheckboxIcon, CopyIcon, EditIcon, EmojiPlusIcon, QuoteIcon, TrashIcon } from "../../icons";
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { ChatMessage } from "../../types";
@@ -5,12 +6,6 @@ import type { ReactionSummary } from "./reactionStore";
 import { getReadersForMessage } from "./readReceiptStore";
 import { useAppStore } from "../../store";
 import { QUICK_REACTIONS } from "../elements/MessageActionBar";
-import EmojiPlusIcon from "../../assets/icons/communication/emoji-plus.svg?react";
-import QuoteIcon from "../../assets/icons/communication/quote.svg?react";
-import CopyIcon from "../../assets/icons/action/copy.svg?react";
-import EditIcon from "../../assets/icons/action/edit.svg?react";
-import TrashIcon from "../../assets/icons/action/trash.svg?react";
-import CheckboxIcon from "../../assets/icons/status/checkbox.svg?react";
 import styles from "./MessageContextMenu.module.css";
 
 // -- Overflow-aware position computation --------------------------
@@ -54,6 +49,12 @@ interface MessageContextMenuProps {
   readonly onCite?: (msg: ChatMessage) => void;
   readonly onCopyText?: (msg: ChatMessage) => void;
   readonly onEdit?: (msg: ChatMessage) => void;
+  /** Pin or unpin a message. */
+  readonly onPin?: (msg: ChatMessage) => void;
+  /** Pop the given image source out into a frameless, always-on-top window. */
+  readonly onPopOutImage?: (msg: ChatMessage, src: string) => void;
+  /** Image source to pop out (when the message contains at least one image). */
+  readonly popOutImageSrc?: string | null;
   /** Reactions on the context-menu's target message. */
   readonly reactions?: readonly ReactionSummary[];
   /** Avatar data-URLs keyed by cert hash. */
@@ -77,6 +78,9 @@ export default function MessageContextMenu({
   onCite,
   onCopyText,
   onEdit,
+  onPin,
+  onPopOutImage,
+  popOutImageSrc,
   reactions,
   avatarByHash,
   allMessageIds,
@@ -134,8 +138,8 @@ export default function MessageContextMenu({
     if (!msgId || !menu.message.is_own || channelId == null || !allMessageIds) return [];
     const readers = getReadersForMessage(channelId, msgId, allMessageIds);
     return readers
-      .filter((r) => r.cert_hash !== ownHash)
-      .map((r) => ({ name: r.name, avatarUrl: avatarByHash?.get(r.cert_hash) }));
+      .filter((r) => r.name && (!ownHash || r.cert_hash !== ownHash))
+      .map((r) => ({ certHash: r.cert_hash, name: r.name, isOnline: r.is_online, avatarUrl: avatarByHash?.get(r.cert_hash) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menu.message, channelId, allMessageIds, avatarByHash, ownHash, readReceiptVersion]);
 
@@ -198,6 +202,20 @@ export default function MessageContextMenu({
             Edit message
           </button>
         )}
+        {onPin && menu.message.message_id && (
+          <button type="button" className={styles.menuItem} onClick={() => { onPin(menu.message); onClose(); }}>
+            <span className={styles.menuIcon}>📌</span>
+            {menu.message.pinned ? "Unpin message" : "Pin message"}
+          </button>
+        )}
+        {onPopOutImage && popOutImageSrc && (
+          <button type="button" className={styles.menuItem} onClick={() => { onPopOutImage(menu.message, popOutImageSrc); onClose(); }}>
+            <span className={styles.menuIcon}>
+              <ArrowUpRightIcon width={14} height={14} />
+            </span>
+            Pop out image
+          </button>
+        )}
         {canDelete && (
           <button type="button" className={`${styles.menuItem} ${styles.menuItemDanger}`} onClick={handleDelete}>
             <span className={styles.menuIcon}>
@@ -220,19 +238,26 @@ export default function MessageContextMenu({
           <>
             <div className={styles.divider} />
             <div className={styles.reactorSection}>
-              {reactorEntries.map((entry) => (
-                <div key={`${entry.emoji}-${entry.name}`} className={styles.reactorItem}>
-                  <span className={styles.reactorEmoji}>{entry.emoji}</span>
-                  {entry.avatarUrl ? (
-                    <img src={entry.avatarUrl} alt="" className={styles.reactorAvatar} />
-                  ) : (
-                    <div className={styles.reactorAvatarFallback}>
-                      {entry.name.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <span className={styles.reactorName}>{entry.name}</span>
-                </div>
-              ))}
+              {reactorEntries.map((entry) => {
+                const isImageEmoji = entry.emoji.startsWith("data:image/");
+                return (
+                  <div key={`${entry.emoji}-${entry.name}`} className={styles.reactorItem}>
+                    {isImageEmoji ? (
+                      <img src={entry.emoji} alt="" className={styles.reactorEmojiImg} />
+                    ) : (
+                      <span className={styles.reactorEmoji}>{entry.emoji}</span>
+                    )}
+                    {entry.avatarUrl ? (
+                      <img src={entry.avatarUrl} alt="" className={styles.reactorAvatar} />
+                    ) : (
+                      <div className={styles.reactorAvatarFallback}>
+                        {entry.name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <span className={styles.reactorName}>{entry.name}</span>
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
@@ -245,7 +270,7 @@ export default function MessageContextMenu({
             {readerEntries.length > 0 ? (
               <div className={styles.reactorSection}>
                 {readerEntries.map((entry) => (
-                  <div key={entry.name} className={styles.reactorItem}>
+                  <div key={entry.certHash} className={`${styles.reactorItem} ${entry.isOnline ? "" : styles.offlineReader}`}>
                     {entry.avatarUrl ? (
                       <img src={entry.avatarUrl} alt="" className={styles.reactorAvatar} />
                     ) : (

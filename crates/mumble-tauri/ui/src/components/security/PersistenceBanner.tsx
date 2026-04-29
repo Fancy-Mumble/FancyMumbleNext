@@ -1,9 +1,9 @@
+import { ShieldIcon } from "../../icons";
 import { useCallback, useRef, useEffect, useState } from "react";
 import { useAppStore } from "../../store";
 import type { PersistenceMode } from "../../types";
 import { getDismissedBanners, dismissBanner } from "../../preferencesStorage";
 import { InfoBanner } from "./InfoBanner";
-import ShieldIcon from "../../assets/icons/status/shield.svg?react";
 import styles from "./InfoBanner.module.css";
 
 interface PersistenceBannerProps {

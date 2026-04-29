@@ -181,6 +181,10 @@ message TextMessage {
 	optional uint64 timestamp = 7;
 	// When set, this message is an edit replacing the message with this ID.
 	optional string edit_id = 8;
+	// When set, pin or unpin the message with this ID in the channel.
+	optional string pin_target = 9;
+	// When true combined with pin_target, unpin instead of pin.
+	optional bool unpin = 10;
 }
 
 message PermissionDenied {
@@ -210,6 +214,10 @@ message PermissionDenied {
 
 message ACL {
 	message ChanGroup {
+		message KeyValue {
+			required string key = 1;
+			optional string value = 2;
+		}
 		required string name = 1;
 		optional bool inherited = 2 [default = true];
 		optional bool inherit = 3 [default = true];
@@ -217,6 +225,11 @@ message ACL {
 		repeated uint32 add = 5;
 		repeated uint32 remove = 6;
 		repeated uint32 inherited_members = 7;
+		// FancyMumble role customization extensions.
+		optional string color = 8;
+		optional bytes icon = 9;
+		optional string style_preset = 10;
+		repeated KeyValue metadata = 11;
 	}
 	message ChanACL {
 		optional bool apply_here = 1 [default = true];
@@ -273,6 +286,14 @@ message UserList {
 		optional string name = 2;
 		optional string last_seen = 3;
 		optional uint32 last_channel = 4;
+		// Registered user avatar (PNG/JPEG bytes).
+		optional bytes texture = 5;
+		// SHA-1 hash of the comment when len >= 128; empty otherwise.
+		// If set without comment, the client must request the full text
+		// via RequestBlob.user_id_comment.
+		optional bytes comment_hash = 6;
+		// Full comment text when len < 128, or in blob responses.
+		optional string comment = 7;
 	}
 	repeated User users = 1;
 }
@@ -342,6 +363,8 @@ message RequestBlob {
 	repeated uint32 session_texture = 1;
 	repeated uint32 session_comment = 2;
 	repeated uint32 channel_description = 3;
+	// Registered user_ids whose comment should be fetched (offline support).
+	repeated uint32 user_id_comment = 4;
 }
 
 message ServerConfig {
@@ -355,6 +378,14 @@ message ServerConfig {
 	// True when the server has a WebRTC SFU module loaded and can
 	// relay screen-share streams server-side.
 	optional bool webrtc_sfu_available = 8;
+	// Optional public base URL of the Fancy Mumble REST API (file
+	// server, custom emotes, capabilities, ...). Set this when the
+	// server's HTTP interface is exposed under a different hostname
+	// than the Mumble TCP port - for example behind a reverse proxy
+	// or Kubernetes ingress. Clients should prefer this URL over any
+	// per-plugin `base_url` when contacting the REST API. Empty /
+	// unset means "no override; use whatever the plugin advertises".
+	optional string fancy_rest_api_url = 9;
 }
 
 message SuggestConfig {
@@ -820,4 +851,117 @@ message FancyReadReceiptDeliver {
 	}
 	repeated ReadState read_states = 2;
 	optional string query_message_id = 3;
+}
+// ---------------------------------------------------------------------------
+// Message pinning (Fancy Mumble extension, IDs 128-130)
+// ---------------------------------------------------------------------------
+
+// Client -> Server: pin or unpin a persistent chat message.
+// The server validates the sender, stores the pin state, and broadcasts
+// a PchatPinDeliver to all Fancy clients in the channel.
+// Wire type ID = 128.
+message PchatPin {
+	optional uint32 channel_id = 1;
+	optional string message_id = 2;
+	optional string sender_hash = 3;
+	optional bool unpin = 4;
+	optional uint64 timestamp = 5;
+}
+
+// Server -> Client: delivers a pin or unpin event to channel members.
+// Wire type ID = 129.
+message PchatPinDeliver {
+	optional uint32 channel_id = 1;
+	optional string message_id = 2;
+	optional string pinner_hash = 3;
+	optional string pinner_name = 4;
+	optional bool unpin = 5;
+	optional uint64 timestamp = 6;
+}
+
+// Server -> Client: batch delivery of all pinned message IDs for a channel.
+// Sent alongside PchatFetchResponse so the client can mark historical
+// messages as pinned.
+// Wire type ID = 130.
+message PchatPinFetchResponse {
+	message PinnedMessage {
+		optional string message_id = 1;
+		optional string pinner_hash = 2;
+		optional string pinner_name = 3;
+		optional uint64 timestamp = 4;
+	}
+	optional uint32 channel_id = 1;
+	repeated PinnedMessage pins = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Typing indicator (Fancy Mumble extension, ID 131)
+// ---------------------------------------------------------------------------
+
+// Client -> Server: notify the server that the user is typing in a channel.
+// The server fills in `actor` with the sender's session ID and broadcasts
+// the message to all other Fancy clients in the same channel.
+// Wire type ID = 131.
+message FancyTypingIndicator {
+	// Session ID of the typing user (set by server on relay, ignored from client).
+	optional uint32 actor = 1;
+	// Channel where the user is typing.
+	optional uint32 channel_id = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Link preview (Fancy Mumble extension, IDs 132-133)
+// ---------------------------------------------------------------------------
+
+// Client -> Server: request link previews for one or more URLs.
+// The server validates, rate-limits, fetches metadata, and responds
+// with FancyLinkPreviewResponse.
+// Wire type ID = 132.
+message FancyLinkPreviewRequest {
+	repeated string urls = 1;
+	// Client-chosen correlation ID so the response can be matched.
+	optional string request_id = 2;
+}
+
+// Server -> Client: link preview results.
+// Wire type ID = 133.
+message FancyLinkPreviewResponse {
+	// Link embed data with media, provider, and author info.
+	message Embed {
+		optional string url = 1;
+		// "video", "image", "gifv", "article", "link", "rich"
+		optional string type = 2;
+		optional string title = 3;
+		optional string description = 4;
+		optional int32 color = 5;
+		optional string site_name = 6;
+
+		// Reusable sub-message for media (thumbnail, image, video).
+		message Media {
+			optional string url = 1;
+			optional int32 width = 2;
+			optional int32 height = 3;
+		}
+		optional Media thumbnail = 7;
+		optional Media image = 8;
+		optional Media video = 9;
+
+		// Provider metadata.
+		message Provider {
+			optional string name = 1;
+			optional string url = 2;
+		}
+		optional Provider provider = 10;
+
+		// Author metadata.
+		message Author {
+			optional string name = 1;
+			optional string url = 2;
+		}
+		optional Author author = 11;
+	}
+
+	// Correlation ID from the request.
+	optional string request_id = 1;
+	repeated Embed embeds = 2;
 }

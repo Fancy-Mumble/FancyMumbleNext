@@ -135,6 +135,7 @@
   cursor: pointer;
   appearance: auto;
   transition: border-color 0.2s;
+  margin-top: 6px;
 }
 
 .select:hover {
@@ -852,6 +853,20 @@
   margin-bottom: 8px;
 }
 
+.avatarThumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--color-glass-border);
+}
+
+.avatarRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 /* --- Apply button ----------------------------------------------- */
 
 .applyBtn {
@@ -1049,6 +1064,33 @@
 
 .previewBio a:hover {
   color: #93c5fd;
+}
+
+/* --- Role / group chips on profile cards ----------------------- */
+
+.previewGroupChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.previewGroupChip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 99px;
+  padding: 2px 7px;
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .previewEffectBadge {
@@ -1639,6 +1681,19 @@
 .identityEditBtn:hover {
   background: var(--color-accent);
   color: #fff;
+}
+
+.infoBoxYellow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.45);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: #a87d00;
 }
 
 /* --- Audio Statistics -------------------------------------------- */

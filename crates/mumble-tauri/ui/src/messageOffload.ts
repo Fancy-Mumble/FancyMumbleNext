@@ -15,9 +15,9 @@ import { invoke } from "@tauri-apps/api/core";
 
 // --- Abstraction --------------------------------------------------
 
-/** Scope that identifies where a message lives (channel / DM / group). */
+/** Scope that identifies where a message lives (channel / DM). */
 export interface MessageScope {
-  scope: "channel" | "dm" | "group";
+  scope: "channel" | "dm";
   scopeId: string;
 }
 

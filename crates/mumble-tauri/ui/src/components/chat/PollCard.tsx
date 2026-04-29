@@ -1,4 +1,5 @@
-﻿/**
+import { PollIcon } from "../../icons";
+/**
  * PollCard - renders a poll inside the chat message view.
  *
  * Shows the question, options with vote counts, and lets the local
@@ -8,7 +9,6 @@
 
 import { useState, useCallback, useMemo } from "react";
 import type { PollPayload, PollVotePayload } from "./PollCreator";
-import PollIcon from "../../assets/icons/communication/poll.svg?react";
 import styles from "./PollCard.module.css";
 
 // --- Vote store (module-level) ------------------------------------

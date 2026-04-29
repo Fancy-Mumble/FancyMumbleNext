@@ -6,8 +6,8 @@ use crate::state::types::ServerVersionInfo;
 impl HandleMessage for mumble_tcp::Version {
     fn handle(&self, ctx: &HandlerContext) {
         if let Ok(mut state) = ctx.shared.lock() {
-            state.server_fancy_version = self.fancy_version;
-            state.server_version_info = ServerVersionInfo {
+            state.server.fancy_version = self.fancy_version;
+            state.server.version_info = ServerVersionInfo {
                 release: self.release.clone(),
                 os: self.os.clone(),
                 os_version: self.os_version.clone(),

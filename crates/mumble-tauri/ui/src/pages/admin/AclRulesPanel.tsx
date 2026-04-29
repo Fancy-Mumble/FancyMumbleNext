@@ -1,6 +1,6 @@
+import { ChevronRightIcon } from "../../icons";
 import { useState } from "react";
 import type { AclEntry } from "../../types";
-import ChevronRightIcon from "../../assets/icons/navigation/chevron-right.svg?react";
 import styles from "./AdminPanel.module.css";
 import { PERMISSIONS } from "../../utils/permissions";
 

@@ -245,7 +245,7 @@ pub(crate) fn emit_history_loading(
     let app = shared
         .lock()
         .ok()
-        .and_then(|s| s.tauri_app_handle.clone());
+        .and_then(|s| s.conn.tauri_app_handle.clone());
     if let Some(app) = app {
         let _ = app.emit(
             "pchat-history-loading",
@@ -267,7 +267,7 @@ pub(crate) fn emit_signal_bridge_error(
     let app = shared
         .lock()
         .ok()
-        .and_then(|s| s.tauri_app_handle.clone());
+        .and_then(|s| s.conn.tauri_app_handle.clone());
     if let Some(app) = app {
         let _ = app.emit(
             "pchat-signal-bridge-error",

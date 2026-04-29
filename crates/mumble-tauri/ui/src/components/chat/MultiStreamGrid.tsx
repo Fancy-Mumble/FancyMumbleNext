@@ -1,3 +1,4 @@
+import { ChevronDownIcon, PlayIcon, ScreenShareIcon } from "../../icons";
 /**
  * Multi-stream grid overview shown when multiple users are broadcasting
  * in the current channel and no stream is being watched yet.
@@ -5,9 +6,6 @@
  */
 import { useCallback, useState } from "react";
 import { useStreamThumbnail } from "./useStreamPreview";
-import PlayIcon from "../../assets/icons/status/play.svg?react";
-import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
-import ChevronDownIcon from "../../assets/icons/navigation/chevron-down.svg?react";
 import styles from "./MultiStreamGrid.module.css";
 
 // ---------------------------------------------------------------------------

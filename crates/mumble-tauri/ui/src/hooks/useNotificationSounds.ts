@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { NotificationSoundSettings, NotificationEvent, VoiceState } from "../types";
+import type { NotificationSoundSettings, NotificationEvent, VoiceState, UserEntry } from "../types";
 import { SOUND_OPTIONS } from "../pages/settings/NotificationsPanel";
 import { useAppStore } from "../store";
 
@@ -15,7 +15,7 @@ function playSound(url: string, volume: number) {
   audio.play().catch(() => {});
 }
 
-function playSoundForEvent(
+export function playSoundForEvent(
   settings: NotificationSoundSettings,
   event: NotificationEvent,
 ) {
@@ -54,12 +54,6 @@ export function useNotificationSounds(
     );
 
     unlisteners.push(
-      listen("new-group-message", () => {
-        playSoundForEvent(settingsRef.current, "directMessage");
-      }),
-    );
-
-    unlisteners.push(
       listen("webrtc-signal", (event) => {
         const { signal_type } = event.payload as { signal_type: number };
         // signal_type 0 = START
@@ -69,7 +63,15 @@ export function useNotificationSounds(
       }),
     );
 
+    // Self-mention notification (dispatched from MessageItem when a
+    // newly-rendered message contains an @-mention targeting the user).
+    const onSelfMention = () => {
+      playSoundForEvent(settingsRef.current, "mention");
+    };
+    globalThis.addEventListener("fancy:self-mention", onSelfMention);
+
     return () => {
+      globalThis.removeEventListener("fancy:self-mention", onSelfMention);
       for (const p of unlisteners) {
         p.then((f) => f());
       }
@@ -78,29 +80,61 @@ export function useNotificationSounds(
 
   // User join/leave (server-wide), channel join/leave, voice activity, self-mute
   useEffect(() => {
+    // Cached scalar slices used to fast-bail on unrelated state updates.
+    // The Zustand store fires its subscriber on every state mutation
+    // (including audio packets and chat messages), so without these checks
+    // we would walk `state.users` and rebuild a Set on every UDP frame.
+    let lastUsersRef: readonly UserEntry[] | null = null;
+    let lastTalkingRef: ReadonlySet<number> | null = null;
+    let lastVoiceState: VoiceState | null = null;
+    let lastChannel: number | null = null;
+    let lastOwnSession: number | null | undefined = undefined;
+
     const unsub = useAppStore.subscribe((state) => {
+      const usersChanged = state.users !== lastUsersRef;
+      const talkingChanged = state.talkingSessions !== lastTalkingRef;
+      const voiceChanged = state.voiceState !== lastVoiceState;
+      const channelChanged = state.currentChannel !== lastChannel;
+      const ownChanged = state.ownSession !== lastOwnSession;
+
+      if (!usersChanged && !talkingChanged && !voiceChanged && !channelChanged && !ownChanged) {
+        return;
+      }
+
+      lastUsersRef = state.users;
+      lastTalkingRef = state.talkingSessions;
+      lastVoiceState = state.voiceState;
+      lastChannel = state.currentChannel;
+      lastOwnSession = state.ownSession;
+
       // Server-wide user join/leave (own session excluded so connecting doesn't trigger it)
-      const userCount = state.users.filter((u) => u.session !== state.ownSession).length;
-      const prev = prevUserCountRef.current;
-      if (prev === null) {
-        prevUserCountRef.current = userCount;
-      } else if (userCount > prev) {
-        playSoundForEvent(settingsRef.current, "userJoin");
-        prevUserCountRef.current = userCount;
-      } else if (userCount < prev) {
-        playSoundForEvent(settingsRef.current, "userLeave");
-        prevUserCountRef.current = userCount;
+      if (usersChanged || ownChanged) {
+        const userCount = state.users.reduce(
+          (acc, u) => (u.session !== state.ownSession ? acc + 1 : acc),
+          0,
+        );
+        const prev = prevUserCountRef.current;
+        if (prev === null) {
+          prevUserCountRef.current = userCount;
+        } else if (userCount > prev) {
+          playSoundForEvent(settingsRef.current, "userJoin");
+          prevUserCountRef.current = userCount;
+        } else if (userCount < prev) {
+          playSoundForEvent(settingsRef.current, "userLeave");
+          prevUserCountRef.current = userCount;
+        }
       }
 
       // Channel-specific user join/leave
       const myChannel = state.currentChannel;
       const mySession = state.ownSession;
-      if (myChannel !== null) {
-        const channelUsers = new Set(
-          state.users
-            .filter((u) => u.channel_id === myChannel && u.session !== mySession)
-            .map((u) => u.session),
-        );
+      if (myChannel !== null && (usersChanged || channelChanged || ownChanged)) {
+        const channelUsers = new Set<number>();
+        for (const u of state.users) {
+          if (u.channel_id === myChannel && u.session !== mySession) {
+            channelUsers.add(u.session);
+          }
+        }
         const prevSet = prevChannelUsersRef.current;
         const prevChannel = prevChannelRef.current;
         // Only compare against the same channel - skip when we ourselves changed channel
@@ -124,20 +158,24 @@ export function useNotificationSounds(
       }
 
       // Voice activity
-      const talkingCount = state.talkingSessions.size;
-      if (talkingCount > prevTalkingCountRef.current) {
-        playSoundForEvent(settingsRef.current, "voiceActivity");
+      if (talkingChanged) {
+        const talkingCount = state.talkingSessions.size;
+        if (talkingCount > prevTalkingCountRef.current) {
+          playSoundForEvent(settingsRef.current, "voiceActivity");
+        }
+        prevTalkingCountRef.current = talkingCount;
       }
-      prevTalkingCountRef.current = talkingCount;
 
       // Self-mute detection
-      const vs = state.voiceState;
-      if (prevVoiceStateRef.current !== null && vs !== prevVoiceStateRef.current) {
-        if (vs === "muted" || (prevVoiceStateRef.current === "muted" && vs === "active")) {
-          playSoundForEvent(settingsRef.current, "selfMuted");
+      if (voiceChanged) {
+        const vs = state.voiceState;
+        if (prevVoiceStateRef.current !== null && vs !== prevVoiceStateRef.current) {
+          if (vs === "muted" || (prevVoiceStateRef.current === "muted" && vs === "active")) {
+            playSoundForEvent(settingsRef.current, "selfMuted");
+          }
         }
+        prevVoiceStateRef.current = vs;
       }
-      prevVoiceStateRef.current = vs;
     });
     return unsub;
   }, []);

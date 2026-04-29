@@ -1,3 +1,4 @@
+import { CloseIcon, ErrorCircleIcon, FullscreenExitIcon, FullscreenIcon, PauseIcon, PlayIcon, ScreenShareIcon, VolumeIcon, VolumeOffIcon } from "../../icons";
 /**
  * Screen share viewer components.
  *
@@ -10,15 +11,6 @@
 import { useRef, useEffect, useMemo, useState, useCallback } from "react";
 import { useAppStore } from "../../store";
 import { useRemoteStream } from "./useScreenShare";
-import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
-import ErrorCircleIcon from "../../assets/icons/status/error-circle.svg?react";
-import PlayIcon from "../../assets/icons/status/play.svg?react";
-import PauseIcon from "../../assets/icons/status/pause.svg?react";
-import VolumeIcon from "../../assets/icons/audio/volume.svg?react";
-import VolumeOffIcon from "../../assets/icons/audio/volume-off.svg?react";
-import FullscreenIcon from "../../assets/icons/action/fullscreen.svg?react";
-import FullscreenExitIcon from "../../assets/icons/action/fullscreen-exit.svg?react";
 import styles from "./ScreenShareViewer.module.css";
 
 // ---------------------------------------------------------------------------

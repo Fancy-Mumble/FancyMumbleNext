@@ -1,4 +1,5 @@
-﻿/**
+import { CloseIcon, MoonIcon, ShieldCheckIcon } from "../../icons";
+/**
  * Full-height right-side panel showing a user's full profile.
  *
  * Opened by clicking a username in the channel sidebar.
@@ -20,24 +21,48 @@ import {
   NAMEPLATES,
   EFFECTS,
   FONTS,
-  CARD_BACKGROUNDS,
   AVATAR_BORDERS,
 } from "../../pages/settings/profileData";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
-import ShieldCheckIcon from "../../assets/icons/status/shield-check.svg?react";
-import MoonIcon from "../../assets/icons/status/moon.svg?react";
+import { resolveThemePalette } from "../../utils/colorUtils";
 import styles from "./UserProfileView.module.css";
 
 // --- Helpers ------------------------------------------------------
 
-function resolveCardBg(profile: FancyProfile): React.CSSProperties {
-  const id = profile.cardBackground ?? "default";
-  if (id === "custom" && profile.cardBackgroundCustom) {
-    return { background: profile.cardBackgroundCustom };
+interface CardBgResult {
+  style: React.CSSProperties;
+  textColor?: string;
+  accentColor?: string;
+}
+
+function resolveCardBg(profile: FancyProfile): CardBgResult {
+  if (profile.cardBackground === "custom" && profile.cardBackgroundCustom) {
+    return { style: { background: profile.cardBackgroundCustom } };
   }
-  const preset = CARD_BACKGROUNDS.find((b) => b.id === id);
-  if (!preset) return {};
-  return { background: preset.value, ...preset.extra };
+
+  const colors = profile.themeColors ?? [];
+  const glass = profile.cardGlass ?? false;
+  const hasColors = colors.length > 0;
+
+  if (hasColors) {
+    const palette = resolveThemePalette(colors, glass);
+    const style: React.CSSProperties = {
+      background: palette.gradient,
+      borderColor: palette.borderColor,
+    };
+    if (glass) style.backdropFilter = "blur(16px) saturate(1.4)";
+    return { style, textColor: palette.textColor, accentColor: palette.accentColor };
+  }
+
+  if (glass) {
+    return {
+      style: {
+        background: "rgba(255, 255, 255, 0.08)",
+        backdropFilter: "blur(16px) saturate(1.4)",
+      },
+    };
+  }
+
+  return { style: { background: "var(--color-glass)" } };
 }
 
 function resolveAvatarBorder(profile: FancyProfile): React.CSSProperties {
@@ -147,7 +172,10 @@ function UserProfilePanel({
       }
     : { background: bannerBg };
 
-  const cardBgStyle = resolveCardBg(profile);
+  const cardBg = resolveCardBg(profile);
+  const cardBgStyle = cardBg.style;
+  const themeTextColor = cardBg.textColor;
+  const accentColor = cardBg.accentColor;
   const avatarBorderStyle = resolveAvatarBorder(profile);
 
   const effectClass =
@@ -213,7 +241,7 @@ function UserProfilePanel({
                   fontFamily: fontCss,
                   color: nameStyle.gradient
                     ? "transparent"
-                    : nameStyle.color || "var(--color-text-primary)",
+                    : nameStyle.color || themeTextColor || "var(--color-text-primary)",
                   fontWeight: nameStyle.bold ? "bold" : 600,
                   fontStyle: nameStyle.italic ? "italic" : "normal",
                   textShadow: nameStyle.glow
@@ -258,10 +286,18 @@ function UserProfilePanel({
         </div>
 
         {/* Body */}
-        <div className={styles.body}>
+        <div
+          className={styles.body}
+          style={themeTextColor ? { color: themeTextColor } : undefined}
+        >
           {/* Status */}
           {profile.status && (
-            <p className={styles.status}>{profile.status}</p>
+            <p
+              className={styles.status}
+              style={{ color: accentColor ?? (themeTextColor ? "inherit" : undefined) }}
+            >
+              {profile.status}
+            </p>
           )}
         </div>
       </div>
@@ -271,7 +307,11 @@ function UserProfilePanel({
       {bio && (
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>About Me</h3>
-          <SafeHtml html={bio} className={styles.bioContent} />
+          <SafeHtml
+            html={bio}
+            className={styles.bioContent}
+            style={themeTextColor ? { color: themeTextColor } : undefined}
+          />
         </section>
       )}
 

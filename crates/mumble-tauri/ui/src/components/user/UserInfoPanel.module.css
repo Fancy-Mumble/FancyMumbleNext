@@ -98,3 +98,10 @@
 .lossBad {
   color: var(--color-error);
 }
+
+/* Map wrapper below the info grid */
+.mapWrapper {
+  margin-top: 12px;
+  border-radius: 8px;
+  overflow: hidden;
+}

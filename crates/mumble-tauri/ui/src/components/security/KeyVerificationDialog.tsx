@@ -1,7 +1,7 @@
+import { CloseIcon } from "../../icons";
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { KeyTrustLevel, KeyFingerprints, PersistenceMode } from "../../types";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
 import styles from "./KeyVerificationDialog.module.css";
 
 type FingerprintTab = "emoji" | "words" | "hex";

@@ -84,10 +84,53 @@
   color: var(--color-accent);
 }
 
+/* Destructive (red) menu item, e.g. "Delete user". */
+.menuItemDanger {
+  color: var(--color-danger, #e74c3c);
+}
+
+.menuItemDanger .menuItemIcon {
+  color: var(--color-danger, #e74c3c);
+}
+
+.menuItemDanger:hover {
+  background: rgba(231, 76, 60, 0.12);
+  color: var(--color-danger, #e74c3c);
+}
+
+/* Red notification dot on the trigger button */
+.badgeDot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-danger, #e74c3c);
+  pointer-events: none;
+}
+
+/* Red notification dot next to a menu item label */
+.itemBadgeDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-danger, #e74c3c);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .backdrop {
   position: fixed;
   inset: 0;
   z-index: 10000;
+  /* Reset <button> UA defaults so the backdrop is invisible. */
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: default;
+  appearance: none;
 }
 
 @keyframes fadeIn {

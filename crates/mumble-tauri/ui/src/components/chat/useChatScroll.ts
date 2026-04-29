@@ -28,7 +28,6 @@ interface UseChatScrollOptions {
   allMessages: ChatMessage[];
   selectedChannel: number | null;
   selectedDmUser: number | null;
-  selectedGroup: string | null;
   currentScope: () => MessageScope | null;
 }
 
@@ -36,7 +35,6 @@ export function useChatScroll({
   allMessages,
   selectedChannel,
   selectedDmUser,
-  selectedGroup,
   currentScope,
 }: UseChatScrollOptions) {
   /** The scroll container (<div.messages>). */
@@ -286,7 +284,7 @@ export function useChatScroll({
     prevFirstMsgIdRef.current = null;
     stickToBottomRef.current = pendingUnreadRef.current === 0;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedChannel, selectedDmUser, selectedGroup]);
+  }, [selectedChannel, selectedDmUser]);
 
   // Offload IntersectionObserver.
   const scopeRef = useRef(currentScope);
@@ -303,8 +301,6 @@ export function useChatScroll({
         state.refreshMessages(Number(scope.scopeId));
       } else if (scope.scope === "dm") {
         state.refreshDmMessages(Number(scope.scopeId));
-      } else if (scope.scope === "group") {
-        state.refreshGroupMessages(scope.scopeId);
       }
     };
 
@@ -372,7 +368,7 @@ export function useChatScroll({
       observer.disconnect();
       mutObs.disconnect();
     };
-  }, [selectedChannel, selectedDmUser, selectedGroup]);
+  }, [selectedChannel, selectedDmUser]);
 
   /** Jump-to-bottom handler used by the "new messages" pill. */
   const handleScrollToBottom = useCallback(() => {
