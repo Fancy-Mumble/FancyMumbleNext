@@ -1,5 +1,6 @@
 //! `RNNoise` GRU-based denoiser backend.
 
+#[cfg(feature = "rnnoise-denoiser")]
 use super::DenoiserBackend;
 
 #[cfg(feature = "rnnoise-denoiser")]

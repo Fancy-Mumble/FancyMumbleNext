@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { AclGroup } from "../../types";
 import { MemberPicker } from "../../components/elements/MemberPicker";
 import { useAppStore } from "../../store";
+import { getCachedUserAvatar } from "../../lazyBlobs";
 import styles from "./AdminPanel.module.css";
 
 export interface RoleMembersPanelProps {
@@ -22,10 +23,11 @@ export function RoleMembersPanel({ role, onPatch, registeredUsers, disabled }: R
   const resolveName = (id: number) =>
     registeredUsers.find((u) => u.user_id === id)?.name ?? `User #${id}`;
 
-  /** Look up the avatar bytes for a registered user via the live online users list. */
-  const getAvatar = (id: number): number[] | null => {
+  /** Look up the avatar data URL for a registered user via the live online users list. */
+  const getAvatar = (id: number): string | null => {
     const live = onlineUsers.find((u) => u.user_id === id);
-    return live?.texture ?? null;
+    if (!live) return null;
+    return getCachedUserAvatar(live.session, live.texture_size);
   };
 
   const inheritedNames = role.inherited_members.map(resolveName);

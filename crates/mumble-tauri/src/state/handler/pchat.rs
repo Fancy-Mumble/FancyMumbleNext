@@ -155,13 +155,16 @@ impl HandleMessage for mumble_tcp::PchatAck {
 
         // If a delete request is pending, resolve its oneshot channel.
         if is_deleted || is_rejected {
-            if let Ok(mut state) = ctx.shared.lock() {
-                if let Some(tx) = state.pchat_ctx.pending_delete_ack.take() {
-                    let _ = tx.send(crate::state::types::DeleteAckResult {
-                        success: is_deleted,
-                        reason: self.reason.clone(),
-                    });
-                }
+            let senders = if let Ok(mut state) = ctx.shared.lock() {
+                std::mem::take(&mut state.pchat_ctx.pending_delete_acks)
+            } else {
+                Vec::new()
+            };
+            for tx in senders {
+                let _ = tx.send(crate::state::types::DeleteAckResult {
+                    success: is_deleted,
+                    reason: self.reason.clone(),
+                });
             }
         }
 

@@ -18,7 +18,7 @@ function makeUser(session: number, channelId: number, name = `User${session}`): 
     session,
     name,
     channel_id: channelId,
-    texture: null,
+    texture_size: null,
     comment: null,
     mute: false,
     deaf: false,

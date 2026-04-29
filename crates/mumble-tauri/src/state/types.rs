@@ -21,6 +21,27 @@ fn serialize_pchat_protocol<S: Serializer>(protocol: &Option<PchatProtocol>, s: 
     }
 }
 
+/// Emit only the byte length of an `Option<Vec<u8>>` (used for `texture`)
+/// so large avatar blobs do not bloat the IPC payload.  The frontend
+/// fetches the actual bytes on demand via `get_user_texture`.
+fn serialize_blob_len_owned<S: Serializer>(bytes: &Option<Vec<u8>>, s: S) -> Result<S::Ok, S::Error> {
+    match bytes {
+        Some(b) if !b.is_empty() => s.serialize_some(&(b.len() as u32)),
+        _ => s.serialize_none(),
+    }
+}
+
+/// Emit only the byte length of a `String` (used for channel
+/// `description`).  The frontend fetches the actual text on demand via
+/// `get_channel_description`.
+fn serialize_string_len_owned<S: Serializer>(text: &str, s: S) -> Result<S::Ok, S::Error> {
+    if text.is_empty() {
+        s.serialize_none()
+    } else {
+        s.serialize_some(&(text.len() as u32))
+    }
+}
+
 // --- UI value types (serializable to the frontend) ----------------
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -28,6 +49,11 @@ pub struct ChannelEntry {
     pub id: u32,
     pub parent_id: Option<u32>,
     pub name: String,
+    /// Channel description blob.  Serialised to the frontend as
+    /// `description_size: u32 | null` (byte length only) to keep
+    /// `get_channels` payloads small; fetched lazily via
+    /// `get_channel_description`.
+    #[serde(rename = "description_size", serialize_with = "serialize_string_len_owned")]
     pub description: String,
     /// SHA-256 hash of the description blob.  Internal tracking only;
     /// not serialised to the frontend.
@@ -65,6 +91,11 @@ pub struct UserEntry {
     /// Registered user ID. `None` means the user is not registered.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<u32>,
+    /// Avatar blob.  Serialised to the frontend as
+    /// `texture_size: u32 | null` (byte length only) to keep
+    /// `get_users` payloads small; fetched lazily via
+    /// `get_user_texture`.
+    #[serde(rename = "texture_size", serialize_with = "serialize_blob_len_owned")]
     pub texture: Option<Vec<u8>>,
     pub comment: Option<String>,
     /// Server-side admin mute.

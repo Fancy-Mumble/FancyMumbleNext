@@ -39,11 +39,24 @@ async function getStore() {
   return load(STORE_FILE, { autoSave: true, defaults: {} });
 }
 
+// In-flight + cached load promise so the many components that call
+// getPreferences() on mount share a single IPC roundtrip.
+let cachedPrefs: Promise<UserPreferences> | null = null;
+
 /** Return the current user preferences, falling back to defaults. */
 export async function getPreferences(): Promise<UserPreferences> {
-  const store = await getStore();
-  const prefs = await store.get<UserPreferences>(KEY);
-  return prefs ? { ...DEFAULTS, ...prefs } : { ...DEFAULTS };
+  if (cachedPrefs) return cachedPrefs;
+  cachedPrefs = (async () => {
+    const store = await getStore();
+    const prefs = await store.get<UserPreferences>(KEY);
+    return prefs ? { ...DEFAULTS, ...prefs } : { ...DEFAULTS };
+  })();
+  try {
+    return await cachedPrefs;
+  } catch (e) {
+    cachedPrefs = null;
+    throw e;
+  }
 }
 
 /** Persist the full preferences object. */
@@ -52,6 +65,7 @@ export async function setPreferences(
 ): Promise<void> {
   const store = await getStore();
   await store.set(KEY, prefs);
+  cachedPrefs = Promise.resolve(prefs);
 }
 
 /** Update specific preference fields. */

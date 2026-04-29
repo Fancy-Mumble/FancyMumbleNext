@@ -153,7 +153,9 @@ export function AudioPanel({
   >(["none", "omlsa_imcra", "spectral_subtraction"]);
   useEffect(() => {
     invoke<NoiseSuppressionAlgorithm[]>("get_available_denoiser_algorithms")
-      .then(setAvailableAlgorithms)
+      .then((algos) => {
+        if (Array.isArray(algos)) setAvailableAlgorithms(algos);
+      })
       .catch(() => { /* keep the conservative default */ });
   }, []);
 

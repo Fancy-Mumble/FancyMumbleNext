@@ -14,7 +14,8 @@ import { ChevronRightIcon, HeadphonesOffIcon, ListenBadgeIcon, MicOffSmallIcon, 
 
 import { useState, useMemo, useCallback, useContext } from "react";
 import type { ChannelEntry, UserEntry } from "../../../types";
-import { colorFor, avatarUrl, useHoverCardPosition, UserHoverCardPortal, RoleColorsContext } from "../UserListItem";
+import { colorFor, useHoverCardPosition, UserHoverCardPortal, RoleColorsContext } from "../UserListItem";
+import { useUserAvatar } from "../../../lazyBlobs";
 import { parseComment } from "../../../profileFormat";
 import { useUserStats } from "../../../hooks/useUserStats";
 import { useStreamThumbnail } from "../../chat/useStreamPreview";
@@ -54,7 +55,7 @@ interface MemberItemProps {
 function MemberItem({ user, isTalking, isBroadcasting, onContextMenu, onClick }: MemberItemProps) {
   const roleColors = useContext(RoleColorsContext);
   const roleColor = user.user_id != null ? (roleColors.get(user.user_id) ?? null) : null;
-  const url = useMemo(() => avatarUrl(user), [user.texture]);
+  const url = useUserAvatar(user.session, user.texture_size);
   const parsed = useMemo(
     () => (user.comment ? parseComment(user.comment) : null),
     [user.comment],
@@ -128,6 +129,24 @@ function MemberItem({ user, isTalking, isBroadcasting, onContextMenu, onClick }:
   );
 }
 
+/** A single collapsed-avatar bubble (separate component so we can use the avatar hook). */
+function CollapsedAvatar({ user }: Readonly<{ user: UserEntry }>) {
+  const url = useUserAvatar(user.session, user.texture_size);
+  return (
+    <div
+      className={styles.collapsedAvatar}
+      style={{ background: url ? "transparent" : colorFor(user.name) }}
+      title={user.name}
+    >
+      {url ? (
+        <img src={url} alt={user.name} className={styles.collapsedAvatarImg} />
+      ) : (
+        user.name.charAt(0).toUpperCase()
+      )}
+    </div>
+  );
+}
+
 /** Small inline avatars shown when a channel is collapsed. */
 function CollapsedAvatars({ users }: Readonly<{ users: UserEntry[] }>) {
   if (users.length === 0) return null;
@@ -136,23 +155,9 @@ function CollapsedAvatars({ users }: Readonly<{ users: UserEntry[] }>) {
 
   return (
     <div className={styles.collapsedAvatars}>
-      {visible.map((u) => {
-        const url = avatarUrl(u);
-        return (
-          <div
-            key={u.session}
-            className={styles.collapsedAvatar}
-            style={{ background: url ? "transparent" : colorFor(u.name) }}
-            title={u.name}
-          >
-            {url ? (
-              <img src={url} alt={u.name} className={styles.collapsedAvatarImg} />
-            ) : (
-              u.name.charAt(0).toUpperCase()
-            )}
-          </div>
-        );
-      })}
+      {visible.map((u) => (
+        <CollapsedAvatar key={u.session} user={u} />
+      ))}
       {overflow > 0 && (
         <span className={styles.overflowCount}>+{overflow}</span>
       )}

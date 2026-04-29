@@ -4,7 +4,8 @@ import type { UserEntry } from "../../types";
 import { useAppStore } from "../../store";
 import { useAclGroups } from "../../hooks/useAclGroups";
 import { useUserStats } from "../../hooks/useUserStats";
-import { textureToDataUrl, parseComment } from "../../profileFormat";
+import { parseComment } from "../../profileFormat";
+import { useUserAvatars } from "../../lazyBlobs";
 import { colorFor } from "../../utils/format";
 import { ProfilePreviewCard } from "../../pages/settings/ProfilePreviewCard";
 import styles from "./ChatView.module.css";
@@ -210,26 +211,8 @@ export default function MentionPopover() {
     return m;
   }, [users]);
 
-  // Reuse a session->avatar cache so we don't re-encode textures on
-  // every render of the popover.
-  const avatarCacheRef = useRef(new Map<number, { len: number; url: string }>());
-  const avatarBySession = useMemo(() => {
-    const cache = avatarCacheRef.current;
-    const map = new Map<number, string>();
-    for (const u of users) {
-      if (u.texture && u.texture.length > 0) {
-        const prev = cache.get(u.session);
-        if (prev?.len === u.texture.length) {
-          map.set(u.session, prev.url);
-        } else {
-          const url = textureToDataUrl(u.texture);
-          cache.set(u.session, { len: u.texture.length, url });
-          map.set(u.session, url);
-        }
-      }
-    }
-    return map;
-  }, [users]);
+  // Lazy-fetched avatar data-URLs keyed by session.
+  const avatarBySession = useUserAvatars(users);
 
   // Document-level click delegation so mention chips become interactive
   // regardless of which component injected the HTML.

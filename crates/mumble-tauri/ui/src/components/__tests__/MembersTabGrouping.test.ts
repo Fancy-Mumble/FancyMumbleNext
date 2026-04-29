@@ -8,7 +8,7 @@ function user(session: number, name: string, userId: number | null = null): User
     name,
     channel_id: 0,
     user_id: userId,
-    texture: null,
+    texture_size: null,
     comment: null,
     mute: false,
     deaf: false,
@@ -132,13 +132,13 @@ describe("buildMemberGroups", () => {
     expect(groups).toHaveLength(1);
     const row = groups[0].rows[0];
     expect(row.offline).toBe(true);
-    expect(row.entry.texture).toEqual(textureBytes);
+    expect(row.entry.texture_size).toBe(textureBytes.length);
   });
 
   it("leaves texture null when the server UserList response has no texture", () => {
     const reg = { user_id: 99, name: "Carol" };
     const groups = buildMemberGroups([], [reg], null, []);
-    expect(groups[0].rows[0].entry.texture).toBeNull();
+    expect(groups[0].rows[0].entry.texture_size).toBeNull();
   });
 
   it("uses inline comment from RegisteredUser when no fetchedComments entry exists", () => {

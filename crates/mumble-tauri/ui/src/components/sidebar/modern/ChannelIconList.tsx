@@ -12,7 +12,8 @@ import { HashIcon, HeadphonesOffIcon, ListenBadgeIcon, MicOffSmallIcon, ScreenSh
 
 import { useState, useMemo, useCallback, useContext } from "react";
 import type { ChannelEntry, UserEntry } from "../../../types";
-import { colorFor, avatarUrl, useHoverCardPosition, UserHoverCardPortal, RoleColorsContext } from "../UserListItem";
+import { colorFor, useHoverCardPosition, UserHoverCardPortal, RoleColorsContext } from "../UserListItem";
+import { useUserAvatar, useChannelDescription } from "../../../lazyBlobs";
 import { parseComment } from "../../../profileFormat";
 import { useUserStats } from "../../../hooks/useUserStats";
 import { useStreamThumbnail } from "../../chat/useStreamPreview";
@@ -51,9 +52,10 @@ interface ChannelIconProps {
 }
 
 function ChannelIcon({ channel, isCurrent }: ChannelIconProps) {
+  const description = useChannelDescription(channel.id, channel.description_size);
   const imgSrc = useMemo(
-    () => (channel.description ? extractDescriptionImage(channel.description) : null),
-    [channel.description],
+    () => (description ? extractDescriptionImage(description) : null),
+    [description],
   );
 
   if (imgSrc) {
@@ -94,7 +96,7 @@ interface MemberRowProps {
 function MemberRow({ user, isTalking, isBroadcasting, onContextMenu, onClick }: MemberRowProps) {
   const roleColors = useContext(RoleColorsContext);
   const roleColor = user.user_id != null ? (roleColors.get(user.user_id) ?? null) : null;
-  const url = useMemo(() => avatarUrl(user), [user.texture]);
+  const url = useUserAvatar(user.session, user.texture_size);
   const parsed = useMemo(
     () => (user.comment ? parseComment(user.comment) : null),
     [user.comment],

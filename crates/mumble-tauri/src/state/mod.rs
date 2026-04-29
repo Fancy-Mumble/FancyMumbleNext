@@ -122,7 +122,7 @@ pub(super) struct PchatContext {
     pub pending_key_shares: Vec<PendingKeyShare>,
     pub key_holders: HashMap<u32, Vec<KeyHolderEntry>>,
     pub hash_name_resolver: Option<Arc<dyn hash_names::HashNameResolver>>,
-    pub pending_delete_ack: Option<tokio::sync::oneshot::Sender<DeleteAckResult>>,
+    pub pending_delete_acks: Vec<tokio::sync::oneshot::Sender<DeleteAckResult>>,
 }
 
 /// Maximum number of in-memory messages retained per thread (channel or DM).

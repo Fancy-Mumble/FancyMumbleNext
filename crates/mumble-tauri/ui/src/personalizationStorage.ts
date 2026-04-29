@@ -63,11 +63,25 @@ async function getStore() {
   return load(STORE_FILE, { autoSave: true, defaults: {} });
 }
 
+// In-flight + cached load promise so concurrent / repeat callers on
+// startup share a single IPC roundtrip (the personalization payload can
+// include large image data URLs and cost ~200 KiB per fetch).
+let cachedLoad: Promise<PersonalizationData> | null = null;
+
 /** Return persisted personalization data, falling back to defaults. */
 export async function loadPersonalization(): Promise<PersonalizationData> {
-  const store = await getStore();
-  const data = await store.get<PersonalizationData>(KEY);
-  return data ? { ...DEFAULTS, ...data } : { ...DEFAULTS };
+  if (cachedLoad) return cachedLoad;
+  cachedLoad = (async () => {
+    const store = await getStore();
+    const data = await store.get<PersonalizationData>(KEY);
+    return data ? { ...DEFAULTS, ...data } : { ...DEFAULTS };
+  })();
+  try {
+    return await cachedLoad;
+  } catch (e) {
+    cachedLoad = null;
+    throw e;
+  }
 }
 
 /** Persist personalization data. */
@@ -76,4 +90,5 @@ export async function savePersonalization(
 ): Promise<void> {
   const store = await getStore();
   await store.set(KEY, data);
+  cachedLoad = Promise.resolve(data);
 }
