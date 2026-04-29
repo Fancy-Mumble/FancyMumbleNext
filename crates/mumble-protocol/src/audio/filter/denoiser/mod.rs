@@ -343,7 +343,7 @@ mod tests {
         assert!(available.contains(&NoiseSuppressionAlgorithm::None));
         assert!(available.contains(&NoiseSuppressionAlgorithm::OmlsaImcra));
         assert!(available.contains(&NoiseSuppressionAlgorithm::SpectralSubtraction));
-        assert_eq!(NoiseSuppressionAlgorithm::None.is_available(), true);
+        assert!(NoiseSuppressionAlgorithm::None.is_available());
     }
 
     #[test]
@@ -369,10 +369,10 @@ mod tests {
             (NoiseSuppressionAlgorithm::SpectralSubtraction, "\"spectral_subtraction\""),
         ];
         for (variant, expected) in cases {
-            let json = serde_json::to_string(&variant).expect("serialise");
+            let json = serde_json::to_string(&variant).unwrap();
             assert_eq!(json, expected, "wire tag for {variant:?}");
             let round: NoiseSuppressionAlgorithm =
-                serde_json::from_str(expected).expect("deserialise");
+                serde_json::from_str(expected).unwrap();
             assert_eq!(round, variant);
         }
     }

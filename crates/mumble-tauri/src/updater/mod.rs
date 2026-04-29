@@ -65,7 +65,7 @@ fn load_persisted_prefs(app: &tauri::AppHandle) {
         return;
     };
     let prefs = json.get("preferences").unwrap_or(&json);
-    if let Some(b) = prefs.get("autoUpdateOnStartup").and_then(|v| v.as_bool()) {
+    if let Some(b) = prefs.get("autoUpdateOnStartup").and_then(serde_json::Value::as_bool) {
         state.set_auto_install(b);
         tracing::info!("Updater: auto-install on startup = {b}");
     }
