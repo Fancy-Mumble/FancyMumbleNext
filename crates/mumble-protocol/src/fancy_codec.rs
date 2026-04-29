@@ -344,7 +344,7 @@ mod tests {
 
     const V_0_2_12: u64 = fancy_utils::version::fancy_version_encode(0, 2, 12);
     const V_0_2_14: u64 = fancy_utils::version::fancy_version_encode(0, 2, 14);
-    const V_0_2_16: u64 = fancy_utils::version::fancy_version_encode(0, 2, 16);
+    const V_0_2_18: u64 = fancy_utils::version::fancy_version_encode(0, 2, 18);
 
     #[test]
     fn native_codec_passthrough_standard_message() {
@@ -391,7 +391,7 @@ mod tests {
 
     #[test]
     fn native_codec_passthrough_typing_indicator_when_server_new_enough() {
-        let codec = NativeCodec { server_version: V_0_2_16 };
+        let codec = NativeCodec { server_version: V_0_2_18 };
         let state = state_with_users();
         let msg = ControlMessage::FancyTypingIndicator(mumble_tcp::FancyTypingIndicator {
             channel_id: Some(0),
