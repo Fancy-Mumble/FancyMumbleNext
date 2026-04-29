@@ -40,7 +40,7 @@ impl LinuxAspectRatio {
     }
 
     fn set_aspect_hint(gtk_win: &gtk::ApplicationWindow, ratio: Option<f64>) {
-        let mut geom = Geometry::default();
+        let mut geom = Geometry::new(0, 0, -1, -1, 0, 0, 0, 0, 0.0, 0.0, gtk::gdk::Gravity::NorthWest);
         let hints = match ratio {
             Some(r) => {
                 geom.set_min_aspect(r);
@@ -49,7 +49,7 @@ impl LinuxAspectRatio {
             }
             None => WindowHints::empty(),
         };
-        gtk_win.set_geometry_hints::<gtk::ApplicationWindow>(None, Some(&geom), hints);
+        gtk_win.set_geometry_hints(gtk::Widget::NONE, Some(&geom), hints);
     }
 
     /// Resize the window now so its current geometry matches the
