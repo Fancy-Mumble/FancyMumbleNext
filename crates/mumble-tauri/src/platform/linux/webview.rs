@@ -87,7 +87,7 @@ impl AppImageEnv {
         Some(merged.join(":"))
     }
 
-    /// In AppImage on Wayland, force `GDK_BACKEND=wayland` to override
+    /// In `AppImage` on Wayland, force `GDK_BACKEND=wayland` to override
     /// the `x11` default from `pre_init` / `linuxdeploy`.
     fn set_wayland_backend(&self) {
         if std::env::var_os("WAYLAND_DISPLAY").is_some() {
