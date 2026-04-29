@@ -14,6 +14,26 @@ pub(crate) fn get_users(state: tauri::State<'_, AppState>) -> Vec<UserEntry> {
     state.users()
 }
 
+/// Return the avatar bytes for a single user.  The frontend calls this
+/// lazily after `get_users` (which returns only `texture_size`).
+#[tauri::command]
+pub(crate) fn get_user_texture(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+) -> Option<Vec<u8>> {
+    state.user_texture(session)
+}
+
+/// Return the description text for a single channel.  The frontend calls
+/// this lazily after `get_channels` (which returns only `description_size`).
+#[tauri::command]
+pub(crate) fn get_channel_description(
+    state: tauri::State<'_, AppState>,
+    channel_id: u32,
+) -> Option<String> {
+    state.channel_description(channel_id)
+}
+
 #[tauri::command]
 pub(crate) async fn select_channel(
     state: tauri::State<'_, AppState>,

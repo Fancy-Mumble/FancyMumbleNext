@@ -9,6 +9,7 @@ import {
   saveCachedRegisteredUsers,
 } from "../../preferencesStorage";
 import { UserListItem } from "./UserListItem";
+import { setUserAvatarBytes } from "../../lazyBlobs";
 import styles from "./ChannelSidebar.module.css";
 
 interface MembersTabProps {
@@ -50,12 +51,17 @@ function synthesiseOfflineEntry(
   fetchedComments: ReadonlyMap<number, string>,
 ): UserEntry {
   const comment = fetchedComments.get(reg.user_id) ?? reg.comment ?? null;
+  const session = -(reg.user_id + 1);
+  const textureBytes = reg.texture && reg.texture.length > 0 ? reg.texture : null;
+  if (textureBytes) {
+    setUserAvatarBytes(session, textureBytes);
+  }
   return {
-    session: -(reg.user_id + 1),
+    session,
     name: reg.name,
     channel_id: reg.last_channel ?? 0,
     user_id: reg.user_id,
-    texture: reg.texture && reg.texture.length > 0 ? reg.texture : null,
+    texture_size: textureBytes ? textureBytes.length : null,
     comment,
     mute: false,
     deaf: false,

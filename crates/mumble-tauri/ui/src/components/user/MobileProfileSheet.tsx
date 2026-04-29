@@ -6,7 +6,8 @@
 
 import { useMemo } from "react";
 import { useAppStore } from "../../store";
-import { textureToDataUrl, parseComment } from "../../profileFormat";
+import { parseComment } from "../../profileFormat";
+import { useUserAvatar } from "../../lazyBlobs";
 import { useUserStats } from "../../hooks/useUserStats";
 import { ProfilePreviewCard } from "../../pages/settings/ProfilePreviewCard";
 import MobileBottomSheet from "../elements/MobileBottomSheet";
@@ -30,13 +31,7 @@ export default function MobileProfileSheet() {
     [user?.comment],
   );
 
-  const avatar = useMemo(
-    () =>
-      user?.texture && user.texture.length > 0
-        ? textureToDataUrl(user.texture)
-        : null,
-    [user?.texture],
-  );
+  const avatar = useUserAvatar(user?.session, user?.texture_size);
 
   return (
     <MobileBottomSheet

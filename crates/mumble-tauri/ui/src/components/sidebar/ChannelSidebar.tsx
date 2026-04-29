@@ -1,11 +1,11 @@
 import { BellIcon, BellOffIcon, ChevronRightIcon, CloseIcon, EditIcon, HeadphonesIcon, HeadphonesOffIcon, InfoIcon, ListenBadgeIcon, LogoutIcon, MenuIcon, MicIcon, MicOffIcon, MicOffSmallIcon, PhoneIcon, PhoneOffIcon, PlusIcon, RecordIcon, SearchIcon, SettingsIcon, ShieldIcon, TrashIcon } from "../../icons";
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../../store";
 import type { ChannelEntry, UserEntry, SidebarSections } from "../../types";
 import { getPreferences, updatePreferences } from "../../preferencesStorage";
-import { SidebarSearchView } from "./SidebarSearchView";
+const SidebarSearchView = lazy(() => import("./SidebarSearchView").then((m) => ({ default: m.SidebarSearchView })));
 import { UserListItem, RoleColorsContext, RoleGroupsContext, buildRoleColorMap, buildRoleGroupsMap } from "./UserListItem";
 import { useAclGroups } from "../../hooks/useAclGroups";
 import { UserContextMenu } from "./UserContextMenu";
@@ -14,11 +14,11 @@ import ChannelEditorDialog, { canEditChannel, canCreateChannel, canOnlyCreateTem
 import styles from "./ChannelSidebar.module.css";
 import { loadPersonalization } from "../../personalizationStorage";
 import type { ChannelViewerStyle } from "../../personalizationStorage";
-import ModernChannelList from "./flat/ModernChannelList";
-import ChannelIconList from "./modern/ChannelIconList";
-import ClassicChannelList from "./classic/ClassicChannelList";
-import { MembersTab } from "./MembersTab";
-import RecordingModal from "./RecordingModal";
+const ModernChannelList = lazy(() => import("./flat/ModernChannelList"));
+const ChannelIconList = lazy(() => import("./modern/ChannelIconList"));
+const ClassicChannelList = lazy(() => import("./classic/ClassicChannelList"));
+const MembersTab = lazy(() => import("./MembersTab").then((m) => ({ default: m.MembersTab })));
+const RecordingModal = lazy(() => import("./RecordingModal"));
 import { PERM_LISTEN, PERM_WRITE } from "../../utils/permissions";
 
 /** Check whether a channel's cached permissions include the Listen bit. */
@@ -361,13 +361,15 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
 
       {/* -- Search mode replaces channel/group/online content -- */}
       {showSearch ? (
-        <SidebarSearchView
-          query={searchQuery}
-          channelId={searchChannelId}
-          channelName={searchChannelName}
-          onSelectChannel={(id) => { selectChannel(id); onChannelSelect?.(); }}
-          onSelectUser={(session) => { selectDmUser(session); onChannelSelect?.(); }}
-        />
+        <Suspense fallback={null}>
+          <SidebarSearchView
+            query={searchQuery}
+            channelId={searchChannelId}
+            channelName={searchChannelName}
+            onSelectChannel={(id) => { selectChannel(id); onChannelSelect?.(); }}
+            onSelectUser={(session) => { selectDmUser(session); onChannelSelect?.(); }}
+          />
+        </Suspense>
       ) : (<>
 
       {/* Tab bar (Channels | Members) */}
@@ -412,6 +414,7 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
       {/* Channel list */}
       <div className={`${styles.channelList} ${channelsOpen ? "" : styles.sectionCollapsed}`}>
 
+        <Suspense fallback={null}>
         {channelsOpen && channelViewerStyle === "flat" && (
           <ModernChannelList
             channels={channels}
@@ -461,19 +464,22 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
             onContextMenu={openCtxMenu}
           />
         )}
+        </Suspense>
       </div>
       </>}
 
       {activeTab === "members" && (
-        <MembersTab
-          users={users}
-          channels={channels}
-          ownSession={ownSession}
-          selectedDmUser={selectedDmUser}
-          talkingSessions={talkingSessions}
-          onSelectDm={(session) => { selectDmUser(session); onChannelSelect?.(); }}
-          onUserContextMenu={openUserCtxMenu}
-        />
+        <Suspense fallback={null}>
+          <MembersTab
+            users={users}
+            channels={channels}
+            ownSession={ownSession}
+            selectedDmUser={selectedDmUser}
+            talkingSessions={talkingSessions}
+            onSelectDm={(session) => { selectDmUser(session); onChannelSelect?.(); }}
+            onUserContextMenu={openUserCtxMenu}
+          />
+        </Suspense>
       )}
 
       </>)}{/* end search-mode ternary */}
@@ -726,7 +732,9 @@ export default function ChannelSidebar({ onChannelSelect, onServerInfoToggle, on
 
       {/* Recording modal (developer mode) */}
       {showRecordingModal && (
-        <RecordingModal onClose={() => setShowRecordingModal(false)} />
+        <Suspense fallback={null}>
+          <RecordingModal onClose={() => setShowRecordingModal(false)} />
+        </Suspense>
       )}
     </aside>
     </RoleGroupsContext.Provider>

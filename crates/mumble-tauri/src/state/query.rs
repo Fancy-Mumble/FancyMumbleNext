@@ -38,6 +38,29 @@ impl AppState {
             .unwrap_or_default()
     }
 
+    /// Return the avatar texture bytes for a single user, or `None` if the
+    /// user is not connected or has no avatar.  Used by the frontend to
+    /// lazily fetch avatars after `get_users` returned only the byte
+    /// length (`texture_size`).
+    pub fn user_texture(&self, session: u32) -> Option<Vec<u8>> {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|s| s.users.get(&session).and_then(|u| u.texture.clone()))
+    }
+
+    /// Return the description text for a single channel, or `None` if the
+    /// channel is unknown or has no description.  Used by the frontend to
+    /// lazily fetch descriptions after `get_channels` returned only the
+    /// byte length (`description_size`).
+    pub fn channel_description(&self, channel_id: u32) -> Option<String> {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|s| s.channels.get(&channel_id).map(|c| c.description.clone()))
+            .filter(|d| !d.is_empty())
+    }
+
     pub fn messages(&self, channel_id: u32) -> Vec<ChatMessage> {
         self.inner
             .lock()

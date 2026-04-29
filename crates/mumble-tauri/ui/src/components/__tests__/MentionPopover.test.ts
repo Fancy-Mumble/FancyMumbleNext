@@ -12,7 +12,7 @@ function user(session: number, channel_id: number, user_id: number | null = null
     name: `user-${session}`,
     channel_id,
     user_id,
-    texture: null,
+    texture_size: null,
     comment: null,
     mute: false,
     deaf: false,

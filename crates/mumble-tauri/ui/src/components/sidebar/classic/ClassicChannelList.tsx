@@ -11,7 +11,8 @@ import { ChevronRightIcon, ListenBadgeIcon } from "../../../icons";
 
 import { useState, useMemo, useCallback } from "react";
 import type { ChannelEntry, UserEntry } from "../../../types";
-import { colorFor, avatarUrl } from "../UserListItem";
+import { colorFor } from "../UserListItem";
+import { useUserAvatar } from "../../../lazyBlobs";
 import { PchatBadge } from "../PchatBadge";
 import styles from "./ClassicChannelList.module.css";
 
@@ -31,6 +32,44 @@ export interface ClassicChannelListProps {
 
 // --- Stacked avatars ---------------------------------------------
 
+function StackedAvatar({ user, zIndex }: Readonly<{ user: UserEntry; zIndex: number }>) {
+  const url = useUserAvatar(user.session, user.texture_size);
+  return (
+    <div
+      className={styles.stackedAvatar}
+      style={{
+        background: url ? "transparent" : colorFor(user.name),
+        zIndex,
+      }}
+    >
+      {url ? (
+        <img src={url} alt={user.name} className={styles.stackedAvatarImg} />
+      ) : (
+        user.name.charAt(0).toUpperCase()
+      )}
+    </div>
+  );
+}
+
+function TooltipUser({ user }: Readonly<{ user: UserEntry }>) {
+  const url = useUserAvatar(user.session, user.texture_size);
+  return (
+    <div className={styles.tooltipUser}>
+      {url ? (
+        <img src={url} alt={user.name} className={styles.tooltipAvatarImg} />
+      ) : (
+        <div
+          className={styles.tooltipAvatar}
+          style={{ background: colorFor(user.name) }}
+        >
+          {user.name.charAt(0).toUpperCase()}
+        </div>
+      )}
+      <span>{user.name}</span>
+    </div>
+  );
+}
+
 function StackedAvatars({ users }: Readonly<{ users: UserEntry[] }>) {
   const [showTooltip, setShowTooltip] = useState(false);
   if (users.length === 0) return null;
@@ -45,25 +84,9 @@ function StackedAvatars({ users }: Readonly<{ users: UserEntry[] }>) {
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
     >
-      {visible.map((u, i) => {
-        const url = avatarUrl(u);
-        return (
-          <div
-            key={u.session}
-            className={styles.stackedAvatar}
-            style={{
-              background: url ? "transparent" : colorFor(u.name),
-              zIndex: MAX_STACKED - i,
-            }}
-          >
-            {url ? (
-              <img src={url} alt={u.name} className={styles.stackedAvatarImg} />
-            ) : (
-              u.name.charAt(0).toUpperCase()
-            )}
-          </div>
-        );
-      })}
+      {visible.map((u, i) => (
+        <StackedAvatar key={u.session} user={u} zIndex={MAX_STACKED - i} />
+      ))}
       {overflow > 0 && (
         <div className={`${styles.stackedAvatar} ${styles.overflowBadge}`}>
           +{overflow}
@@ -71,24 +94,9 @@ function StackedAvatars({ users }: Readonly<{ users: UserEntry[] }>) {
       )}
       {showTooltip && (
         <div className={styles.avatarTooltip}>
-          {users.map((u) => {
-            const url = avatarUrl(u);
-            return (
-              <div key={u.session} className={styles.tooltipUser}>
-                {url ? (
-                  <img src={url} alt={u.name} className={styles.tooltipAvatarImg} />
-                ) : (
-                  <div
-                    className={styles.tooltipAvatar}
-                    style={{ background: colorFor(u.name) }}
-                  >
-                    {u.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <span>{u.name}</span>
-              </div>
-            );
-          })}
+          {users.map((u) => (
+            <TooltipUser key={u.session} user={u} />
+          ))}
         </div>
       )}
     </div>

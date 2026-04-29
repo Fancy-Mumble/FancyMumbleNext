@@ -8,22 +8,23 @@ import { loadPersonalization, type PersonalizationData } from "../../personaliza
 import ChatHeader from "./ChatHeader";
 import type { BroadcastInfo } from "./ChatHeader";
 import MobileCallControls from "./MobileCallControls";
-import PinnedMessagesPanel from "./PinnedMessagesPanel";
-import DownloadsPanel from "./DownloadsPanel";
+const PinnedMessagesPanel = lazy(() => import("./PinnedMessagesPanel"));
+const DownloadsPanel = lazy(() => import("./DownloadsPanel"));
 import UploadProgressItem, { type UploadPlaceholder } from "./UploadProgressItem";
 import ChatComposer from "./ChatComposer";
 import { usePolls } from "./usePolls";
 import { useReactions } from "./useReactions";
-import MessageContextMenu from "./MessageContextMenu";
-import MobileMessageActionSheet from "./MobileMessageActionSheet";
+const MessageContextMenu = lazy(() => import("./MessageContextMenu"));
+const MobileMessageActionSheet = lazy(() => import("./MobileMessageActionSheet"));
 import MessageSelectionBar from "./MessageSelectionBar";
 import ConfirmDialog from "../elements/ConfirmDialog";
 import Toast from "../elements/Toast";
-import FileShareDialog, { type FileShareChoice } from "./FileShareDialog";
+import type { FileShareChoice } from "./FileShareDialog";
+const FileShareDialog = lazy(() => import("./FileShareDialog"));
 import { encodeFileAttachmentMarker, decodeFileAttachmentPayload, previewKindForFilename, FANCY_FILE_MARKER_RE, type FileAttachmentInfo } from "./FileAttachmentCard";
 import { usePersistentChat } from "../security/PersistentChatOverlays";
 import { BannerStack } from "../security/InfoBanner";
-import { textureToDataUrl } from "../../profileFormat";
+import { useUserAvatars } from "../../lazyBlobs";
 import ChatMessageList from "./ChatMessageList";
 import QuotePreviewStrip from "./QuotePreviewStrip";
 import MentionPopover from "./MentionPopover";
@@ -166,25 +167,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   ).length;
   const isInChannel = currentChannel === selectedChannel;
 
-  /** Map session -> avatar data-URL for message avatars (cached). */
-  const avatarCache = React.useRef(new Map<number, { len: number; url: string }>());
-  const avatarBySession = useMemo(() => {
-    const cache = avatarCache.current;
-    const map = new Map<number, string>();
-    for (const u of users) {
-      if (u.texture && u.texture.length > 0) {
-        const prev = cache.get(u.session);
-        if (prev?.len === u.texture.length) {
-          map.set(u.session, prev.url);
-        } else {
-          const url = textureToDataUrl(u.texture);
-          cache.set(u.session, { len: u.texture.length, url });
-          map.set(u.session, url);
-        }
-      }
-    }
-    return map;
-  }, [users]);
+  /** Map session -> avatar data-URL for message avatars (lazy-fetched). */
+  const avatarBySession = useUserAvatars(users);
 
   /** Map session -> UserEntry for quick lookup. */
   const userBySession = useMemo(() => {
@@ -628,17 +612,21 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
       )}
 
       {showPinnedPanel && (
-        <PinnedMessagesPanel
-          messages={allMessages}
-          unseenIds={channelUnseenPinSet}
-          onClose={handleClosePinnedPanel}
-          onNavigate={handleScrollToMessage}
-          onUnpin={handlePin}
-        />
+        <Suspense fallback={null}>
+          <PinnedMessagesPanel
+            messages={allMessages}
+            unseenIds={channelUnseenPinSet}
+            onClose={handleClosePinnedPanel}
+            onNavigate={handleScrollToMessage}
+            onUnpin={handlePin}
+          />
+        </Suspense>
       )}
 
       {showDownloadsPanel && (
-        <DownloadsPanel onClose={handleCloseDownloadsPanel} />
+        <Suspense fallback={null}>
+          <DownloadsPanel onClose={handleCloseDownloadsPanel} />
+        </Suspense>
       )}
 
       <MobileCallControls />
@@ -824,46 +812,50 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
       {/* Message context menu (right-click on desktop, bottom sheet on mobile) */}
       {msgContextMenu && !isMobile && (
-        <MessageContextMenu
-          menu={msgContextMenu}
-          canDelete={canDelete}
-          onClose={closeContextMenu}
-          onDelete={handleSingleDelete}
-          onSelectMode={enterSelectionMode}
-          onReaction={handleReaction}
-          onMoreReactions={handleMoreReactions}
-          onCite={handleCite}
-          onCopyText={handleCopyText}
-          onEdit={handleEdit}
-          onPin={handlePin}
-          onPopOutImage={handlePopOutImage}
-          popOutImageSrc={findPopOutImageSrc(msgContextMenu.message.body)}
-          reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
-          avatarByHash={avatarByHash}
-          allMessageIds={allMessageIds}
-          channelId={selectedChannel ?? undefined}
-        />
+        <Suspense fallback={null}>
+          <MessageContextMenu
+            menu={msgContextMenu}
+            canDelete={canDelete}
+            onClose={closeContextMenu}
+            onDelete={handleSingleDelete}
+            onSelectMode={enterSelectionMode}
+            onReaction={handleReaction}
+            onMoreReactions={handleMoreReactions}
+            onCite={handleCite}
+            onCopyText={handleCopyText}
+            onEdit={handleEdit}
+            onPin={handlePin}
+            onPopOutImage={handlePopOutImage}
+            popOutImageSrc={findPopOutImageSrc(msgContextMenu.message.body)}
+            reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
+            avatarByHash={avatarByHash}
+            allMessageIds={allMessageIds}
+            channelId={selectedChannel ?? undefined}
+          />
+        </Suspense>
       )}
       {msgContextMenu && isMobile && (
-        <MobileMessageActionSheet
-          message={msgContextMenu.message}
-          canDelete={canDelete}
-          onClose={closeContextMenu}
-          onDelete={handleSingleDelete}
-          onSelectMode={enterSelectionMode}
-          onReaction={handleReaction}
-          onMoreReactions={handleMoreReactions}
-          onCite={handleCite}
-          onCopyText={handleCopyText}
-          onEdit={handleEdit}
-          onPin={handlePin}
-          onPopOutImage={handlePopOutImage}
-          popOutImageSrc={findPopOutImageSrc(msgContextMenu.message.body)}
-          reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
-          allMessageIds={allMessageIds}
-          channelId={selectedChannel ?? undefined}
-          avatarByHash={avatarByHash}
-        />
+        <Suspense fallback={null}>
+          <MobileMessageActionSheet
+            message={msgContextMenu.message}
+            canDelete={canDelete}
+            onClose={closeContextMenu}
+            onDelete={handleSingleDelete}
+            onSelectMode={enterSelectionMode}
+            onReaction={handleReaction}
+            onMoreReactions={handleMoreReactions}
+            onCite={handleCite}
+            onCopyText={handleCopyText}
+            onEdit={handleEdit}
+            onPin={handlePin}
+            onPopOutImage={handlePopOutImage}
+            popOutImageSrc={findPopOutImageSrc(msgContextMenu.message.body)}
+            reactions={msgContextMenu.message.message_id ? getMessageReactions(msgContextMenu.message.message_id) : []}
+            allMessageIds={allMessageIds}
+            channelId={selectedChannel ?? undefined}
+            avatarByHash={avatarByHash}
+          />
+        </Suspense>
       )}
 
       {/* Delete confirmation dialog */}
@@ -885,13 +877,17 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
       {toast && <Toast {...toast} onDismiss={clearToast} />}
 
-      <FileShareDialog
-        open={shareDialog !== null}
-        filename={shareDialog?.filename ?? ""}
-        canSharePublic={fileServerConfig?.canShareFilesPublic ?? true}
-        onSubmit={handleShareDialogSubmit}
-        onCancel={handleShareDialogCancel}
-      />
+      {shareDialog !== null && (
+        <Suspense fallback={null}>
+          <FileShareDialog
+            open={shareDialog !== null}
+            filename={shareDialog?.filename ?? ""}
+            canSharePublic={fileServerConfig?.canShareFilesPublic ?? true}
+            onSubmit={handleShareDialogSubmit}
+            onCancel={handleShareDialogCancel}
+          />
+        </Suspense>
+      )}
 
       {/* Emoji picker overlay */}
       {emojiPicker && (
