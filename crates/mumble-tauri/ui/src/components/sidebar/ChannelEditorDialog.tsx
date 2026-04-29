@@ -48,10 +48,12 @@ export function canDeleteChannel(channel: ChannelEntry | undefined): boolean {
 }
 
 /** Can the user delete persistent chat messages in this channel?
- *  Requires the dedicated DeleteMessage permission bit.
+ *  Requires the dedicated DeleteMessage permission bit and a persistent-chat
+ *  protocol to be active on the channel.
  *  Returns `false` when permissions have not been queried yet. */
 export function canDeleteMessages(channel: ChannelEntry | undefined): boolean {
   if (!channel || channel.permissions == null) return false;
+  if (!channel.pchat_protocol || channel.pchat_protocol === "none") return false;
   return (channel.permissions & PERM_DELETE_MESSAGE) !== 0;
 }
 

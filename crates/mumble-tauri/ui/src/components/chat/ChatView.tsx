@@ -362,7 +362,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
 
   const {
     canDelete, selectionMode, selectedMsgIds,
-    msgContextMenu, deleteConfirm, toast,
+    msgContextMenu, deleteConfirm, isDeleting, toast,
     toggleMsgSelection, enterSelectionMode, exitSelectionMode,
     handleMessageContextMenu, handleSingleDelete, handleBulkDelete, confirmDelete,
     handleTouchStart, cancelLongPress,
@@ -877,6 +877,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           }
           confirmLabel="Delete"
           danger
+          isConfirming={isDeleting}
           onConfirm={confirmDelete}
           onCancel={clearDeleteConfirm}
         />

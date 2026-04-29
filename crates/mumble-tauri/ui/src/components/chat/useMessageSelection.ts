@@ -34,6 +34,8 @@ export function useMessageSelection({
   /** Pending delete confirmation (single or bulk). */
   const [deleteConfirm, setDeleteConfirm] = useState<{ ids: string[] } | null>(null);
   const [toast, setToast] = useState<ToastData | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const isDeletingRef = useRef(false);
 
   /** Toggle selection of a single message. */
   const toggleMsgSelection = useCallback((msgId: string) => {
@@ -83,7 +85,9 @@ export function useMessageSelection({
 
   /** Confirm and execute the pending deletion. */
   const confirmDelete = useCallback(async () => {
-    if (!deleteConfirm || selectedChannel === null) return;
+    if (!deleteConfirm || selectedChannel === null || isDeletingRef.current) return;
+    isDeletingRef.current = true;
+    setIsDeleting(true);
     const count = deleteConfirm.ids.length;
     try {
       await deletePchatMessages(selectedChannel, { messageIds: deleteConfirm.ids });
@@ -94,9 +98,12 @@ export function useMessageSelection({
     } catch (err) {
       console.error("delete messages error:", err);
       setToast({ message: "Failed to delete messages", variant: "error" });
+    } finally {
+      isDeletingRef.current = false;
+      setIsDeleting(false);
+      setDeleteConfirm(null);
+      exitSelectionMode();
     }
-    setDeleteConfirm(null);
-    exitSelectionMode();
   }, [deleteConfirm, selectedChannel, deletePchatMessages, exitSelectionMode]);
 
   /** Long-press timer ref for touch selection. */
@@ -242,6 +249,7 @@ export function useMessageSelection({
     selectedMsgIds,
     msgContextMenu,
     deleteConfirm,
+    isDeleting,
     toast,
     toggleMsgSelection,
     enterSelectionMode,
