@@ -40,15 +40,9 @@ impl LinuxAspectRatio {
     }
 
     fn set_aspect_hint(gtk_win: &gtk::ApplicationWindow, ratio: Option<f64>) {
-        let mut geom = Geometry::new(0, 0, -1, -1, 0, 0, 0, 0, 0.0, 0.0, gtk::gdk::Gravity::NorthWest);
-        let hints = match ratio {
-            Some(r) => {
-                geom.set_min_aspect(r);
-                geom.set_max_aspect(r);
-                WindowHints::ASPECT
-            }
-            None => WindowHints::empty(),
-        };
+        let aspect = ratio.unwrap_or(0.0);
+        let geom = Geometry::new(0, 0, -1, -1, 0, 0, 0, 0, aspect, aspect, gtk::gdk::Gravity::NorthWest);
+        let hints = if ratio.is_some() { WindowHints::ASPECT } else { WindowHints::empty() };
         gtk_win.set_geometry_hints(gtk::Widget::NONE, Some(&geom), hints);
     }
 
