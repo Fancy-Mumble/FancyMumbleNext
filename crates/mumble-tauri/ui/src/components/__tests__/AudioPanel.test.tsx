@@ -296,7 +296,11 @@ describe("Calibrate", () => {
   });
 
   it("does not start if invoke throws", async () => {
-    invokeMock.mockRejectedValueOnce(new Error("no mic"));
+    invokeMock.mockImplementation((cmd) =>
+      cmd === "start_mic_test"
+        ? Promise.reject(new Error("no mic"))
+        : Promise.resolve(undefined),
+    );
     renderPanel();
     await act(async () => {
       fireEvent.click(screen.getByText("Calibrate"));

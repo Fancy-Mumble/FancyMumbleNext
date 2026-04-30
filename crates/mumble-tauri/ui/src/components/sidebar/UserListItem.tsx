@@ -3,7 +3,8 @@ import { memo, useState, useMemo, useCallback, useEffect, useRef, createContext,
 import { createPortal } from "react-dom";
 import { useAppStore } from "../../store";
 import type { UserEntry, FancyProfile, AclGroup } from "../../types";
-import { textureToDataUrl, parseComment } from "../../profileFormat";
+import { parseComment } from "../../profileFormat";
+import { useUserAvatar } from "../../lazyBlobs";
 import { ProfilePreviewCard } from "../../pages/settings/ProfilePreviewCard";
 import { useUserStats } from "../../hooks/useUserStats";
 import { colorFor } from "../../utils/format";
@@ -91,30 +92,9 @@ export const RoleColorsContext = createContext<ReadonlyMap<number, string>>(new 
 /** Provides `user_id -> RoleChip[]` to every `UserListItem` in the tree. */
 export const RoleGroupsContext = createContext<ReadonlyMap<number, readonly RoleChip[]>>(new Map());
 
-// LRU avatar cache.  Keyed by session id; stores the source texture length
-// so we re-decode when the user updates their avatar.  Capped to keep
-// long-running sessions (with lots of user churn) from accumulating
-// megabytes of stale data: URLs that prevent garbage collection.
-const TEXTURE_CACHE_MAX = 200;
-const textureCache = new Map<number, { len: number; url: string }>();
-
-export function avatarUrl(user: UserEntry): string | null {
-  if (!user.texture || user.texture.length === 0) return null;
-  const cached = textureCache.get(user.session);
-  if (cached?.len === user.texture.length) {
-    // Touch for LRU ordering.
-    textureCache.delete(user.session);
-    textureCache.set(user.session, cached);
-    return cached.url;
-  }
-  const url = textureToDataUrl(user.texture);
-  textureCache.set(user.session, { len: user.texture.length, url });
-  if (textureCache.size > TEXTURE_CACHE_MAX) {
-    const oldestKey = textureCache.keys().next().value;
-    if (oldestKey !== undefined) textureCache.delete(oldestKey);
-  }
-  return url;
-}
+// LRU avatar caching now lives in `lazyBlobs.ts` (`useUserAvatar`).  Avatars
+// are fetched lazily over IPC because the bulk `get_users` payload only
+// includes the texture byte length, not the bytes themselves.
 
 // -- Shared hover card constants ----------------------------------
 
@@ -292,7 +272,7 @@ export const UserListItem = memo(function UserListItem({
   const stats = useUserStats(user.session, showCard);
   const streamThumbnail = useStreamThumbnail(user.session, showCard && isBroadcasting);
 
-  const url = useMemo(() => avatarUrl(user), [user.texture]);
+  const url = useUserAvatar(user.session, user.texture_size);
   const parsed = useMemo(
     () => (user.comment ? parseComment(user.comment) : null),
     [user.comment],

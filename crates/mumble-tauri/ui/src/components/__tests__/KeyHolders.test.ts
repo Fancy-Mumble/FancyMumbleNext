@@ -31,7 +31,7 @@ function makeUser(overrides: Partial<UserEntry> = {}): UserEntry {
     session: 1,
     name: "User1",
     channel_id: 0,
-    texture: null,
+    texture_size: null,
     comment: null,
     mute: false,
     deaf: false,

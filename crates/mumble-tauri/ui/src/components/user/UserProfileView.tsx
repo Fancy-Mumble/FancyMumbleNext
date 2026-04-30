@@ -11,7 +11,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useAppStore } from "../../store";
 import { SafeHtml } from "../elements/SafeHtml";
 import type { UserEntry, FancyProfile, UserMode } from "../../types";
-import { textureToDataUrl, parseComment } from "../../profileFormat";
+import { parseComment } from "../../profileFormat";
+import { useUserAvatar } from "../../lazyBlobs";
 import { getPreferences } from "../../preferencesStorage";
 import { useUserStats } from "../../hooks/useUserStats";
 import { formatDuration } from "../../utils/format";
@@ -133,13 +134,7 @@ function UserProfilePanel({
   // available regardless of user mode.
   const stats = useUserStats(user.session, true);
 
-  const avatarDataUrl = useMemo(
-    () =>
-      user.texture && user.texture.length > 0
-        ? textureToDataUrl(user.texture)
-        : null,
-    [user.texture],
-  );
+  const avatarDataUrl = useUserAvatar(user.session, user.texture_size);
 
   const parsed = useMemo(
     () => (user.comment ? parseComment(user.comment) : null),

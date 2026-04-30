@@ -7,7 +7,10 @@ export interface ChannelEntry {
   id: number;
   parent_id: number | null;
   name: string;
-  description: string;
+  /** Byte length of the channel description, or null if empty.
+   *  The actual HTML must be fetched lazily via `get_channel_description` —
+   *  use `useChannelDescription(channelId, description_size)` from the store. */
+  description_size: number | null;
   user_count: number;
   /** Server-reported permission bitmask, or null if not yet queried. */
   permissions: number | null;
@@ -31,8 +34,10 @@ export interface UserEntry {
   channel_id: number;
   /** Registered user ID, or null/undefined if not registered. */
   user_id?: number | null;
-  /** Raw avatar image bytes (PNG/JPEG), or null if not set. */
-  texture: number[] | null;
+  /** Byte length of the avatar image, or null if no avatar.
+   *  The actual bytes must be fetched lazily via `get_user_texture` —
+   *  use `useUserAvatar(session, texture_size)` from the store. */
+  texture_size: number | null;
   /** Mumble comment - may contain FancyMumble profile JSON marker. */
   comment: string | null;
   /** Server-side admin mute. */

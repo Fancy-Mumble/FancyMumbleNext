@@ -7,7 +7,7 @@ import styles from "./ChatView.module.css";
 import { isMobile } from "../../utils/platform";
 import { useAppStore } from "../../store";
 import { formatUserMention, parseMentionTrigger, type MentionTrigger } from "../../utils/mentions";
-import { textureToDataUrl } from "../../profileFormat";
+import { getCachedUserAvatar } from "../../lazyBlobs";
 import { useAclGroups } from "../../hooks/useAclGroups";
 
 interface ChatComposerProps {
@@ -91,7 +91,7 @@ export default function ChatComposer({
           kind: "user",
           session: u.session,
           name: u.name,
-          avatarUrl: u.texture && u.texture.length > 0 ? textureToDataUrl(u.texture) : undefined,
+          avatarUrl: getCachedUserAvatar(u.session, u.texture_size) ?? undefined,
         }));
 
       const roleCandidates: MentionCandidate[] = roleGroups

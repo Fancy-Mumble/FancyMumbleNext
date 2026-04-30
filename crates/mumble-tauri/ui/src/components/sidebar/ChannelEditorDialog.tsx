@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import type { ChannelEntry, PchatProtocol } from "../../types";
 import { useAppStore } from "../../store";
-import { BioEditor } from "../../pages/settings/BioEditor";
+import { useChannelDescription } from "../../lazyBlobs";
+const BioEditor = lazy(() => import("../../pages/settings/BioEditor").then((m) => ({ default: m.BioEditor })));
 import styles from "./ChannelEditorDialog.module.css";
 import {
   PERM_WRITE,
@@ -48,10 +49,12 @@ export function canDeleteChannel(channel: ChannelEntry | undefined): boolean {
 }
 
 /** Can the user delete persistent chat messages in this channel?
- *  Requires the dedicated DeleteMessage permission bit.
+ *  Requires the dedicated DeleteMessage permission bit and a persistent-chat
+ *  protocol to be active on the channel.
  *  Returns `false` when permissions have not been queried yet. */
 export function canDeleteMessages(channel: ChannelEntry | undefined): boolean {
   if (!channel || channel.permissions == null) return false;
+  if (!channel.pchat_protocol || channel.pchat_protocol === "none") return false;
   return (channel.permissions & PERM_DELETE_MESSAGE) !== 0;
 }
 
@@ -81,7 +84,20 @@ export default function ChannelEditorDialog({
 
   // Form state - initialised from existing channel or defaults.
   const [name, setName] = useState(channel?.name ?? "");
-  const [description, setDescription] = useState(channel?.description ?? "");
+  const initialDescription = useChannelDescription(channel?.id, channel?.description_size);
+  const [description, setDescription] = useState("");
+  const [descriptionInitialised, setDescriptionInitialised] = useState(isCreate);
+  useEffect(() => {
+    if (descriptionInitialised) return;
+    if (channel?.description_size == null || channel.description_size === 0) {
+      setDescriptionInitialised(true);
+      return;
+    }
+    if (initialDescription != null) {
+      setDescription(initialDescription);
+      setDescriptionInitialised(true);
+    }
+  }, [channel?.description_size, initialDescription, descriptionInitialised]);
   const [position, setPosition] = useState(channel?.position ?? 0);
   const [temporary, setTemporary] = useState(
     tempOnly ? true : (channel?.temporary ?? false),
@@ -146,7 +162,7 @@ export default function ChannelEditorDialog({
         await updateChannel(channel.id, {
           name: name.trim() !== channel.name ? name.trim() : undefined,
           description:
-            description !== channel.description ? description : undefined,
+            description !== (initialDescription ?? "") ? description : undefined,
           position: position !== channel.position ? position : undefined,
           temporary: temporary !== channel.temporary ? temporary : undefined,
           maxUsers: maxUsers !== channel.max_users ? maxUsers : undefined,
@@ -206,11 +222,13 @@ export default function ChannelEditorDialog({
         {/* Description */}
         <div className={styles.field}>
           <span className={styles.label}>Description</span>
-          <BioEditor
-            value={description}
-            onChange={setDescription}
-            placeholder="Optional description"
-          />
+          <Suspense fallback={<div className={styles.label}>Loading editor...</div>}>
+            <BioEditor
+              value={description}
+              onChange={setDescription}
+              placeholder="Optional description"
+            />
+          </Suspense>
         </div>
 
         {/* Position & Max Users */}

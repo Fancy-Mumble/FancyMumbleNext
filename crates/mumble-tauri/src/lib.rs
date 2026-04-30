@@ -192,6 +192,8 @@ macro_rules! all_command_handlers {
             commands::connection::get_status,
             commands::channels::get_channels,
             commands::channels::get_users,
+            commands::channels::get_user_texture,
+            commands::channels::get_channel_description,
             commands::messaging::get_messages,
             commands::messaging::send_message,
             commands::messaging::edit_message,

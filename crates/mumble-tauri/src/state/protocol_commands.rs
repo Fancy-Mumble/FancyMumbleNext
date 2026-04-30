@@ -281,7 +281,7 @@ impl AppState {
             let h = state.conn.client_handle.clone().ok_or("Not connected")?;
 
             let (tx, rx) = tokio::sync::oneshot::channel::<DeleteAckResult>();
-            state.pchat_ctx.pending_delete_ack = Some(tx);
+            state.pchat_ctx.pending_delete_acks.push(tx);
             (h, rx)
         };
 

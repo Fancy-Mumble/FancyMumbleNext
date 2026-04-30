@@ -14,7 +14,7 @@ export interface MemberPickerProps {
   /** Optional name resolver for IDs that aren't in `candidates`. */
   readonly resolveName?: (userId: number) => string;
   /** Optional avatar resolver. Returns raw image bytes (PNG/JPEG) or null. */
-  readonly getAvatar?: (userId: number) => number[] | null | undefined;
+  readonly getAvatar?: (userId: number) => string | null | undefined;
   readonly onChange: (next: number[]) => void;
   readonly placeholder?: string;
   readonly disabled?: boolean;
@@ -22,12 +22,6 @@ export interface MemberPickerProps {
 }
 
 const MAX_SUGGESTIONS = 8;
-
-function bytesToDataUrl(bytes: number[]): string {
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return `data:image/*;base64,${btoa(binary)}`;
-}
 
 /**
  * Combobox-style member picker. Renders the current selection as removable
@@ -120,8 +114,7 @@ export function MemberPicker({
       <div className={styles.chips}>
         {value.length === 0 && <span className={styles.empty}>{emptyLabel}</span>}
         {value.map((id) => {
-          const avatar = getAvatar?.(id);
-          const avatarSrc = avatar && avatar.length > 0 ? bytesToDataUrl(avatar) : null;
+          const avatarSrc = getAvatar?.(id) ?? null;
           return (
             <span key={id} className={styles.chip}>
               {avatarSrc ? (

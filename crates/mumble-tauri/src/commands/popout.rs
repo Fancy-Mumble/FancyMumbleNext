@@ -31,6 +31,7 @@ pub(crate) struct PopoutImagePayload {
 /// we stash it under a fresh id, and a new webview window is opened
 /// with label `popout-<id>`. The popout's frontend reads its own
 /// window label to recover the id and calls [`take_popout_image`].
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
 pub(crate) async fn open_image_popout(
     app: tauri::AppHandle,
@@ -54,18 +55,31 @@ pub(crate) async fn open_image_popout(
         &label,
         tauri::WebviewUrl::App(std::path::PathBuf::from("index.html")),
     )
-        .title("")
-        .decorations(false)
-        .shadow(false)
-        .transparent(true)
-        .always_on_top(true)
-        .inner_size(w, h)
-        .resizable(true)
-        .skip_taskbar(false)
-        .build()
-        .map_err(|e| e.to_string())?;
+    .title("")
+    .decorations(false)
+    .shadow(false)
+    .transparent(true)
+    .always_on_top(true)
+    .inner_size(w, h)
+    .resizable(true)
+    .skip_taskbar(false)
+    .build()
+    .map_err(|e: tauri::Error| e.to_string())?;
 
     Ok(())
+}
+
+/// Android stub: popout windows are a desktop-only feature.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub(crate) async fn open_image_popout(
+    _app: tauri::AppHandle,
+    _state: tauri::State<'_, AppState>,
+    _payload: PopoutImagePayload,
+    _width: Option<f64>,
+    _height: Option<f64>,
+) -> Result<(), String> {
+    Err("Image popout windows are not supported on Android".to_string())
 }
 
 /// Consume and return the image payload registered for a popout window id.
