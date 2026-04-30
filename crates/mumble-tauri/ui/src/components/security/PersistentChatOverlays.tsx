@@ -1,3 +1,4 @@
+import { KeyIcon, WarningIcon } from "../../icons";
 import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { useAppStore } from "../../store";
 import type { KeyTrustLevel, PendingKeyShareRequest, PersistenceMode, UserMode } from "../../types";
@@ -8,9 +9,6 @@ import infoBannerStyles from "./InfoBanner.module.css";
 import KeyVerificationDialog from "./KeyVerificationDialog";
 import CustodianPrompt from "./CustodianPrompt";
 import KeyShareWarningDialog from "./KeyShareWarningDialog";
-import KeyIcon from "../../assets/icons/status/key.svg?react";
-import WarningIcon from "../../assets/icons/status/warning.svg?react";
-
 interface PersistentChatResult {
   trustLevel: KeyTrustLevel | undefined;
   onVerifyClick: (() => void) | undefined;

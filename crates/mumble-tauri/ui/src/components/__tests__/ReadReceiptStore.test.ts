@@ -20,7 +20,7 @@ const CHANNEL = 1;
 const MSG_IDS = ["msg-1", "msg-2", "msg-3", "msg-4"];
 
 function makeReadState(certHash: string, name: string, lastRead: string, timestamp = Date.now()): ReadState {
-  return { cert_hash: certHash, name, last_read_message_id: lastRead, timestamp };
+  return { cert_hash: certHash, name, is_online: true, last_read_message_id: lastRead, timestamp };
 }
 
 beforeEach(() => {

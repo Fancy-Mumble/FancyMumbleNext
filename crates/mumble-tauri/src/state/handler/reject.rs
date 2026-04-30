@@ -10,9 +10,9 @@ impl HandleMessage for mumble_tcp::Reject {
             .clone()
             .unwrap_or_else(|| "Connection rejected by server".into());
         if let Ok(mut state) = ctx.shared.lock() {
-            state.status = ConnectionStatus::Disconnected;
-            state.client_handle = None;
-            state.event_loop_handle = None;
+            state.conn.status = ConnectionStatus::Disconnected;
+            state.conn.client_handle = None;
+            state.conn.event_loop_handle = None;
         }
         ctx.emit(
             "connection-rejected",

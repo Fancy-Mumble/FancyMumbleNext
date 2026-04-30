@@ -471,7 +471,7 @@ fn agc_level_stability_across_volume_change() {
     let loud_frames = sine_frames(freq, 0.5, 50);
 
     let mut frame_rms: Vec<f32> = Vec::new();
-    for mut frame in quiet_frames.into_iter().chain(loud_frames.into_iter()) {
+    for mut frame in quiet_frames.into_iter().chain(loud_frames) {
         agc.process(&mut frame).unwrap();
         frame_rms.push(rms(frame.as_f32_samples()));
     }

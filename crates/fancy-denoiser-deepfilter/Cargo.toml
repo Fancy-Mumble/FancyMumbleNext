@@ -1,0 +1,29 @@
+[package]
+name = "fancy-denoiser-deepfilter"
+version = "0.1.0"
+edition = "2021"
+description = "DeepFilterNet3 (Schroeter et al., 2023) noise suppression backend"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# DeepFilterNet inference via the official `deep_filter` crate
+# (Rikorose/DeepFilterNet, MIT OR Apache-2.0).  The inference module
+# `tract` and the bundled DeepFilterNet3 model (`default-model`) live
+# only in the upstream git repo - the crates.io 0.2.5 release is the
+# older data-loading library without the ONNX runtime.  We therefore
+# pin to a specific commit on `main` to stay reproducible.
+deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet.git", rev = "17ce37a587035d95871e589cc9b0518997e83683", default-features = false, features = ["tract", "default-model"] }
+# Pin tract to an exact 0.21.x release that still uses ndarray 0.15
+# (matching `deep_filter`'s own `ndarray = "^0.15"` pin).  Later
+# tract releases bumped to ndarray 0.16 and renamed
+# `Graph::symbol_table` to `Graph::symbols`, which breaks the
+# upstream code.
+tract-core = "=0.21.0"
+tract-onnx = "=0.21.0"
+tract-pulse = "=0.21.0"
+tract-hir = "=0.21.0"
+ndarray = "=0.15.6"
+anyhow = "1"
+
+[lints]
+workspace = true

@@ -14,6 +14,7 @@ import type { SavedServer, ServerPingResult, UserMode } from "../types";
 import ServerList from "../components/server/ServerList";
 import ServerEditSheet from "../components/server/ServerEditSheet";
 import PublicServerList from "../components/server/PublicServerList";
+import BrandLogo from "../components/elements/BrandLogo";
 import PasswordDialog from "../components/server/PasswordDialog";
 import styles from "./ConnectPage.module.css";
 
@@ -62,8 +63,14 @@ const STEPS_NORMAL: StepDef[] = [
 ];
 
 export default function ConnectPage() {
-  const { connect, disconnect, status, error, passwordRequired, pendingConnect, retryWithPassword, dismissPasswordPrompt } = useAppStore();
-  const isConnecting = status === "connecting";
+  const {
+    connect, disconnect, status, error, passwordRequired, pendingConnect,
+    retryWithPassword, dismissPasswordPrompt, bootstrapStage,
+  } = useAppStore();
+  // Keep the loading bar up not just while the TLS handshake runs, but
+  // through the post-connect data bootstrap (channels, users, own session,
+  // server info).  Otherwise the user would land on an empty chat view.
+  const isConnecting = status === "connecting" || bootstrapStage !== null;
 
   /* -- which server card is actively connecting ------------------- */
   const [connectingServerId, setConnectingServerId] = useState<string | null>(null);
@@ -333,7 +340,7 @@ export default function ConnectPage() {
       <div className={cardClass}>
         {/* Logo - always visible */}
         <div className={styles.logo}>
-          <div className={styles.logoIcon}>M</div>
+          <BrandLogo size={64} className={styles.logoIcon} />
           <h1 className={styles.title}>Fancy Mumble</h1>
           <p className={styles.subtitle}>
             {view === "servers" || view === "public"
@@ -364,6 +371,7 @@ export default function ConnectPage() {
               onCancelConnect={handleCancelConnect}
               disabled={isConnecting}
               connectingId={connectingServerId}
+              connectingMessage={bootstrapStage}
             />
             <button
               className={styles.publicLink}

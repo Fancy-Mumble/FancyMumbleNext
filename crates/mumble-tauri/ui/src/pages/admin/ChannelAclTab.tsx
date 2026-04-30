@@ -1,11 +1,11 @@
-﻿import { useState, useEffect, useCallback, useMemo } from "react";
+import { ChevronRightIcon } from "../../icons";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useAppStore } from "../../store";
 import type { AclData, AclEntry, AclGroup, ChannelEntry, RegisteredUser } from "../../types";
 import { AclRulesPanel } from "./AclRulesPanel";
 import { GroupsPanel } from "./GroupsPanel";
-import ChevronRightIcon from "../../assets/icons/navigation/chevron-right.svg?react";
 import styles from "./AdminPanel.module.css";
 
 type AclTab = "groups" | "rules";

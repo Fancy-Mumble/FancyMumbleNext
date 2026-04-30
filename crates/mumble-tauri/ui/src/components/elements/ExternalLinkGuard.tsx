@@ -1,4 +1,5 @@
-﻿/**
+import { WarningIcon } from "../../icons";
+/**
  * ExternalLinkGuard
  *
  * Wraps any content that may contain sanitized bio HTML with external links
@@ -14,7 +15,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import WarningIcon from "../../assets/icons/status/warning.svg?react";
 import styles from "./ExternalLinkGuard.module.css";
 
 // --- Warning dialog -----------------------------------------------
@@ -123,6 +123,7 @@ function ExternalLinkDialog({ url, onConfirm, onCancel }: Readonly<DialogProps>)
 interface GuardProps {
   children: React.ReactNode;
   className?: string;
+  style?: React.CSSProperties;
 }
 
 /**
@@ -132,7 +133,7 @@ interface GuardProps {
  * Uses a native DOM event listener (not a JSX onClick prop) so the wrapper
  * div does not need to be a focusable / interactive element.
  */
-export function ExternalLinkGuard({ children, className }: Readonly<GuardProps>) {
+export function ExternalLinkGuard({ children, className, style }: Readonly<GuardProps>) {
   const [pendingUrl, setPendingUrl] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -171,7 +172,7 @@ export function ExternalLinkGuard({ children, className }: Readonly<GuardProps>)
 
   return (
     <>
-      <div ref={containerRef} className={className}>
+      <div ref={containerRef} className={className} style={style}>
         {children}
       </div>
       {pendingUrl && (

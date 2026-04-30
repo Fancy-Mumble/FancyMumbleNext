@@ -1,3 +1,4 @@
+import { ChevronRightIcon, HeadphonesOffIcon, ListenBadgeIcon, MicOffSmallIcon, ScreenShareIcon } from "../../../icons";
 /**
  * ModernChannelList - a flat, always-visible channel viewer.
  *
@@ -11,20 +12,16 @@
  * - Right-clicking a member opens the user context menu.
  */
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useContext } from "react";
 import type { ChannelEntry, UserEntry } from "../../../types";
-import { colorFor, avatarUrl, useHoverCardPosition, UserHoverCardPortal } from "../UserListItem";
+import { colorFor, useHoverCardPosition, UserHoverCardPortal, RoleColorsContext } from "../UserListItem";
+import { useUserAvatar } from "../../../lazyBlobs";
 import { parseComment } from "../../../profileFormat";
 import { useUserStats } from "../../../hooks/useUserStats";
 import { useStreamThumbnail } from "../../chat/useStreamPreview";
 import SwipeableCard from "../../elements/SwipeableCard";
 import { isMobile } from "../../../utils/platform";
-import ChevronRightIcon from "../../../assets/icons/navigation/chevron-right.svg?react";
-import ListenBadgeIcon from "../../../assets/icons/audio/listen-badge.svg?react";
 import { PchatBadge } from "../PchatBadge";
-import MicOffSmallIcon from "../../../assets/icons/audio/mic-off-small.svg?react";
-import HeadphonesOffIcon from "../../../assets/icons/audio/headphones-off.svg?react";
-import ScreenShareIcon from "../../../assets/icons/communication/screen-share.svg?react";
 import styles from "./ModernChannelList.module.css";
 
 const MAX_STACKED = 3;
@@ -56,7 +53,9 @@ interface MemberItemProps {
 }
 
 function MemberItem({ user, isTalking, isBroadcasting, onContextMenu, onClick }: MemberItemProps) {
-  const url = useMemo(() => avatarUrl(user), [user.texture]);
+  const roleColors = useContext(RoleColorsContext);
+  const roleColor = user.user_id != null ? (roleColors.get(user.user_id) ?? null) : null;
+  const url = useUserAvatar(user.session, user.texture_size);
   const parsed = useMemo(
     () => (user.comment ? parseComment(user.comment) : null),
     [user.comment],
@@ -95,7 +94,10 @@ function MemberItem({ user, isTalking, isBroadcasting, onContextMenu, onClick }:
             user.name.charAt(0).toUpperCase()
           )}
         </div>
-        <span className={styles.memberName}>{user.name}</span>
+        <span
+          className={styles.memberName}
+          style={roleColor ? { color: roleColor } : undefined}
+        >{user.name}</span>
         {user.self_mute && (
           <MicOffSmallIcon className={styles.statusIcon} width={12} height={12} />
         )}
@@ -127,6 +129,24 @@ function MemberItem({ user, isTalking, isBroadcasting, onContextMenu, onClick }:
   );
 }
 
+/** A single collapsed-avatar bubble (separate component so we can use the avatar hook). */
+function CollapsedAvatar({ user }: Readonly<{ user: UserEntry }>) {
+  const url = useUserAvatar(user.session, user.texture_size);
+  return (
+    <div
+      className={styles.collapsedAvatar}
+      style={{ background: url ? "transparent" : colorFor(user.name) }}
+      title={user.name}
+    >
+      {url ? (
+        <img src={url} alt={user.name} className={styles.collapsedAvatarImg} />
+      ) : (
+        user.name.charAt(0).toUpperCase()
+      )}
+    </div>
+  );
+}
+
 /** Small inline avatars shown when a channel is collapsed. */
 function CollapsedAvatars({ users }: Readonly<{ users: UserEntry[] }>) {
   if (users.length === 0) return null;
@@ -135,23 +155,9 @@ function CollapsedAvatars({ users }: Readonly<{ users: UserEntry[] }>) {
 
   return (
     <div className={styles.collapsedAvatars}>
-      {visible.map((u) => {
-        const url = avatarUrl(u);
-        return (
-          <div
-            key={u.session}
-            className={styles.collapsedAvatar}
-            style={{ background: url ? "transparent" : colorFor(u.name) }}
-            title={u.name}
-          >
-            {url ? (
-              <img src={url} alt={u.name} className={styles.collapsedAvatarImg} />
-            ) : (
-              u.name.charAt(0).toUpperCase()
-            )}
-          </div>
-        );
-      })}
+      {visible.map((u) => (
+        <CollapsedAvatar key={u.session} user={u} />
+      ))}
       {overflow > 0 && (
         <span className={styles.overflowCount}>+{overflow}</span>
       )}

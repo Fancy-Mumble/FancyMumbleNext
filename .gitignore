@@ -54,3 +54,4 @@ coverage/
 *.log
 
 google-services.json
+.env.local

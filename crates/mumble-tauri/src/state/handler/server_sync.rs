@@ -54,15 +54,15 @@ impl HandlerContext {
         let Ok(mut state) = self.shared.lock() else {
             return None;
         };
-        state.status = ConnectionStatus::Connected;
-        state.own_session = msg.session;
-        state.synced = true;
-        state.max_bandwidth = msg.max_bandwidth;
-        state.welcome_text = msg.welcome_text.clone();
+        state.conn.status = ConnectionStatus::Connected;
+        state.conn.own_session = msg.session;
+        state.conn.synced = true;
+        state.server.max_bandwidth = msg.max_bandwidth;
+        state.server.welcome_text = msg.welcome_text.clone();
 
         if let Some(perms) = msg.permissions {
             let perms_u32 = perms as u32;
-            state.root_permissions = Some(perms_u32);
+            state.server.root_permissions = Some(perms_u32);
             info!(
                 permissions_hex = format!("0x{perms_u32:08X}"),
                 "ServerSync root channel permissions (stored as fallback)"
@@ -98,8 +98,8 @@ impl HandlerContext {
                         .and_then(|ch| s.channels.get(&ch))
                         .map(|c| c.name.clone());
                     (
-                        s.tauri_app_handle.clone(),
-                        s.connected_host.clone(),
+                        s.conn.tauri_app_handle.clone(),
+                        s.server.host.clone(),
                         ch_name,
                     )
                 })
@@ -108,11 +108,11 @@ impl HandlerContext {
         let Some(app) = app_handle else { return };
 
         if let Some(handle) =
-            app.try_state::<crate::connection_service::ConnectionServiceHandle>()
+            app.try_state::<crate::platform::android::connection_service::ConnectionServiceHandle>()
         {
-            crate::connection_service::start_service(&handle, &host);
+            crate::platform::android::connection_service::start_service(&handle, &host);
             if let Some(ref ch_name) = channel_name {
-                crate::connection_service::update_service_channel(&handle, &host, ch_name);
+                crate::platform::android::connection_service::update_service_channel(&handle, &host, ch_name);
             }
         }
 
@@ -123,12 +123,12 @@ impl HandlerContext {
     #[cfg(target_os = "android")]
     fn register_fcm_token(&self, app: &tauri::AppHandle) {
         use tauri::Manager;
-        let Some(fcm) = app.try_state::<crate::fcm_service::FcmPluginHandle>() else {
+        let Some(fcm) = app.try_state::<crate::platform::android::fcm_service::FcmPluginHandle>() else {
             info!("FCM: FcmPluginHandle not available (not Android?)");
             return;
         };
         info!("FCM: FcmPluginHandle found, requesting device token");
-        let Some(token) = crate::fcm_service::get_token(&fcm) else {
+        let Some(token) = crate::platform::android::fcm_service::get_token(&fcm) else {
             warn!("FCM: no device token available, skipping push registration");
             return;
         };
@@ -137,7 +137,7 @@ impl HandlerContext {
             .shared
             .lock()
             .ok()
-            .and_then(|s| s.client_handle.clone());
+            .and_then(|s| s.conn.client_handle.clone());
         let Some(handle) = client_handle else {
             warn!("FCM: no client handle, cannot send push registration");
             return;
@@ -164,13 +164,14 @@ impl HandlerContext {
         let shared = Arc::clone(&self.shared);
         let sessions = sessions.to_vec();
         let _blob_request_task = tokio::spawn(async move {
-            let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
+            let handle = shared.lock().ok().and_then(|s| s.conn.client_handle.clone());
             if let Some(handle) = handle {
                 let _ = handle
                     .send(command::RequestBlob {
                         session_texture: sessions.clone(),
                         session_comment: sessions,
                         channel_description: Vec::new(),
+                        user_id_comment: Vec::new(),
                     })
                     .await;
             }
@@ -198,13 +199,14 @@ impl HandlerContext {
         }
         let shared = Arc::clone(&self.shared);
         let _desc_blob_task = tokio::spawn(async move {
-            let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
+            let handle = shared.lock().ok().and_then(|s| s.conn.client_handle.clone());
             if let Some(handle) = handle {
                 let _ = handle
                     .send(command::RequestBlob {
                         session_texture: Vec::new(),
                         session_comment: Vec::new(),
                         channel_description: channel_ids,
+                        user_id_comment: Vec::new(),
                     })
                     .await;
             }
@@ -223,7 +225,7 @@ impl HandlerContext {
 
         let shared = Arc::clone(&self.shared);
         let _permissions_task = tokio::spawn(async move {
-            let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
+            let handle = shared.lock().ok().and_then(|s| s.conn.client_handle.clone());
             if let Some(handle) = handle {
                 for ch_id in channel_ids {
                     let _ = handle
@@ -240,7 +242,7 @@ impl HandlerContext {
         let (handle, is_fancy) = {
             let state = self.shared.lock().ok();
             state
-                .map(|s| (s.client_handle.clone(), s.server_fancy_version.is_some()))
+                .map(|s| (s.conn.client_handle.clone(), s.server.fancy_version.is_some()))
                 .unwrap_or_default()
         };
         if !is_fancy {
@@ -272,15 +274,15 @@ impl HandlerContext {
             let state = self.shared.lock().ok();
             if let Some(ref s) = state {
                 let own_hash = s
-                    .own_session
+                    .conn.own_session
                     .and_then(|sess| s.users.get(&sess))
                     .and_then(|u| u.hash.clone());
                 (
-                    s.pchat_seed,
+                    s.pchat_ctx.seed,
                     own_hash,
-                    s.client_handle.clone(),
-                    s.server_fancy_version.is_some(),
-                    s.pchat_identity_dir.clone(),
+                    s.conn.client_handle.clone(),
+                    s.server.fancy_version.is_some(),
+                    s.pchat_ctx.identity_dir.clone(),
                 )
             } else {
                 (None, None, None, false, None)
@@ -316,10 +318,10 @@ impl HandlerContext {
         info!(cert_hash = %cert_hash, "pchat initialised");
 
         if let Ok(mut state) = self.shared.lock() {
-            state.pchat = Some(pchat_state);
+            state.pchat_ctx.pchat = Some(pchat_state);
             for (ch_id, msgs) in cached_messages {
                 if !msgs.is_empty() {
-                    state.messages.entry(ch_id).or_default().extend(msgs);
+                    state.msgs.by_channel.entry(ch_id).or_default().extend(msgs);
                 }
             }
         }
@@ -449,7 +451,7 @@ async fn send_key_announce(shared: &Arc<Mutex<SharedState>>) {
     let (announce_proto, cert, handle) = {
         let state = shared.lock().ok();
         if let Some(ref s) = state {
-            if let Some(ref p) = s.pchat {
+            if let Some(ref p) = s.pchat_ctx.pchat {
                 let wire = p
                     .key_manager
                     .build_key_announce(&p.own_cert_hash, pchat::now_millis());
@@ -457,7 +459,7 @@ async fn send_key_announce(shared: &Arc<Mutex<SharedState>>) {
                 (
                     Some(proto),
                     Some(p.own_cert_hash.clone()),
-                    s.client_handle.clone(),
+                    s.conn.client_handle.clone(),
                 )
             } else {
                 (None, None, None)
@@ -521,7 +523,7 @@ async fn ensure_protocol_key(
 ) -> bool {
     if mode == PchatProtocol::FancyV1FullArchive {
         if let Ok(mut s) = shared.lock() {
-            if let Some(ref mut p) = s.pchat {
+            if let Some(ref mut p) = s.pchat_ctx.pchat {
                 if !p.key_manager.has_key(ch, mode) {
                     let cert = p.own_cert_hash.clone();
                     let key = mumble_protocol::persistent::encryption::derive_archive_key(
@@ -568,7 +570,7 @@ async fn await_or_generate_key(
     let already_has_key = shared
         .lock()
         .ok()
-        .and_then(|s| s.pchat.as_ref().map(|p| p.key_manager.has_key(ch, mode)))
+        .and_then(|s| s.pchat_ctx.pchat.as_ref().map(|p| p.key_manager.has_key(ch, mode)))
         .unwrap_or(false);
 
     if already_has_key {
@@ -581,7 +583,7 @@ async fn await_or_generate_key(
     let needs_key = shared
         .lock()
         .ok()
-        .and_then(|s| s.pchat.as_ref().map(|p| !p.key_manager.has_key(ch, mode)))
+        .and_then(|s| s.pchat_ctx.pchat.as_ref().map(|p| !p.key_manager.has_key(ch, mode)))
         .unwrap_or(false);
 
     debug!(channel_id = ch, needs_key, "pchat: key check after 2s wait");
@@ -597,7 +599,7 @@ fn self_generate_key(shared: &Arc<Mutex<SharedState>>, ch: u32) {
 
     if let Ok(mut s) = shared.lock() {
         let mode = s.channels.get(&ch).and_then(|c| c.pchat_protocol);
-        if let Some(ref mut p) = s.pchat {
+        if let Some(ref mut p) = s.pchat_ctx.pchat {
             let cert = p.own_cert_hash.clone();
             match mode {
                 Some(PchatProtocol::FancyV1FullArchive) => {
@@ -637,14 +639,14 @@ async fn fetch_channel_history(
     {
         let s = shared.lock().ok();
         if let Some(ref s) = s {
-            if let Some(ref p) = s.pchat {
+            if let Some(ref p) = s.pchat_ctx.pchat {
                 let has = p.key_manager.has_key(ch, mode);
                 debug!(channel_id = ch, has_key = has, "pchat: key state before fetch");
             }
         }
     }
     if let Ok(mut s) = shared.lock() {
-        if let Some(ref mut p) = s.pchat {
+        if let Some(ref mut p) = s.pchat_ctx.pchat {
             let _ = p.fetched_channels.insert(ch);
         }
     }
@@ -654,7 +656,7 @@ async fn fetch_channel_history(
         limit: Some(50),
         after_id: None,
     };
-    let handle = shared.lock().ok().and_then(|s| s.client_handle.clone());
+    let handle = shared.lock().ok().and_then(|s| s.conn.client_handle.clone());
     let fetch_sent = if let Some(handle) = handle {
         let _ = handle.send(command::SendPchatFetch { fetch }).await;
         info!(channel_id = ch, "sent initial pchat-fetch");

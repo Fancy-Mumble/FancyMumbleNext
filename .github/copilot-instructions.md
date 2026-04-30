@@ -12,6 +12,8 @@ Licensed MIT.  Written in Rust + TypeScript/React.
 | Layer | Crate / package | Tech |
 |-------|-----------------|------|
 | Protocol library | `crates/mumble-protocol` | Rust, tokio, prost (protobuf), rustls, optional Opus codec |
+| OMLSA denoiser | `crates/mumble-protocol` | Inlined in `src/audio/filter/denoiser/omlsa/` (Cohen 2001/2003), uses `realfft` |
+| DeepFilterNet denoiser | `crates/fancy-denoiser-deepfilter` | Standalone Rust crate, `DeepFilterNet3` (Schroeter et al. 2023) via upstream `deep_filter` git dep + pinned `tract-onnx`/`ndarray` |
 | Tauri backend | `crates/mumble-tauri` | Rust, Tauri 2, cpal (audio I/O, desktop only), rcgen (self-signed certs) |
 | Tauri frontend | `crates/mumble-tauri/ui` | React 19, Vite 6, Zustand 5, react-router-dom 7, TypeScript 5 |
 | Tauri Android | `crates/mumble-tauri/gen/android` | Gradle/Kotlin, Android API 34, NDK 27 |
@@ -217,10 +219,13 @@ crates/
    `preferences.json`).  TLS client certificates are PEM files under
    `{app_data_dir}/certs/`.
 
-8. **Audio pipeline** - trait-based: `AudioCapture` → `FilterChain` (noise
-   gate, AGC) → `OpusEncoder` → network; inbound is the reverse.
+8. **Audio pipeline** - trait-based: `AudioCapture` -> `FilterChain` (AGC,
+   `RNNoise`-based AI noise suppressor via `nnnoiseless`, noise gate)
+   -> `OpusEncoder` -> network; inbound is the reverse.
    OS audio I/O uses `cpal` (desktop only, gated with
-   `#[cfg(not(target_os = "android"))]`).
+   `#[cfg(not(target_os = "android"))]`).  The denoiser is enabled via
+   the `rnnoise-denoiser` cargo feature on `mumble-protocol` (turned on
+   by both desktop and Android targets of `mumble-tauri`).
 
 9. **Android platform gating** - `cpal` and `tauri-plugin-global-shortcut`
    are desktop-only dependencies.  Audio commands return stub errors on

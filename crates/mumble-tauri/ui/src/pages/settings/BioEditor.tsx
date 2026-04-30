@@ -1,4 +1,5 @@
-﻿/**
+import { ImageIcon } from "../../icons";
+/**
  * Tiptap-based WYSIWYG editor for the profile bio.
  *
  * Provides bold, italic, underline, and text-colour formatting.
@@ -15,7 +16,6 @@ import Color from "@tiptap/extension-color";
 import Placeholder from "@tiptap/extension-placeholder";
 import TiptapImage from "@tiptap/extension-image";
 import { resizeImage } from "./imageUtils";
-import ImageIcon from "../../assets/icons/general/image.svg?react";
 import styles from "./SettingsPage.module.css";
 
 // -- Colour palette for the quick-pick colour grid -----------------

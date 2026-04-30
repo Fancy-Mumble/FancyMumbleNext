@@ -1,17 +1,18 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { MenuIcon } from "../icons";
+import { lazy, Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store";
 import { isMobile } from "../utils/platform";
 import { useSwipeDrawer } from "../hooks/useSwipeDrawer";
 import ChannelSidebar from "../components/sidebar/ChannelSidebar";
 import ChatView from "../components/chat/ChatView";
-import ServerInfoPanel from "../components/server/ServerInfoPanel";
-import ChannelInfoPanel from "../components/sidebar/ChannelInfoPanel";
-import UserProfileView from "../components/user/UserProfileView";
-import MobileProfileSheet from "../components/user/MobileProfileSheet";
-import MobileBottomSheet from "../components/elements/MobileBottomSheet";
-import MenuIcon from "../assets/icons/navigation/menu.svg?react";
 import styles from "./ChatPage.module.css";
+
+const ServerInfoPanel = lazy(() => import("../components/server/ServerInfoPanel"));
+const ChannelInfoPanel = lazy(() => import("../components/sidebar/ChannelInfoPanel"));
+const UserProfileView = lazy(() => import("../components/user/UserProfileView"));
+const MobileProfileSheet = lazy(() => import("../components/user/MobileProfileSheet"));
+const MobileBottomSheet = lazy(() => import("../components/elements/MobileBottomSheet"));
 
 export default function ChatPage() {
   const status = useAppStore((s) => s.status);
@@ -138,28 +139,30 @@ export default function ChatPage() {
       </div>
 
       <ChatView onChannelInfoToggle={toggleChannelInfo} onChannelSearch={openChannelSearch} />
-      {showServerInfo && !isMobile && <ServerInfoPanel onClose={() => setShowServerInfo(false)} />}
-      {showChannelInfo && !isMobile && <ChannelInfoPanel onClose={() => setShowChannelInfo(false)} />}
-      {(selectedUser !== null || selectedDmUser !== null) && !showServerInfo && !showChannelInfo && !isMobile && <UserProfileView />}
-      {isMobile && (
-        <>
-          <MobileProfileSheet />
-          <MobileBottomSheet
-            open={showServerInfo}
-            onClose={() => setShowServerInfo(false)}
-            ariaLabel="Close server info"
-          >
-            <ServerInfoPanel onClose={() => setShowServerInfo(false)} />
-          </MobileBottomSheet>
-          <MobileBottomSheet
-            open={showChannelInfo}
-            onClose={() => setShowChannelInfo(false)}
-            ariaLabel="Close channel info"
-          >
-            <ChannelInfoPanel onClose={() => setShowChannelInfo(false)} />
-          </MobileBottomSheet>
-        </>
-      )}
+      <Suspense fallback={null}>
+        {showServerInfo && !isMobile && <ServerInfoPanel onClose={() => setShowServerInfo(false)} />}
+        {showChannelInfo && !isMobile && <ChannelInfoPanel onClose={() => setShowChannelInfo(false)} />}
+        {(selectedUser !== null || selectedDmUser !== null) && !showServerInfo && !showChannelInfo && !isMobile && <UserProfileView />}
+        {isMobile && (
+          <>
+            <MobileProfileSheet />
+            <MobileBottomSheet
+              open={showServerInfo}
+              onClose={() => setShowServerInfo(false)}
+              ariaLabel="Close server info"
+            >
+              <ServerInfoPanel onClose={() => setShowServerInfo(false)} />
+            </MobileBottomSheet>
+            <MobileBottomSheet
+              open={showChannelInfo}
+              onClose={() => setShowChannelInfo(false)}
+              ariaLabel="Close channel info"
+            >
+              <ChannelInfoPanel onClose={() => setShowChannelInfo(false)} />
+            </MobileBottomSheet>
+          </>
+        )}
+      </Suspense>
     </div>
   );
 }

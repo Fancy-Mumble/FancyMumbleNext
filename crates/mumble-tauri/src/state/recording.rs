@@ -85,7 +85,7 @@ impl AppState {
     ) -> Result<String, String> {
         // Only one recording at a time.
         if let Ok(state) = self.inner.lock() {
-            if state.recording_handle.is_some() {
+            if state.audio.recording_handle.is_some() {
                 return Err("Recording already in progress".into());
             }
         }
@@ -93,15 +93,15 @@ impl AppState {
         // Gather template context.
         let (host, user, channel, speaker_buffers) = {
             let state = self.inner.lock().map_err(|e| e.to_string())?;
-            let host = state.connected_host.clone();
-            let user = state.own_name.clone();
+            let host = state.server.host.clone();
+            let user = state.conn.own_name.clone();
             let channel = state
                 .current_channel
                 .and_then(|id| state.channels.get(&id))
                 .map(|c| c.name.clone())
                 .unwrap_or_default();
             let buffers = state
-                .audio_mixer
+                .audio.mixer
                 .as_ref()
                 .map(AudioMixer::buffers)
                 .ok_or("Voice is not active - cannot record")?;
@@ -143,7 +143,7 @@ impl AppState {
         let path_str = file_path.to_string_lossy().to_string();
 
         let mut state = self.inner.lock().map_err(|e| e.to_string())?;
-        state.recording_handle = Some(RecordingHandle {
+        state.audio.recording_handle = Some(RecordingHandle {
             _task: task,
             stop_flag,
             file_path,
@@ -159,7 +159,7 @@ impl AppState {
         let handle = {
             let mut state = self.inner.lock().map_err(|e| e.to_string())?;
             state
-                .recording_handle
+                .audio.recording_handle
                 .take()
                 .ok_or("No recording in progress")?
         };
@@ -175,7 +175,7 @@ impl AppState {
     /// Get the current recording state.
     pub fn recording_state(&self) -> RecordingState {
         let state = self.inner.lock().ok();
-        match state.and_then(|s| s.recording_handle.as_ref().map(|h| {
+        match state.and_then(|s| s.audio.recording_handle.as_ref().map(|h| {
             (
                 h.file_path.to_string_lossy().to_string(),
                 h.started_at.elapsed().as_secs_f64(),

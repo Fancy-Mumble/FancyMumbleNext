@@ -44,23 +44,20 @@ function findMessage(
   messageId: string,
   messages: ChatMessage[],
   dmMessages: ChatMessage[],
-  groupMessages: ChatMessage[],
 ): ChatMessage | undefined {
   return (
     messages.find((m) => m.message_id === messageId) ??
-    dmMessages.find((m) => m.message_id === messageId) ??
-    groupMessages.find((m) => m.message_id === messageId)
+    dmMessages.find((m) => m.message_id === messageId)
   );
 }
 
 export default function QuoteBlock({ messageId, onScrollTo }: QuoteBlockProps) {
   const messages = useAppStore((s) => s.messages);
   const dmMessages = useAppStore((s) => s.dmMessages);
-  const groupMessages = useAppStore((s) => s.groupMessages);
 
   const quoted = useMemo(
-    () => findMessage(messageId, messages, dmMessages, groupMessages),
-    [messageId, messages, dmMessages, groupMessages],
+    () => findMessage(messageId, messages, dmMessages),
+    [messageId, messages, dmMessages],
   );
 
   const handleClick = useCallback(() => {

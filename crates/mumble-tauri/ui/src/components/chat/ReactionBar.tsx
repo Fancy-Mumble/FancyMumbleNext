@@ -56,6 +56,7 @@ export default function ReactionBar({
       {reactions.map((r) => {
         const totalCount = r.reactorHashes.size;
         const active = !!ownHash && r.reactorHashes.has(ownHash);
+        const isImageEmoji = r.emoji.startsWith("data:image/");
         return (
           <button
             key={r.emoji}
@@ -64,9 +65,13 @@ export default function ReactionBar({
             onClick={() => onToggle(r.emoji)}
             onMouseEnter={(e) => handleMouseEnter(e, r)}
             onMouseLeave={handleMouseLeave}
-            aria-label={`${r.emoji} ${totalCount}`}
+            aria-label={`${isImageEmoji ? ":custom:" : r.emoji} ${totalCount}`}
           >
-            <span className={styles.pillEmoji}>{r.emoji}</span>
+            {isImageEmoji ? (
+              <img src={r.emoji} alt="" className={styles.pillEmojiImg} />
+            ) : (
+              <span className={styles.pillEmoji}>{r.emoji}</span>
+            )}
             <span className={styles.pillCount}>{totalCount}</span>
           </button>
         );

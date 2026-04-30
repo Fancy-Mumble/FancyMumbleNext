@@ -30,10 +30,10 @@ pub(crate) fn handle_proto_key_challenge(
 
     let (handle, proof) = {
         let s = shared.lock().ok();
-        let h = s.as_ref().and_then(|s| s.client_handle.clone());
+        let h = s.as_ref().and_then(|s| s.conn.client_handle.clone());
         let proof = s
             .as_ref()
-            .and_then(|s| s.pchat.as_ref())
+            .and_then(|s| s.pchat_ctx.pchat.as_ref())
             .and_then(|p| p.key_manager.compute_challenge_proof(channel_id, challenge));
         (h, proof)
     };
@@ -93,21 +93,21 @@ pub(crate) fn handle_proto_key_challenge_result(
         let mut s = shared.lock().ok();
         let dir = s
             .as_ref()
-            .and_then(|s| s.pchat.as_ref())
+            .and_then(|s| s.pchat_ctx.pchat.as_ref())
             .and_then(|p| p.identity_dir.clone());
         let app_handle = s
             .as_ref()
-            .and_then(|s| s.tauri_app_handle.clone());
+            .and_then(|s| s.conn.tauri_app_handle.clone());
         // Remove all keying material for the channel from memory.
         let mut should_emit_shares = false;
         if let Some(ref mut s) = s {
-            if let Some(ref mut pchat) = s.pchat {
+            if let Some(ref mut pchat) = s.pchat_ctx.pchat {
                 pchat.key_manager.remove_channel(channel_id);
             }
-            let before_len = s.pending_key_shares.len();
-            s.pending_key_shares
+            let before_len = s.pchat_ctx.pending_key_shares.len();
+            s.pchat_ctx.pending_key_shares
                 .retain(|p| p.channel_id != channel_id);
-            should_emit_shares = s.pending_key_shares.len() != before_len;
+            should_emit_shares = s.pchat_ctx.pending_key_shares.len() != before_len;
         }
         let share_requests_emit = if should_emit_shares {
             app_handle.as_ref().map(|app| {
@@ -154,10 +154,10 @@ fn prepare_key_holder_report(
 ) -> Option<(ClientHandle, mumble_tcp::PchatKeyHolderReport)> {
     let (handle, hash) = {
         let mut s = shared.lock().ok();
-        let h = s.as_ref().and_then(|s| s.client_handle.clone());
+        let h = s.as_ref().and_then(|s| s.conn.client_handle.clone());
         let hash = s
             .as_ref()
-            .and_then(|s| s.pchat.as_ref().map(|p| p.own_cert_hash.clone()));
+            .and_then(|s| s.pchat_ctx.pchat.as_ref().map(|p| p.own_cert_hash.clone()));
 
         let mode = s.as_ref().and_then(|s| {
             s.channels
@@ -165,7 +165,7 @@ fn prepare_key_holder_report(
                 .and_then(|c| c.pchat_protocol)
         });
         if let (Some(ref s), Some(mode)) = (&s, mode) {
-            if let Some(ref pchat) = s.pchat {
+            if let Some(ref pchat) = s.pchat_ctx.pchat {
                 if !pchat.key_manager.has_key(channel_id, mode) {
                     warn!(channel_id, ?mode, "not reporting as key holder: no usable key");
                     return None;
@@ -174,7 +174,7 @@ fn prepare_key_holder_report(
         }
 
         if let (Some(ref mut s), Some(ref hash)) = (&mut s, &hash) {
-            if let Some(ref mut pchat) = s.pchat {
+            if let Some(ref mut pchat) = s.pchat_ctx.pchat {
                 pchat
                     .key_manager
                     .record_key_holder(channel_id, hash.clone());
@@ -242,10 +242,10 @@ pub(crate) fn send_key_takeover(
 ) {
     let (handle, hash) = {
         let s = shared.lock().ok();
-        let h = s.as_ref().and_then(|s| s.client_handle.clone());
+        let h = s.as_ref().and_then(|s| s.conn.client_handle.clone());
         let hash = s
             .as_ref()
-            .and_then(|s| s.pchat.as_ref().map(|p| p.own_cert_hash.clone()));
+            .and_then(|s| s.pchat_ctx.pchat.as_ref().map(|p| p.own_cert_hash.clone()));
         (h, hash)
     };
     let Some(handle) = handle else { return };
@@ -278,7 +278,7 @@ pub(crate) fn query_key_holders(
 ) {
     let handle = {
         let Ok(state) = shared.lock() else { return };
-        state.client_handle.clone()
+        state.conn.client_handle.clone()
     };
     let Some(handle) = handle else { return };
     let query = mumble_tcp::PchatKeyHoldersQuery {

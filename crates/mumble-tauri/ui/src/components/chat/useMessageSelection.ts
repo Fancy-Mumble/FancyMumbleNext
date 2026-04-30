@@ -9,7 +9,6 @@ import styles from "./ChatView.module.css";
 interface UseMessageSelectionOptions {
   selectedChannel: number | null;
   selectedDmUser: number | null;
-  selectedGroup: string | null;
   channel: ChannelEntry | undefined;
   messagesContainerRef: React.RefObject<HTMLDivElement | null>;
   setPendingQuotes: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
@@ -18,7 +17,6 @@ interface UseMessageSelectionOptions {
 export function useMessageSelection({
   selectedChannel,
   selectedDmUser,
-  selectedGroup,
   channel,
   messagesContainerRef,
   setPendingQuotes,
@@ -36,6 +34,8 @@ export function useMessageSelection({
   /** Pending delete confirmation (single or bulk). */
   const [deleteConfirm, setDeleteConfirm] = useState<{ ids: string[] } | null>(null);
   const [toast, setToast] = useState<ToastData | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const isDeletingRef = useRef(false);
 
   /** Toggle selection of a single message. */
   const toggleMsgSelection = useCallback((msgId: string) => {
@@ -85,7 +85,9 @@ export function useMessageSelection({
 
   /** Confirm and execute the pending deletion. */
   const confirmDelete = useCallback(async () => {
-    if (!deleteConfirm || selectedChannel === null) return;
+    if (!deleteConfirm || selectedChannel === null || isDeletingRef.current) return;
+    isDeletingRef.current = true;
+    setIsDeleting(true);
     const count = deleteConfirm.ids.length;
     try {
       await deletePchatMessages(selectedChannel, { messageIds: deleteConfirm.ids });
@@ -96,9 +98,12 @@ export function useMessageSelection({
     } catch (err) {
       console.error("delete messages error:", err);
       setToast({ message: "Failed to delete messages", variant: "error" });
+    } finally {
+      isDeletingRef.current = false;
+      setIsDeleting(false);
+      setDeleteConfirm(null);
+      exitSelectionMode();
     }
-    setDeleteConfirm(null);
-    exitSelectionMode();
   }, [deleteConfirm, selectedChannel, deletePchatMessages, exitSelectionMode]);
 
   /** Long-press timer ref for touch selection. */
@@ -176,12 +181,12 @@ export function useMessageSelection({
   /** Clear selection when switching channels. */
   useEffect(() => {
     exitSelectionMode();
-  }, [selectedChannel, selectedDmUser, selectedGroup, exitSelectionMode]);
+  }, [selectedChannel, selectedDmUser, exitSelectionMode]);
 
   /** Clear pending quotes when the active conversation changes. */
   useEffect(() => {
     setPendingQuotes([]);
-  }, [selectedChannel, selectedDmUser, selectedGroup, setPendingQuotes]);
+  }, [selectedChannel, selectedDmUser, setPendingQuotes]);
 
   // --- Text-selection bulk trigger ---------------------------------
   useEffect(() => {
@@ -236,6 +241,7 @@ export function useMessageSelection({
   const closeContextMenu = useCallback(() => setMsgContextMenu(null), []);
   const clearDeleteConfirm = useCallback(() => setDeleteConfirm(null), []);
   const clearToast = useCallback(() => setToast(null), []);
+  const showToast = useCallback((data: ToastData) => setToast(data), []);
 
   return {
     canDelete,
@@ -243,6 +249,7 @@ export function useMessageSelection({
     selectedMsgIds,
     msgContextMenu,
     deleteConfirm,
+    isDeleting,
     toast,
     toggleMsgSelection,
     enterSelectionMode,
@@ -260,5 +267,6 @@ export function useMessageSelection({
     closeContextMenu,
     clearDeleteConfirm,
     clearToast,
+    showToast,
   };
 }

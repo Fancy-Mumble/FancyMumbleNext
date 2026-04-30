@@ -79,4 +79,16 @@ describe("markdownToHtml -> htmlToMarkdown round-trip", () => {
       expect(back).toBe(input);
     });
   }
+
+  it("keeps semicolon-containing URL segments when linkifying", () => {
+    const input = "https://www.youtube.com/watch?v=LAqgQcnkA1k&;list=RDLAqgQcnkA1k&start_radio=1";
+    const html = markdownToHtml(input);
+
+    expect(html).toContain(
+      '<a href="https://www.youtube.com/watch?v=LAqgQcnkA1k&amp;;list=RDLAqgQcnkA1k&amp;start_radio=1"',
+    );
+
+    const back = htmlToMarkdown(html);
+    expect(back).toBe(input);
+  });
 });

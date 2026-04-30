@@ -9,6 +9,51 @@
 /** Detected media type from file. */
 export type MediaKind = "image" | "gif" | "video";
 
+const EXT_TO_MIME: Record<string, string> = {
+  // Images
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  svg: "image/svg+xml",
+  ico: "image/x-icon",
+  bmp: "image/bmp",
+  // Video
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+  mkv: "video/x-matroska",
+  avi: "video/x-msvideo",
+  // Audio
+  mp3: "audio/mpeg",
+  ogg: "audio/ogg",
+  opus: "audio/opus",
+  wav: "audio/wav",
+  flac: "audio/flac",
+  aac: "audio/aac",
+  m4a: "audio/mp4",
+  // Documents
+  pdf: "application/pdf",
+  // Archives
+  zip: "application/zip",
+  gz: "application/gzip",
+  tar: "application/x-tar",
+  // Text
+  txt: "text/plain",
+  md: "text/markdown",
+  csv: "text/csv",
+  json: "application/json",
+};
+
+/** Infer a MIME type from a file path's extension.
+ *  Returns `null` when the extension is unknown. */
+export function inferMimeType(filePath: string): string | null {
+  const ext = filePath.toLowerCase().split(".").pop() ?? "";
+  return EXT_TO_MIME[ext] ?? null;
+}
+
 /** Detect kind from MIME type. */
 export function mediaKind(mime: string): MediaKind | null {
   if (mime === "image/gif") return "gif";
@@ -255,4 +300,16 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 
 function escapeAttr(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Fetch a remote URL and return its contents as a data URL.
+ * Useful for converting external image URLs (e.g. Klipy) into
+ * self-contained data URIs that can be sent as binary.
+ */
+export async function fetchAsDataUrl(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+  const blob = await res.blob();
+  return blobToDataUrl(blob);
 }

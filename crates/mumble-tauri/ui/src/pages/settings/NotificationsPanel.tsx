@@ -1,3 +1,4 @@
+import { PlayIcon } from "../../icons";
 import { useCallback, useRef } from "react";
 import type {
   NotificationSoundSettings,
@@ -5,7 +6,6 @@ import type {
   NotificationEventConfig,
 } from "../../types";
 import { Toggle } from "./SharedControls";
-import PlayIcon from "../../assets/icons/status/play.svg?react";
 import styles from "./SettingsPage.module.css";
 import ns from "./NotificationsPanel.module.css";
 
@@ -52,6 +52,11 @@ const EVENT_DEFS: EventDef[] = [
     description: "A new private or group message",
   },
   {
+    key: "mention",
+    label: "Mention",
+    description: "Someone mentioned you with @, @everyone, @here, or your role",
+  },
+  {
     key: "userJoin",
     label: "User joined server",
     description: "Someone connected to the server",
@@ -93,6 +98,7 @@ export const DEFAULT_NOTIFICATION_SOUNDS: NotificationSoundSettings = {
   events: {
     chatMessage: { enabled: true, sound: "dragon-3", volume: 0.5 },
     directMessage: { enabled: true, sound: "univ-033", volume: 0.7 },
+    mention: { enabled: true, sound: "univ-09", volume: 0.7 },
     userJoin: { enabled: true, sound: "univ-036", volume: 0.4 },
     userLeave: { enabled: true, sound: "univ-040", volume: 0.4 },
     userJoinChannel: { enabled: true, sound: "univ-036", volume: 0.5 },
@@ -166,8 +172,8 @@ export function NotificationsPanel({
     audio.play().catch(() => {});
   }, []);
 
-  const allEnabled = EVENT_DEFS.every((d) => settings.events[d.key].enabled);
-  const allDisabled = EVENT_DEFS.every((d) => !settings.events[d.key].enabled);
+  const allEnabled = EVENT_DEFS.every((d) => settings.events[d.key]?.enabled ?? DEFAULT_NOTIFICATION_SOUNDS.events[d.key].enabled);
+  const allDisabled = EVENT_DEFS.every((d) => !(settings.events[d.key]?.enabled ?? DEFAULT_NOTIFICATION_SOUNDS.events[d.key].enabled));
 
   return (
     <>
@@ -231,7 +237,7 @@ export function NotificationsPanel({
       {/* Per-event configuration */}
       {settings.masterEnabled &&
         EVENT_DEFS.map((def) => {
-          const cfg = settings.events[def.key];
+          const cfg = settings.events[def.key] ?? DEFAULT_NOTIFICATION_SOUNDS.events[def.key];
           return (
             <section key={def.key} className={styles.section}>
               <div className={styles.toggleRow}>

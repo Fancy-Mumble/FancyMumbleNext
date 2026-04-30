@@ -1,0 +1,12 @@
+{
+  "identifier": "popout",
+  "description": "Permissions for image popout windows (frameless, always-on-top, single image viewer).",
+  "windows": ["popout-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-size"
+  ]
+}

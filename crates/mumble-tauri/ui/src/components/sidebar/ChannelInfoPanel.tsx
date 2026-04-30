@@ -1,3 +1,4 @@
+import { CloseIcon, EditIcon, FolderIcon, KeyIcon, RefreshIcon, WarningFilledIcon } from "../../icons";
 /**
  * Right-side panel showing channel details (description, name).
  *
@@ -5,28 +6,20 @@
  * appears to allow inline editing of the channel description and name.
  */
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, lazy, Suspense } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../store";
 import type { ChannelEntry } from "../../types";
 import { getPreferences } from "../../preferencesStorage";
 import { canDeleteMessages, hasPermission } from "./ChannelEditorDialog";
-import { BioEditor } from "../../pages/settings/BioEditor";
+const BioEditor = lazy(() => import("../../pages/settings/BioEditor").then((m) => ({ default: m.BioEditor })));
 import { SafeHtml } from "../elements/SafeHtml";
 import { UserListItem, colorFor } from "./UserListItem";
 import { UserContextMenu } from "./UserContextMenu";
 import type { UserContextMenuState } from "./UserContextMenu";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
-import FolderIcon from "../../assets/icons/general/folder.svg?react";
-import EditIcon from "../../assets/icons/action/edit.svg?react";
-import KeyIcon from "../../assets/icons/status/key.svg?react";
-import WarningFilledIcon from "../../assets/icons/status/warning-filled.svg?react";
-import RefreshIcon from "../../assets/icons/action/refresh.svg?react";
+import { useChannelDescription } from "../../lazyBlobs";
 import styles from "./ChannelInfoPanel.module.css";
-import { PERMISSIONS, PERM_KEY_OWNER } from "../../utils/permissions";
-
-/** Mumble permission bitmask: Write (bit 0). */
-const PERM_WRITE = 0x01;
+import { PERMISSIONS, PERM_KEY_OWNER, PERM_WRITE } from "../../utils/permissions";
 
 interface ChannelInfoPanelProps {
   readonly onClose: () => void;
@@ -39,6 +32,7 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
   const channel: ChannelEntry | undefined = channels.find(
     (c) => c.id === selectedChannel,
   );
+  const channelDescription = useChannelDescription(channel?.id, channel?.description_size);
 
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
@@ -129,9 +123,9 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
   useEffect(() => {
     if (channel) {
       setEditName(channel.name);
-      setEditDescription(channel.description);
+      setEditDescription(channelDescription ?? "");
     }
-  }, [channel, editing]);
+  }, [channel, editing, channelDescription]);
 
   const startEditing = useCallback(() => setEditing(true), []);
   const cancelEditing = useCallback(() => setEditing(false), []);
@@ -142,7 +136,7 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
     try {
       const nameChanged = editName !== channel.name ? editName : undefined;
       const descChanged =
-        editDescription !== channel.description ? editDescription : undefined;
+        editDescription !== (channelDescription ?? "") ? editDescription : undefined;
       if (nameChanged !== undefined || descChanged !== undefined) {
         await invoke("update_channel", {
           channelId: channel.id,
@@ -218,11 +212,13 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
             </label>
             <label className={styles.editLabel}>
               Description
-              <BioEditor
-                value={editDescription}
-                onChange={setEditDescription}
-                placeholder="Channel description..."
-              />
+              <Suspense fallback={<div className={styles.editInput}>Loading editor...</div>}>
+                <BioEditor
+                  value={editDescription}
+                  onChange={setEditDescription}
+                  placeholder="Channel description..."
+                />
+              </Suspense>
             </label>
             <div className={styles.editActions}>
               <button
@@ -250,7 +246,7 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
             <div className={styles.descriptionSection}>
               <span className={styles.infoLabel}>Description</span>
               <SafeHtml
-                html={channel.description}
+                html={channelDescription ?? ""}
                 className={styles.descriptionContent}
                 fallback={<em>No description</em>}
               />

@@ -364,6 +364,12 @@ pub struct TextMessage {
     /// When set, this message is an edit replacing the message with this ID.
     #[prost(string, optional, tag = "8")]
     pub edit_id: ::core::option::Option<::prost::alloc::string::String>,
+    /// When set, pin or unpin the message with this ID in the channel.
+    #[prost(string, optional, tag = "9")]
+    pub pin_target: ::core::option::Option<::prost::alloc::string::String>,
+    /// When true combined with pin_target, unpin instead of pin.
+    #[prost(bool, optional, tag = "10")]
+    pub unpin: ::core::option::Option<bool>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct PermissionDenied {
@@ -470,7 +476,7 @@ pub struct Acl {
 }
 /// Nested message and enum types in `ACL`.
 pub mod acl {
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ChanGroup {
         #[prost(string, required, tag = "1")]
         pub name: ::prost::alloc::string::String,
@@ -486,6 +492,25 @@ pub mod acl {
         pub remove: ::prost::alloc::vec::Vec<u32>,
         #[prost(uint32, repeated, packed = "false", tag = "7")]
         pub inherited_members: ::prost::alloc::vec::Vec<u32>,
+        /// FancyMumble role customization extensions.
+        #[prost(string, optional, tag = "8")]
+        pub color: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(bytes = "vec", optional, tag = "9")]
+        pub icon: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+        #[prost(string, optional, tag = "10")]
+        pub style_preset: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(message, repeated, tag = "11")]
+        pub metadata: ::prost::alloc::vec::Vec<chan_group::KeyValue>,
+    }
+    /// Nested message and enum types in `ChanGroup`.
+    pub mod chan_group {
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct KeyValue {
+            #[prost(string, required, tag = "1")]
+            pub key: ::prost::alloc::string::String,
+            #[prost(string, optional, tag = "2")]
+            pub value: ::core::option::Option<::prost::alloc::string::String>,
+        }
     }
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct ChanAcl {
@@ -636,6 +661,17 @@ pub mod user_list {
         pub last_seen: ::core::option::Option<::prost::alloc::string::String>,
         #[prost(uint32, optional, tag = "4")]
         pub last_channel: ::core::option::Option<u32>,
+        /// Registered user avatar (PNG/JPEG bytes).
+        #[prost(bytes = "vec", optional, tag = "5")]
+        pub texture: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+        /// SHA-1 hash of the comment when len >= 128; empty otherwise.
+        /// If set without comment, the client must request the full text
+        /// via RequestBlob.user_id_comment.
+        #[prost(bytes = "vec", optional, tag = "6")]
+        pub comment_hash: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+        /// Full comment text when len < 128, or in blob responses.
+        #[prost(string, optional, tag = "7")]
+        pub comment: ::core::option::Option<::prost::alloc::string::String>,
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -755,6 +791,9 @@ pub struct RequestBlob {
     pub session_comment: ::prost::alloc::vec::Vec<u32>,
     #[prost(uint32, repeated, packed = "false", tag = "3")]
     pub channel_description: ::prost::alloc::vec::Vec<u32>,
+    /// Registered user_ids whose comment should be fetched (offline support).
+    #[prost(uint32, repeated, packed = "false", tag = "4")]
+    pub user_id_comment: ::prost::alloc::vec::Vec<u32>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ServerConfig {
@@ -776,6 +815,15 @@ pub struct ServerConfig {
     /// relay screen-share streams server-side.
     #[prost(bool, optional, tag = "8")]
     pub webrtc_sfu_available: ::core::option::Option<bool>,
+    /// Optional public base URL of the Fancy Mumble REST API (file
+    /// server, custom emotes, capabilities, ...). Set this when the
+    /// server's HTTP interface is exposed under a different hostname
+    /// than the Mumble TCP port - for example behind a reverse proxy
+    /// or Kubernetes ingress. Clients should prefer this URL over any
+    /// per-plugin `base_url` when contacting the REST API. Empty /
+    /// unset means "no override; use whatever the plugin advertises".
+    #[prost(string, optional, tag = "9")]
+    pub fancy_rest_api_url: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SuggestConfig {
@@ -1437,6 +1485,159 @@ pub mod fancy_read_receipt_deliver {
         pub last_read_message_id: ::core::option::Option<::prost::alloc::string::String>,
         #[prost(uint64, optional, tag = "4")]
         pub timestamp: ::core::option::Option<u64>,
+    }
+}
+/// Client -> Server: pin or unpin a persistent chat message.
+/// The server validates the sender, stores the pin state, and broadcasts
+/// a PchatPinDeliver to all Fancy clients in the channel.
+/// Wire type ID = 128.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatPin {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(string, optional, tag = "2")]
+    pub message_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "3")]
+    pub sender_hash: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(bool, optional, tag = "4")]
+    pub unpin: ::core::option::Option<bool>,
+    #[prost(uint64, optional, tag = "5")]
+    pub timestamp: ::core::option::Option<u64>,
+}
+/// Server -> Client: delivers a pin or unpin event to channel members.
+/// Wire type ID = 129.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PchatPinDeliver {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(string, optional, tag = "2")]
+    pub message_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "3")]
+    pub pinner_hash: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "4")]
+    pub pinner_name: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(bool, optional, tag = "5")]
+    pub unpin: ::core::option::Option<bool>,
+    #[prost(uint64, optional, tag = "6")]
+    pub timestamp: ::core::option::Option<u64>,
+}
+/// Server -> Client: batch delivery of all pinned message IDs for a channel.
+/// Sent alongside PchatFetchResponse so the client can mark historical
+/// messages as pinned.
+/// Wire type ID = 130.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PchatPinFetchResponse {
+    #[prost(uint32, optional, tag = "1")]
+    pub channel_id: ::core::option::Option<u32>,
+    #[prost(message, repeated, tag = "2")]
+    pub pins: ::prost::alloc::vec::Vec<pchat_pin_fetch_response::PinnedMessage>,
+}
+/// Nested message and enum types in `PchatPinFetchResponse`.
+pub mod pchat_pin_fetch_response {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct PinnedMessage {
+        #[prost(string, optional, tag = "1")]
+        pub message_id: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, optional, tag = "2")]
+        pub pinner_hash: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, optional, tag = "3")]
+        pub pinner_name: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(uint64, optional, tag = "4")]
+        pub timestamp: ::core::option::Option<u64>,
+    }
+}
+/// Client -> Server: notify the server that the user is typing in a channel.
+/// The server fills in `actor` with the sender's session ID and broadcasts
+/// the message to all other Fancy clients in the same channel.
+/// Wire type ID = 131.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FancyTypingIndicator {
+    /// Session ID of the typing user (set by server on relay, ignored from client).
+    #[prost(uint32, optional, tag = "1")]
+    pub actor: ::core::option::Option<u32>,
+    /// Channel where the user is typing.
+    #[prost(uint32, optional, tag = "2")]
+    pub channel_id: ::core::option::Option<u32>,
+}
+/// Client -> Server: request link previews for one or more URLs.
+/// The server validates, rate-limits, fetches metadata, and responds
+/// with FancyLinkPreviewResponse.
+/// Wire type ID = 132.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FancyLinkPreviewRequest {
+    #[prost(string, repeated, tag = "1")]
+    pub urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Client-chosen correlation ID so the response can be matched.
+    #[prost(string, optional, tag = "2")]
+    pub request_id: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// Server -> Client: link preview results.
+/// Wire type ID = 133.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FancyLinkPreviewResponse {
+    /// Correlation ID from the request.
+    #[prost(string, optional, tag = "1")]
+    pub request_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "2")]
+    pub embeds: ::prost::alloc::vec::Vec<fancy_link_preview_response::Embed>,
+}
+/// Nested message and enum types in `FancyLinkPreviewResponse`.
+pub mod fancy_link_preview_response {
+    /// Link embed data with media, provider, and author info.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Embed {
+        #[prost(string, optional, tag = "1")]
+        pub url: ::core::option::Option<::prost::alloc::string::String>,
+        /// "video", "image", "gifv", "article", "link", "rich"
+        #[prost(string, optional, tag = "2")]
+        pub r#type: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, optional, tag = "3")]
+        pub title: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, optional, tag = "4")]
+        pub description: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(int32, optional, tag = "5")]
+        pub color: ::core::option::Option<i32>,
+        #[prost(string, optional, tag = "6")]
+        pub site_name: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(message, optional, tag = "7")]
+        pub thumbnail: ::core::option::Option<embed::Media>,
+        #[prost(message, optional, tag = "8")]
+        pub image: ::core::option::Option<embed::Media>,
+        #[prost(message, optional, tag = "9")]
+        pub video: ::core::option::Option<embed::Media>,
+        #[prost(message, optional, tag = "10")]
+        pub provider: ::core::option::Option<embed::Provider>,
+        #[prost(message, optional, tag = "11")]
+        pub author: ::core::option::Option<embed::Author>,
+    }
+    /// Nested message and enum types in `Embed`.
+    pub mod embed {
+        /// Reusable sub-message for media (thumbnail, image, video).
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Media {
+            #[prost(string, optional, tag = "1")]
+            pub url: ::core::option::Option<::prost::alloc::string::String>,
+            #[prost(int32, optional, tag = "2")]
+            pub width: ::core::option::Option<i32>,
+            #[prost(int32, optional, tag = "3")]
+            pub height: ::core::option::Option<i32>,
+        }
+        /// Provider metadata.
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Provider {
+            #[prost(string, optional, tag = "1")]
+            pub name: ::core::option::Option<::prost::alloc::string::String>,
+            #[prost(string, optional, tag = "2")]
+            pub url: ::core::option::Option<::prost::alloc::string::String>,
+        }
+        /// Author metadata.
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Author {
+            #[prost(string, optional, tag = "1")]
+            pub name: ::core::option::Option<::prost::alloc::string::String>,
+            #[prost(string, optional, tag = "2")]
+            pub url: ::core::option::Option<::prost::alloc::string::String>,
+        }
     }
 }
 /// Unified pchat protocol indicator.

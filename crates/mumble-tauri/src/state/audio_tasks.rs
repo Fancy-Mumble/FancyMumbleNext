@@ -400,8 +400,8 @@ pub(super) async fn latency_ping_loop(client_handle: ClientHandle) {
 
 fn update_vad_threshold_if_changed(inner: &std::sync::Mutex<SharedState>, threshold: f32) -> bool {
     let Ok(mut state) = inner.lock() else { return false };
-    if (state.audio_settings.vad_threshold - threshold).abs() > 0.002 {
-        state.audio_settings.vad_threshold = threshold;
+    if (state.audio.settings.vad_threshold - threshold).abs() > 0.002 {
+        state.audio.settings.vad_threshold = threshold;
         true
     } else {
         false

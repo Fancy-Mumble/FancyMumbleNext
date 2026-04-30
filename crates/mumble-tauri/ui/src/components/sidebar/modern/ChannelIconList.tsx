@@ -1,3 +1,4 @@
+import { HashIcon, HeadphonesOffIcon, ListenBadgeIcon, MicOffSmallIcon, ScreenShareIcon } from "../../../icons";
 /**
  * ChannelIconList - a "Modern" channel viewer.
  *
@@ -9,20 +10,16 @@
  * - Current channel sticky at the top with accent left border.
  */
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useContext } from "react";
 import type { ChannelEntry, UserEntry } from "../../../types";
-import { colorFor, avatarUrl, useHoverCardPosition, UserHoverCardPortal } from "../UserListItem";
+import { colorFor, useHoverCardPosition, UserHoverCardPortal, RoleColorsContext } from "../UserListItem";
+import { useUserAvatar, useChannelDescription } from "../../../lazyBlobs";
 import { parseComment } from "../../../profileFormat";
 import { useUserStats } from "../../../hooks/useUserStats";
 import { useStreamThumbnail } from "../../chat/useStreamPreview";
 import SwipeableCard from "../../elements/SwipeableCard";
 import { isMobile } from "../../../utils/platform";
-import HashIcon from "../../../assets/icons/general/hash.svg?react";
-import ListenBadgeIcon from "../../../assets/icons/audio/listen-badge.svg?react";
 import { PchatBadge } from "../PchatBadge";
-import MicOffSmallIcon from "../../../assets/icons/audio/mic-off-small.svg?react";
-import HeadphonesOffIcon from "../../../assets/icons/audio/headphones-off.svg?react";
-import ScreenShareIcon from "../../../assets/icons/communication/screen-share.svg?react";
 import styles from "./ChannelIconList.module.css";
 
 /** Extract the src of the first <img> tag in an HTML string. */
@@ -55,9 +52,10 @@ interface ChannelIconProps {
 }
 
 function ChannelIcon({ channel, isCurrent }: ChannelIconProps) {
+  const description = useChannelDescription(channel.id, channel.description_size);
   const imgSrc = useMemo(
-    () => (channel.description ? extractDescriptionImage(channel.description) : null),
-    [channel.description],
+    () => (description ? extractDescriptionImage(description) : null),
+    [description],
   );
 
   if (imgSrc) {
@@ -96,7 +94,9 @@ interface MemberRowProps {
 }
 
 function MemberRow({ user, isTalking, isBroadcasting, onContextMenu, onClick }: MemberRowProps) {
-  const url = useMemo(() => avatarUrl(user), [user.texture]);
+  const roleColors = useContext(RoleColorsContext);
+  const roleColor = user.user_id != null ? (roleColors.get(user.user_id) ?? null) : null;
+  const url = useUserAvatar(user.session, user.texture_size);
   const parsed = useMemo(
     () => (user.comment ? parseComment(user.comment) : null),
     [user.comment],
@@ -135,7 +135,10 @@ function MemberRow({ user, isTalking, isBroadcasting, onContextMenu, onClick }: 
             user.name.charAt(0).toUpperCase()
           )}
         </div>
-        <span className={styles.memberName}>{user.name}</span>
+        <span
+          className={styles.memberName}
+          style={roleColor ? { color: roleColor } : undefined}
+        >{user.name}</span>
         {user.self_mute && (
           <MicOffSmallIcon className={styles.statusIcon} width={12} height={12} />
         )}

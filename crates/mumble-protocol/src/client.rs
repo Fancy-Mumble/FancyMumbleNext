@@ -280,6 +280,10 @@ async fn event_loop<H: EventHandler>(
     let mut codec: Box<dyn FancyCodec> = Box::new(fancy_codec::LegacyCodec);
     let mut udp_sender: Option<UdpSender> = None;
     let mut udp_reader_task: Option<tokio::task::JoinHandle<()>> = None;
+    // Channel used by the control loop to push server-supplied decrypt
+    // nonces (from a partial `CryptSetup` resync) into the running UDP
+    // reader task.  Recreated by `start_udp` on every (re-)start.
+    let mut udp_resync_tx: Option<mpsc::Sender<Vec<u8>>> = None;
     let mut stored_crypto: Option<StoredCrypto> = None;
     let mut force_tcp = *force_tcp_rx.borrow();
 
@@ -304,7 +308,8 @@ async fn event_loop<H: EventHandler>(
                     force_tcp = new_force;
                     handle_force_tcp_change(
                         force_tcp, &stored_crypto, &udp_config, &wq_sender,
-                        &mut udp_sender, &mut udp_reader_task, &state.decrypt_stats, &mut handler,
+                        &mut udp_sender, &mut udp_reader_task, &mut udp_resync_tx,
+                        &outbound_tx, &state.decrypt_stats, &mut handler,
                     ).await;
                 }
                 None
@@ -325,6 +330,7 @@ async fn event_loop<H: EventHandler>(
             codec: &mut codec,
             udp_sender: &mut udp_sender,
             udp_reader_task: &mut udp_reader_task,
+            udp_resync_tx: &mut udp_resync_tx,
             stored_crypto: &mut stored_crypto,
             decrypt_stats: state_decrypt_stats.clone(),
             udp_config: &udp_config,
@@ -461,6 +467,9 @@ struct EventLoopCtx<'a, H> {
     codec: &'a mut Box<dyn FancyCodec>,
     udp_sender: &'a mut Option<UdpSender>,
     udp_reader_task: &'a mut Option<tokio::task::JoinHandle<()>>,
+    /// Sender side of the channel that pushes new server decrypt nonces
+    /// into the active UDP reader task (see `udp_reader_loop`).
+    udp_resync_tx: &'a mut Option<mpsc::Sender<Vec<u8>>>,
     stored_crypto: &'a mut Option<StoredCrypto>,
     decrypt_stats: crate::transport::ocb2::SharedPacketStats,
     udp_config: &'a UdpConfig,
@@ -496,6 +505,14 @@ impl<H: EventHandler> EventLoopCtx<'_, H> {
 
         match &server_msg {
             ServerMessage::Control(ctrl) => {
+                if !matches!(
+                    ctrl,
+                    ControlMessage::UdpTunnel(_)
+                        | ControlMessage::Ping(_)
+                        | ControlMessage::PermissionQuery(_)
+                ) {
+                    trace!(type_id = ctrl.type_id(), "inbound control message");
+                }
                 if let ControlMessage::UdpTunnel(ref data) = ctrl {
                     trace!("handle_server_message: UdpTunnel ({} bytes)", data.len());
                     match crate::transport::audio_codec::decode_tunnel_audio(data) {
@@ -514,9 +531,11 @@ impl<H: EventHandler> EventLoopCtx<'_, H> {
                             self.udp_config,
                             self.force_tcp,
                             self.wq_sender,
+                            self.outbound_tx,
                             self.stored_crypto,
                             self.udp_sender,
                             self.udp_reader_task,
+                            self.udp_resync_tx,
                             &self.decrypt_stats,
                             self.handler,
                         )
@@ -558,7 +577,9 @@ impl<H: EventHandler> EventLoopCtx<'_, H> {
         let output = cmd.execute(self.state);
 
         for msg in output.tcp_messages {
+            let type_id = msg.type_id();
             let Some(msg) = self.codec.encode(msg, self.state) else {
+                warn!(type_id, "codec dropped outbound message");
                 continue;
             };
             if self.outbound_tx.send(msg).await.is_err() {
@@ -787,9 +808,11 @@ async fn handle_crypt_setup<H: EventHandler>(
     udp_config: &UdpConfig,
     force_tcp: bool,
     wq_sender: &WorkQueueSender,
+    outbound_tx: &mpsc::Sender<ControlMessage>,
     stored_crypto: &mut Option<StoredCrypto>,
     udp_sender: &mut Option<UdpSender>,
     udp_reader_task: &mut Option<tokio::task::JoinHandle<()>>,
+    udp_resync_tx: &mut Option<mpsc::Sender<Vec<u8>>>,
     decrypt_stats: &crate::transport::ocb2::SharedPacketStats,
     handler: &mut H,
 ) {
@@ -797,14 +820,20 @@ async fn handle_crypt_setup<H: EventHandler>(
     let (Some(key), Some(client_nonce), Some(server_nonce)) =
         (&cs.key, &cs.client_nonce, &cs.server_nonce)
     else {
-        // Partial CryptSetup (nonce resync) - update decrypt nonce if we have a sender
+        // Partial CryptSetup (nonce resync) - update the running reader's
+        // decrypt nonce so it can decrypt the server's continuing stream.
+        // Without this the reader stays stuck on the old nonce and every
+        // packet fails with "OCB2 nonce out of range" indefinitely.
         if let Some(sn) = &cs.server_nonce {
-            debug!("CryptSetup nonce resync received");
-            // Server nonce resync only affects the reader's decrypt state.
-            // The reader task owns its own CryptState, so a full resync
-            // isn't trivially possible without a channel/Arc<Mutex>. For now
-            // log it; a future improvement could add a nonce update channel.
-            let _ = sn;
+            if let Some(tx) = udp_resync_tx.as_ref() {
+                if tx.try_send(sn.clone()).is_err() {
+                    warn!("CryptSetup nonce resync received but reader channel full or closed");
+                } else {
+                    info!("CryptSetup nonce resync forwarded to UDP reader");
+                }
+            } else {
+                debug!("CryptSetup nonce resync received but UDP reader is not running");
+            }
         }
         return;
     };
@@ -828,8 +857,10 @@ async fn handle_crypt_setup<H: EventHandler>(
         server_nonce,
         udp_config,
         wq_sender,
+        outbound_tx,
         udp_sender,
         udp_reader_task,
+        udp_resync_tx,
         decrypt_stats,
         handler,
     )
@@ -845,6 +876,8 @@ async fn handle_force_tcp_change<H: EventHandler>(
     wq_sender: &WorkQueueSender,
     udp_sender: &mut Option<UdpSender>,
     udp_reader_task: &mut Option<tokio::task::JoinHandle<()>>,
+    udp_resync_tx: &mut Option<mpsc::Sender<Vec<u8>>>,
+    outbound_tx: &mpsc::Sender<ControlMessage>,
     decrypt_stats: &crate::transport::ocb2::SharedPacketStats,
     handler: &mut H,
 ) {
@@ -854,6 +887,7 @@ async fn handle_force_tcp_change<H: EventHandler>(
             task.abort();
         }
         *udp_sender = None;
+        *udp_resync_tx = None;
         info!("force_tcp enabled at runtime, switched to TCP tunnel");
         handler.on_audio_transport_changed(false);
     } else {
@@ -865,8 +899,10 @@ async fn handle_force_tcp_change<H: EventHandler>(
                 &crypto.server_nonce,
                 udp_config,
                 wq_sender,
+                outbound_tx,
                 udp_sender,
                 udp_reader_task,
+                udp_resync_tx,
                 decrypt_stats,
                 handler,
             )
@@ -885,8 +921,10 @@ async fn start_udp<H: EventHandler>(
     server_nonce: &[u8],
     udp_config: &UdpConfig,
     wq_sender: &WorkQueueSender,
+    outbound_tx: &mpsc::Sender<ControlMessage>,
     udp_sender: &mut Option<UdpSender>,
     udp_reader_task: &mut Option<tokio::task::JoinHandle<()>>,
+    udp_resync_tx: &mut Option<mpsc::Sender<Vec<u8>>>,
     decrypt_stats: &crate::transport::ocb2::SharedPacketStats,
     handler: &mut H,
 ) {
@@ -921,12 +959,28 @@ async fn start_udp<H: EventHandler>(
         task.abort();
     }
 
+    // Channel used by the control loop to push new server decrypt nonces
+    // (from a partial CryptSetup resync) into the running reader.  Bounded
+    // small because resync messages are very rare; if we fall behind it is
+    // safe to drop -- the reader will request another resync soon.
+    let (server_nonce_tx, server_nonce_rx) = mpsc::channel::<Vec<u8>>(4);
+    *udp_resync_tx = Some(server_nonce_tx);
+
     // Spawn UDP reader task
     let reader_socket = socket.clone();
     let reader_wq = wq_sender.clone();
     let reader_stats = decrypt_stats.clone();
+    let reader_outbound = outbound_tx.clone();
     *udp_reader_task = Some(tokio::spawn(async move {
-        udp_reader_loop(reader_socket, decrypt_crypt, reader_stats, reader_wq).await;
+        udp_reader_loop(
+            reader_socket,
+            decrypt_crypt,
+            reader_stats,
+            reader_wq,
+            server_nonce_rx,
+            reader_outbound,
+        )
+        .await;
     }));
 
     // Store sender handle
@@ -966,36 +1020,107 @@ fn udp_ping_message() -> UdpMessage {
 
 /// Background task: reads encrypted UDP datagrams, decrypts, decodes, and
 /// feeds them into the work queue.
+///
+/// Also recovers from OCB2 nonce desync in two ways:
+///   1. A `server_nonce_rx` channel delivers fresh decrypt nonces pushed
+///      by the control loop when the server sends a partial `CryptSetup`
+///      resync.  These are applied via `set_decrypt_iv`.
+///   2. When more than [`RESYNC_FAILURE_THRESHOLD`] consecutive packets
+///      fail to decrypt, the reader sends an empty `CryptSetup` to the
+///      server (rate-limited to one per [`RESYNC_REQUEST_COOLDOWN`]).
+///      The server replies with a partial `CryptSetup` carrying its
+///      current encrypt IV, which path #1 then applies.
 async fn udp_reader_loop(
     socket: Arc<UdpSocket>,
     mut crypt: Ocb2CryptState,
     shared_stats: crate::transport::ocb2::SharedPacketStats,
     wq_sender: WorkQueueSender,
+    mut server_nonce_rx: mpsc::Receiver<Vec<u8>>,
+    outbound_tx: mpsc::Sender<ControlMessage>,
 ) {
+    /// Number of consecutive decrypt failures that triggers a resync
+    /// request to the server.  Roughly one second of audio at 50 Hz.
+    const RESYNC_FAILURE_THRESHOLD: u32 = 50;
+    /// Minimum delay between two resync requests so we do not flood the
+    /// server while the desync is being repaired.
+    const RESYNC_REQUEST_COOLDOWN: Duration = Duration::from_secs(5);
+
     let mut buf = vec![0u8; 1024];
+    let mut consecutive_failures: u32 = 0;
+    let mut last_resync_request = tokio::time::Instant::now()
+        .checked_sub(RESYNC_REQUEST_COOLDOWN)
+        .unwrap_or_else(tokio::time::Instant::now);
     loop {
-        let n = match socket.recv(&mut buf).await {
-            Ok(n) if n > 0 => n,
-            Ok(_) => {
-                debug!("UDP socket closed");
-                break;
-            }
-            Err(e) => {
-                // On Windows, ICMP port-unreachable can cause recv to
-                // return ConnectionReset - this is normal if the server
-                // hasn't opened UDP yet. Just retry.
-                if e.kind() == std::io::ErrorKind::ConnectionReset {
-                    continue;
+        let n = tokio::select! {
+            biased;
+            maybe_nonce = server_nonce_rx.recv() => {
+                match maybe_nonce {
+                    Some(nonce) => {
+                        crypt.set_decrypt_iv(&nonce);
+                        consecutive_failures = 0;
+                        info!("UDP: applied server-supplied decrypt nonce resync");
+                        continue;
+                    }
+                    None => {
+                        debug!("UDP reader: resync channel closed");
+                        break;
+                    }
                 }
-                warn!("UDP read error: {e}");
-                break;
+            }
+            recv = socket.recv(&mut buf) => {
+                match recv {
+                    Ok(n) if n > 0 => n,
+                    Ok(_) => {
+                        debug!("UDP socket closed");
+                        break;
+                    }
+                    Err(e) => {
+                        // On Windows, ICMP port-unreachable can cause recv to
+                        // return ConnectionReset - this is normal if the server
+                        // hasn't opened UDP yet. Just retry.
+                        if e.kind() == std::io::ErrorKind::ConnectionReset {
+                            continue;
+                        }
+                        warn!("UDP read error: {e}");
+                        break;
+                    }
+                }
             }
         };
 
         let decrypted = match crypt.decrypt(&buf[..n]) {
-            Ok(data) => data,
+            Ok(data) => {
+                consecutive_failures = 0;
+                data
+            }
             Err(e) => {
+                consecutive_failures = consecutive_failures.saturating_add(1);
                 warn!("UDP decrypt failed, skipping: {e}");
+                if consecutive_failures >= RESYNC_FAILURE_THRESHOLD
+                    && last_resync_request.elapsed() >= RESYNC_REQUEST_COOLDOWN
+                {
+                    // Empty CryptSetup -> server replies with a partial
+                    // CryptSetup carrying its current encrypt IV.
+                    let resync_msg = ControlMessage::CryptSetup(
+                        mumble_tcp::CryptSetup::default(),
+                    );
+                    match outbound_tx.try_send(resync_msg) {
+                        Ok(()) => {
+                            info!(
+                                "UDP: requested CryptSetup resync ({consecutive_failures} consecutive decrypt failures)"
+                            );
+                            last_resync_request = tokio::time::Instant::now();
+                            consecutive_failures = 0;
+                        }
+                        Err(mpsc::error::TrySendError::Full(_)) => {
+                            warn!("UDP: cannot send resync request, outbound channel full");
+                        }
+                        Err(mpsc::error::TrySendError::Closed(_)) => {
+                            debug!("UDP reader: outbound channel closed, exiting");
+                            break;
+                        }
+                    }
+                }
                 continue;
             }
         };

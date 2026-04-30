@@ -1,9 +1,6 @@
+import { InfoFilledIcon, MaximizeIcon, MinimizeIcon, WindowCloseIcon } from "../../icons";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isDesktopPlatform } from "../../utils/platform";
-import InfoFilledIcon from "../../assets/icons/status/info-filled.svg?react";
-import MinimizeIcon from "../../assets/icons/window/minimize.svg?react";
-import MaximizeIcon from "../../assets/icons/window/maximize.svg?react";
-import WindowCloseIcon from "../../assets/icons/window/close.svg?react";
 import styles from "./TitleBar.module.css";
 
 export default function TitleBar() {

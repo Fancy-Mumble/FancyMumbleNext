@@ -1,8 +1,6 @@
+import { LockSvg, ShieldCheckSvg, WarningSvg } from "../../icons";
 import { useState, useRef, useEffect } from "react";
 import type { KeyTrustLevel } from "../../types";
-import ShieldCheckSvg from "../../assets/icons/status/shield-check.svg?react";
-import LockSvg from "../../assets/icons/status/lock.svg?react";
-import WarningSvg from "../../assets/icons/status/warning.svg?react";
 import styles from "./KeyTrustIndicator.module.css";
 
 interface KeyTrustIndicatorProps {

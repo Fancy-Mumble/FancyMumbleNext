@@ -38,18 +38,7 @@
 }
 
 .logoIcon {
-  width: 64px;
-  height: 64px;
   margin: 0 auto 16px;
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--color-accent), var(--color-purple));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 28px;
-  font-weight: 700;
-  color: white;
-  box-shadow: 0 4px 20px var(--color-accent-glow);
 }
 
 .title {
@@ -429,11 +418,6 @@
   .card {
     padding: 28px 20px;
     max-width: 100%;
-  }
-
-  .logoIcon {
-    width: 56px;
-    height: 56px;
   }
 
   .title {

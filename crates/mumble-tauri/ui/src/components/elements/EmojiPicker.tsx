@@ -183,7 +183,7 @@ export default function EmojiPicker({
       if (filtered.length > 0) {
         result.push({
           id: "server",
-          label: "Server",
+          label: "Custom",
           emojis: filtered.map((r) => r.display),
         });
       }
@@ -238,7 +238,7 @@ export default function EmojiPicker({
   const tabs = useMemo(() => {
     const base = CATEGORIES.map((c) => ({ id: c.id, icon: c.icon }));
     if (serverReactions.length > 0) {
-      return [{ id: "server", icon: "\uD83C\uDFE2" }, ...base];
+      return [{ id: "server", icon: "\uD83C\uDFA8" }, ...base];
     }
     return base;
   }, [serverReactions]);
@@ -286,19 +286,26 @@ export default function EmojiPicker({
                 {cat.label}
               </p>
               <div className={styles.emojiRow}>
-                {cat.emojis.map((emoji, i) => (
-                  <button
-                    key={`${cat.id}-${i}`}
-                    type="button"
-                    className={styles.emojiBtn}
-                    onClick={() => {
-                      onSelect(emoji);
-                      onClose();
-                    }}
-                  >
-                    {emoji}
-                  </button>
-                ))}
+                {cat.emojis.map((emoji, i) => {
+                  const isImage = emoji.startsWith("data:") || emoji.startsWith("http://") || emoji.startsWith("https://");
+                  return (
+                    <button
+                      key={`${cat.id}-${i}`}
+                      type="button"
+                      className={styles.emojiBtn}
+                      onClick={() => {
+                        onSelect(emoji);
+                        onClose();
+                      }}
+                    >
+                      {isImage ? (
+                        <img src={emoji} alt="" className={styles.emojiImage} />
+                      ) : (
+                        emoji
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ))}

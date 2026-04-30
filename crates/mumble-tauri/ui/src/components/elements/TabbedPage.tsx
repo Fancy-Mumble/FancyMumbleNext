@@ -1,5 +1,5 @@
+import { ChevronLeftIcon } from "../../icons";
 import type { ReactNode } from "react";
-import ChevronLeftIcon from "../../assets/icons/navigation/chevron-left.svg?react";
 import styles from "./TabbedPage.module.css";
 
 export interface TabDef<T extends string> {

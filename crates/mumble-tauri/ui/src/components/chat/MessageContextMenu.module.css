@@ -119,6 +119,13 @@
   text-align: center;
 }
 
+.reactorEmojiImg {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
 .reactorAvatar {
   width: 20px;
   height: 20px;
@@ -163,4 +170,8 @@
   font-size: 0.8rem;
   font-style: italic;
   color: var(--color-text-secondary, rgba(255, 255, 255, 0.4));
+}
+
+.offlineReader {
+  opacity: 0.5;
 }

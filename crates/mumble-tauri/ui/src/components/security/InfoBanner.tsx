@@ -1,5 +1,5 @@
+import { CloseIcon } from "../../icons";
 import type { ReactNode } from "react";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
 import styles from "./InfoBanner.module.css";
 
 interface InfoBannerProps {

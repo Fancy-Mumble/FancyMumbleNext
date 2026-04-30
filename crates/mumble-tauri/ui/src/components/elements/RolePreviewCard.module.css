@@ -1,0 +1,58 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.55rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.title {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary, #7a7d83);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.usernameSample {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.usernameSample[data-has-color="true"] {
+  color: var(--role-color, inherit);
+}
+
+.handle {
+  font-weight: 400;
+  color: var(--text-tertiary, #7a7d83);
+  font-size: 0.85rem;
+}
+
+.bubble {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 0.85rem;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.85rem;
+  max-width: 100%;
+}
+
+.mention {
+  display: inline-block;
+  padding: 0 0.25rem;
+  border-radius: 0.25rem;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--role-color, #5865f2) 22%, transparent);
+  color: color-mix(in srgb, var(--role-color, #5865f2) 95%, white 5%);
+}

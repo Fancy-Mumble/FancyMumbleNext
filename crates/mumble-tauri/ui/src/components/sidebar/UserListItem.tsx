@@ -1,34 +1,100 @@
-﻿import { useState, useMemo, useCallback, useRef } from "react";
+import { HeadphonesOffIcon, MicOffIcon, ScreenShareIcon, ShieldCheckIcon, StarIcon, VolumeIcon } from "../../icons";
+import { memo, useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import { useAppStore } from "../../store";
-import type { UserEntry, FancyProfile } from "../../types";
-import { textureToDataUrl, parseComment } from "../../profileFormat";
+import type { UserEntry, FancyProfile, AclGroup } from "../../types";
+import { parseComment } from "../../profileFormat";
+import { useUserAvatar } from "../../lazyBlobs";
 import { ProfilePreviewCard } from "../../pages/settings/ProfilePreviewCard";
 import { useUserStats } from "../../hooks/useUserStats";
 import { colorFor } from "../../utils/format";
 import { isMobile } from "../../utils/platform";
-import MicOffIcon from "../../assets/icons/audio/mic-off.svg?react";
-import HeadphonesOffIcon from "../../assets/icons/audio/headphones-off.svg?react";
-import StarIcon from "../../assets/icons/status/star.svg?react";
-import ShieldCheckIcon from "../../assets/icons/status/shield-check.svg?react";
-import VolumeIcon from "../../assets/icons/audio/volume.svg?react";
-import ScreenShareIcon from "../../assets/icons/communication/screen-share.svg?react";
 import { useStreamThumbnail } from "../chat/useStreamPreview";
 import styles from "./UserListItem.module.css";
 
 // Re-export so existing consumers (e.g. ChannelSidebar) keep working.
 export { colorFor } from "../../utils/format";
 
-const textureCache = new Map<number, { len: number; url: string }>();
+// -- Role colour context -----------------------------------------
 
-export function avatarUrl(user: UserEntry): string | null {
-  if (!user.texture || user.texture.length === 0) return null;
-  const cached = textureCache.get(user.session);
-  if (cached?.len === user.texture.length) return cached.url;
-  const url = textureToDataUrl(user.texture);
-  textureCache.set(user.session, { len: user.texture.length, url });
-  return url;
+/** Reject any value that could escape the inline style attribute. */
+function sanitiseRoleColor(raw: string): string | null {
+  const v = raw.trim();
+  if (v.length === 0 || v.length > 64) return null;
+  if (!/^[#A-Za-z0-9 .,()%/]+$/.test(v)) return null;
+  return v;
 }
+
+/**
+ * Build a `user_id -> CSS color` map from the ACL group list.
+ *
+ * For each registered user the first group (in array order) that
+ * - contains them in `add` or `inherited_members` (and not in `remove`)
+ * - has a non-null `color` property
+ * - is not a system group (name not starting with `~`)
+ * determines their display color.
+ */
+export function buildRoleColorMap(
+  groups: readonly AclGroup[],
+): ReadonlyMap<number, string> {
+  const map = new Map<number, string>();
+  for (const g of groups) {
+    if (g.name.startsWith("~")) continue;
+    const raw = g.color;
+    if (!raw) continue;
+    const color = sanitiseRoleColor(raw);
+    if (!color) continue;
+    const removeSet = new Set(g.remove);
+    const members = [...g.add, ...g.inherited_members];
+    for (const uid of members) {
+      if (!removeSet.has(uid) && !map.has(uid)) {
+        map.set(uid, color);
+      }
+    }
+  }
+  return map;
+}
+
+/** A single role chip: the group name and its optional CSS color. */
+export type RoleChip = { readonly name: string; readonly color: string | null };
+
+/**
+ * Build a `user_id -> [RoleChip]` map from the ACL group list.
+ * Every non-system group (name not starting with `~`) that contains a user
+ * contributes a chip for that user.
+ */
+export function buildRoleGroupsMap(
+  groups: readonly AclGroup[],
+): ReadonlyMap<number, readonly RoleChip[]> {
+  const map = new Map<number, RoleChip[]>();
+  for (const g of groups) {
+    if (g.name.startsWith("~")) continue;
+    const color = g.color ? sanitiseRoleColor(g.color) : null;
+    const chip: RoleChip = { name: g.name, color };
+    const removeSet = new Set(g.remove);
+    for (const uid of [...g.add, ...g.inherited_members]) {
+      if (removeSet.has(uid)) continue;
+      const list = map.get(uid);
+      if (list) list.push(chip);
+      else map.set(uid, [chip]);
+    }
+  }
+  return map;
+}
+
+/**
+ * React context that provides a `user_id -> CSS color` map.
+ * Provided once at the ChannelSidebar level; consumed by any component
+ * that renders a user display name.
+ */
+export const RoleColorsContext = createContext<ReadonlyMap<number, string>>(new Map());
+
+/** Provides `user_id -> RoleChip[]` to every `UserListItem` in the tree. */
+export const RoleGroupsContext = createContext<ReadonlyMap<number, readonly RoleChip[]>>(new Map());
+
+// LRU avatar caching now lives in `lazyBlobs.ts` (`useUserAvatar`).  Avatars
+// are fetched lazily over IPC because the bulk `get_users` payload only
+// includes the texture byte length, not the bytes themselves.
 
 // -- Shared hover card constants ----------------------------------
 
@@ -92,6 +158,8 @@ interface UserHoverCardPortalProps {
   readonly isRegistered: boolean;
   readonly isBroadcasting: boolean;
   readonly thumbnail: string | null;
+  /** ACL groups this user belongs to, shown as chips on the card. */
+  readonly groups?: readonly RoleChip[];
 }
 
 /** Portal overlay that renders the profile card + optional stream preview thumbnail. */
@@ -106,6 +174,7 @@ export function UserHoverCardPortal({
   isRegistered,
   isBroadcasting,
   thumbnail,
+  groups,
 }: Readonly<UserHoverCardPortalProps>) {
   return createPortal(
     <div
@@ -131,6 +200,7 @@ export function UserHoverCardPortal({
         onlinesecs={onlinesecs}
         idlesecs={idlesecs}
         isRegistered={isRegistered}
+        groups={groups}
       />
     </div>,
     document.body,
@@ -167,21 +237,34 @@ interface UserListItemProps {
   readonly isSelf?: boolean;
   /** Whether this user is currently transmitting audio (talking). */
   readonly isTalking?: boolean;
+  /** Whether this user is offline (registered but not connected). */
+  readonly offline?: boolean;
   /** Called on left click. */
   readonly onClick?: () => void;
   /** Called on right click to open context menu. */
   readonly onContextMenu?: (e: React.MouseEvent) => void;
+  /**
+   * Called when the hover card opens and the user has no comment yet.
+   * The parent is responsible for deduplication and sending the blob request.
+   */
+  readonly onRequestComment?: (userId: number) => void;
 }
 
-export function UserListItem({
+export const UserListItem = memo(function UserListItem({
   user,
   channelName,
   active,
   isSelf,
   isTalking,
+  offline,
   onClick,
   onContextMenu,
+  onRequestComment,
 }: UserListItemProps) {
+  const roleColors = useContext(RoleColorsContext);
+  const roleColor = user.user_id != null ? (roleColors.get(user.user_id) ?? null) : null;
+  const roleGroups = useContext(RoleGroupsContext);
+  const userGroups = user.user_id != null ? (roleGroups.get(user.user_id) ?? []) : [];
   const dmUnread = useAppStore((s) => s.dmUnreadCounts[user.session] ?? 0);
   const volumePct = useAppStore((s) => user.hash ? (s.userVolumes[user.hash] ?? 100) : 100);
   const isBroadcasting = useAppStore((s) => s.broadcastingSessions.has(user.session));
@@ -189,7 +272,7 @@ export function UserListItem({
   const stats = useUserStats(user.session, showCard);
   const streamThumbnail = useStreamThumbnail(user.session, showCard && isBroadcasting);
 
-  const url = useMemo(() => avatarUrl(user), [user.texture]);
+  const url = useUserAvatar(user.session, user.texture_size);
   const parsed = useMemo(
     () => (user.comment ? parseComment(user.comment) : null),
     [user.comment],
@@ -200,11 +283,17 @@ export function UserListItem({
   const isPriority = user.priority_speaker;
   const isRegistered = user.user_id != null && user.user_id > 0;
 
+  useEffect(() => {
+    if (showCard && offline && !user.comment && user.user_id != null) {
+      onRequestComment?.(user.user_id);
+    }
+  }, [showCard, offline, user.comment, user.user_id, onRequestComment]);
+
   return (
     <button
       ref={itemRef}
       type="button"
-      className={`${styles.userItem} ${active ? styles.userItemActive : ""} ${isSelf ? styles.selfUser : ""} ${isSelf && isTalking ? styles.selfTalking : ""}`}
+      className={`${styles.userItem} ${active ? styles.userItemActive : ""} ${isSelf ? styles.selfUser : ""} ${isSelf && isTalking ? styles.selfTalking : ""} ${offline ? styles.userItemOffline : ""}`}
       data-clickable={isSelf && onClick ? "true" : undefined}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
@@ -222,9 +311,12 @@ export function UserListItem({
             {user.name.charAt(0).toUpperCase()}
           </div>
         )}
-        <span className={styles.onlineDot} />
+        {!offline && <span className={styles.onlineDot} />}
       </div>
-      <span className={styles.userName}>{user.name}</span>
+      <span
+        className={styles.userName}
+        style={roleColor ? { color: roleColor } : undefined}
+      >{user.name}</span>
       {!isSelf && volumePct !== 100 && (
         <span className={styles.volumeBadge} title={`Volume: ${volumePct}%`}>
           <VolumeIcon width={12} height={12} />
@@ -279,8 +371,9 @@ export function UserListItem({
           isRegistered={isRegistered}
           isBroadcasting={isBroadcasting}
           thumbnail={streamThumbnail}
+          groups={userGroups.length > 0 ? userGroups : undefined}
         />
       )}
     </button>
   );
-}
+});

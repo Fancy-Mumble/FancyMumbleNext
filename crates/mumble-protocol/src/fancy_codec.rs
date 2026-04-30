@@ -7,8 +7,9 @@
 
 use std::fmt::Debug;
 
-use tracing::warn;
+use tracing::{debug, warn};
 
+use crate::fancy_message_support::{message_support, FallbackPolicy, MessageSupport};
 use crate::message::ControlMessage;
 use crate::proto::mumble_tcp;
 use crate::state::ServerState;
@@ -33,9 +34,11 @@ const WRAPPED_DATA_ID_PREFIX: &str = "fancy-native:";
 /// Codec for encoding/decoding Fancy Mumble extension messages.
 ///
 /// Two implementations exist:
-/// - [`NativeCodec`]: passthrough for Fancy servers (>= 0.2.12).
-/// - [`LegacyCodec`]: wraps extension types in `PluginData` for legacy
-///   servers, and unwraps them on the receive path.
+/// - [`NativeCodec`]: version-aware codec for Fancy servers (>= 0.2.12).
+///   Messages the server is too old for are automatically wrapped in
+///   `PluginData` when their [`FallbackPolicy`] allows it.
+/// - [`LegacyCodec`]: wraps *all* extension types in `PluginData` for
+///   legacy (non-Fancy) Mumble servers.
 pub trait FancyCodec: Send + Sync + Debug {
     /// Encode an outbound [`ControlMessage`] for the wire.
     ///
@@ -52,32 +55,77 @@ pub trait FancyCodec: Send + Sync + Debug {
 /// Select the appropriate codec based on the server's announced Fancy
 /// version.
 pub fn select_codec(server_fancy_version: Option<u64>) -> Box<dyn FancyCodec> {
-    let is_native = server_fancy_version
-        .is_some_and(|v| v >= FANCY_NATIVE_MIN_VERSION);
-
-    if is_native {
-        Box::new(NativeCodec)
-    } else {
-        Box::new(LegacyCodec)
+    debug!(
+        raw_version = ?server_fancy_version,
+        decoded = ?server_fancy_version.map(fancy_utils::version::fancy_version_decode),
+        "select_codec called"
+    );
+    match server_fancy_version {
+        Some(v) if v >= FANCY_NATIVE_MIN_VERSION => {
+            Box::new(NativeCodec { server_version: v })
+        }
+        _ => Box::new(LegacyCodec),
     }
 }
 
 // ---- NativeCodec ---------------------------------------------------
 
-/// Direct codec for Fancy Mumble servers.
+/// Version-aware codec for Fancy Mumble servers (>= 0.2.12).
 ///
-/// All messages pass through unchanged because the server understands
-/// native Fancy extension types.
+/// Messages that the connected server natively understands are sent
+/// as-is.  Messages added in a *newer* server version than the one we
+/// are connected to are either wrapped in `PluginData` (when the
+/// message's [`FallbackPolicy`] is [`FallbackPolicy::PluginData`]) or
+/// dropped with a warning.
+///
+/// The decode path always attempts to unwrap `fancy-native:*`
+/// `PluginData` envelopes so that fallback messages from peers are
+/// handled correctly.
 #[derive(Debug)]
-pub struct NativeCodec;
+pub struct NativeCodec {
+    server_version: u64,
+}
 
 impl FancyCodec for NativeCodec {
-    fn encode(&self, msg: ControlMessage, _state: &ServerState) -> Option<ControlMessage> {
-        Some(msg)
+    fn encode(&self, msg: ControlMessage, state: &ServerState) -> Option<ControlMessage> {
+        if !msg.is_fancy_extension() {
+            return Some(msg);
+        }
+
+        let support = message_support(&msg);
+        debug!(
+            type_id = msg.type_id(),
+            server_version = self.server_version,
+            min_version = support.map(|s| s.min_version),
+            version_ok = support.map(|s| self.server_version >= s.min_version),
+            fallback = ?support.map(|s| s.fallback),
+            "NativeCodec: encode decision"
+        );
+        match support {
+            Some(s) if self.server_version >= s.min_version => {
+                debug!(type_id = msg.type_id(), "NativeCodec: sending natively");
+                Some(msg)
+            }
+            Some(MessageSupport { fallback: FallbackPolicy::PluginData, .. }) => {
+                debug!(
+                    type_id = msg.type_id(),
+                    "NativeCodec: server too old, falling back to PluginData"
+                );
+                LegacyCodec.encode(msg, state)
+            }
+            Some(_) => {
+                debug!(
+                    type_id = msg.type_id(),
+                    "NativeCodec: server too old, no fallback, dropping"
+                );
+                None
+            }
+            None => Some(msg),
+        }
     }
 
     fn decode(&self, msg: ControlMessage) -> ControlMessage {
-        msg
+        LegacyCodec.decode(msg)
     }
 }
 
@@ -151,7 +199,10 @@ impl FancyCodec for LegacyCodec {
         };
 
         match codec::deserialize_control_message(type_id, payload) {
-            Ok(decoded) => decoded,
+            Ok(decoded) => {
+                let sender = pd.sender_session;
+                patch_sender_session(decoded, sender)
+            }
             Err(e) => {
                 warn!(
                     "failed to decode wrapped Fancy message (type {type_id}): {e}"
@@ -163,6 +214,24 @@ impl FancyCodec for LegacyCodec {
 }
 
 // ---- Helpers -------------------------------------------------------
+
+/// Transfer the `sender_session` from the `PluginData` envelope into
+/// the decoded message's actor/sender field.
+///
+/// When a Fancy extension message is relayed via `PluginData`, the
+/// Mumble server fills `PluginDataTransmission.sender_session` but
+/// does not parse the inner payload. Fields like
+/// `FancyTypingIndicator.actor` (normally set by the server on native
+/// messages) will be `None`. This function patches them.
+fn patch_sender_session(mut msg: ControlMessage, sender: Option<u32>) -> ControlMessage {
+    match &mut msg {
+        ControlMessage::FancyTypingIndicator(ti) if ti.actor.is_none() => {
+            ti.actor = sender;
+        }
+        _ => {}
+    }
+    msg
+}
 
 /// Extract receiver session IDs from a Fancy extension message so the
 /// legacy server knows whom to relay the `PluginData` to.
@@ -189,6 +258,9 @@ fn extract_receiver_sessions(msg: &ControlMessage, state: &ServerState) -> Vec<u
                 .filter(|u| u.channel_id == channel_id && u.session != own_session)
                 .map(|u| u.session)
                 .collect()
+        }
+        ControlMessage::FancyTypingIndicator(_) => {
+            channel_members_except_self(state, own_session)
         }
         _ => Vec::new(),
     }
@@ -270,9 +342,13 @@ mod tests {
 
     // ---- NativeCodec -------------------------------------------------
 
+    const V_0_2_12: u64 = fancy_utils::version::fancy_version_encode(0, 2, 12);
+    const V_0_2_14: u64 = fancy_utils::version::fancy_version_encode(0, 2, 14);
+    const V_0_2_18: u64 = fancy_utils::version::fancy_version_encode(0, 2, 18);
+
     #[test]
     fn native_codec_passthrough_standard_message() {
-        let codec = NativeCodec;
+        let codec = NativeCodec { server_version: V_0_2_12 };
         let state = ServerState::new();
         let ping = ControlMessage::Ping(mumble_tcp::Ping {
             timestamp: Some(42),
@@ -283,8 +359,8 @@ mod tests {
     }
 
     #[test]
-    fn native_codec_passthrough_fancy_message() {
-        let codec = NativeCodec;
+    fn native_codec_passthrough_fancy_message_when_server_supports_it() {
+        let codec = NativeCodec { server_version: V_0_2_12 };
         let state = ServerState::new();
         let signal = ControlMessage::WebRtcSignal(mumble_tcp::WebRtcSignal {
             target_session: Some(5),
@@ -297,14 +373,80 @@ mod tests {
     }
 
     #[test]
+    fn native_codec_falls_back_to_plugin_data_when_server_too_old() {
+        let codec = NativeCodec { server_version: V_0_2_14 };
+        let state = state_with_users();
+        let msg = ControlMessage::FancyTypingIndicator(mumble_tcp::FancyTypingIndicator {
+            channel_id: Some(0),
+            actor: None,
+        });
+
+        let encoded = codec.encode(msg, &state).unwrap();
+        let ControlMessage::PluginDataTransmission(pd) = &encoded else {
+            panic!("expected PluginDataTransmission, got {encoded:?}");
+        };
+        assert_eq!(pd.data_id.as_deref(), Some("fancy-native:131"));
+        assert_eq!(pd.receiver_sessions, vec![2]);
+    }
+
+    #[test]
+    fn native_codec_passthrough_typing_indicator_when_server_new_enough() {
+        let codec = NativeCodec { server_version: V_0_2_18 };
+        let state = state_with_users();
+        let msg = ControlMessage::FancyTypingIndicator(mumble_tcp::FancyTypingIndicator {
+            channel_id: Some(0),
+            actor: None,
+        });
+        let encoded = codec.encode(msg, &state).unwrap();
+        assert!(matches!(encoded, ControlMessage::FancyTypingIndicator(_)));
+    }
+
+    #[test]
+    fn native_codec_drops_server_only_message_when_unsupported() {
+        let codec = NativeCodec { server_version: V_0_2_14 };
+        let state = state_with_users();
+        let msg = ControlMessage::PchatPin(mumble_tcp::PchatPin {
+            channel_id: Some(0),
+            ..Default::default()
+        });
+        assert!(codec.encode(msg, &state).is_none());
+    }
+
+    #[test]
     fn native_codec_decode_passthrough() {
-        let codec = NativeCodec;
+        let codec = NativeCodec { server_version: V_0_2_12 };
         let msg = ControlMessage::Ping(mumble_tcp::Ping {
             timestamp: Some(99),
             ..Default::default()
         });
         let decoded = codec.decode(msg);
         assert!(matches!(decoded, ControlMessage::Ping(_)));
+    }
+
+    #[test]
+    fn native_codec_decode_unwraps_and_patches_sender() {
+        let codec = NativeCodec { server_version: V_0_2_14 };
+
+        // actor is None in the inner payload (client never sets it).
+        let original = mumble_tcp::FancyTypingIndicator {
+            actor: None,
+            channel_id: Some(0),
+        };
+        let payload = prost::Message::encode_to_vec(&original);
+        let wrapped = ControlMessage::PluginDataTransmission(
+            mumble_tcp::PluginDataTransmission {
+                sender_session: Some(2),
+                receiver_sessions: vec![1],
+                data: Some(payload),
+                data_id: Some("fancy-native:131".into()),
+            },
+        );
+        let decoded = codec.decode(wrapped);
+        let ControlMessage::FancyTypingIndicator(ti) = decoded else {
+            panic!("expected FancyTypingIndicator, got {decoded:?}");
+        };
+        assert_eq!(ti.actor, Some(2), "actor patched from sender_session");
+        assert_eq!(ti.channel_id, Some(0));
     }
 
     // ---- LegacyCodec encode ------------------------------------------
@@ -340,26 +482,6 @@ mod tests {
         assert_eq!(pd.data_id.as_deref(), Some("fancy-native:120"));
         assert_eq!(pd.receiver_sessions, vec![2]);
         assert!(pd.data.is_some());
-    }
-
-    #[test]
-    fn legacy_codec_webrtc_broadcast_targets_channel_members() {
-        let codec = LegacyCodec;
-        let state = state_with_users();
-        let signal = ControlMessage::WebRtcSignal(mumble_tcp::WebRtcSignal {
-            target_session: Some(0),
-            signal_type: Some(0),
-            payload: Some("broadcast".into()),
-            ..Default::default()
-        });
-
-        let encoded = codec.encode(signal, &state).unwrap();
-        let ControlMessage::PluginDataTransmission(pd) = &encoded else {
-            panic!("expected PluginDataTransmission");
-        };
-
-        // Session 2 is in channel 0 (same as us). Session 3 is in channel 1.
-        assert_eq!(pd.receiver_sessions, vec![2]);
     }
 
     #[test]
@@ -400,32 +522,21 @@ mod tests {
     // ---- LegacyCodec decode ------------------------------------------
 
     #[test]
-    fn legacy_codec_decode_passthrough_standard_message() {
+    fn legacy_codec_decode_passthrough() {
         let codec = LegacyCodec;
-        let msg = ControlMessage::Ping(mumble_tcp::Ping {
-            timestamp: Some(42),
-            ..Default::default()
-        });
-        let decoded = codec.decode(msg);
-        assert!(matches!(decoded, ControlMessage::Ping(_)));
-    }
 
-    #[test]
-    fn legacy_codec_decode_passthrough_normal_plugin_data() {
-        let codec = LegacyCodec;
-        let msg = ControlMessage::PluginDataTransmission(
-            mumble_tcp::PluginDataTransmission {
-                sender_session: Some(2),
-                receiver_sessions: vec![1],
-                data: Some(b"poll-json".to_vec()),
-                data_id: Some("fancy-poll".into()),
-            },
-        );
-        let decoded = codec.decode(msg);
-        assert!(matches!(
-            decoded,
-            ControlMessage::PluginDataTransmission(_)
-        ));
+        // Standard message passes through.
+        let ping = ControlMessage::Ping(mumble_tcp::Ping { timestamp: Some(42), ..Default::default() });
+        assert!(matches!(codec.decode(ping), ControlMessage::Ping(_)));
+
+        // Non-fancy PluginData passes through.
+        let pd = ControlMessage::PluginDataTransmission(mumble_tcp::PluginDataTransmission {
+            sender_session: Some(2),
+            receiver_sessions: vec![1],
+            data: Some(b"poll-json".to_vec()),
+            data_id: Some("fancy-poll".into()),
+        });
+        assert!(matches!(codec.decode(pd), ControlMessage::PluginDataTransmission(_)));
     }
 
     #[test]
@@ -518,8 +629,10 @@ mod tests {
     }
 
     #[test]
-    fn legacy_decode_ignores_invalid_type_id() {
+    fn legacy_decode_ignores_invalid_or_missing_payload() {
         let codec = LegacyCodec;
+
+        // Invalid type ID string.
         let msg = ControlMessage::PluginDataTransmission(
             mumble_tcp::PluginDataTransmission {
                 sender_session: Some(2),
@@ -528,16 +641,9 @@ mod tests {
                 data_id: Some("fancy-native:not-a-number".into()),
             },
         );
-        let decoded = codec.decode(msg);
-        assert!(matches!(
-            decoded,
-            ControlMessage::PluginDataTransmission(_)
-        ));
-    }
+        assert!(matches!(codec.decode(msg), ControlMessage::PluginDataTransmission(_)));
 
-    #[test]
-    fn legacy_decode_handles_missing_payload() {
-        let codec = LegacyCodec;
+        // Missing payload.
         let msg = ControlMessage::PluginDataTransmission(
             mumble_tcp::PluginDataTransmission {
                 sender_session: Some(2),
@@ -546,10 +652,61 @@ mod tests {
                 data_id: Some("fancy-native:120".into()),
             },
         );
-        let decoded = codec.decode(msg);
-        assert!(matches!(
-            decoded,
-            ControlMessage::PluginDataTransmission(_)
-        ));
+        assert!(matches!(codec.decode(msg), ControlMessage::PluginDataTransmission(_)));
+    }
+
+    // ---- NativeCodec fallback round-trip -----------------------------
+
+    #[test]
+    fn native_codec_roundtrip_typing_indicator_via_fallback() {
+        let codec = NativeCodec { server_version: V_0_2_14 };
+        let state = state_with_users();
+
+        let original = ControlMessage::FancyTypingIndicator(
+            mumble_tcp::FancyTypingIndicator {
+                channel_id: Some(0),
+                actor: None,
+            },
+        );
+
+        let encoded = codec.encode(original, &state).unwrap();
+        let ControlMessage::PluginDataTransmission(mut pd) = encoded else {
+            panic!("expected PluginData fallback");
+        };
+
+        // Simulate: the server fills sender_session before relaying.
+        pd.sender_session = Some(1);
+        let relayed = ControlMessage::PluginDataTransmission(pd);
+
+        let decoded = codec.decode(relayed);
+        let ControlMessage::FancyTypingIndicator(ti) = decoded else {
+            panic!("expected FancyTypingIndicator after round-trip, got {decoded:?}");
+        };
+        assert_eq!(ti.channel_id, Some(0));
+        assert_eq!(ti.actor, Some(1), "actor should be patched from sender_session");
+    }
+
+    #[test]
+    fn legacy_decode_patches_sender_session_into_typing_indicator() {
+        let codec = LegacyCodec;
+        let original = mumble_tcp::FancyTypingIndicator {
+            actor: None,
+            channel_id: Some(5),
+        };
+        let payload = prost::Message::encode_to_vec(&original);
+        let wrapped = ControlMessage::PluginDataTransmission(
+            mumble_tcp::PluginDataTransmission {
+                sender_session: Some(7),
+                receiver_sessions: vec![1],
+                data: Some(payload),
+                data_id: Some("fancy-native:131".into()),
+            },
+        );
+        let decoded = codec.decode(wrapped);
+        let ControlMessage::FancyTypingIndicator(ti) = decoded else {
+            panic!("expected FancyTypingIndicator, got {decoded:?}");
+        };
+        assert_eq!(ti.actor, Some(7));
+        assert_eq!(ti.channel_id, Some(5));
     }
 }

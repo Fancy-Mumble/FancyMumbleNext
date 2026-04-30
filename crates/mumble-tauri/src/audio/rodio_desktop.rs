@@ -21,7 +21,7 @@ use mumble_protocol::audio::sample::{AudioFormat, AudioFrame};
 use mumble_protocol::error::{Error, Result};
 use rodio::microphone::MicrophoneBuilder;
 use rodio::source::Source;
-use tracing::debug;
+use tracing::{debug, trace};
 
 // -- Capture (Microphone) -------------------------------------------
 
@@ -175,8 +175,15 @@ fn capture_thread(
 const MIX_CHUNK_SIZE: usize = 960;
 /// Minimum buffered samples before playback begins (~100 ms).
 const PRE_BUFFER_SAMPLES: usize = 4800;
-/// Consecutive empty refills before repriming (~1.5 s at 20 ms chunks).
-const REPRIME_AFTER: u32 = 150;
+/// Refill back-off (in mono samples) when a refill returns no data.
+/// 5 ms keeps the speaker buffer mutex contention bounded (max
+/// ~200 lock attempts/s per source) while letting a transient jitter
+/// recover within a few ms instead of forcing a full 20 ms of decay.
+const UNDERRUN_BACKOFF_SAMPLES: usize = 240;
+/// Consecutive empty refills before re-priming the buffer.  Each
+/// empty refill represents one [`UNDERRUN_BACKOFF_SAMPLES`] period
+/// (5 ms), so 300 corresponds to ~1.5 s of sustained silence.
+const REPRIME_AFTER: u32 = 300;
 
 /// A rodio [`Source`] that reads from per-speaker ring buffers and
 /// yields mixed mono `f32` samples at 48 kHz.
@@ -198,6 +205,19 @@ struct MumbleMixerSource {
     in_underrun: bool,
     ramp_pos: usize,
     underrun_samples: usize,
+    /// Amplitude captured at the moment underrun begins.  Used as the
+    /// starting point of the cosine fade-out toward silence.  Without
+    /// a fade the abrupt step from `last_sample` to 0 (or holding
+    /// `last_sample` at a non-zero DC value before decay) creates a
+    /// broadband click - especially audible at the end of a short
+    /// utterance like a single word.
+    fade_anchor: f32,
+    /// Remaining samples to skip before the next `refill_chunk()` call.
+    /// Prevents per-sample refill attempts during underrun by throttling
+    /// them to one every [`UNDERRUN_BACKOFF_SAMPLES`] (5 ms).  Short
+    /// enough that transient jitter recovers within a few ms instead
+    /// of forcing a full chunk of decay/silence.
+    underrun_cooldown: usize,
     diag: MixerDiag,
 }
 
@@ -235,6 +255,8 @@ impl MumbleMixerSource {
             in_underrun: false,
             ramp_pos: 0,
             underrun_samples: 0,
+            fade_anchor: 0.0,
+            underrun_cooldown: 0,
             diag: MixerDiag {
                 samples_pulled: 0,
                 refills: 0,
@@ -254,6 +276,7 @@ impl MumbleMixerSource {
             self.diag.lock_failures += 1;
             self.chunk_pos = 0;
             self.chunk_valid = 0;
+            self.underrun_cooldown = UNDERRUN_BACKOFF_SAMPLES;
             return;
         };
 
@@ -262,6 +285,7 @@ impl MumbleMixerSource {
             if max_available < PRE_BUFFER_SAMPLES {
                 self.chunk_pos = 0;
                 self.chunk_valid = 0;
+                self.underrun_cooldown = UNDERRUN_BACKOFF_SAMPLES;
                 return;
             }
             self.primed = true;
@@ -288,6 +312,7 @@ impl MumbleMixerSource {
             }
             self.chunk_pos = 0;
             self.chunk_valid = 0;
+            self.underrun_cooldown = UNDERRUN_BACKOFF_SAMPLES;
         } else {
             if valid_count < MIX_CHUNK_SIZE {
                 self.diag.partial_refills += 1;
@@ -307,7 +332,9 @@ impl Iterator for MumbleMixerSource {
             return None;
         }
 
-        if self.chunk_pos >= self.chunk_valid {
+        if self.underrun_cooldown > 0 {
+            self.underrun_cooldown -= 1;
+        } else if self.chunk_pos >= self.chunk_valid {
             self.refill_chunk();
         }
 
@@ -316,7 +343,7 @@ impl Iterator for MumbleMixerSource {
         self.diag.samples_pulled += 1;
         // Log diagnostics every ~1 second (48000 samples at 48 kHz).
         if self.diag.samples_pulled.is_multiple_of(48_000) {
-            debug!(
+            trace!(
                 "rodio mixer diag: pulled={}, refills={}, underrun={}, partial={}, \
                  ramps={}, peak={:.4}, max_buf={}, lock_fail={}, reprimes={}, \
                  consec_empty={}, in_underrun={}",
@@ -340,8 +367,15 @@ impl Iterator for MumbleMixerSource {
 
             let sample = if self.in_underrun {
                 self.diag.ramps_applied += 1;
-                const MAX_RAMP: usize = 48;
-                let ramp_len = self.underrun_samples.clamp(8, MAX_RAMP);
+                // Scale the fade-in length with how deep the silence was:
+                // a brief jitter recovers in ~1 ms, but coming out of
+                // a multi-second silence (e.g. someone starts talking
+                // for the first time) requires a much longer fade or
+                // the abrupt onset is heard as a click/pop at the
+                // ramp's fundamental frequency.
+                const MIN_RAMP: usize = 48;   // ~1 ms - jitter recovery
+                const MAX_RAMP: usize = 480;  // ~10 ms - speech onset
+                let ramp_len = self.underrun_samples.clamp(MIN_RAMP, MAX_RAMP);
                 self.ramp_pos += 1;
                 if self.ramp_pos >= ramp_len {
                     self.in_underrun = false;
@@ -349,8 +383,13 @@ impl Iterator for MumbleMixerSource {
                     self.underrun_samples = 0;
                     raw
                 } else {
+                    // Equal-power cosine fade: smoother perceptually
+                    // than linear, no derivative discontinuity at the
+                    // endpoints, and avoids the audible "ramp tone"
+                    // that a short linear fade can produce.
                     let t = self.ramp_pos as f32 / ramp_len as f32;
-                    self.last_sample * (1.0 - t) + raw * t
+                    let w = 0.5 - 0.5 * (std::f32::consts::PI * t).cos();
+                    self.last_sample * (1.0 - w) + raw * w
                 }
             } else {
                 raw
@@ -358,19 +397,42 @@ impl Iterator for MumbleMixerSource {
 
             self.diag.peak = self.diag.peak.max(sample.abs());
             self.last_sample = sample;
-            Some(sample * vol)
+            Some(super::soft_clip(sample * vol))
         } else {
-            // Underrun: exponential decay of last sample instead of
-            // hard silence jump which causes audible clicks.
-            const DECAY: f32 = 0.997;
+            // Underrun strategy: cosine fade-out from the amplitude
+            // we held at the moment underrun began (`fade_anchor`)
+            // toward zero over `FADE_OUT_LEN` samples, then silence.
+            //
+            // Why a cosine fade instead of DC-hold-then-decay:
+            // holding a non-zero DC value for a few ms (e.g. when a
+            // speaker stops mid-word) is itself a step in the
+            // waveform, which is broadband and audible as a click.
+            // The cosine fade has zero derivative at both endpoints
+            // and decays smoothly from `fade_anchor` to 0, so the
+            // end of an utterance is inaudible and brief mid-word
+            // jitter only causes a small, smooth amplitude dip
+            // (~15 % at 5 ms, fully recovers when audio resumes).
+            const FADE_OUT_LEN: usize = 960; // 20 ms at 48 kHz
+
+            // Capture the anchor on the first underrun sample only;
+            // this preserves the smooth fade across the entire gap
+            // even when individual `next()` calls are interleaved
+            // with cooldown decrements.
+            if !self.in_underrun {
+                self.fade_anchor = self.last_sample;
+            }
             self.in_underrun = true;
             self.ramp_pos = 0;
             self.underrun_samples += 1;
-            self.last_sample *= DECAY;
-            if self.last_sample.abs() < 1e-6 {
+
+            if self.underrun_samples >= FADE_OUT_LEN {
                 self.last_sample = 0.0;
+            } else {
+                let t = self.underrun_samples as f32 / FADE_OUT_LEN as f32;
+                let w = 0.5 + 0.5 * (std::f32::consts::PI * t).cos();
+                self.last_sample = self.fade_anchor * w;
             }
-            Some(self.last_sample * vol)
+            Some(super::soft_clip(self.last_sample * vol))
         }
     }
 }
@@ -459,7 +521,9 @@ impl super::MixingPlayback for RodioMixingPlayback {
 
     fn stop(&mut self) -> Result<()> {
         self.running.store(false, Ordering::Relaxed);
-        self._device_sink = None;
+        if let Some(mut sink) = self._device_sink.take() {
+            sink.log_on_drop(false);
+        }
         if let Ok(mut bufs) = self.buffers.lock() {
             bufs.values_mut().for_each(VecDeque::clear);
         }
@@ -530,22 +594,23 @@ mod tests {
             assert!((s - 0.5).abs() < 0.01, "expected ~0.5, got {s}");
         }
 
-        // Next samples are underrun: should NOT jump to 0.0 but decay
-        // smoothly from the last sample.
+        // First underrun sample: cosine fade-out at t=1/960 starts
+        // essentially at the anchor amplitude (~0.5), NOT a hard 0.
         let first_underrun = src.next().unwrap();
         assert!(
-            first_underrun.abs() > 0.3,
-            "first underrun sample should decay from ~0.5, got {first_underrun}"
+            first_underrun.abs() > 0.4,
+            "first underrun sample should still be near anchor 0.5, got {first_underrun}"
         );
 
-        // After many underrun samples, should settle near zero.
-        for _ in 0..5000 {
+        // After the full fade-out length (960 samples = 20 ms),
+        // output should be silence.
+        for _ in 0..960 {
             let _ = src.next();
         }
-        let late_underrun = src.next().unwrap();
+        let after_fade = src.next().unwrap();
         assert!(
-            late_underrun.abs() < 0.01,
-            "late underrun should be near zero, got {late_underrun}"
+            after_fade.abs() < 1e-3,
+            "after fade-out should be silence, got {after_fade}"
         );
     }
 
@@ -585,24 +650,277 @@ mod tests {
             }
         }
 
+        // Drain remaining cooldown - the source continues decay output
+        // until the next refill attempt at the chunk boundary.  Each
+        // of these samples also bumps `underrun_samples`, deepening
+        // the perceived underrun for the upcoming ramp.
+        let remaining = src.underrun_cooldown;
+        for _ in 0..remaining {
+            let _ = src.next();
+        }
+        let expected_ramp = src.underrun_samples.clamp(48, 480);
+
         // First samples after resume should ramp from decayed last_sample
         // toward -0.3, NOT jump directly to -0.3.
         let resume_sample = src.next().unwrap();
-        // The ramp blends last_sample (decayed ~0.49) toward -0.3.
-        // First ramp sample should be closer to last_sample than to -0.3.
+        // The cosine fade at t=1/ramp_len starts essentially at last_sample,
+        // so the first ramp output should be far closer to ~0.49 than to -0.3.
         assert!(
             resume_sample > -0.2,
             "resume should ramp, not jump to -0.3; got {resume_sample}"
         );
 
         // After the full ramp completes, samples should be ~-0.3.
-        for _ in 0..50 {
+        // Drain enough samples to be safely past the ramp end.
+        for _ in 0..expected_ramp {
             let _ = src.next();
         }
         let settled = src.next().unwrap();
         assert!(
             (settled - (-0.3)).abs() < 0.05,
-            "after ramp should settle to -0.3, got {settled}"
+            "after ramp ({expected_ramp} samples) should settle to -0.3, got {settled}"
+        );
+    }
+
+    #[test]
+    fn brief_underrun_does_not_trigger_reprime() {
+        let buffers: SpeakerBuffers = Arc::new(Mutex::new(HashMap::new()));
+        let svols: SpeakerVolumes = Arc::new(Mutex::new(HashMap::new()));
+
+        let total_samples = PRE_BUFFER_SAMPLES + MIX_CHUNK_SIZE;
+        {
+            let mut bufs = buffers.lock().unwrap();
+            let buf = bufs.entry(1).or_default();
+            for _ in 0..total_samples {
+                buf.push_back(0.5);
+            }
+        }
+
+        let mut src = make_source(buffers.clone(), svols);
+
+        for _ in 0..total_samples {
+            let _ = src.next();
+        }
+        assert!(src.primed, "should be primed after initial playback");
+
+        // Drain one full chunk's worth of underrun (MIX_CHUNK_SIZE samples).
+        // With the 5 ms back-off, this counts as
+        // MIX_CHUNK_SIZE / UNDERRUN_BACKOFF_SAMPLES empty refills.
+        for _ in 0..MIX_CHUNK_SIZE {
+            let _ = src.next();
+        }
+
+        let expected_empty = (MIX_CHUNK_SIZE / UNDERRUN_BACKOFF_SAMPLES) as u32;
+        assert!(src.primed, "should still be primed after a single-chunk underrun");
+        assert_eq!(
+            src.consecutive_empty, expected_empty,
+            "one chunk of underrun should count as {expected_empty} empty refills, not {}", src.consecutive_empty
+        );
+        assert_eq!(src.diag.reprime_count, 0, "no repriming should have occurred");
+        assert!(
+            expected_empty < REPRIME_AFTER,
+            "REPRIME_AFTER ({REPRIME_AFTER}) must be larger than a single-chunk underrun ({expected_empty})"
+        );
+    }
+
+    #[test]
+    fn speech_onset_after_long_silence_uses_long_fade_in() {
+        // Regression: when audio starts after the source has been
+        // silent for a long time (typical "user starts talking"), the
+        // fade-in must be long enough that the onset is not perceived
+        // as a click/pop.  A 1 ms ramp from 0.0 to ~0.5 produces an
+        // audible transient at ~500 Hz; we want at least ~10 ms.
+        let buffers: SpeakerBuffers = Arc::new(Mutex::new(HashMap::new()));
+        let svols: SpeakerVolumes = Arc::new(Mutex::new(HashMap::new()));
+
+        let mut src = make_source(buffers.clone(), svols);
+
+        // Pull enough samples to be deeply in underrun (simulate
+        // ~1 second of silence before any audio arrives).
+        for _ in 0..48_000 {
+            let _ = src.next();
+        }
+        assert!(src.in_underrun, "should be in underrun after long silence");
+        assert!(
+            src.underrun_samples > 1_000,
+            "underrun_samples should accumulate during long silence, got {}",
+            src.underrun_samples
+        );
+
+        // Now simulate a speaker beginning to talk: fill the buffer.
+        {
+            let mut bufs = buffers.lock().unwrap();
+            let buf = bufs.entry(1).or_default();
+            for _ in 0..(PRE_BUFFER_SAMPLES + MIX_CHUNK_SIZE) {
+                buf.push_back(0.5);
+            }
+        }
+
+        // Drain pending cooldown so the next call refills the chunk.
+        let cooldown = src.underrun_cooldown;
+        for _ in 0..cooldown {
+            let _ = src.next();
+        }
+
+        // Confirm the ramp will use the long-silence path (>=480 samples).
+        // After the cooldown drain underrun_samples is huge, so the
+        // ramp_len clamps at MAX_RAMP=480.
+        assert!(
+            src.underrun_samples >= 480,
+            "underrun must be deep enough to trigger MAX_RAMP, got {}",
+            src.underrun_samples
+        );
+
+        // The first 48 samples (the OLD ramp_len) must NOT yet have
+        // approached the target amplitude - that was the bug.  With a
+        // 480-sample cosine fade, the first 48 samples (10% of the
+        // ramp) keep the output well below half target.
+        let mut peak_in_first_ms = 0.0_f32;
+        for _ in 0..48 {
+            let s = src.next().unwrap();
+            peak_in_first_ms = peak_in_first_ms.max(s.abs());
+        }
+        assert!(
+            peak_in_first_ms < 0.20,
+            "first 1 ms of fade-in should stay well below target 0.5, got peak {peak_in_first_ms}"
+        );
+
+        // After enough samples to clearly clear the ramp, output must
+        // have reached the target amplitude ~0.5.
+        for _ in 0..MAX_RAMP_GUARD {
+            let _ = src.next();
+        }
+        let settled = src.next().unwrap();
+        assert!(
+            (settled - 0.5).abs() < 0.02,
+            "after fade-in completes, should reach target 0.5, got {settled}"
+        );
+        assert!(!src.in_underrun, "ramp should be complete by now");
+    }
+
+    /// A safety margin larger than `MAX_RAMP` (480 samples) used by
+    /// fade-in tests to drain past the cosine fade.
+    const MAX_RAMP_GUARD: usize = 600;
+
+    #[test]
+    fn end_of_utterance_fades_smoothly_no_step() {
+        // Regression: when a speaker stops mid-word (single-word
+        // utterance), the buffer suddenly empties at a non-zero
+        // amplitude.  Holding that amplitude flat for any duration
+        // creates a DC step in the waveform, audible as a click.
+        // The cosine fade-out must produce a strictly monotonic,
+        // step-free decay from the anchor amplitude to zero.
+        let buffers: SpeakerBuffers = Arc::new(Mutex::new(HashMap::new()));
+        let svols: SpeakerVolumes = Arc::new(Mutex::new(HashMap::new()));
+
+        // Fill with a constant non-zero amplitude (e.g. peak of a
+        // word's vowel formant).
+        let total_samples = PRE_BUFFER_SAMPLES + MIX_CHUNK_SIZE;
+        const ANCHOR: f32 = 0.7;
+        {
+            let mut bufs = buffers.lock().unwrap();
+            let buf = bufs.entry(1).or_default();
+            for _ in 0..total_samples {
+                buf.push_back(ANCHOR);
+            }
+        }
+
+        let mut src = make_source(buffers, svols);
+        for _ in 0..total_samples {
+            let _ = src.next();
+        }
+
+        // Collect the full fade-out window plus a margin.
+        let mut samples = Vec::with_capacity(1100);
+        for _ in 0..1100 {
+            samples.push(src.next().unwrap());
+        }
+
+        // Step 1: the very first underrun sample must NOT be zero
+        // (which would be a hard cliff) and must NOT exceed the
+        // anchor (which would be amplification).
+        assert!(
+            samples[0] > 0.5 && samples[0] <= ANCHOR + 1e-3,
+            "first fade-out sample should start near anchor, got {}", samples[0]
+        );
+
+        // Step 2: monotonically decreasing amplitude (no plateau,
+        // no oscillation) for the full fade window.
+        for i in 1..960 {
+            assert!(
+                samples[i] <= samples[i - 1] + 1e-4,
+                "fade-out must be monotonic; samples[{}]={} > samples[{}]={}",
+                i, samples[i], i - 1, samples[i - 1]
+            );
+        }
+
+        // Step 3: after the fade-out length, output must be at zero
+        // (true silence, not a residual DC offset).
+        for &s in &samples[1000..] {
+            assert!(
+                s.abs() < 1e-4,
+                "after fade-out must be exactly silence, got {s}"
+            );
+        }
+
+        // Step 4: there must be no step larger than ~1.5 % of the
+        // anchor between consecutive samples (smooth derivative).
+        const MAX_STEP: f32 = 0.012;
+        for i in 1..960 {
+            let delta = (samples[i] - samples[i - 1]).abs();
+            assert!(
+                delta < MAX_STEP,
+                "step between samples[{}] and samples[{}] = {} exceeds smoothness budget {}",
+                i - 1, i, delta, MAX_STEP
+            );
+        }
+    }
+
+    #[test]
+    fn brief_underrun_holds_amplitude_then_decays() {
+        // Regression: a 1-2 packet network jitter spike in the middle
+        // of a word must NOT cause a hard step in amplitude (which
+        // sounds like a click/warble).  The cosine fade-out keeps
+        // the first ~5 ms of underrun at >= 85 % of the anchor
+        // amplitude, so brief jitter is barely audible.
+        let buffers: SpeakerBuffers = Arc::new(Mutex::new(HashMap::new()));
+        let svols: SpeakerVolumes = Arc::new(Mutex::new(HashMap::new()));
+
+        let total_samples = PRE_BUFFER_SAMPLES + MIX_CHUNK_SIZE;
+        {
+            let mut bufs = buffers.lock().unwrap();
+            let buf = bufs.entry(1).or_default();
+            for _ in 0..total_samples {
+                buf.push_back(0.5);
+            }
+        }
+
+        let mut src = make_source(buffers.clone(), svols);
+        for _ in 0..total_samples {
+            let _ = src.next();
+        }
+        // Now in steady-state, last_sample = 0.5.
+
+        // 5 ms (240 samples) of underrun: cosine fade at t=240/960=0.25
+        // gives w = 0.5 + 0.5*cos(pi*0.25) ~= 0.854, so the sample at
+        // 240 should be ~0.427.  Throughout the first 5 ms the
+        // amplitude must stay above ~80 % of the anchor.
+        for i in 0..240 {
+            let s = src.next().unwrap();
+            assert!(
+                s >= 0.40,
+                "sample {i} during early fade-out should stay >= 0.40, got {s}"
+            );
+        }
+
+        // After the full 20 ms fade-out, output should be at silence.
+        for _ in 0..2000 {
+            let _ = src.next();
+        }
+        let after_fade = src.next().unwrap();
+        assert!(
+            after_fade.abs() < 1e-3,
+            "after fade-out should be silence, got {after_fade}"
         );
     }
 }

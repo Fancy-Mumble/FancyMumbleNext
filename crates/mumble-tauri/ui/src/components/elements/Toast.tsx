@@ -1,13 +1,11 @@
+import { CheckIcon, CloseIcon, ErrorCircleIcon } from "../../icons";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import CheckIcon from "../../assets/icons/status/check.svg?react";
-import ErrorCircleIcon from "../../assets/icons/status/error-circle.svg?react";
-import CloseIcon from "../../assets/icons/action/close.svg?react";
 import styles from "./Toast.module.css";
 
 export interface ToastData {
   message: string;
-  variant: "success" | "error";
+  variant: "success" | "error" | "info";
   /** Auto-dismiss duration in ms (default 4000). */
   duration?: number;
   /** Show a manual dismiss button (default false). */
@@ -30,12 +28,14 @@ export default function Toast({ message, variant, duration = 4000, dismissible, 
     };
   }, [duration, onDismiss]);
 
-  const icon =
-    variant === "success" ? (
-      <CheckIcon width={16} height={16} strokeWidth={2.5} />
-    ) : (
-      <ErrorCircleIcon width={16} height={16} strokeWidth={2.5} />
-    );
+  let icon;
+  if (variant === "success") {
+    icon = <CheckIcon width={16} height={16} strokeWidth={2.5} />;
+  } else if (variant === "error") {
+    icon = <ErrorCircleIcon width={16} height={16} strokeWidth={2.5} />;
+  } else {
+    icon = <CheckIcon width={16} height={16} strokeWidth={2.5} />;
+  }
 
   return createPortal(
     <div

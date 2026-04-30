@@ -4,7 +4,20 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("rust")
-    id("com.google.gms.google-services")
+}
+
+// Apply the Google Services plugin only if google-services.json is present.
+// This file ships per-project Firebase credentials and is intentionally
+// not checked in. Dev builds without push notifications can proceed
+// without it; release builds that need FCM must provide the file.
+val googleServicesJson = file("google-services.json")
+if (googleServicesJson.exists()) {
+    apply(plugin = "com.google.gms.google-services")
+} else {
+    logger.warn(
+        "google-services.json not found at ${googleServicesJson.absolutePath} - " +
+        "skipping Firebase Cloud Messaging setup (push notifications will be disabled).",
+    )
 }
 
 val tauriProperties = Properties().apply {

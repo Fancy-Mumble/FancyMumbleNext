@@ -1368,6 +1368,7 @@ async fn test_channel_description_blob_request() {
         session_texture: Vec::new(),
         session_comment: Vec::new(),
         channel_description: vec![channel_id],
+        user_id_comment: Vec::new(),
     };
     let output = cmd.execute(&state);
     for msg in &output.tcp_messages {

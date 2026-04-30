@@ -2,10 +2,11 @@
 import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { completeSetup } from "../preferencesStorage";
+import BrandLogo from "../components/elements/BrandLogo";
 import type { UserMode } from "../types";
 import styles from "./WelcomePage.module.css";
 
-export default function WelcomePage({ onComplete }: { onComplete?: () => void }) {
+export default function WelcomePage({ onComplete }: Readonly<{ onComplete?: () => void }>) {
   const navigate = useNavigate();
   const [mode, setMode] = useState<UserMode>("normal");
   const [username, setUsername] = useState("");
@@ -34,7 +35,7 @@ export default function WelcomePage({ onComplete }: { onComplete?: () => void })
       <div className={styles.card}>
         {/* Logo */}
         <div className={styles.logo}>
-          <div className={styles.logoIcon}>M</div>
+          <BrandLogo size={52} className={styles.logoIcon} />
           <h1 className={styles.title}>Welcome</h1>
         </div>
 

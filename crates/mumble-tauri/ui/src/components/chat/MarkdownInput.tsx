@@ -32,7 +32,7 @@ interface Segment {
 }
 
 /** Regex matching URLs (http, https, ftp) in plain text. */
-const URL_RE = /https?:\/\/[^\s<>"'`,;)\]]+|ftp:\/\/[^\s<>"'`,;)\]]+/g;
+const URL_RE = /https?:\/\/[^\s<>"'`,)\]]+|ftp:\/\/[^\s<>"'`,)\]]+/g;
 
 /**
  * Parse raw markdown text into decorated segments.
@@ -249,7 +249,7 @@ export function markdownToHtml(raw: string): string {
   html = html.replace(/~~(.+?)~~/g, "<s>$1</s>");
   // URLs -> clickable links (must run after entity escaping)
   html = html.replace(
-    /(https?:\/\/[^\s<>"'`,;)\]]+|ftp:\/\/[^\s<>"'`,;)\]]+)/g,
+    /(https?:\/\/[^\s<>"'`,)\]]+|ftp:\/\/[^\s<>"'`,)\]]+)/g,
     '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
   );
   // Newlines -> <br> (must come last so inline formatting is applied first)
@@ -286,6 +286,20 @@ interface MarkdownInputProps {
   onPaste?: (e: ClipboardEvent) => void;
   placeholder?: string;
   disabled?: boolean;
+  /** Notified whenever the textarea selection changes. */
+  onSelectionChange?: (start: number, end: number) => void;
+  /** Optional intercept for keystrokes - return true to consume. */
+  onKeyDownCapture?: (e: KeyboardEvent<HTMLTextAreaElement>) => boolean;
+  /** Imperative API ref for parent-driven text edits (autocomplete, etc.). */
+  apiRef?: React.RefObject<MarkdownInputApi | null>;
+}
+
+/** Imperative methods exposed to a parent via `apiRef`. */
+export interface MarkdownInputApi {
+  /** Replace the substring [start, end) with `text` and place caret after it. */
+  replaceRange(start: number, end: number, text: string): void;
+  /** Focus the underlying textarea. */
+  focus(): void;
 }
 
 export default function MarkdownInput({
@@ -295,6 +309,9 @@ export default function MarkdownInput({
   onPaste,
   placeholder,
   disabled,
+  onSelectionChange,
+  onKeyDownCapture,
+  apiRef,
 }: Readonly<MarkdownInputProps>) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -309,8 +326,37 @@ export default function MarkdownInput({
     if (el) {
       setSelStart(el.selectionStart);
       setSelEnd(el.selectionEnd);
+      onSelectionChange?.(el.selectionStart, el.selectionEnd);
     }
-  }, []);
+  }, [onSelectionChange]);
+
+  // Wire the imperative API exposed to the parent.
+  useEffect(() => {
+    if (!apiRef) return;
+    apiRef.current = {
+      replaceRange(start, end, text) {
+        const el = textareaRef.current;
+        if (!el) return;
+        const newVal = value.slice(0, start) + text + value.slice(end);
+        const caret = start + text.length;
+        onChange(newVal);
+        requestAnimationFrame(() => {
+          el.focus();
+          el.selectionStart = caret;
+          el.selectionEnd = caret;
+          setSelStart(caret);
+          setSelEnd(caret);
+          onSelectionChange?.(caret, caret);
+        });
+      },
+      focus() {
+        textareaRef.current?.focus();
+      },
+    };
+    return () => {
+      if (apiRef.current) apiRef.current = null;
+    };
+  }, [apiRef, value, onChange, onSelectionChange]);
 
   // Sync scroll between textarea and overlay.
   const syncScroll = useCallback(() => {
@@ -359,6 +405,11 @@ export default function MarkdownInput({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // Allow the parent to intercept keys (e.g. mention popup navigation).
+      if (onKeyDownCapture?.(e)) {
+        return;
+      }
+
       // Submit on Enter (without Shift).
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
@@ -384,7 +435,7 @@ export default function MarkdownInput({
         }
       }
     },
-    [onSubmit, wrapSelection],
+    [onSubmit, wrapSelection, onKeyDownCapture],
   );
 
   const segments = parseMarkdown(value);
@@ -415,6 +466,7 @@ export default function MarkdownInput({
           onChange(e.target.value);
           setSelStart(e.target.selectionStart);
           setSelEnd(e.target.selectionEnd);
+          onSelectionChange?.(e.target.selectionStart, e.target.selectionEnd);
         }}
         onKeyDown={handleKeyDown}
         onPaste={onPaste}

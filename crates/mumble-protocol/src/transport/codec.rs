@@ -116,6 +116,12 @@ pub(crate) fn serialize_control_message(msg: &ControlMessage) -> Result<(u16, Ve
         FancySubscribePush(m) => m.encode_to_vec(),
         FancyReadReceipt(m) => m.encode_to_vec(),
         FancyReadReceiptDeliver(m) => m.encode_to_vec(),
+        PchatPin(m) => m.encode_to_vec(),
+        PchatPinDeliver(m) => m.encode_to_vec(),
+        PchatPinFetchResponse(m) => m.encode_to_vec(),
+        FancyTypingIndicator(m) => m.encode_to_vec(),
+        FancyLinkPreviewRequest(m) => m.encode_to_vec(),
+        FancyLinkPreviewResponse(m) => m.encode_to_vec(),
         UdpTunnel(data) => data.clone(),
     };
 
@@ -182,6 +188,12 @@ pub(crate) fn deserialize_control_message(type_id: u16, payload: &[u8]) -> Resul
         FancySubscribePush => ControlMessage::FancySubscribePush(mumble_tcp::FancySubscribePush::decode(payload)?),
         FancyReadReceipt => ControlMessage::FancyReadReceipt(mumble_tcp::FancyReadReceipt::decode(payload)?),
         FancyReadReceiptDeliver => ControlMessage::FancyReadReceiptDeliver(mumble_tcp::FancyReadReceiptDeliver::decode(payload)?),
+        PchatPin => ControlMessage::PchatPin(mumble_tcp::PchatPin::decode(payload)?),
+        PchatPinDeliver => ControlMessage::PchatPinDeliver(mumble_tcp::PchatPinDeliver::decode(payload)?),
+        PchatPinFetchResponse => ControlMessage::PchatPinFetchResponse(mumble_tcp::PchatPinFetchResponse::decode(payload)?),
+        FancyTypingIndicator => ControlMessage::FancyTypingIndicator(mumble_tcp::FancyTypingIndicator::decode(payload)?),
+        FancyLinkPreviewRequest => ControlMessage::FancyLinkPreviewRequest(mumble_tcp::FancyLinkPreviewRequest::decode(payload)?),
+        FancyLinkPreviewResponse => ControlMessage::FancyLinkPreviewResponse(mumble_tcp::FancyLinkPreviewResponse::decode(payload)?),
     };
     Ok(msg)
 }
@@ -864,6 +876,30 @@ mod tests {
                 assert_eq!(d.distribution.as_deref(), Some(b"skdm-bytes-here".as_ref()));
             }
             other => panic!("expected PchatSenderKeyDistribution, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_fancy_typing_indicator() -> Result<()> {
+        let msg = ControlMessage::FancyTypingIndicator(mumble_tcp::FancyTypingIndicator {
+            actor: Some(7),
+            channel_id: Some(42),
+        });
+        let encoded = encode(&msg)?;
+
+        let type_id = u16::from_be_bytes([encoded[0], encoded[1]]);
+        assert_eq!(type_id, 131, "FancyTypingIndicator must be wire type 131");
+
+        let mut buf = BytesMut::from(&encoded[..]);
+        let decoded = decode(&mut buf)?.unwrap();
+
+        match decoded {
+            ControlMessage::FancyTypingIndicator(m) => {
+                assert_eq!(m.actor, Some(7));
+                assert_eq!(m.channel_id, Some(42));
+            }
+            other => panic!("expected FancyTypingIndicator, got {other:?}"),
         }
         Ok(())
     }

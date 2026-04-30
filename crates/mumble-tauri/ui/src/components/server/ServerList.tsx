@@ -1,9 +1,7 @@
-﻿import { useMemo, useRef, useCallback, useState } from "react";
+import { PauseIcon, SearchIcon, UserFilledIcon } from "../../icons";
+import { useMemo, useRef, useCallback, useState } from "react";
 import type { SavedServer, ServerPingResult } from "../../types";
 import { isMobile } from "../../utils/platform";
-import UserFilledIcon from "../../assets/icons/user/user-filled.svg?react";
-import PauseIcon from "../../assets/icons/status/pause.svg?react";
-import SearchIcon from "../../assets/icons/action/search.svg?react";
 import SwipeableCard from "../elements/SwipeableCard";
 import styles from "./ServerList.module.css";
 
@@ -23,6 +21,9 @@ interface Props {
   disabled?: boolean;
   /** ID of the server currently being connected to (shows pause button). */
   connectingId?: string | null;
+  /** Stage label rendered as the meta line on the connecting card.  When
+   *  null/undefined falls back to the static "Connecting..." string. */
+  connectingMessage?: string | null;
 }
 
 /** Quality tier based on latency. */
@@ -159,6 +160,7 @@ export default function ServerList({
   onEdit,
   disabled,
   connectingId,
+  connectingMessage,
 }: Readonly<Props>) {
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -266,7 +268,7 @@ export default function ServerList({
                 <div className={styles.info}>
                   <div className={styles.label}>{s.label || s.host}</div>
                   <div className={styles.meta}>
-                    {isThisConnecting ? "Connecting..." : s.username}
+                    {isThisConnecting ? (connectingMessage ?? "Connecting...") : s.username}
                   </div>
                 </div>
 

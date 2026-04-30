@@ -39,11 +39,14 @@ mod send_pchat_key_challenge_response;
 mod send_pchat_key_holder_report;
 mod send_pchat_key_holders_query;
 mod send_pchat_reaction;
+mod send_pchat_pin;
 mod send_pchat_sender_key_distribution;
 mod send_fancy_push_register;
 mod send_fancy_push_update;
 mod send_fancy_subscribe_push;
 mod send_read_receipt;
+mod send_typing_indicator;
+mod request_link_preview;
 mod set_channel_state;
 mod set_comment;
 mod set_priority_speaker;
@@ -93,11 +96,14 @@ pub use send_pchat_key_challenge_response::SendPchatKeyChallengeResponse;
 pub use send_pchat_key_holder_report::SendPchatKeyHolderReport;
 pub use send_pchat_key_holders_query::SendPchatKeyHoldersQuery;
 pub use send_pchat_reaction::SendPchatReaction;
+pub use send_pchat_pin::SendPchatPin;
 pub use send_pchat_sender_key_distribution::SendPchatSenderKeyDistribution;
 pub use send_fancy_push_register::SendFancyPushRegister;
 pub use send_fancy_push_update::SendFancyPushUpdate;
 pub use send_fancy_subscribe_push::SendFancySubscribePush;
 pub use send_read_receipt::SendReadReceipt;
+pub use send_typing_indicator::SendTypingIndicator;
+pub use request_link_preview::RequestLinkPreview;
 pub use set_channel_state::SetChannelState;
 pub use set_comment::SetComment;
 pub use set_priority_speaker::SetPrioritySpeaker;
@@ -539,6 +545,21 @@ mod tests {
                 assert!(payload.contains("abc-123"));
             }
             other => panic!("expected PluginDataTransmission, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn send_typing_indicator_produces_correct_message() {
+        let cmd = SendTypingIndicator { channel_id: 42 };
+        let output = cmd.execute(&ServerState::new());
+        assert_eq!(output.tcp_messages.len(), 1);
+        assert!(output.udp_messages.is_empty());
+        match &output.tcp_messages[0] {
+            ControlMessage::FancyTypingIndicator(m) => {
+                assert_eq!(m.channel_id, Some(42));
+                assert_eq!(m.actor, None);
+            }
+            other => panic!("expected FancyTypingIndicator, got {other:?}"),
         }
     }
 }

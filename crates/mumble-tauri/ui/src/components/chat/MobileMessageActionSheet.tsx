@@ -1,3 +1,4 @@
+import { ArrowUpRightIcon, CheckboxIcon, CopyIcon, EditIcon, EmojiPlusIcon, QuoteIcon, TrashIcon } from "../../icons";
 import { useCallback, useMemo } from "react";
 import type { ChatMessage } from "../../types";
 import type { ReactionSummary } from "./reactionStore";
@@ -5,12 +6,6 @@ import { getReadersForMessage } from "./readReceiptStore";
 import { useAppStore } from "../../store";
 import { QUICK_REACTIONS } from "../elements/MessageActionBar";
 import MobileBottomSheet from "../elements/MobileBottomSheet";
-import EmojiPlusIcon from "../../assets/icons/communication/emoji-plus.svg?react";
-import QuoteIcon from "../../assets/icons/communication/quote.svg?react";
-import CopyIcon from "../../assets/icons/action/copy.svg?react";
-import EditIcon from "../../assets/icons/action/edit.svg?react";
-import TrashIcon from "../../assets/icons/action/trash.svg?react";
-import CheckboxIcon from "../../assets/icons/status/checkbox.svg?react";
 import styles from "./MobileMessageActionSheet.module.css";
 
 const MAX_PREVIEW_LEN = 200;
@@ -42,6 +37,12 @@ interface MobileMessageActionSheetProps {
   readonly onCite?: (msg: ChatMessage) => void;
   readonly onCopyText?: (msg: ChatMessage) => void;
   readonly onEdit?: (msg: ChatMessage) => void;
+  /** Pin or unpin a message. */
+  readonly onPin?: (msg: ChatMessage) => void;
+  /** Pop the given image source out into a frameless, always-on-top window. */
+  readonly onPopOutImage?: (msg: ChatMessage, src: string) => void;
+  /** Image source to pop out (when the message contains at least one image). */
+  readonly popOutImageSrc?: string | null;
   /** Existing reactions on this message (for showing reactor names on mobile). */
   readonly reactions?: readonly ReactionSummary[];
   /** Ordered message IDs for read-receipt watermark comparison. */
@@ -63,6 +64,9 @@ export default function MobileMessageActionSheet({
   onCite,
   onCopyText,
   onEdit,
+  onPin,
+  onPopOutImage,
+  popOutImageSrc,
   reactions,
   allMessageIds,
   channelId,
@@ -106,8 +110,8 @@ export default function MobileMessageActionSheet({
     if (!msgId || !message.is_own || channelId == null || !allMessageIds) return [];
     const readers = getReadersForMessage(channelId, msgId, allMessageIds);
     return readers
-      .filter((r) => r.cert_hash !== ownHash)
-      .map((r) => ({ name: r.name, avatarUrl: avatarByHash?.get(r.cert_hash) }));
+      .filter((r) => r.name && (!ownHash || r.cert_hash !== ownHash))
+      .map((r) => ({ certHash: r.cert_hash, name: r.name, isOnline: r.is_online, avatarUrl: avatarByHash?.get(r.cert_hash) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message, channelId, allMessageIds, avatarByHash, ownHash, readReceiptVersion]);
 
@@ -179,7 +183,7 @@ export default function MobileMessageActionSheet({
           <div className={styles.readByLabel}>Read by</div>
           {readerEntries.length > 0 ? (
             readerEntries.map((entry) => (
-              <div key={entry.name} className={styles.readByRow}>
+              <div key={entry.certHash} className={`${styles.readByRow} ${entry.isOnline ? "" : styles.offlineReader}`}>
                 {entry.avatarUrl ? (
                   <img src={entry.avatarUrl} alt="" className={styles.readByAvatar} />
                 ) : (
@@ -220,6 +224,20 @@ export default function MobileMessageActionSheet({
               <EditIcon width={16} height={16} />
             </span>
             Edit message
+          </button>
+        )}
+        {onPin && message.message_id && (
+          <button type="button" className={styles.actionItem} onClick={act((m) => onPin(m))}>
+            <span className={styles.actionIcon}>📌</span>
+            {message.pinned ? "Unpin message" : "Pin message"}
+          </button>
+        )}
+        {onPopOutImage && popOutImageSrc && (
+          <button type="button" className={styles.actionItem} onClick={act((m) => onPopOutImage(m, popOutImageSrc))}>
+            <span className={styles.actionIcon}>
+              <ArrowUpRightIcon width={16} height={16} />
+            </span>
+            Pop out image
           </button>
         )}
         {canDelete && (

@@ -1,10 +1,11 @@
 ﻿//! UI value types, event payloads, and configuration structs serialised
 //! to the React frontend.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
-use serde::{Serialize, Deserialize, Serializer};
+use serde::{Serialize, Serializer};
 
+use mumble_protocol::audio::filter::denoiser::NoiseSuppressionAlgorithm;
 use mumble_protocol::state::PchatProtocol;
 
 // --- Serialization helpers ----------------------------------------
@@ -20,6 +21,27 @@ fn serialize_pchat_protocol<S: Serializer>(protocol: &Option<PchatProtocol>, s: 
     }
 }
 
+/// Emit only the byte length of an `Option<Vec<u8>>` (used for `texture`)
+/// so large avatar blobs do not bloat the IPC payload.  The frontend
+/// fetches the actual bytes on demand via `get_user_texture`.
+fn serialize_blob_len_owned<S: Serializer>(bytes: &Option<Vec<u8>>, s: S) -> Result<S::Ok, S::Error> {
+    match bytes {
+        Some(b) if !b.is_empty() => s.serialize_some(&(b.len() as u32)),
+        _ => s.serialize_none(),
+    }
+}
+
+/// Emit only the byte length of a `String` (used for channel
+/// `description`).  The frontend fetches the actual text on demand via
+/// `get_channel_description`.
+fn serialize_string_len_owned<S: Serializer>(text: &str, s: S) -> Result<S::Ok, S::Error> {
+    if text.is_empty() {
+        s.serialize_none()
+    } else {
+        s.serialize_some(&(text.len() as u32))
+    }
+}
+
 // --- UI value types (serializable to the frontend) ----------------
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -27,6 +49,11 @@ pub struct ChannelEntry {
     pub id: u32,
     pub parent_id: Option<u32>,
     pub name: String,
+    /// Channel description blob.  Serialised to the frontend as
+    /// `description_size: u32 | null` (byte length only) to keep
+    /// `get_channels` payloads small; fetched lazily via
+    /// `get_channel_description`.
+    #[serde(rename = "description_size", serialize_with = "serialize_string_len_owned")]
     pub description: String,
     /// SHA-256 hash of the description blob.  Internal tracking only;
     /// not serialised to the frontend.
@@ -64,6 +91,11 @@ pub struct UserEntry {
     /// Registered user ID. `None` means the user is not registered.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<u32>,
+    /// Avatar blob.  Serialised to the frontend as
+    /// `texture_size: u32 | null` (byte length only) to keep
+    /// `get_users` payloads small; fetched lazily via
+    /// `get_user_texture`.
+    #[serde(rename = "texture_size", serialize_with = "serialize_blob_len_owned")]
     pub texture: Option<Vec<u8>>,
     pub comment: Option<String>,
     /// Server-side admin mute.
@@ -131,10 +163,6 @@ pub struct ChatMessage {
     /// The value is the *other* user's session ID (the conversation partner).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dm_session: Option<u32>,
-    /// When set, this message belongs to a group chat.
-    /// The value is the group's unique ID.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_id: Option<String>,
     /// Unique message identifier (Fancy Mumble extension).
     /// `None` when the server/sender does not support extensions.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -150,6 +178,15 @@ pub struct ChatMessage {
     /// When set, the message was edited at this Unix-epoch-millisecond timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edited_at: Option<u64>,
+    /// Whether this message is pinned.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
+    /// Certificate hash of the user who pinned this message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned_by: Option<String>,
+    /// Unix epoch milliseconds when the message was pinned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned_at: Option<u64>,
 }
 
 impl ChatMessage {
@@ -202,6 +239,12 @@ pub struct ServerConfig {
     pub max_image_message_length: u32,
     pub allow_html: bool,
     pub webrtc_sfu_available: bool,
+    /// Optional override for the Fancy Mumble REST API base URL,
+    /// advertised by the server in `ServerConfig::fancy_rest_api_url`.
+    /// `None` (or empty) means clients should fall back to whatever the
+    /// individual plugin (e.g. file-server) reports in its plugin-data
+    /// config. Useful when the HTTP interface is behind a reverse proxy.
+    pub fancy_rest_api_url: Option<String>,
 }
 
 impl Default for ServerConfig {
@@ -212,6 +255,7 @@ impl Default for ServerConfig {
             max_image_message_length: 131072,
             allow_html: true,
             webrtc_sfu_available: false,
+            fancy_rest_api_url: None,
         }
     }
 }
@@ -259,7 +303,7 @@ pub struct ServerInfo {
     pub opus: bool,
 }
 
-// --- Group chat ----------------------------------------------------
+// --- Debug stats ---------------------------------------------------
 
 /// Debug statistics for the developer info panel.
 #[derive(Debug, Clone, Serialize)]
@@ -268,9 +312,7 @@ pub struct DebugStats {
     pub channel_message_count: usize,
     /// Number of DM messages in memory.
     pub dm_message_count: usize,
-    /// Number of group messages in memory.
-    pub group_message_count: usize,
-    /// Total messages (channel + DM + group).
+    /// Total messages (channel + DM).
     pub total_message_count: usize,
     /// Number of messages currently offloaded to disk.
     pub offloaded_count: usize,
@@ -278,8 +320,6 @@ pub struct DebugStats {
     pub channel_count: usize,
     /// Number of users connected to the server.
     pub user_count: usize,
-    /// Number of group chats active.
-    pub group_count: usize,
     /// Internal connection epoch counter.
     pub connection_epoch: u64,
     /// Current voice state as a string.
@@ -288,27 +328,12 @@ pub struct DebugStats {
     pub uptime_seconds: u64,
 }
 
-/// A multi-member group chat, identified by a UUID.
-///
-/// Groups are ephemeral (lifetime of the connection).  Membership is
-/// propagated via `PluginDataTransmission` with `data_id = "fancy-group"`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GroupChat {
-    /// Unique group identifier (UUID v4).
-    pub id: String,
-    /// Human-readable group name chosen by the creator.
-    pub name: String,
-    /// Session IDs of all members (including the creator).
-    pub members: Vec<u32>,
-    /// Session ID of the user who created the group.
-    pub creator: u32,
-}
-
 // --- Event payloads emitted to the frontend -----------------------
 
 #[derive(Clone, Serialize)]
 pub(crate) struct NewMessagePayload {
     pub channel_id: u32,
+    pub sender_session: Option<u32>,
 }
 
 /// Emitted when a new direct message arrives.
@@ -336,26 +361,6 @@ pub(crate) struct UnreadPayload {
 pub(crate) struct DmUnreadPayload {
     /// `session_id` -> unread DM count
     pub unreads: HashMap<u32, u32>,
-}
-
-/// Emitted when a new group message arrives.
-#[derive(Clone, Serialize)]
-pub(crate) struct NewGroupMessagePayload {
-    /// The group's unique ID.
-    pub group_id: String,
-}
-
-/// Emitted when group unread counts change.
-#[derive(Clone, Serialize)]
-pub(crate) struct GroupUnreadPayload {
-    /// `group_id` -> unread count.
-    pub unreads: HashMap<String, u32>,
-}
-
-/// Emitted when a group chat is created or updated.
-#[derive(Clone, Serialize)]
-pub(crate) struct GroupCreatedPayload {
-    pub group: GroupChat,
 }
 
 #[derive(Clone, Serialize)]
@@ -431,6 +436,33 @@ pub(crate) struct StoredReactionPayload {
 pub(crate) struct ReactionFetchResponsePayload {
     pub channel_id: u32,
     pub reactions: Vec<StoredReactionPayload>,
+}
+
+/// Payload emitted when a `PchatPinDeliver` is received (pin state change).
+#[derive(Clone, Serialize)]
+pub(crate) struct PinDeliverPayload {
+    pub channel_id: u32,
+    pub message_id: String,
+    pub pinned: bool,
+    pub pinner_hash: String,
+    pub pinner_name: String,
+    pub timestamp: u64,
+}
+
+/// Payload emitted when a `PchatPinFetchResponse` is received (batch of pins).
+#[derive(Clone, Serialize)]
+pub(crate) struct StoredPinPayload {
+    pub message_id: String,
+    pub pinner_hash: String,
+    pub pinner_name: String,
+    pub timestamp: u64,
+}
+
+/// Payload emitted when a `PchatPinFetchResponse` is received.
+#[derive(Clone, Serialize)]
+pub(crate) struct PinFetchResponsePayload {
+    pub channel_id: u32,
+    pub pins: Vec<StoredPinPayload>,
 }
 
 /// A pending key-share request waiting for user approval.
@@ -594,6 +626,22 @@ pub struct RegisteredUserPayload {
     pub last_seen: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_channel: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub texture: Option<Vec<u8>>,
+    /// Full comment when len < 128 (included inline by the server).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    /// SHA-1 hash of the comment when len >= 128. Presence means a comment
+    /// exists but the full text must be requested via `request_user_comment`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment_hash: Option<Vec<u8>>,
+}
+
+/// A single registered-user comment delivered via `RequestBlob.user_id_comment`.
+#[derive(Debug, Clone, Serialize)]
+pub struct UserCommentPayload {
+    pub user_id: u32,
+    pub comment: String,
 }
 
 /// A registered user update sent from the frontend.
@@ -637,6 +685,15 @@ pub struct AclGroupPayload {
     pub add: Vec<u32>,
     pub remove: Vec<u32>,
     pub inherited_members: Vec<u32>,
+    /// `FancyMumble` role customization fields. Optional/default to keep older servers working.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style_preset: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, String>,
 }
 
 /// A single ACL rule within a channel's ACL list.
@@ -697,6 +754,15 @@ pub struct AclGroupInput {
     pub remove: Vec<u32>,
     #[serde(default)]
     pub inherited_members: Vec<u32>,
+    /// `FancyMumble` role customization fields.
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub icon: Option<Vec<u8>>,
+    #[serde(default)]
+    pub style_preset: Option<String>,
+    #[serde(default)]
+    pub metadata: HashMap<String, String>,
 }
 
 /// An ACL entry from the frontend for ACL updates.
@@ -739,7 +805,6 @@ pub enum SearchFilter {
 pub enum SearchCategory {
     Channel,
     User,
-    Group,
     Message,
 }
 
@@ -750,7 +815,7 @@ pub struct SearchResult {
     pub category: SearchCategory,
     /// Fuzzy match score (lower = better match, 0 = exact).
     pub score: u32,
-    /// Primary display text (channel name, username, group name, or message snippet).
+    /// Primary display text (channel name, username, or message snippet).
     pub title: String,
     /// Secondary context (e.g. channel name for a user, sender for a message).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -758,7 +823,7 @@ pub struct SearchResult {
     /// Numeric ID for channels (`channel_id`) or users (session).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<u32>,
-    /// String ID for groups (group UUID).
+    /// Optional opaque string ID for results that are not addressed by `u32`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub string_id: Option<String>,
 }
@@ -773,9 +838,6 @@ pub struct PhotoEntry {
     /// Channel ID when the photo is from a channel message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_id: Option<u32>,
-    /// Group ID when the photo is from a group message.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_id: Option<String>,
     /// DM session when the photo is from a direct message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dm_session: Option<u32>,
@@ -828,6 +890,15 @@ pub struct AudioSettings {
     /// Whether the noise gate (noise suppression) is enabled.
     #[serde(default = "AudioSettings::default_noise_suppression")]
     pub noise_suppression: bool,
+    /// Selected noise-suppression algorithm.  Only takes effect when
+    /// `noise_suppression` is true.
+    #[serde(default)]
+    pub denoiser_algorithm: NoiseSuppressionAlgorithm,
+    /// Per-algorithm tunable knobs (advanced/expert mode only).
+    /// Keyed by `DenoiserParamSpec::id`; missing entries fall back to
+    /// each spec's default.
+    #[serde(default)]
+    pub denoiser_params: BTreeMap<String, f32>,
     /// Selected output device name (None = system default).
     #[serde(default)]
     pub selected_output_device: Option<String>,
@@ -893,6 +964,8 @@ impl AudioSettings {
             || self.bitrate_bps != other.bitrate_bps
             || self.frame_size_ms != other.frame_size_ms
             || self.noise_suppression != other.noise_suppression
+            || self.denoiser_algorithm != other.denoiser_algorithm
+            || self.denoiser_params != other.denoiser_params
             || self.auto_input_sensitivity != other.auto_input_sensitivity
     }
 
@@ -916,6 +989,8 @@ impl Default for AudioSettings {
             bitrate_bps: 72_000,
             frame_size_ms: 20,
             noise_suppression: true,
+            denoiser_algorithm: NoiseSuppressionAlgorithm::default(),
+            denoiser_params: BTreeMap::new(),
             selected_output_device: None,
             input_volume: 1.0,
             output_volume: 1.0,

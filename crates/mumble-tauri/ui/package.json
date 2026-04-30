@@ -1,7 +1,7 @@
 {
   "name": "mumble-tauri-ui",
   "private": true,
-  "version": "0.2.14",
+  "version": "0.2.15",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -18,6 +18,7 @@
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-opener": "^2.5.3",
     "@tauri-apps/plugin-store": "^2.4.2",
+    "@tauri-apps/plugin-updater": "^2.9.0",
     "@tiptap/extension-color": "^3.20.1",
     "@tiptap/extension-image": "^3.20.1",
     "@tiptap/extension-placeholder": "^3.20.1",
@@ -26,8 +27,11 @@
     "@tiptap/react": "^3.20.1",
     "@tiptap/starter-kit": "^3.20.1",
     "dompurify": "^3.3.3",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^1.11.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.0.0",
     "zustand": "^5.0.0"
   },
@@ -35,6 +39,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/dompurify": "^3.0.5",
+    "@types/leaflet": "^1.9.21",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.0.0",
@@ -44,7 +49,6 @@
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.58.1",
     "vite": "^8.0.0",
-    "vite-plugin-svgr": "^4.5.0",
     "vitest": "^4.1.0"
   }
 }

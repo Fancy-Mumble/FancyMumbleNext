@@ -1,9 +1,17 @@
 ﻿import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { AudioDevice, AudioSettings, CryptoStats, PacketStats } from "../../types";
+import type {
+  AudioDevice,
+  AudioSettings,
+  CryptoStats,
+  NoiseSuppressionAlgorithm,
+  PacketStats,
+} from "../../types";
+import { NOISE_SUPPRESSION_LABELS } from "../../types";
 import { isDesktopPlatform } from "../../utils/platform";
 import { Toggle, SliderField, ShortcutRecorder } from "./SharedControls";
+import { DenoiserAdvancedControls } from "./DenoiserAdvancedControls";
 import styles from "./SettingsPage.module.css";
 
 const FRAME_SIZE_OPTIONS = [
@@ -139,6 +147,17 @@ export function AudioPanel({
   // A state counter bumped at display-rate to trigger VuMeter updates.
   const [ampTick, setAmpTick] = useState(0);
   const rafHandle = useRef(0);
+
+  const [availableAlgorithms, setAvailableAlgorithms] = useState<
+    NoiseSuppressionAlgorithm[]
+  >(["none", "omlsa_imcra", "spectral_subtraction"]);
+  useEffect(() => {
+    invoke<NoiseSuppressionAlgorithm[]>("get_available_denoiser_algorithms")
+      .then((algos) => {
+        if (Array.isArray(algos)) setAvailableAlgorithms(algos);
+      })
+      .catch(() => { /* keep the conservative default */ });
+  }, []);
 
   const toggleMicTest = useCallback(async () => {
     if (micTestingRef.current) {
@@ -328,6 +347,46 @@ export function AudioPanel({
       {!settings.push_to_talk && settings.noise_suppression && (
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>Voice Activation</h3>
+
+          <div className={styles.field}>
+            <label className={styles.fieldLabel} htmlFor="denoiser-algorithm">
+              Noise suppression algorithm
+            </label>
+            <select
+              id="denoiser-algorithm"
+              className={styles.select}
+              value={settings.denoiser_algorithm}
+              onChange={(e) =>
+                onChange({
+                  denoiser_algorithm: e.target.value as NoiseSuppressionAlgorithm,
+                })
+              }
+            >
+              {(Object.keys(NOISE_SUPPRESSION_LABELS) as NoiseSuppressionAlgorithm[])
+                .filter((algo) => availableAlgorithms.includes(algo))
+                .map((algo) => (
+                  <option key={algo} value={algo}>
+                    {NOISE_SUPPRESSION_LABELS[algo]}
+                  </option>
+                ),
+              )}
+            </select>
+            <p className={styles.fieldHint}>
+              RNNoise (default) is a recurrent neural network trained on hours
+              of noisy speech and works well across most environments.  OMLSA
+              + IMCRA (Cohen 2001/2003) is a modern classical estimator with
+              very smooth output.  Spectral subtraction is the lightest
+              option, ideal for steady backgrounds.  Switch live to compare.
+            </p>
+          </div>
+
+          {isExpert && (
+            <DenoiserAdvancedControls
+              algorithm={settings.denoiser_algorithm}
+              settings={settings}
+              onChange={onChange}
+            />
+          )}
 
           <div className={styles.toggleRow}>
             <div className={styles.toggleInfo}>
