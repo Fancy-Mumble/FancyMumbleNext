@@ -1584,17 +1584,18 @@ pub struct FancyLinkPreviewResponse {
 /// Nested message and enum types in `FancyLinkPreviewResponse`.
 pub mod fancy_link_preview_response {
     /// Link embed data with media, provider, and author info.
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Embed {
         #[prost(string, optional, tag = "1")]
         pub url: ::core::option::Option<::prost::alloc::string::String>,
-        /// "video", "image", "gifv", "article", "link", "rich"
+        /// "video", "image", "gifv", "article", "link", "rich", "audio", "file"
         #[prost(string, optional, tag = "2")]
         pub r#type: ::core::option::Option<::prost::alloc::string::String>,
         #[prost(string, optional, tag = "3")]
         pub title: ::core::option::Option<::prost::alloc::string::String>,
         #[prost(string, optional, tag = "4")]
         pub description: ::core::option::Option<::prost::alloc::string::String>,
+        /// Dominant theme colour, packed as 0xRRGGBB.
         #[prost(int32, optional, tag = "5")]
         pub color: ::core::option::Option<i32>,
         #[prost(string, optional, tag = "6")]
@@ -1609,10 +1610,56 @@ pub mod fancy_link_preview_response {
         pub provider: ::core::option::Option<embed::Provider>,
         #[prost(message, optional, tag = "11")]
         pub author: ::core::option::Option<embed::Author>,
+        /// Site favicon (also carries server-fetched preview_data).
+        #[prost(message, optional, tag = "12")]
+        pub favicon: ::core::option::Option<embed::Media>,
+        /// Canonical URL as advertised by <link rel="canonical"> or og:url.
+        #[prost(string, optional, tag = "13")]
+        pub canonical_url: ::core::option::Option<::prost::alloc::string::String>,
+        /// Page language tag ("en", "de", "en-US", ...).
+        #[prost(string, optional, tag = "14")]
+        pub lang: ::core::option::Option<::prost::alloc::string::String>,
+        /// Article publish/modify timestamps in ISO-8601 form.
+        #[prost(string, optional, tag = "15")]
+        pub published_time: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, optional, tag = "16")]
+        pub modified_time: ::core::option::Option<::prost::alloc::string::String>,
+        /// Page-declared keywords/tags.
+        #[prost(string, repeated, tag = "17")]
+        pub keywords: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        /// Server-side extractive summary of the page body. May be longer
+        /// than `description` and is intended for a "read more" toggle.
+        #[prost(string, optional, tag = "18")]
+        pub summary: ::core::option::Option<::prost::alloc::string::String>,
+        /// MIME type of the resource at `url` when known (direct media).
+        #[prost(string, optional, tag = "19")]
+        pub content_type: ::core::option::Option<::prost::alloc::string::String>,
+        /// Size in bytes of the resource at `url` when advertised.
+        #[prost(uint64, optional, tag = "20")]
+        pub content_length: ::core::option::Option<u64>,
+        /// Human-readable media duration ("03:14", "1:02:45").
+        #[prost(string, optional, tag = "21")]
+        pub media_duration: ::core::option::Option<::prost::alloc::string::String>,
+        /// Coarse "adult content" flag derived from rating meta tags.
+        #[prost(bool, optional, tag = "22")]
+        pub nsfw: ::core::option::Option<bool>,
+        /// Estimated reading time, e.g. "5 min read".
+        #[prost(string, optional, tag = "23")]
+        pub reading_time: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(message, repeated, tag = "24")]
+        pub fields: ::prost::alloc::vec::Vec<embed::Field>,
+        /// ISO-8601 timestamp at which the server fetched this preview.
+        #[prost(string, optional, tag = "25")]
+        pub fetched_at: ::core::option::Option<::prost::alloc::string::String>,
     }
     /// Nested message and enum types in `Embed`.
     pub mod embed {
-        /// Reusable sub-message for media (thumbnail, image, video).
+        /// Reusable sub-message for media (thumbnail, image, video, favicon).
+        ///
+        /// `url` still carries the original CDN URL so the client may fetch
+        /// full-resolution media on user request, but `preview_data` carries
+        /// a server-side downscaled JPEG so the default render path never
+        /// leaks the user's IP to a third-party host.
         #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct Media {
             #[prost(string, optional, tag = "1")]
@@ -1621,6 +1668,19 @@ pub mod fancy_link_preview_response {
             pub width: ::core::option::Option<i32>,
             #[prost(int32, optional, tag = "3")]
             pub height: ::core::option::Option<i32>,
+            /// Server-fetched, downscaled preview bytes (typically JPEG).
+            #[prost(bytes = "vec", optional, tag = "4")]
+            pub preview_data: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+            /// MIME type of `preview_data` (e.g. "image/jpeg").
+            #[prost(string, optional, tag = "5")]
+            pub preview_mime: ::core::option::Option<::prost::alloc::string::String>,
+            #[prost(int32, optional, tag = "6")]
+            pub preview_width: ::core::option::Option<i32>,
+            #[prost(int32, optional, tag = "7")]
+            pub preview_height: ::core::option::Option<i32>,
+            /// Size in bytes of the original (un-downscaled) media.
+            #[prost(uint32, optional, tag = "8")]
+            pub original_size: ::core::option::Option<u32>,
         }
         /// Provider metadata.
         #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -1637,6 +1697,18 @@ pub mod fancy_link_preview_response {
             pub name: ::core::option::Option<::prost::alloc::string::String>,
             #[prost(string, optional, tag = "2")]
             pub url: ::core::option::Option<::prost::alloc::string::String>,
+        }
+        /// Discord-style key/value field rows (e.g. resolution, file size,
+        /// repository stars). `inline` allows the client to render multiple
+        /// fields side-by-side.
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Field {
+            #[prost(string, optional, tag = "1")]
+            pub name: ::core::option::Option<::prost::alloc::string::String>,
+            #[prost(string, optional, tag = "2")]
+            pub value: ::core::option::Option<::prost::alloc::string::String>,
+            #[prost(bool, optional, tag = "3")]
+            pub inline: ::core::option::Option<bool>,
         }
     }
 }

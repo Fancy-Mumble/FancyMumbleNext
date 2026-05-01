@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useAppStore } from "../../store";
 import type { AclData, AclGroup, ChatMessage } from "../../types";
+import type { ToastData } from "../elements/Toast";
 import { markdownToHtml } from "./MarkdownInput";
 import { mediaKind, fileToDataUrl, fitImage, fitVideo, mediaToHtml } from "../../utils/media";
 import { applyMentionsToHtml, type MentionResolver } from "../../utils/mentions";
@@ -15,9 +16,10 @@ interface UseChatSendOptions {
   clearDraft: () => void;
   editingMessage?: ChatMessage | null;
   onEditComplete?: () => void;
+  showToast?: (data: ToastData) => void;
 }
 
-export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, editingMessage, onEditComplete }: UseChatSendOptions) {
+export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, editingMessage, onEditComplete, showToast }: UseChatSendOptions) {
   const sendMessage = useAppStore((s) => s.sendMessage);
   const editMessage = useAppStore((s) => s.editMessage);
   const serverConfig = useAppStore((s) => s.serverConfig);
@@ -26,6 +28,9 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
   const sendDm = useAppStore((s) => s.sendDm);
   const users = useAppStore((s) => s.users);
   const channels = useAppStore((s) => s.channels);
+  const addPendingPlaceholder = useAppStore((s) => s.addPendingPlaceholder);
+  const markPendingFailed = useAppStore((s) => s.markPendingFailed);
+  const dismissPendingMessage = useAppStore((s) => s.dismissPendingMessage);
   const rootId = (() => rootChannelId(channels))();
 
   // Subscribe to root-channel ACL so the resolver can attach role colors.
@@ -110,7 +115,9 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
 
       const kind = mediaKind(file.type);
       if (!kind) {
-        alert("Unsupported file type. Please select an image, GIF, or video.");
+        const msg = "Unsupported file type. Pick an image, GIF, or video.";
+        if (showToast) showToast({ message: msg, variant: "error" });
+        else console.error(msg);
         return;
       }
 
@@ -119,6 +126,18 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
         serverConfig.max_image_message_length > 0
           ? serverConfig.max_image_message_length
           : serverConfig.max_message_length;
+
+      // Render an immediate "preparing" placeholder so the user sees
+      // feedback BEFORE the (possibly multi-second) JPEG re-encoding
+      // starts.  Without this, mobile users would tap "send" and see
+      // nothing happen for several seconds while the JS thread is
+      // busy compressing a large camera photo.
+      const preparingLabel =
+        kind === "video" ? "Preparing video\u2026" : "Preparing image\u2026";
+      const placeholderBody = `<em>${preparingLabel}</em>`;
+      const channelTarget = isDmMode ? null : selectedChannel;
+      const dmTarget = isDmMode ? selectedDmUser : null;
+      const placeholderId = addPendingPlaceholder(channelTarget, dmTarget, placeholderBody);
 
       setSending(true);
       try {
@@ -141,6 +160,9 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
         }
 
         const html = mediaToHtml(dataUrl, sendKind, file.name || "clipboard.png");
+        // Hand off to the real send path; it will create its own pending
+        // placeholder for the network phase.
+        dismissPendingMessage(placeholderId);
         if (isDmMode && selectedDmUser !== null) {
           await sendDm(selectedDmUser, html);
         } else if (selectedChannel !== null) {
@@ -148,12 +170,30 @@ export function useChatSend({ pendingQuotes, clearQuotes, draft, clearDraft, edi
         }
       } catch (err) {
         console.error("media send error:", err);
-        alert(String(err));
+        const detail = err instanceof Error ? err.message : String(err);
+        markPendingFailed(placeholderId, `Couldn't prepare media: ${detail}`);
+        if (showToast) {
+          showToast({
+            message: `Failed to send media: ${detail}`,
+            variant: "error",
+          });
+        }
       } finally {
         setSending(false);
       }
     },
-    [isDmMode, selectedDmUser, selectedChannel, serverConfig, sendMessage, sendDm],
+    [
+      isDmMode,
+      selectedDmUser,
+      selectedChannel,
+      serverConfig,
+      sendMessage,
+      sendDm,
+      addPendingPlaceholder,
+      markPendingFailed,
+      dismissPendingMessage,
+      showToast,
+    ],
   );
 
   // Shared image extraction logic used by both the React onPaste handler

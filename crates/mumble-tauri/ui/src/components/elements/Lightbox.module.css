@@ -5,8 +5,8 @@
   inset: 0;
   z-index: 9999;
   background: var(--color-overlay-darkest);
-  backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -76,8 +76,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
   transition: background 0.2s;
   z-index: 10001;
 }
@@ -103,8 +103,8 @@
   justify-content: center;
   transition: background 0.2s, color 0.2s;
   z-index: 10000;
-  backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 
 .arrow:hover {

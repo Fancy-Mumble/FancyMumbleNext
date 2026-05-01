@@ -1,6 +1,25 @@
 import { memo, useState, useCallback } from "react";
-import type { LinkEmbed } from "../../types";
+import type { EmbedMedia, LinkEmbed } from "../../types";
 import styles from "./LinkPreviewCard.module.css";
+
+/**
+ * Resolve the image source for a media field, prioritising the
+ * server-provided base64 preview (which never causes a network
+ * request to the origin) and only falling back to the remote URL
+ * when the user has explicitly opted-in to external resources.
+ *
+ * Returning `undefined` signals that no privacy-preserving source is
+ * available; callers should render a placeholder instead of leaking
+ * the user's IP to the origin server.
+ */
+function previewSrc(
+  media: EmbedMedia | undefined,
+  allowExternal: boolean,
+): string | undefined {
+  if (!media) return undefined;
+  if (media.preview?.data_url) return media.preview.data_url;
+  return allowExternal ? media.url : undefined;
+}
 
 function isSpotifyEmbed(embed: LinkEmbed): boolean {
   const siteName = embed.site_name?.toLowerCase() ?? "";
@@ -51,9 +70,11 @@ function EmbedCard({ embed, allowExternalResources }: Readonly<{ embed: LinkEmbe
     ? `#${embed.color.toString(16).padStart(6, "0")}`
     : undefined;
 
-  const hasLargeImage = embed.type === "image" && embed.image?.url;
-  const hasVideo = embed.type === "video" && embed.video?.url;
-  const showThumbnailOnSide = !!embed.thumbnail?.url && !hasLargeImage && !hasVideo;
+  const imageSrc = previewSrc(embed.image, allowExternalResources);
+  const thumbSrc = previewSrc(embed.thumbnail, allowExternalResources);
+  const hasLargeImage = embed.type === "image" && !!imageSrc;
+  const hasVideo = embed.type === "video" && !!embed.video?.url;
+  const showThumbnailOnSide = !!thumbSrc && !hasLargeImage && !hasVideo;
 
   return (
     <div
@@ -93,10 +114,10 @@ function EmbedCard({ embed, allowExternalResources }: Readonly<{ embed: LinkEmbe
         {embed.description && (
           <p className={styles.description}>{embed.description}</p>
         )}
-        {hasLargeImage && embed.image?.url && (
+        {hasLargeImage && imageSrc && (
           <img
             className={styles.largeImage}
-            src={embed.image.url}
+            src={imageSrc}
             alt={embed.title ?? ""}
             loading="lazy"
           />
@@ -109,19 +130,19 @@ function EmbedCard({ embed, allowExternalResources }: Readonly<{ embed: LinkEmbe
             onConsent={handleConsent}
           />
         )}
-        {!hasVideo && !hasLargeImage && embed.thumbnail?.url && !showThumbnailOnSide && (
+        {!hasVideo && !hasLargeImage && thumbSrc && !showThumbnailOnSide && (
           <img
             className={styles.largeImage}
-            src={embed.thumbnail.url}
+            src={thumbSrc}
             alt={embed.title ?? ""}
             loading="lazy"
           />
         )}
       </div>
-      {showThumbnailOnSide && embed.thumbnail?.url && (
+      {showThumbnailOnSide && thumbSrc && (
         <img
           className={styles.thumbnail}
-          src={embed.thumbnail.url}
+          src={thumbSrc}
           alt=""
           loading="lazy"
         />
@@ -160,11 +181,12 @@ function VideoEmbed({
   }
 
   if (!consented) {
+    const posterSrc = previewSrc(embed.thumbnail, allowExternalResources);
     return (
       <div className={`${styles.videoContainer} ${!spotify ? styles.videoContainerDefault : ""}`} style={containerStyle}>
-        {embed.thumbnail?.url && (
+        {posterSrc && (
           <img
-            src={embed.thumbnail.url}
+            src={posterSrc}
             alt={embed.title ?? ""}
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />

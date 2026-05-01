@@ -120,8 +120,8 @@
 .glass {
   background: rgba(12, 18, 30, 0.72);
   border-color: var(--color-accent-border);
-  backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
+  backdrop-filter: blur(28px);
   box-shadow: 0 4px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 var(--color-glass-border);
 }
 

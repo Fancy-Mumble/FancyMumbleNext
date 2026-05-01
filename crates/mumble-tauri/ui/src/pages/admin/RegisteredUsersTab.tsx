@@ -85,13 +85,21 @@ export function RegisteredUsersTab() {
   // Pending delete confirmation.
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  // Listen for user-list events from the backend.
+  // Listen for user-list events from the backend.  Also clear the loading
+  // state on permission-denied so the table doesn't show "Loading..." forever
+  // when the server denies the request.
   useEffect(() => {
-    const unlisten = listen<RegisteredUser[]>("user-list", (event) => {
+    const unlistenList = listen<RegisteredUser[]>("user-list", (event) => {
       setUsers(event.payload);
       setLoading(false);
     });
-    return () => { unlisten.then((f) => f()); };
+    const unlistenDenied = listen("permission-denied", () => {
+      setLoading(false);
+    });
+    return () => {
+      unlistenList.then((f) => f());
+      unlistenDenied.then((f) => f());
+    };
   }, []);
 
   // Request the user list on mount.
