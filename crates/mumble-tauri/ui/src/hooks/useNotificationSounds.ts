@@ -123,6 +123,21 @@ export function useNotificationSounds(
         return;
       }
 
+      // When `ownSession` changes (server switch / late post-connect ownSession
+      // arrival), the snapshots used by the user-join detectors were built
+      // while filtering out a different session id.  Swapping that filter
+      // would otherwise look like a user joining/leaving.  Silently rebuild
+      // the snapshots and skip sound emission this tick.
+      if (ownChanged && lastOwnSession !== undefined) {
+        lastUsersRef = state.users;
+        lastTalkingRef = state.talkingSessions;
+        lastVoiceState = state.voiceState;
+        lastChannel = state.currentChannel;
+        lastOwnSession = state.ownSession;
+        resetPerServerRefs();
+        return;
+      }
+
       lastUsersRef = state.users;
       lastTalkingRef = state.talkingSessions;
       lastVoiceState = state.voiceState;

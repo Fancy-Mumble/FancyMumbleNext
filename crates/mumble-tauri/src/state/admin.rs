@@ -131,6 +131,24 @@ impl AppState {
         }
     }
 
+    /// Move another user to a different channel (admin action).
+    /// Requires the `Move` permission on both source and destination
+    /// channels (or `MoveAll` server-wide).
+    pub async fn move_user(&self, session: u32, channel_id: u32) -> Result<(), String> {
+        let handle = {
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
+            state.conn.client_handle.clone()
+        };
+        match handle {
+            Some(h) => h
+                .send(command::MoveUser { session, channel_id })
+                .await
+                .map_err(|e| e.to_string()),
+            None => Err("Not connected".into()),
+        }
+    }
+
     pub async fn request_user_stats(&self, session: u32) -> Result<(), String> {
         let handle = {
             let __session = self.inner.snapshot();

@@ -14,6 +14,7 @@ import type { ChannelEntry, UserEntry } from "../../../types";
 import { colorFor } from "../UserListItem";
 import { useUserAvatar } from "../../../lazyBlobs";
 import { PchatBadge } from "../PchatBadge";
+import { useChannelDropTarget } from "../../../utils/userMoveDnd";
 import styles from "./ClassicChannelList.module.css";
 
 const MAX_STACKED = 3;
@@ -105,6 +106,21 @@ function StackedAvatars({ users }: Readonly<{ users: UserEntry[] }>) {
 
 // --- Main component ----------------------------------------------
 
+function ChannelDropWrapper({
+  channelId,
+  children,
+}: Readonly<{ channelId: number; children: React.ReactNode }>) {
+  const { ref, active } = useChannelDropTarget(channelId);
+  return (
+    <div
+      ref={ref}
+      className={`${styles.dropZone} ${active ? styles.dropZoneActive : ""}`}
+    >
+      {children}
+    </div>
+  );
+}
+
 export default function ClassicChannelList({
   channels,
   users,
@@ -190,7 +206,8 @@ export default function ClassicChannelList({
       const totalUsers = subtreeUserCount(channel.id);
       const allUsers = subtreeUsers(channel.id);
       return (
-        <div key={channel.id} className={styles.folderGroup}>
+        <ChannelDropWrapper key={channel.id} channelId={channel.id}>
+        <div className={styles.folderGroup}>
           <div
             className={[
               styles.folderHeader,
@@ -241,12 +258,13 @@ export default function ClassicChannelList({
             </div>
           )}
         </div>
+        </ChannelDropWrapper>
       );
     }
 
     return (
+      <ChannelDropWrapper key={channel.id} channelId={channel.id}>
       <button
-        key={channel.id}
         className={[
           styles.channelItem,
           isSelected ? styles.active : "",
@@ -273,6 +291,7 @@ export default function ClassicChannelList({
         )}
         <StackedAvatars users={chUsers} />
       </button>
+      </ChannelDropWrapper>
     );
   }
 
@@ -280,6 +299,7 @@ export default function ClassicChannelList({
     <>
       {currentChannelEntry && (
         <div className={styles.stickyCurrentChannel}>
+          <ChannelDropWrapper channelId={currentChannelEntry.id}>
           <button
             className={[styles.channelItem, styles.currentChannel].join(" ")}
             onClick={() => onSelectChannel(currentChannelEntry.id)}
@@ -291,10 +311,12 @@ export default function ClassicChannelList({
             </div>
             <StackedAvatars users={usersByChannel.get(currentChannelEntry.id) ?? []} />
           </button>
+          </ChannelDropWrapper>
         </div>
       )}
 
       {root && root.id !== currentChannel && (
+        <ChannelDropWrapper channelId={root.id}>
         <button
           className={[
             styles.channelItem,
@@ -309,6 +331,7 @@ export default function ClassicChannelList({
           </div>
           <StackedAvatars users={usersByChannel.get(root.id) ?? []} />
         </button>
+        </ChannelDropWrapper>
       )}
 
       {root && sortedDirectChildren(root.id).map((ch) => renderChannel(ch, 0))}

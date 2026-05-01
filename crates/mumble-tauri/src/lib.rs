@@ -286,6 +286,7 @@ macro_rules! all_command_handlers {
             commands::admin::set_priority_speaker,
             commands::admin::reset_user_comment,
             commands::admin::remove_user_avatar,
+            commands::admin::move_user_to_channel,
             commands::admin::request_user_stats,
             commands::admin::request_user_list,
             commands::admin::update_user_list,

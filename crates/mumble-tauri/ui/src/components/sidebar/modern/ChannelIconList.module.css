@@ -30,6 +30,13 @@
   box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
+/* Highlight when a user is being dragged over this channel. */
+.dropTarget > .channelRow {
+  outline: 2px dashed var(--color-accent, #2aabee);
+  outline-offset: -2px;
+  background: var(--color-glass-active);
+}
+
 /* --- Main row (icon + name + meta) ----------------------------- */
 
 .channelMain {

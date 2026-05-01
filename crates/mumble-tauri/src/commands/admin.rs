@@ -80,6 +80,16 @@ pub(crate) async fn remove_user_avatar(
     state.remove_user_avatar(session).await
 }
 
+/// Move another user to a different channel (admin action).
+#[tauri::command]
+pub(crate) async fn move_user_to_channel(
+    state: tauri::State<'_, AppState>,
+    session: u32,
+    channel_id: u32,
+) -> Result<(), String> {
+    state.move_user(session, channel_id).await
+}
+
 /// Request ping/connection statistics for a specific user.
 ///
 /// The server responds asynchronously with a `UserStats` message,
