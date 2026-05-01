@@ -86,6 +86,12 @@ function MainApp() {
       setKlipyApiKey(prefs.klipyApiKey);
       setKlipyApiKeyBanner(prefs.klipyApiKey);
       useAppStore.setState({ disableLinkPreviews: prefs.disableLinkPreviews ?? false });
+      useAppStore.setState({ streamerMode: prefs.streamerMode ?? false });
+      // When streamer mode is enabled at startup, suppress native notifications
+      // so they cannot leak personal data into a screen recording.
+      if (prefs.streamerMode) {
+        invoke("set_notifications_enabled", { enabled: false }).catch(() => undefined);
+      }
       // Inform the Rust updater whether to auto-install on startup.
       invoke("updater_set_auto_install", { enabled: prefs.autoUpdateOnStartup ?? false })
         .catch(() => undefined);

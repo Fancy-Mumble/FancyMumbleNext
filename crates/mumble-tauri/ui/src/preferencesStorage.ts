@@ -30,6 +30,7 @@ const DEFAULTS: UserPreferences = {
   disableTypingIndicators: false,
   disableOsmMaps: false,
   disableLinkPreviews: false,
+  streamerMode: false,
   autoReconnect: false,
   autoUpdateOnStartup: false,
   skippedUpdateVersion: null,
