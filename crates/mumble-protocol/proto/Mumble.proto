@@ -1019,3 +1019,97 @@ message FancyLinkPreviewResponse {
 	optional string request_id = 1;
 	repeated Embed embeds = 2;
 }
+
+// ---------------------------------------------------------------------------
+// Watch-together (Fancy Mumble extension, ID 134)
+// ---------------------------------------------------------------------------
+
+// Synchronised video playback control.
+//
+// All events for a single watch session share the same `session_id` (a
+// client-chosen UUID).  The host is the participant currently driving
+// playback; participants mirror its `currentTime` and `state`.
+//
+// On a Fancy server the message is delivered natively; on a legacy
+// server the protocol's PluginData fallback applies (see
+// fancy_codec.rs / fancy_message_support.rs).
+//
+// Wire type ID = 134.
+message FancyWatchSync {
+	// Watch session identifier (UUID v4 chosen by the originator).
+	optional string session_id = 1;
+
+	// Session ID of the user that emitted this event.  Set by the
+	// server on relay (mirroring TextMessage / FancyTypingIndicator).
+	optional uint32 actor = 2;
+
+	// Recognised video source kinds.
+	enum SourceKind {
+		DIRECT_MEDIA = 0;  // Direct media URL or file-server upload.
+		YOUTUBE      = 1;  // YouTube video, controlled via IFrame API.
+	}
+
+	// Playback state for the State sub-message.
+	enum PlaybackState {
+		PAUSED  = 0;
+		PLAYING = 1;
+		ENDED   = 2;
+	}
+
+	// Begin a watch session.  Sent once by the originator.
+	message Start {
+		// Channel where the session lives.
+		optional uint32 channel_id = 1;
+		// Source URL (direct media URL or canonical YouTube watch URL).
+		optional string source_url = 2;
+		// Source kind for adapter selection.
+		optional SourceKind source_kind = 3;
+		// Display title (chat message excerpt or fetched media title).
+		optional string title = 4;
+		// Initial host session ID.
+		optional uint32 host_session = 5;
+	}
+
+	// Authoritative playback state, emitted by the host as a heartbeat
+	// (~1 Hz while playing) and as a reply to StateRequest.
+	message State {
+		optional PlaybackState state = 1;
+		// Current playback position in seconds.
+		optional double current_time = 2;
+		// Sender's wall-clock time in Unix epoch milliseconds, used by
+		// participants to compensate for one-way latency.
+		optional uint64 updated_at_ms = 3;
+		// Current host session (lets late joiners discover the host).
+		optional uint32 host_session = 4;
+	}
+
+	// Membership change.
+	message Member {
+		optional uint32 session = 1;
+	}
+
+	// Late-joiner request for current state.  Targeted at the host.
+	message StateRequest {
+	}
+
+	// End the session for everyone.
+	message End {
+	}
+
+	// Explicit host transfer (rare; the common path is the
+	// deterministic re-election triggered when the host disconnects).
+	message HostTransfer {
+		optional uint32 new_host_session = 1;
+	}
+
+	// Exactly one event per message.
+	oneof event {
+		Start        start          = 10;
+		State        state          = 11;
+		Member       join           = 12;
+		Member       leave          = 13;
+		StateRequest state_request  = 14;
+		End          end            = 15;
+		HostTransfer host_transfer  = 16;
+	}
+}

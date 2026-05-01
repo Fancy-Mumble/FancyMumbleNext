@@ -32,7 +32,7 @@ pub mod offload;
 mod offload_ops;
 pub(crate) mod pchat;
 mod profile;
-mod protocol_commands;
+pub(crate) mod protocol_commands;
 mod query;
 #[allow(dead_code, reason = "recording module is work-in-progress")]
 pub(crate) mod recording;

@@ -18,11 +18,16 @@ import FileAttachmentCard, {
   FANCY_FILE_MARKER_RE,
   decodeFileAttachmentPayload,
 } from "./FileAttachmentCard";
+import WatchTogetherCard from "./watch/WatchTogetherCard";
+import WatchStartButton from "./watch/WatchStartButton";
 import QuoteBlock from "../elements/QuoteBlock";
 import styles from "./ChatView.module.css";
 
 /** Regex to match quote reference markers in message bodies. */
 const QUOTE_RE = /<!-- FANCY_QUOTE:(.+?) -->/g;
+
+/** Regex to match watch-together markers in message bodies. */
+const WATCH_RE = /<!-- FANCY_WATCH:(.+?) -->/;
 
 /** Approximate height of the profile hover card, used for viewport clamping. */
 const HOVER_CARD_H = 340;
@@ -144,6 +149,7 @@ export function MessageAvatar({
 function isPureMedia(body: string): boolean {
   if (/<!-- FANCY_POLL:/.test(body)) return false;
   if (/<!-- FANCY_FILE:/.test(body)) return false;
+  if (/<!-- FANCY_WATCH:/.test(body)) return false;
   if (QUOTE_RE.test(body)) { QUOTE_RE.lastIndex = 0; return false; }
   const hasMedia = /<img|<video/i.test(body);
   if (!hasMedia) return false;
@@ -208,6 +214,12 @@ export default memo(function MessageItem({
   const linkEmbeds = useAppStore((s) => msg.message_id ? s.linkEmbeds.get(msg.message_id) : undefined);
   const disableLinkPreviews = useAppStore((s) => s.disableLinkPreviews);
   const currentChannel = useAppStore((s) => s.currentChannel);
+
+  const watchMarkerMatch = WATCH_RE.exec(msg.body);
+  const watchSessionId = watchMarkerMatch ? watchMarkerMatch[1] : null;
+  const watchSessionExists = useAppStore((s) =>
+    watchSessionId ? s.watchSessions.has(watchSessionId) : false,
+  );
 
   // Detect whether the receiver is mentioned by this message.  Pure
   // memoised function over the body and own session.
@@ -316,6 +328,21 @@ export default memo(function MessageItem({
       }
     }
 
+    const watchMatch = WATCH_RE.exec(bodyWithoutQuotes);
+    if (watchMatch) {
+      const watchSessionId = watchMatch[1];
+      const textAround = bodyWithoutQuotes.replace(WATCH_RE, "").trim();
+      return (
+        <>
+          {quoteBlocks}
+          {textAround && (
+            <MediaPreview html={textAround} messageId={`${index}-watch-text`} compact={false} timeFormat={timeFormat} convertToLocalTime={convertToLocalTime} systemUses24h={systemUses24h} senderName={msg.sender_name} messageTimestamp={displayTimestamp} onOpenLightbox={onOpenLightbox} />
+          )}
+          <WatchTogetherCard sessionId={watchSessionId} />
+        </>
+      );
+    }
+
     if (quoteBlocks.length > 0 && !bodyWithoutQuotes) {
       return <>{quoteBlocks}</>;
     }
@@ -327,6 +354,13 @@ export default memo(function MessageItem({
       </>
     );
   };
+
+  // A watch-together start message becomes meaningless once the session has
+  // ended (the body is only the marker, with no surrounding user text).
+  // Hide the entire row so the chat looks as if no message was ever sent.
+  if (watchSessionId && !watchSessionExists) {
+    return null;
+  }
 
   return (
     <div
@@ -361,6 +395,9 @@ export default memo(function MessageItem({
           </span>
         )}
         <div className={styles.messageBody}>{renderBody()}</div>
+        {!offloaded && !isRestoring && !WATCH_RE.test(msg.body) && (
+          <WatchStartButton body={msg.body} channelId={msg.channel_id} />
+        )}
         {!disableLinkPreviews && linkEmbeds && linkEmbeds.length > 0 && (
           <LinkPreviewCard embeds={linkEmbeds} allowExternalResources />
         )}

@@ -44,6 +44,8 @@ import type {
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator";
 import { registerPoll, registerVote } from "./components/chat/PollCard";
+import type { WatchSession, WatchSyncPayload } from "./components/chat/watch/watchTypes";
+import { applyWatchSyncEvent } from "./components/chat/watch/watchStore";
 import { applyReaction, resetReactions, setServerCustomReactions, type ServerCustomReaction } from "./components/chat/reactionStore";
 import { applyReadStates, clearReadReceipts } from "./components/chat/readReceiptStore";
 import { offloadManager } from "./messageOffload";
@@ -307,6 +309,9 @@ interface AppState {
   /** Whether the user has opted out of requesting link previews. */
   disableLinkPreviews: boolean;
 
+  /** Whether the user allows external embed sources (e.g. YouTube IFrame API). */
+  enableExternalEmbeds: boolean;
+
   /** Streamer mode - when true, sensitive identifiers (host/IP) are
    *  masked across the UI to keep them out of screen captures. */
   streamerMode: boolean;
@@ -322,6 +327,11 @@ interface AppState {
 
   /** Map of channel_id -> set of session IDs currently typing. */
   typingUsers: Map<number, Set<number>>;
+
+  /** Active watch-together sessions keyed by their session UUID. */
+  watchSessions: Map<string, WatchSession>;
+  /** Monotonic counter bumped whenever any watch session is mutated. */
+  watchSessionsVersion: number;
 
   // -- Screen share state (in-memory) ----------------------------
   /** Whether we are currently sharing our own screen. */
@@ -600,6 +610,8 @@ const INITIAL: Pick<
   | "unseenPinIds"
   | "readReceiptVersion"
   | "typingUsers"
+  | "watchSessions"
+  | "watchSessionsVersion"
   | "isSharingOwn"
   | "webrtcConnecting"
   | "webrtcError"
@@ -664,6 +676,8 @@ const INITIAL: Pick<
   unseenPinIds: new Map(),
   readReceiptVersion: 0,
   typingUsers: new Map(),
+  watchSessions: new Map(),
+  watchSessionsVersion: 0,
   isSharingOwn: false,
   webrtcConnecting: false,
   webrtcError: null,
@@ -738,6 +752,7 @@ function updateBadgeCount(): void {
 export const useAppStore = create<AppState>((set, get) => ({
   ...INITIAL,
   disableLinkPreviews: false,
+  enableExternalEmbeds: false,
   streamerMode: false,
 
   // Multi-server (Phase C): outside INITIAL so it survives single-session disconnects.
@@ -2472,6 +2487,14 @@ export async function initEventListeners(
         }, 5000);
       },
     ),
+  );
+
+  // -- Watch-together (FancyWatchSync) events ---------------------
+
+  unlisteners.push(
+    await listen<WatchSyncPayload>("watch-sync", (event) => {
+      applyWatchSyncEvent(event.payload);
+    }),
   );
 
   // -- Persistent chat events -------------------------------------

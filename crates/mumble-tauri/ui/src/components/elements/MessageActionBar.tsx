@@ -1,7 +1,8 @@
-import { CopyIcon, EmojiPlusIcon, KebabMenuIcon, QuoteIcon, TrashIcon } from "../../icons";
+import { CopyIcon, EmojiPlusIcon, KebabMenuIcon, PlayIcon, QuoteIcon, TrashIcon } from "../../icons";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { ChatMessage } from "../../types";
+import { useWatchStart } from "../chat/watch/useWatchStart";
 import styles from "./MessageActionBar.module.css";
 
 // -- Quick reactions shown as emoji buttons -----------------------
@@ -54,6 +55,10 @@ export default function MessageActionBar({
   onDelete,
   canDelete = false,
 }: MessageActionBarProps) {
+  const { canStart: canWatchTogether, busy: watchBusy, start: startWatch } = useWatchStart(
+    message.body,
+    message.channel_id,
+  );
   const [kebabOpen, setKebabOpen] = useState(false);
   const kebabBtnRef = useRef<HTMLButtonElement>(null);
   const [kebabPos, setKebabPos] = useState<{ top: number; right: number } | null>(null);
@@ -85,6 +90,14 @@ export default function MessageActionBar({
 
   // Build kebab menu entries
   const kebabItems: KebabEntry[] = [];
+  if (canWatchTogether) {
+    kebabItems.push({
+      id: "watch-together",
+      label: watchBusy ? "Starting\u2026" : "Watch together",
+      icon: <PlayIcon width={14} height={14} />,
+      onClick: () => { void startWatch(); },
+    });
+  }
   if (onCopyText) {
     kebabItems.push({
       id: "copy",

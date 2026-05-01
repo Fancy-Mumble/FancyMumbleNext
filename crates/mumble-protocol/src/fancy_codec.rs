@@ -228,6 +228,9 @@ fn patch_sender_session(mut msg: ControlMessage, sender: Option<u32>) -> Control
         ControlMessage::FancyTypingIndicator(ti) if ti.actor.is_none() => {
             ti.actor = sender;
         }
+        ControlMessage::FancyWatchSync(ws) if ws.actor.is_none() => {
+            ws.actor = sender;
+        }
         _ => {}
     }
     msg
@@ -260,6 +263,9 @@ fn extract_receiver_sessions(msg: &ControlMessage, state: &ServerState) -> Vec<u
                 .collect()
         }
         ControlMessage::FancyTypingIndicator(_) => {
+            channel_members_except_self(state, own_session)
+        }
+        ControlMessage::FancyWatchSync(_) => {
             channel_members_except_self(state, own_session)
         }
         _ => Vec::new(),
@@ -345,6 +351,7 @@ mod tests {
     const V_0_2_12: u64 = fancy_utils::version::fancy_version_encode(0, 2, 12);
     const V_0_2_14: u64 = fancy_utils::version::fancy_version_encode(0, 2, 14);
     const V_0_2_18: u64 = fancy_utils::version::fancy_version_encode(0, 2, 18);
+    const V_0_2_20: u64 = fancy_utils::version::fancy_version_encode(0, 2, 20);
 
     #[test]
     fn native_codec_passthrough_standard_message() {
@@ -708,5 +715,56 @@ mod tests {
         };
         assert_eq!(ti.actor, Some(7));
         assert_eq!(ti.channel_id, Some(5));
+    }
+
+    // ---- FancyWatchSync codec coverage ------------------------------
+
+    #[test]
+    fn native_codec_roundtrip_watch_sync_via_fallback() {
+        use mumble_tcp::fancy_watch_sync::{Event, Start};
+
+        let codec = NativeCodec { server_version: V_0_2_14 };
+        let state = state_with_users();
+
+        let original = ControlMessage::FancyWatchSync(mumble_tcp::FancyWatchSync {
+            session_id: Some("sess-roundtrip".into()),
+            actor: None,
+            event: Some(Event::Start(Start {
+                channel_id: Some(0),
+                source_url: Some("https://example.com/v.mp4".into()),
+                source_kind: Some(0),
+                title: Some("Demo".into()),
+                host_session: Some(1),
+            })),
+        });
+
+        let encoded = codec.encode(original, &state).unwrap();
+        let ControlMessage::PluginDataTransmission(mut pd) = encoded else {
+            panic!("expected PluginData fallback for FancyWatchSync");
+        };
+        assert_eq!(pd.data_id.as_deref(), Some("fancy-native:134"));
+
+        // Server fills in sender_session before relaying.
+        pd.sender_session = Some(1);
+        let decoded = codec.decode(ControlMessage::PluginDataTransmission(pd));
+        let ControlMessage::FancyWatchSync(ws) = decoded else {
+            panic!("expected FancyWatchSync after round-trip, got {decoded:?}");
+        };
+        assert_eq!(ws.session_id.as_deref(), Some("sess-roundtrip"));
+        assert_eq!(ws.actor, Some(1), "actor should be patched from sender_session");
+        assert!(matches!(ws.event, Some(Event::Start(_))));
+    }
+
+    #[test]
+    fn native_codec_passthrough_watch_sync_when_server_new_enough() {
+        let codec = NativeCodec { server_version: V_0_2_20 };
+        let state = state_with_users();
+        let msg = ControlMessage::FancyWatchSync(mumble_tcp::FancyWatchSync {
+            session_id: Some("sess-pass".into()),
+            actor: None,
+            event: None,
+        });
+        let encoded = codec.encode(msg, &state).unwrap();
+        assert!(matches!(encoded, ControlMessage::FancyWatchSync(_)));
     }
 }

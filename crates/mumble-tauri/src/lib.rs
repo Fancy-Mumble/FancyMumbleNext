@@ -254,6 +254,7 @@ macro_rules! all_command_handlers {
             commands::messaging::send_read_receipt,
             commands::messaging::query_read_receipts,
             commands::messaging::send_typing_indicator,
+            commands::messaging::send_watch_sync,
             commands::messaging::request_link_preview,
             commands::realtime::send_webrtc_signal,
             commands::messaging::send_reaction,

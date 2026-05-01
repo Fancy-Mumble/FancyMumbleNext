@@ -109,6 +109,9 @@ fancy_message_support! {
 
     // -- Typing indicator (client-to-client relay) -- 0.2.18 ---------
     (0, 2, 18) FancyTypingIndicator       => PluginData,
+
+    // -- Watch together (client-to-client relay) -- 0.2.20 -----------
+    (0, 2, 20) FancyWatchSync             => PluginData,
 }
 
 #[cfg(test)]

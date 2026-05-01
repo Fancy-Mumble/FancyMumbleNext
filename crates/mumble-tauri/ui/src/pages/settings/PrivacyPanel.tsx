@@ -7,12 +7,14 @@ export function PrivacyPanel({
   disableTypingIndicators,
   disableOsmMaps,
   disableLinkPreviews,
+  enableExternalEmbeds,
   streamerMode,
   onToggleDualPath,
   onToggleReadReceipts,
   onToggleTypingIndicators,
   onToggleOsmMaps,
   onToggleLinkPreviews,
+  onToggleExternalEmbeds,
   onToggleStreamerMode,
 }: {
   enableDualPath: boolean;
@@ -20,12 +22,14 @@ export function PrivacyPanel({
   disableTypingIndicators: boolean;
   disableOsmMaps: boolean;
   disableLinkPreviews: boolean;
+  enableExternalEmbeds: boolean;
   streamerMode: boolean;
   onToggleDualPath: () => void;
   onToggleReadReceipts: () => void;
   onToggleTypingIndicators: () => void;
   onToggleOsmMaps: () => void;
   onToggleLinkPreviews: () => void;
+  onToggleExternalEmbeds: () => void;
   onToggleStreamerMode: () => void;
 }) {
   return (
@@ -108,6 +112,23 @@ export function PrivacyPanel({
             </p>
           </div>
           <Toggle checked={disableLinkPreviews} onChange={onToggleLinkPreviews} />
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.toggleRow}>
+          <div className={styles.toggleInfo}>
+            <h3 className={styles.sectionTitle}>
+              Allow external embeds
+            </h3>
+            <p className={styles.fieldHint}>
+              Required for the YouTube watch-together adapter. When
+              enabled, the YouTube IFrame API is loaded from
+              youtube.com on demand. Disable to keep all watch-together
+              sessions on direct media URLs only.
+            </p>
+          </div>
+          <Toggle checked={enableExternalEmbeds} onChange={onToggleExternalEmbeds} />
         </div>
       </section>
 

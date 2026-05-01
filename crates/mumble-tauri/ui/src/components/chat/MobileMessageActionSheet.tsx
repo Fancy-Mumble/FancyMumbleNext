@@ -1,4 +1,4 @@
-import { ArrowUpRightIcon, CheckboxIcon, CopyIcon, EditIcon, EmojiPlusIcon, QuoteIcon, TrashIcon } from "../../icons";
+import { ArrowUpRightIcon, CheckboxIcon, CopyIcon, EditIcon, EmojiPlusIcon, PlayIcon, QuoteIcon, TrashIcon } from "../../icons";
 import { useCallback, useMemo } from "react";
 import type { ChatMessage } from "../../types";
 import type { ReactionSummary } from "./reactionStore";
@@ -6,6 +6,7 @@ import { getReadersForMessage } from "./readReceiptStore";
 import { useAppStore } from "../../store";
 import { QUICK_REACTIONS } from "../elements/MessageActionBar";
 import MobileBottomSheet from "../elements/MobileBottomSheet";
+import { useWatchStart } from "./watch/useWatchStart";
 import styles from "./MobileMessageActionSheet.module.css";
 
 const MAX_PREVIEW_LEN = 200;
@@ -80,6 +81,11 @@ export default function MobileMessageActionSheet({
 
   const previewImage = useMemo(() => extractFirstImageSrc(message.body), [message.body]);
   const hasTextPreview = previewText.length > 0;
+
+  const { canStart: canWatchTogether, busy: watchBusy, start: startWatch } = useWatchStart(
+    message.body,
+    message.channel_id,
+  );
 
   const act = useCallback(
     (fn: (msg: ChatMessage) => void) => () => {
@@ -208,6 +214,19 @@ export default function MobileMessageActionSheet({
               <QuoteIcon width={16} height={16} />
             </span>
             Quote
+          </button>
+        )}
+        {canWatchTogether && (
+          <button
+            type="button"
+            className={styles.actionItem}
+            disabled={watchBusy}
+            onClick={() => { void startWatch(); onClose(); }}
+          >
+            <span className={styles.actionIcon}>
+              <PlayIcon width={16} height={16} />
+            </span>
+            {watchBusy ? "Starting\u2026" : "Watch together"}
           </button>
         )}
         {onCopyText && (
