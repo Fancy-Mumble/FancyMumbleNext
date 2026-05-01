@@ -98,4 +98,22 @@ describe("markdownToHtml -> htmlToMarkdown round-trip", () => {
     const html = markdownToHtml("watch out: ||boo||");
     expect(html).toContain('<span class="spoiler">boo</span>');
   });
+
+  it("converts fenced code blocks with a language hint to <pre><code class=\"language-...\">", () => {
+    const html = markdownToHtml("```rust\nfn main() {}\n```");
+    expect(html).toContain('<pre><code class="language-rust">fn main() {}</code></pre>');
+  });
+
+  it("preserves newlines inside fenced code blocks (not converted to <br>)", () => {
+    const html = markdownToHtml("```\nline1\nline2\n```");
+    expect(html).toContain("<pre><code>line1\nline2</code></pre>");
+    expect(html).not.toContain("line1<br>line2");
+  });
+
+  it("round-trips a fenced code block back to fenced markdown", () => {
+    const input = "```js\nconst a = 1;\nconst b = 2;\n```";
+    const html = markdownToHtml(input);
+    const back = htmlToMarkdown(html);
+    expect(back).toBe(input);
+  });
 });

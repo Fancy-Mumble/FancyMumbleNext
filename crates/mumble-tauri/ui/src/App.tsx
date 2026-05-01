@@ -9,6 +9,7 @@ import { loadShortcuts, applyGlobalShortcut } from "./pages/settings/shortcutHel
 import { useVisualViewport } from "./hooks/useVisualViewport";
 import { useNotificationSounds } from "./hooks/useNotificationSounds";
 import { useSpoilerReveal } from "./hooks/useSpoilerReveal";
+import { useCodeHighlight } from "./hooks/useCodeHighlight";
 import { DEFAULT_NOTIFICATION_SOUNDS } from "./pages/settings/NotificationsPanel";
 import type { NotificationSoundSettings } from "./types";
 import TitleBar from "./components/layout/TitleBar";
@@ -72,6 +73,9 @@ function MainApp() {
 
   // Click-to-reveal for spoiler tags rendered anywhere in the app.
   useSpoilerReveal();
+
+  // Syntax-highlight any <pre><code> block rendered anywhere in the app.
+  useCodeHighlight();
 
   // Check first-run status on mount and load persisted preferences.
   // Also apply saved audio settings and shortcuts to the backend so
