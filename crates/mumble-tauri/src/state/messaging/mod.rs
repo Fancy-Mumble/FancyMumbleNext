@@ -55,7 +55,8 @@ impl AppState {
         limit: u32,
     ) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         let handle = handle.ok_or("Not connected")?;
@@ -64,7 +65,8 @@ impl AppState {
 
     pub async fn send_message(&self, channel_id: u32, body: String) -> Result<(), String> {
         let (handle, own_session, own_name, own_hash, is_fancy, pchat_protocol) = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             let pchat_proto = state
                 .channels
                 .get(&channel_id)
@@ -93,6 +95,7 @@ impl AppState {
             .is_some_and(|p| p.is_encrypted())
             && self
                 .inner
+                .snapshot()
                 .lock()
                 .map(|s| s.prefs.disable_dual_path)
                 .unwrap_or(false);
@@ -150,7 +153,8 @@ impl AppState {
         let Some(ref msg_id) = message_id else {
             return Ok(None);
         };
-        let session = self.inner.lock().ok()
+        let __session = self.inner.snapshot();
+        let session = __session.lock().ok()
             .and_then(|s| s.conn.own_session)
             .unwrap_or(0);
         self.build_pchat_encrypted(&pchat::OutboundMessage {
@@ -165,7 +169,8 @@ impl AppState {
     }
 
     fn store_own_message(&self, msg_data: OwnMessageData) {
-        let Ok(mut state) = self.inner.lock() else { return };
+        let __session = self.inner.snapshot();
+        let Ok(mut state) = __session.lock() else { return };
         let mut msg = ChatMessage {
             sender_session: msg_data.own_session,
             sender_name: msg_data.own_name,
@@ -199,7 +204,8 @@ impl AppState {
         new_body: String,
     ) -> Result<(), String> {
         let (handle, is_fancy) = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             (
                 state.conn.client_handle.clone(),
                 state.server.fancy_version.is_some(),
@@ -229,7 +235,7 @@ impl AppState {
             .await
             .map_err(|e| format!("Failed to send edit: {e}"))?;
 
-        if let Ok(mut state) = self.inner.lock() {
+        if let Ok(mut state) = self.inner.snapshot().lock() {
             if let Some(msgs) = state.msgs.by_channel.get_mut(&channel_id) {
                 if let Some(msg) = msgs.iter_mut().find(|m| m.message_id.as_deref() == Some(&message_id)) {
                     msg.body = new_body;
@@ -246,7 +252,8 @@ impl AppState {
         &self,
         outbound: &pchat::OutboundMessage<'_>,
     ) -> Result<Option<(mumble_protocol::proto::mumble_tcp::PchatMessage, ClientHandle)>, String> {
-        let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+        let __session = self.inner.snapshot();
+        let mut state = __session.lock().map_err(|e| e.to_string())?;
         let client = state.conn.client_handle.clone();
         if let (Some(ref mut pchat_state), Some(client)) = (&mut state.pchat_ctx.pchat, client) {
             if outbound.protocol == PchatProtocol::SignalV1

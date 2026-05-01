@@ -20,5 +20,6 @@ pub(crate) mod profile;
 pub(crate) mod public_servers;
 pub(crate) mod realtime;
 pub(crate) mod server;
+pub(crate) mod servers;
 pub(crate) mod system;
 pub(crate) mod window;

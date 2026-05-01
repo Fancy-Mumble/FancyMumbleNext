@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use tauri::{Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tracing::info;
 
 use mumble_protocol::client::ClientConfig;
@@ -11,6 +11,7 @@ use mumble_protocol::transport::tcp::TcpConfig;
 use mumble_protocol::transport::udp::UdpConfig;
 
 use super::event_handler::TauriEventHandler;
+use super::sessions::ServerId;
 use super::types::*;
 use super::{AppState, SharedState};
 
@@ -23,10 +24,28 @@ impl AppState {
         cert_label: Option<String>,
         password: Option<String>,
     ) -> Result<(), String> {
-        let inner = self.inner.clone();
         let app_handle = self.app_handle().ok_or("App not initialized")?;
 
-        reset_state_for_connect(&inner, &username, &host, port, &app_handle)?;
+        // Allocate a fresh `SharedState` for this session and register
+        // it.  Existing sessions stay alive on their own `Arc`s; we
+        // simply swap the `inner` handle to point at the new one so it
+        // becomes the active session.
+        let server_id = ServerId::new();
+        let inner = self.fresh_session_state();
+        let _ = self
+            .registry
+            .register_active(server_id, std::sync::Arc::clone(&inner));
+        let _ = self.inner.swap(std::sync::Arc::clone(&inner));
+
+        reset_state_for_connect(
+            &inner,
+            &username,
+            &host,
+            port,
+            cert_label.as_deref(),
+            server_id,
+            &app_handle,
+        )?;
         init_identity(&inner, &app_handle, &cert_label);
 
         // Emit status change so the frontend can show a loading screen immediately.
@@ -34,6 +53,8 @@ impl AppState {
 
         // Spawn the actual connection work in the background so we don't
         // block the Tauri command (which freezes the webview).
+        let registry = self.registry.clone();
+        let active_handle = self.inner.clone();
         let connect_task = tokio::spawn(async move {
             // Load client certificate from the per-identity folder.
             let (client_cert_pem, client_key_pem) = if let Some(ref label) = cert_label {
@@ -74,16 +95,29 @@ impl AppState {
                 shared: inner.clone(),
                 app: app_handle.clone(),
                 epoch,
+                server_id,
                 inbound_audio_count: 0,
             };
 
             let result = mumble_protocol::client::run(config, handler).await;
-            handle_connect_result(result, &inner, &app_handle, username, password).await;
+            handle_connect_result(
+                result,
+                ConnectResultCtx {
+                    inner: &inner,
+                    app_handle: &app_handle,
+                    username,
+                    password,
+                    registry: &registry,
+                    server_id,
+                    active_handle: &active_handle,
+                },
+            )
+            .await;
         });
 
         // Store the task handle so disconnect() can abort it if the user
         // cancels before the TCP handshake completes.
-        if let Ok(mut state) = self.inner.lock() {
+        if let Ok(mut state) = self.inner.snapshot().lock() {
             state.conn.connect_task_handle = Some(connect_task);
         }
 
@@ -91,24 +125,43 @@ impl AppState {
     }
 
     pub async fn disconnect(&self) -> Result<(), String> {
-        // Stop audio before disconnecting.
-        self.stop_audio();
+        match self.registry.active_id() {
+            Some(id) => self.disconnect_session(id).await,
+            None => Ok(()),
+        }
+    }
 
-        // Stop Android foreground service before tearing down the connection.
-        #[cfg(target_os = "android")]
-        {
-            use tauri::Manager;
-            if let Some(app_handle) = self.app_handle() {
-                if let Some(handle) =
-                    app_handle.try_state::<crate::platform::android::connection_service::ConnectionServiceHandle>()
-                {
-                    crate::platform::android::connection_service::stop_service(&handle);
+    /// Tear down a specific session by id.  When `id` is the currently
+    /// active session this also stops audio and rebinds `inner` to
+    /// whichever session becomes active next (or the empty default if
+    /// none remain).  When `id` is a non-active session the active
+    /// session's audio pipeline and `inner` pointer are left untouched.
+    pub async fn disconnect_session(&self, id: ServerId) -> Result<(), String> {
+        let arc = self
+            .registry
+            .session(id)
+            .ok_or_else(|| format!("unknown server id: {id}"))?;
+        let is_active = self.registry.active_id() == Some(id);
+
+        if is_active {
+            // Stop audio for the session being torn down (== current inner).
+            self.stop_audio_on(&arc);
+
+            // Stop Android foreground service for the active connection.
+            #[cfg(target_os = "android")]
+            {
+                if let Some(app_handle) = self.app_handle() {
+                    if let Some(handle) = app_handle
+                        .try_state::<crate::platform::android::connection_service::ConnectionServiceHandle>()
+                    {
+                        crate::platform::android::connection_service::stop_service(&handle);
+                    }
                 }
             }
         }
 
         let (handle, join, connect_task) = {
-            let mut guard = self.inner.lock().map_err(|e| e.to_string())?;
+            let mut guard = arc.lock().map_err(|e| e.to_string())?;
             guard.conn.user_initiated_disconnect = true;
             (
                 guard.conn.client_handle.take(),
@@ -141,8 +194,7 @@ impl AppState {
                 }
             }
         }
-
-        if let Ok(mut state) = self.inner.lock() {
+        if let Ok(mut state) = arc.lock() {
             // Persist signal bridge sender key state before dropping pchat.
             // Note: on_disconnected may have already cleared pchat, so this
             // is a safety net for cases where disconnect() runs first.
@@ -152,6 +204,8 @@ impl AppState {
             }
 
             state.conn.status = ConnectionStatus::Disconnected;
+            state.server_id = None;
+            state.cert_label = None;
             state.conn.client_handle = None;
             state.conn.connect_task_handle = None;
             state.conn.event_loop_handle = None;
@@ -173,6 +227,19 @@ impl AppState {
             state.pchat_ctx.pending_key_shares.clear();
         }
 
+        // Drop the session from the registry so `list_servers` reflects
+        // the disconnect.  If this was the active session, also rebind
+        // `inner` to whichever session (if any) becomes active next.
+        let _ = self.registry.remove(id);
+        if is_active {
+            match self.registry.active_id().and_then(|nid| self.registry.session(nid)) {
+                Some(next_arc) => {
+                    let _ = self.inner.swap(next_arc);
+                }
+                None => self.reset_to_default(),
+            }
+        }
+
         Ok(())
     }
 }
@@ -190,7 +257,9 @@ fn reset_state_for_connect(
     username: &str,
     host: &str,
     port: u16,
-    app_handle: &tauri::AppHandle,
+    cert_label: Option<&str>,
+    server_id: ServerId,
+    app_handle: &AppHandle,
 ) -> Result<(), String> {
     let mut state = inner.lock().map_err(|e| e.to_string())?;
 
@@ -205,6 +274,8 @@ fn reset_state_for_connect(
     }
 
     state.conn.epoch += 1;
+    state.server_id = Some(server_id);
+    state.cert_label = cert_label.map(str::to_owned);
     state.conn.status = ConnectionStatus::Connecting;
     state.conn.own_name = username.to_owned();
     state.server.host = host.to_owned();
@@ -240,7 +311,7 @@ fn reset_state_for_connect(
 /// the identity seed for the given certificate label.
 fn init_identity(
     inner: &SharedInner,
-    app_handle: &tauri::AppHandle,
+    app_handle: &AppHandle,
     cert_label: &Option<String>,
 ) {
     // Cert-hash-to-username resolver (persisted across sessions).
@@ -276,6 +347,18 @@ fn init_identity(
     }
 }
 
+/// Bundle of context passed to [`handle_connect_result`] so the
+/// function signature stays within Clippy's `too_many_arguments` limit.
+struct ConnectResultCtx<'a> {
+    inner: &'a SharedInner,
+    app_handle: &'a AppHandle,
+    username: String,
+    password: Option<String>,
+    registry: &'a super::registry::Registry,
+    server_id: ServerId,
+    active_handle: &'a super::shared_handle::SharedHandle,
+}
+
 /// Handle the result of `mumble_protocol::client::run()`: store handles,
 /// send Authenticate, or emit rejection events on failure.
 async fn handle_connect_result(
@@ -283,11 +366,17 @@ async fn handle_connect_result(
         (mumble_protocol::client::ClientHandle, tokio::task::JoinHandle<()>),
         mumble_protocol::error::Error,
     >,
-    inner: &SharedInner,
-    app_handle: &tauri::AppHandle,
-    username: String,
-    password: Option<String>,
+    ctx: ConnectResultCtx<'_>,
 ) {
+    let ConnectResultCtx {
+        inner,
+        app_handle,
+        username,
+        password,
+        registry,
+        server_id,
+        active_handle,
+    } = ctx;
     match result {
         Ok((handle, join)) => {
             if let Ok(mut state) = inner.lock() {
@@ -307,13 +396,10 @@ async fn handle_connect_result(
             {
                 tracing::error!("Failed to send auth: {e}");
                 mark_disconnected(inner);
-                let _ = app_handle.emit(
-                    "connection-rejected",
-                    RejectedPayload {
-                        reason: format!("Failed to authenticate: {e}"),
-                        reject_type: None,
-                    },
-                );
+                let _ = registry.remove(server_id);
+                rebind_active(active_handle, registry);
+                let reason = format!("Failed to authenticate: {e}");
+                emit_session_rejected(app_handle, server_id, reason);
                 return;
             }
 
@@ -331,23 +417,56 @@ async fn handle_connect_result(
         Err(e) => {
             tracing::error!("Connection failed: {e}");
             mark_disconnected(inner);
-            let _ = app_handle.emit(
-                "connection-rejected",
-                RejectedPayload {
-                    reason: format!("Connection failed: {e}"),
-                    reject_type: None,
-                },
-            );
+            let _ = registry.remove(server_id);
+            rebind_active(active_handle, registry);
+            let reason = format!("Connection failed: {e}");
+            emit_session_rejected(app_handle, server_id, reason);
         }
     }
+}
+
+/// Emit `connection-rejected` (and matching `server-disconnected`) for
+/// a specific session id, ensuring the frontend can route the events
+/// to the correct tab without affecting other sessions.
+fn emit_session_rejected(app_handle: &AppHandle, server_id: ServerId, reason: String) {
+    let id = server_id.to_string();
+    let _ = app_handle.emit(
+        "connection-rejected",
+        serde_json::json!({
+            "serverId": id.clone(),
+            "reason": reason.clone(),
+            "reject_type": serde_json::Value::Null,
+        }),
+    );
+    let _ = app_handle.emit(
+        "server-disconnected",
+        DisconnectedPayload { server_id: Some(id), reason: Some(reason) },
+    );
 }
 
 /// Clear connection handles and set status to `Disconnected`.
 fn mark_disconnected(inner: &SharedInner) {
     if let Ok(mut state) = inner.lock() {
         state.conn.status = ConnectionStatus::Disconnected;
+        state.server_id = None;
+        state.cert_label = None;
         state.conn.client_handle = None;
         state.conn.event_loop_handle = None;
         state.conn.connect_task_handle = None;
+    }
+}
+
+/// After a session is removed from the registry, point `active_handle`
+/// at whichever session became active next (or leave it pointing at the
+/// failed session if nothing remains; callers may also explicitly reset).
+fn rebind_active(
+    active_handle: &super::shared_handle::SharedHandle,
+    registry: &super::registry::Registry,
+) {
+    if let Some(arc) = registry
+        .active_id()
+        .and_then(|id| registry.session(id))
+    {
+        let _ = active_handle.swap(arc);
     }
 }

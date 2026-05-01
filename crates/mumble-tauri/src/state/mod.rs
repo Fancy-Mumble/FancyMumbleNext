@@ -36,10 +36,14 @@ mod protocol_commands;
 mod query;
 #[allow(dead_code, reason = "recording module is work-in-progress")]
 pub(crate) mod recording;
+mod registry;
 mod search;
+mod sessions;
+mod shared_handle;
 pub mod types;
 
 // Re-export everything that lib.rs needs.
+pub use sessions::{ServerId, SessionMeta};
 pub use types::{
     AudioDevice, AudioSettings, ChannelEntry, ChatMessage, ConnectionStatus, DebugStats,
     PhotoEntry, SearchResult, ServerConfig, ServerInfo, UserEntry, VoiceState,
@@ -106,7 +110,7 @@ pub(super) struct ServerMetadata {
 }
 
 /// User-level preference flags.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct AppPreferences {
     pub notifications_enabled: bool,
     pub disable_dual_path: bool,
@@ -184,13 +188,32 @@ pub(super) struct SharedState {
     pub pchat_ctx: PchatContext,
     pub prefs: AppPreferences,
     pub offload_store: Option<OffloadStore>,
+    /// Multi-server: stable id of the connection this state belongs to.
+    /// Set when the session is registered, cleared on teardown.
+    pub server_id: Option<ServerId>,
+    /// Certificate label used for this connection (if any), kept so
+    /// `list_servers` can surface it without re-querying the connect args.
+    pub cert_label: Option<String>,
 }
 
 // --- Tauri-managed application state ------------------------------
 
 /// Central state managed by Tauri and shared across all commands.
 pub struct AppState {
-    pub(crate) inner: Arc<Mutex<SharedState>>,
+    /// Atomically-swappable handle to the currently-active session's
+    /// [`SharedState`].  Existing call sites continue to spell
+    /// `state.inner.snapshot().lock()`; under the hood the lock targets whichever
+    /// session is active at lock time.
+    pub(crate) inner: shared_handle::SharedHandle,
+    /// Multi-server registry mapping `ServerId -> Arc<Mutex<SharedState>>`,
+    /// plus which session is currently active.  Each connected server
+    /// has its own backing `SharedState` so per-server data (channels,
+    /// users, messages, audio) stays isolated.
+    pub(crate) registry: registry::Registry,
+    /// Default empty `SharedState` selected when no server is connected,
+    /// so commands can always lock something and observe a sensible
+    /// disconnected view instead of failing.
+    default_inner: Arc<Mutex<SharedState>>,
     app_handle: Mutex<Option<AppHandle>>,
     start_time: Instant,
     http_client: reqwest::Client,
@@ -202,21 +225,113 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(SharedState {
-                prefs: AppPreferences {
-                    notifications_enabled: true,
-                    app_focused: true,
-                    ..Default::default()
-                },
+        let default_inner = Arc::new(Mutex::new(SharedState {
+            prefs: AppPreferences {
+                notifications_enabled: true,
+                app_focused: true,
                 ..Default::default()
-            })),
+            },
+            ..Default::default()
+        }));
+        Self {
+            registry: registry::Registry::default(),
+            inner: shared_handle::SharedHandle::new(Arc::clone(&default_inner)),
+            default_inner,
             app_handle: Mutex::new(None),
             start_time: Instant::now(),
             http_client: file_server::new_http_client(),
             upload_cancels: Mutex::new(HashMap::new()),
             popout_images: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Build a fresh, empty per-session `SharedState` with the same
+    /// global preferences as the default one (notifications on, focused).
+    pub(crate) fn fresh_session_state(&self) -> Arc<Mutex<SharedState>> {
+        let prefs = self
+            .default_inner
+            .lock()
+            .map(|s| s.prefs.clone())
+            .unwrap_or_default();
+        Arc::new(Mutex::new(SharedState {
+            prefs,
+            ..Default::default()
+        }))
+    }
+
+    /// Switch the currently-active session to `target`.  Updates both
+    /// the registry's `active` pointer and the `inner` swap so commands
+    /// without an explicit `serverId` start operating on the new session.
+    pub(crate) fn switch_active_to(&self, target: ServerId) -> Result<(), String> {
+        let arc = self
+            .registry
+            .session(target)
+            .ok_or_else(|| format!("unknown server id: {target}"))?;
+        self.registry.set_active(target)?;
+        let _ = self.inner.swap(arc);
+        Ok(())
+    }
+
+    /// Switch the active session to `target` and migrate any running
+    /// voice pipeline along with it.  If voice was Active or Muted on
+    /// the previously-active session, it is stopped there and started
+    /// on the new active session in the same mode.  Voice always
+    /// follows the active server.
+    pub(crate) async fn switch_active_with_voice(
+        &self,
+        target: ServerId,
+    ) -> Result<(), String> {
+        use crate::state::types::VoiceState;
+
+        let prev_arc = self.inner.snapshot();
+        let target_arc = self
+            .registry
+            .session(target)
+            .ok_or_else(|| format!("unknown server id: {target}"))?;
+
+        if Arc::ptr_eq(&prev_arc, &target_arc) {
+            return Ok(());
+        }
+        drop(target_arc);
+
+        let prev_voice = prev_arc
+            .lock()
+            .map(|s| s.audio.voice_state)
+            .unwrap_or_default();
+
+        if prev_voice != VoiceState::Inactive {
+            self.stop_audio_on(&prev_arc);
+            if let Ok(mut s) = prev_arc.lock() {
+                s.audio.voice_state = VoiceState::Inactive;
+            }
+        }
+
+        self.switch_active_to(target)?;
+
+        match prev_voice {
+            VoiceState::Inactive => {}
+            VoiceState::Active => {
+                if let Err(e) = self.enable_voice().await {
+                    tracing::warn!("voice migration: enable_voice on new active failed: {e}");
+                }
+            }
+            VoiceState::Muted => {
+                if let Err(e) = self.enable_voice_muted().await {
+                    tracing::warn!(
+                        "voice migration: enable_voice_muted on new active failed: {e}"
+                    );
+                }
+            }
+        }
+
+        self.emit_voice_state();
+        Ok(())
+    }
+
+    /// Reset `inner` to the empty default `SharedState` (used when the
+    /// last session disconnects).
+    pub(crate) fn reset_to_default(&self) {
+        let _ = self.inner.swap(Arc::clone(&self.default_inner));
     }
 
     /// Inject the Tauri `AppHandle` during setup.
@@ -254,6 +369,11 @@ impl AppState {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "panic-on-failure is acceptable in test code"
+)]
 mod tests {
     use super::*;
 
@@ -299,5 +419,114 @@ mod tests {
         }
         assert_eq!(buf.len(), 10);
         assert_eq!(buf.first().and_then(|m| m.timestamp), Some(0));
+    }
+
+    // Phase E: voice migration on active-session switch.
+    //
+    // We cover the safe branches that don't try to start a real audio
+    // pipeline: unknown target, same-as-active no-op, and the
+    // VoiceState::Inactive case where migration just performs the swap.
+
+    fn register_idle_session(state: &AppState) -> ServerId {
+        let id = ServerId::new();
+        let arc = state.fresh_session_state();
+        let _ = state.registry.register_active(id, arc);
+        id
+    }
+
+
+    #[tokio::test]
+    async fn switch_active_with_voice_unknown_target_errors() {
+        let state = AppState::new();
+        let _ = register_idle_session(&state);
+        let bogus = ServerId::new();
+        assert!(state.switch_active_with_voice(bogus).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn switch_active_with_voice_same_session_is_noop() {
+        let state = AppState::new();
+        let id = register_idle_session(&state);
+        // Point `inner` at the registered session (registration alone
+        // only updates the registry).
+        state.switch_active_to(id).expect("ok");
+        let prev = state.inner.snapshot();
+        state.switch_active_with_voice(id).await.expect("ok");
+        let next = state.inner.snapshot();
+        assert!(Arc::ptr_eq(&prev, &next));
+    }
+
+    #[tokio::test]
+    async fn switch_active_with_voice_inactive_just_swaps() {
+        let state = AppState::new();
+        let a = register_idle_session(&state);
+        let b = register_idle_session(&state);
+        // Most recently registered wins active in the registry.
+        assert_eq!(state.registry.active_id(), Some(b));
+        state.switch_active_to(b).expect("ok");
+        state.switch_active_with_voice(a).await.expect("ok");
+        assert_eq!(state.registry.active_id(), Some(a));
+        let active_arc = state.registry.session(a).expect("a present");
+        assert!(Arc::ptr_eq(&state.inner.snapshot(), &active_arc));
+    }
+
+    // Regression: disconnecting a non-active session must NOT touch
+    // the active session's `inner` pointer, the active session's
+    // SharedState, or the active session's audio pipeline.
+
+    #[tokio::test]
+    async fn disconnect_session_non_active_leaves_active_inner_intact() {
+        let state = AppState::new();
+        let active = register_idle_session(&state);
+        let victim = register_idle_session(&state);
+        state.switch_active_to(active).expect("ok");
+
+        let active_arc_before = state.registry.session(active).expect("active");
+        assert!(Arc::ptr_eq(&state.inner.snapshot(), &active_arc_before));
+
+        state.disconnect_session(victim).await.expect("ok");
+
+        // Victim removed from registry.
+        assert!(state.registry.session(victim).is_none());
+        // Active still active and `inner` still points at it.
+        assert_eq!(state.registry.active_id(), Some(active));
+        assert!(Arc::ptr_eq(&state.inner.snapshot(), &active_arc_before));
+    }
+
+    #[tokio::test]
+    async fn disconnect_session_active_rebinds_inner_to_remaining() {
+        let state = AppState::new();
+        let other = register_idle_session(&state);
+        let active = register_idle_session(&state);
+        state.switch_active_to(active).expect("ok");
+
+        state.disconnect_session(active).await.expect("ok");
+
+        // Active gone, the remaining session takes over.
+        assert!(state.registry.session(active).is_none());
+        assert_eq!(state.registry.active_id(), Some(other));
+        let other_arc = state.registry.session(other).expect("other present");
+        assert!(Arc::ptr_eq(&state.inner.snapshot(), &other_arc));
+    }
+
+    #[tokio::test]
+    async fn disconnect_session_last_resets_to_default() {
+        let state = AppState::new();
+        let only = register_idle_session(&state);
+        state.switch_active_to(only).expect("ok");
+
+        state.disconnect_session(only).await.expect("ok");
+
+        assert!(state.registry.active_id().is_none());
+        // `inner` must point at the empty default state.
+        assert!(Arc::ptr_eq(&state.inner.snapshot(), &state.default_inner));
+    }
+
+    #[tokio::test]
+    async fn disconnect_session_unknown_id_errors() {
+        let state = AppState::new();
+        let _active = register_idle_session(&state);
+        let bogus = ServerId::new();
+        assert!(state.disconnect_session(bogus).await.is_err());
     }
 }

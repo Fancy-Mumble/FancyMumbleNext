@@ -133,7 +133,7 @@ pub(crate) async fn set_audio_settings(
         state.restart_inbound()?;
     }
     if force_tcp_changed {
-        if let Ok(inner) = state.inner.lock() {
+        if let Ok(inner) = state.inner.snapshot().lock() {
             if let Some(ref handle) = inner.conn.client_handle {
                 handle.set_force_tcp(force_tcp);
             }

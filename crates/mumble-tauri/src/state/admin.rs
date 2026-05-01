@@ -9,7 +9,8 @@ use super::AppState;
 impl AppState {
     pub async fn kick_user(&self, session: u32, reason: Option<String>) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {
@@ -23,7 +24,8 @@ impl AppState {
 
     pub async fn ban_user(&self, session: u32, reason: Option<String>) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {
@@ -37,7 +39,8 @@ impl AppState {
 
     pub async fn register_user(&self, session: u32) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {
@@ -51,7 +54,8 @@ impl AppState {
 
     pub async fn mute_user(&self, session: u32, muted: bool) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {
@@ -65,7 +69,8 @@ impl AppState {
 
     pub async fn deafen_user(&self, session: u32, deafened: bool) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {
@@ -83,7 +88,8 @@ impl AppState {
         priority: bool,
     ) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {
@@ -97,7 +103,8 @@ impl AppState {
 
     pub async fn reset_user_comment(&self, session: u32) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {
@@ -111,7 +118,8 @@ impl AppState {
 
     pub async fn remove_user_avatar(&self, session: u32) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {
@@ -125,7 +133,8 @@ impl AppState {
 
     pub async fn request_user_stats(&self, session: u32) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {
@@ -139,7 +148,8 @@ impl AppState {
 
     pub async fn request_user_list(&self) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {
@@ -153,7 +163,8 @@ impl AppState {
 
     pub async fn request_user_comment(&self, user_id: u32) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         let handle = handle.ok_or_else(|| "Not connected".to_owned())?;
@@ -173,7 +184,8 @@ impl AppState {
         users: Vec<RegisteredUserUpdate>,
     ) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         let entries = users
@@ -194,7 +206,8 @@ impl AppState {
 
     pub async fn request_ban_list(&self) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {
@@ -230,7 +243,8 @@ impl AppState {
         let entries = entries?;
 
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {
@@ -244,7 +258,8 @@ impl AppState {
 
     pub async fn request_acl(&self, channel_id: u32) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {
@@ -299,7 +314,8 @@ impl AppState {
             .collect();
 
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {

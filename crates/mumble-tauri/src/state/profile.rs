@@ -9,7 +9,8 @@ impl AppState {
     /// Set the user's comment on the connected server.
     pub async fn set_user_comment(&self, comment: String) -> Result<(), String> {
         let (handle, own_session) = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             (state.conn.client_handle.clone(), state.conn.own_session)
         };
         match handle {
@@ -21,7 +22,8 @@ impl AppState {
                 .map_err(|e| e.to_string())?;
 
                 if let Some(session) = own_session {
-                    let _ = self.inner.lock().ok().and_then(|mut state| {
+                    let __session = self.inner.snapshot();
+                    let _ = __session.lock().ok().and_then(|mut state| {
                         let user = state.users.get_mut(&session)?;
                         user.comment = (!comment.is_empty()).then_some(comment);
                         Some(())
@@ -39,7 +41,8 @@ impl AppState {
     /// Set the user's avatar texture on the connected server.
     pub async fn set_user_texture(&self, texture: Vec<u8>) -> Result<(), String> {
         let (handle, own_session) = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             (state.conn.client_handle.clone(), state.conn.own_session)
         };
         match handle {
@@ -51,7 +54,8 @@ impl AppState {
                 .map_err(|e| e.to_string())?;
 
                 if let Some(session) = own_session {
-                    let _ = self.inner.lock().ok().and_then(|mut state| {
+                    let __session = self.inner.snapshot();
+                    let _ = __session.lock().ok().and_then(|mut state| {
                         let user = state.users.get_mut(&session)?;
                         user.texture = (!texture.is_empty()).then_some(texture);
                         Some(())

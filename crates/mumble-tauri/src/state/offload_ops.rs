@@ -13,7 +13,7 @@ impl AppState {
         let base_dir = self.offload_base_dir()?;
         OffloadStore::cleanup_stale(&base_dir);
         let store = OffloadStore::new(base_dir)?;
-        if let Ok(mut state) = self.inner.lock() {
+        if let Ok(mut state) = self.inner.snapshot().lock() {
             state.offload_store = Some(store);
         }
         Ok(())
@@ -34,7 +34,8 @@ impl AppState {
         scope: String,
         scope_id: String,
     ) -> Result<(), String> {
-        let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+        let __session = self.inner.snapshot();
+        let mut state = __session.lock().map_err(|e| e.to_string())?;
 
         let body = find_message_body(&state, &scope, &scope_id, &message_id)?;
 
@@ -67,7 +68,8 @@ impl AppState {
         scope: String,
         scope_id: String,
     ) -> Result<String, String> {
-        let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+        let __session = self.inner.snapshot();
+        let mut state = __session.lock().map_err(|e| e.to_string())?;
 
         let store = state
             .offload_store
@@ -87,7 +89,8 @@ impl AppState {
         scope: String,
         scope_id: String,
     ) -> Result<HashMap<String, String>, String> {
-        let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+        let __session = self.inner.snapshot();
+        let mut state = __session.lock().map_err(|e| e.to_string())?;
 
         let store = state
             .offload_store
@@ -113,7 +116,7 @@ impl AppState {
     }
 
     pub fn clear_offloaded(&self) {
-        if let Ok(mut state) = self.inner.lock() {
+        if let Ok(mut state) = self.inner.snapshot().lock() {
             if let Some(store) = state.offload_store.as_mut() {
                 store.clear();
             }
@@ -121,7 +124,7 @@ impl AppState {
     }
 
     pub fn shutdown_offload_store(&self) {
-        if let Ok(mut state) = self.inner.lock() {
+        if let Ok(mut state) = self.inner.snapshot().lock() {
             if let Some(store) = state.offload_store.as_mut() {
                 store.cleanup_dir();
             }

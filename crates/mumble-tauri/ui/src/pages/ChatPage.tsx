@@ -1,4 +1,5 @@
 import { MenuIcon } from "../icons";
+import { invoke } from "@tauri-apps/api/core";
 import { lazy, Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store";
@@ -19,7 +20,14 @@ export default function ChatPage() {
   const selectedChannel = useAppStore((s) => s.selectedChannel);
   const selectedUser = useAppStore((s) => s.selectedUser);
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
+  const sessions = useAppStore((s) => s.sessions);
+  const activeServerId = useAppStore((s) => s.activeServerId);
+  const error = useAppStore((s) => s.error);
+  const connect = useAppStore((s) => s.connect);
+  const refreshSessions = useAppStore((s) => s.refreshSessions);
   const navigate = useNavigate();
+
+  const [isReconnecting, setIsReconnecting] = useState(false);
 
 
   // On desktop, track whether the viewport is narrow (<= 768px).
@@ -74,12 +82,13 @@ export default function ChatPage() {
     drawerRef,
   });
 
-  // Redirect to connect page if not connected.
+  // Redirect to connect page when disconnected with no open sessions.
+  // With open sessions we stay on /chat and show the reconnect overlay.
   useEffect(() => {
-    if (status === "disconnected") {
+    if (status === "disconnected" && sessions.length === 0) {
       navigate("/");
     }
-  }, [status, navigate]);
+  }, [status, sessions.length, navigate]);
 
   // On mobile, block the Android swipe-back gesture / hardware back button
   // from navigating away from the chat page (which would break the connection).
@@ -99,6 +108,49 @@ export default function ChatPage() {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, [isMobile, status]);
+
+  const handleReconnect = useCallback(async () => {
+    const meta = sessions.find((s) => s.id === activeServerId);
+    if (!meta) return;
+    setIsReconnecting(true);
+    try {
+      // Remove the dead session first so reconnect creates a fresh one.
+      await invoke("disconnect_server", { serverId: meta.id });
+      await refreshSessions();
+      await connect(meta.host, meta.port, meta.username, meta.certLabel);
+    } finally {
+      setIsReconnecting(false);
+    }
+  }, [sessions, activeServerId, connect, refreshSessions]);
+
+  if (status === "disconnected" && sessions.length > 0) {
+    const meta = sessions.find((s) => s.id === activeServerId);
+    const serverLabel = meta?.label || meta?.host || "Server";
+    const title = error ? "Disconnected" : "Connection lost";
+    return (
+      <div className={styles.reconnectPage}>
+        <div className={styles.reconnectCard}>
+          <div className={styles.reconnectIcon}>!</div>
+          <h2 className={styles.reconnectTitle}>{title}</h2>
+          <p className={styles.reconnectServer}>{serverLabel}</p>
+          {error && (
+            <div className={styles.reconnectReasonBox}>
+              <span className={styles.reconnectReasonLabel}>Reason</span>
+              <p className={styles.reconnectError}>{error}</p>
+            </div>
+          )}
+          <button
+            type="button"
+            className={styles.reconnectBtn}
+            onClick={() => void handleReconnect()}
+            disabled={isReconnecting}
+          >
+            {isReconnecting ? "Reconnecting..." : "Reconnect"}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={pageRef} className={styles.page}>

@@ -89,8 +89,30 @@ export function useNotificationSounds(
     let lastVoiceState: VoiceState | null = null;
     let lastChannel: number | null = null;
     let lastOwnSession: number | null | undefined = undefined;
+    let lastActiveServerId: string | null = null;
+
+    const resetPerServerRefs = () => {
+      prevUserCountRef.current = null;
+      prevChannelUsersRef.current = null;
+      prevChannelRef.current = null;
+    };
 
     const unsub = useAppStore.subscribe((state) => {
+      // When the active server changes, reset all per-server counters so
+      // the first snapshot from the new server does not trigger spurious
+      // join/leave/channel sounds.
+      if (state.activeServerId !== lastActiveServerId) {
+        lastActiveServerId = state.activeServerId;
+        resetPerServerRefs();
+        // Also reset cached refs so we don't compare stale slices.
+        lastUsersRef = null;
+        lastTalkingRef = null;
+        lastVoiceState = null;
+        lastChannel = null;
+        lastOwnSession = undefined;
+        return;
+      }
+
       const usersChanged = state.users !== lastUsersRef;
       const talkingChanged = state.talkingSessions !== lastTalkingRef;
       const voiceChanged = state.voiceState !== lastVoiceState;

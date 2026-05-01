@@ -84,7 +84,7 @@ impl AppState {
         format: RecordingFormat,
     ) -> Result<String, String> {
         // Only one recording at a time.
-        if let Ok(state) = self.inner.lock() {
+        if let Ok(state) = self.inner.snapshot().lock() {
             if state.audio.recording_handle.is_some() {
                 return Err("Recording already in progress".into());
             }
@@ -92,7 +92,8 @@ impl AppState {
 
         // Gather template context.
         let (host, user, channel, speaker_buffers) = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             let host = state.server.host.clone();
             let user = state.conn.own_name.clone();
             let channel = state
@@ -142,7 +143,9 @@ impl AppState {
 
         let path_str = file_path.to_string_lossy().to_string();
 
-        let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+        let __session = self.inner.snapshot();
+
+        let mut state = __session.lock().map_err(|e| e.to_string())?;
         state.audio.recording_handle = Some(RecordingHandle {
             _task: task,
             stop_flag,
@@ -157,7 +160,8 @@ impl AppState {
     /// Stop the current recording and finalize the file.
     pub fn stop_recording(&self) -> Result<String, String> {
         let handle = {
-            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let mut state = __session.lock().map_err(|e| e.to_string())?;
             state
                 .audio.recording_handle
                 .take()
@@ -174,7 +178,8 @@ impl AppState {
 
     /// Get the current recording state.
     pub fn recording_state(&self) -> RecordingState {
-        let state = self.inner.lock().ok();
+        let __session = self.inner.snapshot();
+        let state = __session.lock().ok();
         match state.and_then(|s| s.audio.recording_handle.as_ref().map(|h| {
             (
                 h.file_path.to_string_lossy().to_string(),
