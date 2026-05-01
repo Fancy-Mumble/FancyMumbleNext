@@ -388,6 +388,10 @@ export interface UserPreferences {
   disableOsmMaps?: boolean;
   /** When true, rich link previews (including external resource embeds) are hidden. */
   disableLinkPreviews?: boolean;
+  /** Streamer mode: hides identifying information (server host/IP, own IP)
+   *  and suppresses native notifications so personal data does not leak
+   *  into screen captures or recordings. */
+  streamerMode?: boolean;
   /** When true, automatically retry connecting after an unexpected disconnect. */
   autoReconnect?: boolean;
   /** When true, app updates are downloaded and installed automatically on

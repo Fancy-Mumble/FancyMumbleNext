@@ -7,22 +7,26 @@ export function PrivacyPanel({
   disableTypingIndicators,
   disableOsmMaps,
   disableLinkPreviews,
+  streamerMode,
   onToggleDualPath,
   onToggleReadReceipts,
   onToggleTypingIndicators,
   onToggleOsmMaps,
   onToggleLinkPreviews,
+  onToggleStreamerMode,
 }: {
   enableDualPath: boolean;
   disableReadReceipts: boolean;
   disableTypingIndicators: boolean;
   disableOsmMaps: boolean;
   disableLinkPreviews: boolean;
+  streamerMode: boolean;
   onToggleDualPath: () => void;
   onToggleReadReceipts: () => void;
   onToggleTypingIndicators: () => void;
   onToggleOsmMaps: () => void;
   onToggleLinkPreviews: () => void;
+  onToggleStreamerMode: () => void;
 }) {
   return (
     <>
@@ -104,6 +108,22 @@ export function PrivacyPanel({
             </p>
           </div>
           <Toggle checked={disableLinkPreviews} onChange={onToggleLinkPreviews} />
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.toggleRow}>
+          <div className={styles.toggleInfo}>
+            <h3 className={styles.sectionTitle}>
+              Streamer mode
+            </h3>
+            <p className={styles.fieldHint}>
+              Hides identifying information (server host, ports, IP
+              addresses, geolocation) and suppresses native notifications
+              so they cannot leak personal data into a screen recording.
+            </p>
+          </div>
+          <Toggle checked={streamerMode} onChange={onToggleStreamerMode} />
         </div>
       </section>
     </>

@@ -298,6 +298,10 @@ interface AppState {
   /** Whether the user has opted out of requesting link previews. */
   disableLinkPreviews: boolean;
 
+  /** Streamer mode - when true, sensitive identifiers (host/IP) are
+   *  masked across the UI to keep them out of screen captures. */
+  streamerMode: boolean;
+
   /** Monotonic counter incremented whenever the module-level reaction store changes. */
   reactionVersion: number;
 
@@ -696,6 +700,7 @@ function updateBadgeCount(): void {
 export const useAppStore = create<AppState>((set, get) => ({
   ...INITIAL,
   disableLinkPreviews: false,
+  streamerMode: false,
 
   connect: async (host, port, username, certLabel, password) => {
     manualDisconnectRequested = false;

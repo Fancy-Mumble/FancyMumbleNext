@@ -13,8 +13,8 @@
 # symbol table with readelf.
 #
 # Usage:
-#   ./scripts/check-android-so.sh                           # auto-discover
-#   ./scripts/check-android-so.sh path/to/libmumble_tauri.so
+#   ./scripts/check-android-so.sh                                # auto-discover
+#   ./scripts/check-android-so.sh path/to/libmumble_tauri_lib.so
 #
 # Requirements:
 #   readelf or llvm-readelf (pre-installed on ubuntu runners)
@@ -79,10 +79,12 @@ if [[ $# -gt 0 ]]; then
         fi
     done
 else
-    # Auto-discover from cargo build output
+    # Auto-discover from cargo build output. The crate's [lib] name is
+    # `mumble_tauri_lib`, so cargo emits `libmumble_tauri_lib.so` (NOT
+    # `libmumble_tauri.so`).
     for triple in aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android; do
         for profile in debug release; do
-            so="target/${triple}/${profile}/libmumble_tauri.so"
+            so="target/${triple}/${profile}/libmumble_tauri_lib.so"
             if [[ -f "$so" ]]; then
                 SO_FILES+=("$so")
             fi
@@ -91,10 +93,10 @@ else
 fi
 
 if [[ ${#SO_FILES[@]} -eq 0 ]]; then
-    echo "ERROR: No libmumble_tauri.so files found."
+    echo "ERROR: No libmumble_tauri_lib.so files found."
     echo "       Build for Android first, or pass an explicit path."
     echo ""
-    echo "Usage: $0 [path/to/libmumble_tauri.so ...]"
+    echo "Usage: $0 [path/to/libmumble_tauri_lib.so ...]"
     exit 1
 fi
 

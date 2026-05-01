@@ -6,6 +6,7 @@ description = "Tauri desktop & mobile GUI for mumble-protocol"
 license = "MIT"
 
 [lib]
+name = "mumble_tauri_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]

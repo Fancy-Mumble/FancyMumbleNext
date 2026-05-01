@@ -13,10 +13,12 @@ import {
   useCallback,
   useEffect,
   useState,
+  useMemo,
   type KeyboardEvent,
   type ClipboardEvent,
   type ReactNode,
 } from "react";
+import hljs from "highlight.js/lib/common";
 import styles from "./MarkdownInput.module.css";
 
 // --- Markdown -> decorated spans -----------------------------------
@@ -29,6 +31,11 @@ interface Segment {
   strike?: boolean;
   code?: boolean;
   link?: boolean;
+  spoiler?: boolean;
+  /** Global CSS class from hljs for syntax-highlighted code tokens. */
+  hljsClass?: string;
+  /** Marker set by parseMarkdown; expanded to hljs tokens by expandFenceSegments. */
+  fenceCode?: { lang: string; body: string };
 }
 
 /**
@@ -84,6 +91,28 @@ function parseMarkdown(raw: string): Segment[] {
   };
 
   while (i < raw.length) {
+    // ``` fenced code block (must be checked before single backtick) ```
+    if (raw[i] === "`" && raw[i + 1] === "`" && raw[i + 2] === "`") {
+      const lineEnd = raw.indexOf("\n", i + 3);
+      if (lineEnd !== -1) {
+        const lang = raw.slice(i + 3, lineEnd);
+        const closeIdx = raw.indexOf("\n```", lineEnd);
+        // Accept both closed blocks and unclosed blocks (still being typed).
+        const body =
+          closeIdx !== -1
+            ? raw.slice(lineEnd + 1, closeIdx)
+            : raw.slice(lineEnd + 1);
+        const fullText =
+          closeIdx !== -1
+            ? raw.slice(i, closeIdx + 4)
+            : raw.slice(i);
+        pushCurrent();
+        segments.push({ text: fullText, fenceCode: { lang, body } });
+        i = closeIdx !== -1 ? closeIdx + 4 : raw.length;
+        continue;
+      }
+    }
+
     // `` `code` ``
     if (raw[i] === "`") {
       pushCurrent();
@@ -101,6 +130,17 @@ function parseMarkdown(raw: string): Segment[] {
       const end = raw.indexOf("**", i + 2);
       if (end !== -1) {
         segments.push({ text: raw.slice(i, end + 2), bold: true });
+        i = end + 2;
+        continue;
+      }
+    }
+
+    // ||spoiler||
+    if (raw[i] === "|" && raw[i + 1] === "|") {
+      pushCurrent();
+      const end = raw.indexOf("||", i + 2);
+      if (end !== -1) {
+        segments.push({ text: raw.slice(i, end + 2), spoiler: true });
         i = end + 2;
         continue;
       }
@@ -172,6 +212,65 @@ function pushWithUrls(
   }
 }
 
+/**
+ * Walk an hljs-produced HTML fragment and return flat `{text, cls}` tokens.
+ * Inherits the nearest ancestor's class name for each text leaf.
+ */
+function flattenHljs(html: string): Array<{ text: string; cls: string }> {
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  const tokens: Array<{ text: string; cls: string }> = [];
+
+  function visit(node: Node, cls: string): void {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const t = node.textContent ?? "";
+      if (t) tokens.push({ text: t, cls });
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      const childCls = el.className || cls;
+      for (const child of el.childNodes) visit(child, childCls);
+    }
+  }
+
+  for (const child of container.childNodes) visit(child, "");
+  return tokens;
+}
+
+/**
+ * Expand any `fenceCode` segments into hljs-coloured sub-segments.
+ * All other segments pass through unchanged. Called once per value change
+ * via useMemo so hljs runs only on edit, not on every cursor move.
+ */
+function expandFenceSegments(segments: Segment[]): Segment[] {
+  const result: Segment[] = [];
+  for (const seg of segments) {
+    if (!seg.fenceCode) {
+      result.push(seg);
+      continue;
+    }
+    const { lang, body } = seg.fenceCode;
+    result.push({ text: `\`\`\`${lang}\n` });
+    let tokens: Array<{ text: string; cls: string }>;
+    try {
+      const hl =
+        lang && hljs.getLanguage(lang)
+          ? hljs.highlight(body, { language: lang, ignoreIllegals: true })
+          : hljs.highlightAuto(body);
+      tokens = flattenHljs(hl.value);
+    } catch {
+      tokens = [{ text: body, cls: "" }];
+    }
+    for (const t of tokens) {
+      result.push({ text: t.text, hljsClass: t.cls || undefined });
+    }
+    // Only emit the closing fence marker when it was actually present in the raw text.
+    if (seg.text.endsWith("\n\`\`\`")) {
+      result.push({ text: "\n\`\`\`" });
+    }
+  }
+  return result;
+}
+
 /** CSS class for a segment's formatting. */
 function getSegmentClass(seg: Segment): string {
   const classes: string[] = [];
@@ -181,6 +280,7 @@ function getSegmentClass(seg: Segment): string {
   if (seg.strike) classes.push(styles.mdStrike);
   if (seg.code) classes.push(styles.mdCode);
   if (seg.link) classes.push(styles.mdLink);
+  if (seg.spoiler) classes.push(styles.mdSpoiler);
   return classes.join(" ");
 }
 
@@ -246,9 +346,9 @@ function renderFormattedOverlay(
       if (text) {
         const inSelection =
           hasSelection && globalFrom >= selFrom && globalTo <= selTo;
-        const combined = inSelection
-          ? `${cls} ${styles.selection}`.trim()
-          : cls;
+        const hlCls = seg.hljsClass ?? "";
+        const base = [cls, hlCls].filter(Boolean).join(" ");
+        const combined = inSelection ? `${base} ${styles.selection}`.trim() : base;
         nodes.push(
           <span key={keyIdx++} className={combined || undefined}>
             {text}
@@ -275,6 +375,21 @@ export function markdownToHtml(raw: string): string {
   let html = raw;
   // Escape HTML entities first
   html = html.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  // Extract fenced code blocks first so their contents are not subject to
+  // any further markdown processing (in particular the trailing newline -> <br>
+  // pass would otherwise corrupt them and break syntax highlighting).
+  const fenceStash: string[] = [];
+  html = html.replace(
+    /```([a-zA-Z0-9_+-]*)\n([\s\S]*?)```/g,
+    (_match, lang: string, body: string) => {
+      const cls = lang ? ` class="language-${lang}"` : "";
+      const trimmed = body.replace(/\n$/, "");
+      fenceStash.push(`<pre><code${cls}>${trimmed}</code></pre>`);
+      return `\u0000FENCE${fenceStash.length - 1}\u0000`;
+    },
+  );
+
   // `code`  -- must come before bold/italic to avoid mis-parsing
   html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
   // **bold**
@@ -285,6 +400,8 @@ export function markdownToHtml(raw: string): string {
   html = html.replace(/__(.+?)__/g, "<u>$1</u>");
   // ~~strikethrough~~
   html = html.replace(/~~(.+?)~~/g, "<s>$1</s>");
+  // ||spoiler||
+  html = html.replace(/\|\|(.+?)\|\|/g, '<span class="spoiler">$1</span>');
   // URLs -> clickable links (must run after entity escaping). Trailing
   // punctuation is stripped before the link is built so commas/parens
   // inside a URL are preserved while sentence punctuation isn't swallowed.
@@ -299,6 +416,11 @@ export function markdownToHtml(raw: string): string {
   );
   // Newlines -> <br> (must come last so inline formatting is applied first)
   html = html.replaceAll("\n", "<br>");
+
+  // Restore fenced code blocks after the <br> pass so their newlines survive.
+  html = html.replace(/\u0000FENCE(\d+)\u0000/g, (_m, idx: string) =>
+    fenceStash[Number(idx)] ?? "",
+  );
   return html;
 }
 
@@ -306,6 +428,11 @@ export function markdownToHtml(raw: string): string {
 export function htmlToMarkdown(html: string): string {
   let text = html;
   text = text.replaceAll(/<br\s*\/?>/gi, "\n");
+  text = text.replaceAll(
+    /<pre><code(?:\s+class="language-([a-zA-Z0-9_+-]+)")?>([\s\S]*?)<\/code><\/pre>/gi,
+    (_match, lang: string | undefined, body: string) =>
+      `\`\`\`${lang ?? ""}\n${body}\n\`\`\``,
+  );
   text = text.replaceAll(/<a[^>]*>([^<]*)<\/a>/gi, "$1");
   text = text.replaceAll(/<code>([^<]*)<\/code>/gi, "`$1`");
   text = text.replaceAll(/<b>([^<]*)<\/b>/gi, "**$1**");
@@ -314,6 +441,10 @@ export function htmlToMarkdown(html: string): string {
   text = text.replaceAll(/<em>([^<]*)<\/em>/gi, "*$1*");
   text = text.replaceAll(/<u>([^<]*)<\/u>/gi, "__$1__");
   text = text.replaceAll(/<s>([^<]*)<\/s>/gi, "~~$1~~");
+  text = text.replaceAll(
+    /<span\s+class="spoiler"[^>]*>([^<]*)<\/span>/gi,
+    "||$1||",
+  );
   text = text.replaceAll(/<!--[\s\S]*?-->/g, "");
   text = text.replaceAll(/<[^>]*>/g, "");
   text = text.replaceAll("&lt;", "<");
@@ -478,12 +609,18 @@ export default function MarkdownInput({
             wrapSelection("__", "__");
             return;
         }
+        // Ctrl/Cmd+Shift+H -> spoiler (H for "hide")
+        if (e.shiftKey && e.key.toLowerCase() === "h") {
+          e.preventDefault();
+          wrapSelection("||", "||");
+          return;
+        }
       }
     },
     [onSubmit, wrapSelection, onKeyDownCapture],
   );
 
-  const segments = parseMarkdown(value);
+  const segments = useMemo(() => expandFenceSegments(parseMarkdown(value)), [value]);
   const showPlaceholder = !value && !focused;
 
   return (

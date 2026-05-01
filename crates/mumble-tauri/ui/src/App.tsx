@@ -8,6 +8,8 @@ import { setKlipyApiKey as setKlipyApiKeyBanner } from "./pages/settings/KlipyGi
 import { loadShortcuts, applyGlobalShortcut } from "./pages/settings/shortcutHelpers";
 import { useVisualViewport } from "./hooks/useVisualViewport";
 import { useNotificationSounds } from "./hooks/useNotificationSounds";
+import { useSpoilerReveal } from "./hooks/useSpoilerReveal";
+import { useCodeHighlight } from "./hooks/useCodeHighlight";
 import { DEFAULT_NOTIFICATION_SOUNDS } from "./pages/settings/NotificationsPanel";
 import type { NotificationSoundSettings } from "./types";
 import TitleBar from "./components/layout/TitleBar";
@@ -69,6 +71,12 @@ function MainApp() {
   // Notification sounds - plays audio for events based on user config.
   useNotificationSounds(notifSounds);
 
+  // Click-to-reveal for spoiler tags rendered anywhere in the app.
+  useSpoilerReveal();
+
+  // Syntax-highlight any <pre><code> block rendered anywhere in the app.
+  useCodeHighlight();
+
   // Check first-run status on mount and load persisted preferences.
   // Also apply saved audio settings and shortcuts to the backend so
   // they take effect without the user visiting the settings page.
@@ -78,6 +86,12 @@ function MainApp() {
       setKlipyApiKey(prefs.klipyApiKey);
       setKlipyApiKeyBanner(prefs.klipyApiKey);
       useAppStore.setState({ disableLinkPreviews: prefs.disableLinkPreviews ?? false });
+      useAppStore.setState({ streamerMode: prefs.streamerMode ?? false });
+      // When streamer mode is enabled at startup, suppress native notifications
+      // so they cannot leak personal data into a screen recording.
+      if (prefs.streamerMode) {
+        invoke("set_notifications_enabled", { enabled: false }).catch(() => undefined);
+      }
       // Inform the Rust updater whether to auto-install on startup.
       invoke("updater_set_auto_install", { enabled: prefs.autoUpdateOnStartup ?? false })
         .catch(() => undefined);

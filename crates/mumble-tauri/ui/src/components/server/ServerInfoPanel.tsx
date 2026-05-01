@@ -17,6 +17,7 @@ import type { ServerInfo, DebugStats, AudioSettings } from "../../types";
 import { getPreferences, getSavedAudioSettings } from "../../preferencesStorage";
 import { formatBandwidth, formatDuration } from "../../utils/format";
 import { useAppStore } from "../../store";
+import { maskSensitive } from "../../utils/maskSensitive";
 import { SafeHtml } from "../elements/SafeHtml";
 import ActivityLog from "./ActivityLog";
 import styles from "./ServerInfoPanel.module.css";
@@ -172,6 +173,7 @@ interface ServerInfoPanelProps {
 export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
   const udpActive = useAppStore((s) => s.udpActive);
   const capabilities = useAppStore((s) => s.fileServerCapabilities);
+  const streamerMode = useAppStore((s) => s.streamerMode);
   const [info, setInfo] = useState<ServerInfo | null>(null);
   const [devMode, setDevMode] = useState(false);
   const [debugStats, setDebugStats] = useState<DebugStats | null>(null);
@@ -252,10 +254,14 @@ export default function ServerInfoPanel({ onClose }: ServerInfoPanelProps) {
             <h3 className={styles.sectionTitle}>Connection</h3>
             <div className={styles.infoGrid}>
               <span className={styles.infoLabel}>Host</span>
-              <span className={styles.infoValue}>{info.host}</span>
+              <span className={styles.infoValue}>
+                {streamerMode ? maskSensitive(info.host) : info.host}
+              </span>
 
               <span className={styles.infoLabel}>Port</span>
-              <span className={styles.infoValue}>{info.port}</span>
+              <span className={styles.infoValue}>
+                {streamerMode ? maskSensitive(info.port) : info.port}
+              </span>
 
               <span className={styles.infoLabel}>Users</span>
               <span className={styles.infoValue}>

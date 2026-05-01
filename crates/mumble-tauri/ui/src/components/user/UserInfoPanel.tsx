@@ -11,6 +11,8 @@ import type { GeoLocation } from "../../utils/geolocation";
 import { geolocateIp } from "../../utils/geolocation";
 import { getPreferences } from "../../preferencesStorage";
 import { formatDuration, formatBandwidth } from "../../utils/format";
+import { useAppStore } from "../../store";
+import { maskSensitive } from "../../utils/maskSensitive";
 import styles from "./UserInfoPanel.module.css";
 
 const OsmMap = lazy(() => import("../elements/OsmMap"));
@@ -63,6 +65,7 @@ export default function UserInfoPanel({ stats }: Readonly<Props>) {
 function ConnectionInfo({ stats }: Readonly<Props>) {
   const hasVersion = stats.version || stats.os;
   const [geo, setGeo] = useState<GeoLocation | null>(null);
+  const streamerMode = useAppStore((s) => s.streamerMode);
 
   useEffect(() => {
     if (!stats.address) {
@@ -71,7 +74,7 @@ function ConnectionInfo({ stats }: Readonly<Props>) {
     }
     let cancelled = false;
     getPreferences().then((prefs) => {
-      if (cancelled || prefs.disableOsmMaps) {
+      if (cancelled || prefs.disableOsmMaps || streamerMode) {
         if (!cancelled) setGeo(null);
         return;
       }
@@ -80,7 +83,7 @@ function ConnectionInfo({ stats }: Readonly<Props>) {
       });
     });
     return () => { cancelled = true; };
-  }, [stats.address]);
+  }, [stats.address, streamerMode]);
 
   if (!hasVersion && !stats.address) return null;
 
@@ -111,10 +114,12 @@ function ConnectionInfo({ stats }: Readonly<Props>) {
         {stats.address && (
           <>
             <span className={styles.infoLabel}>Address</span>
-            <span className={styles.infoValue}>{stats.address}</span>
+            <span className={styles.infoValue}>
+              {streamerMode ? maskSensitive(stats.address) : stats.address}
+            </span>
           </>
         )}
-        {geo && (
+        {geo && !streamerMode && (
           <>
             <span className={styles.infoLabel}>Location</span>
             <span className={styles.infoValue}>{popupLabel}</span>
@@ -133,7 +138,7 @@ function ConnectionInfo({ stats }: Readonly<Props>) {
           </span>
         </>
       </div>
-      {geo && (
+      {geo && !streamerMode && (
         <div className={styles.mapWrapper}>
           <Suspense fallback={null}>
             <OsmMap lat={geo.lat} lng={geo.lng} popupLabel={popupLabel} />
