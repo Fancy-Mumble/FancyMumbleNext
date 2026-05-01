@@ -34,8 +34,8 @@ describe("NotificationSoundSettings types and defaults", () => {
     }
   });
 
-  it("masterEnabled defaults to true", () => {
-    expect(DEFAULT_NOTIFICATION_SOUNDS.masterEnabled).toBe(true);
+  it("masterEnabled defaults to false", () => {
+    expect(DEFAULT_NOTIFICATION_SOUNDS.masterEnabled).toBe(false);
   });
 
   it("voiceActivity defaults to disabled", () => {
