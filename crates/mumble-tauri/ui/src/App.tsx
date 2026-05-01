@@ -8,6 +8,7 @@ import { setKlipyApiKey as setKlipyApiKeyBanner } from "./pages/settings/KlipyGi
 import { loadShortcuts, applyGlobalShortcut } from "./pages/settings/shortcutHelpers";
 import { useVisualViewport } from "./hooks/useVisualViewport";
 import { useNotificationSounds } from "./hooks/useNotificationSounds";
+import { useSpoilerReveal } from "./hooks/useSpoilerReveal";
 import { DEFAULT_NOTIFICATION_SOUNDS } from "./pages/settings/NotificationsPanel";
 import type { NotificationSoundSettings } from "./types";
 import TitleBar from "./components/layout/TitleBar";
@@ -68,6 +69,9 @@ function MainApp() {
 
   // Notification sounds - plays audio for events based on user config.
   useNotificationSounds(notifSounds);
+
+  // Click-to-reveal for spoiler tags rendered anywhere in the app.
+  useSpoilerReveal();
 
   // Check first-run status on mount and load persisted preferences.
   // Also apply saved audio settings and shortcuts to the backend so

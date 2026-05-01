@@ -70,6 +70,8 @@ describe("markdownToHtml -> htmlToMarkdown round-trip", () => {
     "`inline code`",
     "line one\nline two",
     "mixed **bold** and *italic*",
+    "||hidden secret||",
+    "before ||spoiler|| after",
   ];
 
   for (const input of cases) {
@@ -90,5 +92,10 @@ describe("markdownToHtml -> htmlToMarkdown round-trip", () => {
 
     const back = htmlToMarkdown(html);
     expect(back).toBe(input);
+  });
+
+  it("converts spoiler markdown to a span with the spoiler class", () => {
+    const html = markdownToHtml("watch out: ||boo||");
+    expect(html).toContain('<span class="spoiler">boo</span>');
   });
 });

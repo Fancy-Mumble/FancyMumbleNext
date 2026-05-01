@@ -29,6 +29,7 @@ interface Segment {
   strike?: boolean;
   code?: boolean;
   link?: boolean;
+  spoiler?: boolean;
 }
 
 /** Regex matching URLs (http, https, ftp) in plain text. */
@@ -68,6 +69,17 @@ function parseMarkdown(raw: string): Segment[] {
       const end = raw.indexOf("**", i + 2);
       if (end !== -1) {
         segments.push({ text: raw.slice(i, end + 2), bold: true });
+        i = end + 2;
+        continue;
+      }
+    }
+
+    // ||spoiler||
+    if (raw[i] === "|" && raw[i + 1] === "|") {
+      pushCurrent();
+      const end = raw.indexOf("||", i + 2);
+      if (end !== -1) {
+        segments.push({ text: raw.slice(i, end + 2), spoiler: true });
         i = end + 2;
         continue;
       }
@@ -143,6 +155,7 @@ function getSegmentClass(seg: Segment): string {
   if (seg.strike) classes.push(styles.mdStrike);
   if (seg.code) classes.push(styles.mdCode);
   if (seg.link) classes.push(styles.mdLink);
+  if (seg.spoiler) classes.push(styles.mdSpoiler);
   return classes.join(" ");
 }
 
@@ -247,6 +260,8 @@ export function markdownToHtml(raw: string): string {
   html = html.replace(/__(.+?)__/g, "<u>$1</u>");
   // ~~strikethrough~~
   html = html.replace(/~~(.+?)~~/g, "<s>$1</s>");
+  // ||spoiler||
+  html = html.replace(/\|\|(.+?)\|\|/g, '<span class="spoiler">$1</span>');
   // URLs -> clickable links (must run after entity escaping)
   html = html.replace(
     /(https?:\/\/[^\s<>"'`,)\]]+|ftp:\/\/[^\s<>"'`,)\]]+)/g,
@@ -269,6 +284,10 @@ export function htmlToMarkdown(html: string): string {
   text = text.replaceAll(/<em>([^<]*)<\/em>/gi, "*$1*");
   text = text.replaceAll(/<u>([^<]*)<\/u>/gi, "__$1__");
   text = text.replaceAll(/<s>([^<]*)<\/s>/gi, "~~$1~~");
+  text = text.replaceAll(
+    /<span\s+class="spoiler"[^>]*>([^<]*)<\/span>/gi,
+    "||$1||",
+  );
   text = text.replaceAll(/<!--[\s\S]*?-->/g, "");
   text = text.replaceAll(/<[^>]*>/g, "");
   text = text.replaceAll("&lt;", "<");
@@ -432,6 +451,12 @@ export default function MarkdownInput({
             e.preventDefault();
             wrapSelection("__", "__");
             return;
+        }
+        // Ctrl/Cmd+Shift+H -> spoiler (H for "hide")
+        if (e.shiftKey && e.key.toLowerCase() === "h") {
+          e.preventDefault();
+          wrapSelection("||", "||");
+          return;
         }
       }
     },

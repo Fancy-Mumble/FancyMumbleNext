@@ -91,6 +91,44 @@ a {
   text-decoration: none;
 }
 
+/* --- Spoiler tags ------------------------------------------------ */
+/* Rendered by markdownToHtml as <span class="spoiler">.  Hidden until
+   the user clicks to reveal.  Once revealed the .revealed modifier
+   removes the redaction so the content stays visible. */
+
+.spoiler {
+  background: var(--color-text-primary);
+  color: transparent;
+  border-radius: 3px;
+  padding: 0 3px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.spoiler:hover {
+  background: rgba(127, 127, 127, 0.85);
+}
+
+.spoiler.revealed {
+  background: rgba(127, 127, 127, 0.18);
+  color: inherit;
+  cursor: text;
+  user-select: text;
+}
+
+.spoiler img,
+.spoiler video,
+.spoiler a {
+  visibility: hidden;
+}
+
+.spoiler.revealed img,
+.spoiler.revealed video,
+.spoiler.revealed a {
+  visibility: visible;
+}
+
 /* --- Mobile Responsive ------------------------------------------ */
 
 @media (max-width: 768px) {
