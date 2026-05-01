@@ -24,12 +24,19 @@ export default defineConfig({
   envPrefix: ["VITE_", "TAURI_"],
 
   build: {
-    // Tauri uses Chromium on Windows/Linux and WebKit on macOS.
+    // Tauri uses Chromium on Windows/Linux/Android and WebKit on macOS/iOS.
     target: "esnext",
-    // Preserve -webkit- CSS prefixes (e.g. -webkit-backdrop-filter) that
-    // Android WebView still needs. Safari 15 requires the prefix; without
-    // this, esbuild strips it during minification, breaking blur on Android.
-    cssTarget: ["esnext", "safari15"],
+    // Tauri ships with Chromium-based WebViews on Windows/Linux/Android
+    // and WKWebView on macOS/iOS.  All current WebViews understand the
+    // unprefixed `backdrop-filter`, but older WKWebView still requires
+    // the `-webkit-` prefix, so source CSS keeps both forms.  Important:
+    // when both declarations have identical values, esbuild dedupes them
+    // and keeps only the LAST one in source order.  All paired
+    // declarations in this codebase are written as `-webkit-...` first,
+    // unprefixed second so esbuild always preserves the standard
+    // property (Android Chromium WebView rejects `-webkit-backdrop-filter`
+    // as invalid and silently drops it).
+    cssTarget: ["chrome108", "safari15"],
     minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_DEBUG,
   },

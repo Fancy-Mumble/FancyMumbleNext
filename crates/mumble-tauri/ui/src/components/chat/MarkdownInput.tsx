@@ -31,8 +31,41 @@ interface Segment {
   link?: boolean;
 }
 
-/** Regex matching URLs (http, https, ftp) in plain text. */
-const URL_RE = /https?:\/\/[^\s<>"'`,)\]]+|ftp:\/\/[^\s<>"'`,)\]]+/g;
+/**
+ * Regex matching URLs (http, https, ftp) in plain text.
+ *
+ * The character class is intentionally wide - it accepts commas, parens
+ * and other punctuation that are perfectly valid inside a URL path or
+ * query string (e.g. Wikipedia or rheinpfalz.de URLs that embed `,` in
+ * slug fragments).  Trailing sentence punctuation that almost never
+ * belongs to the URL (`.,;:!?` and dangling closing brackets) is
+ * stripped afterwards by `trimTrailingPunctuation`.
+ */
+const URL_RE = /(?:https?|ftp):\/\/[^\s<>"'`]+/g;
+
+/**
+ * Strip trailing characters that are almost never part of the URL itself:
+ *  - sentence punctuation: . , ; : ! ? '
+ *  - unbalanced closing brackets/parens (a `)` is part of the URL only
+ *    if the URL also contains an opening `(` before it).
+ */
+function trimTrailingPunctuation(url: string): string {
+  const trailing = /[.,;:!?'”’…]+$/;
+  let out = url.replace(trailing, "");
+  while (out.length > 0) {
+    const last = out[out.length - 1];
+    if (last === ")" && (out.match(/\(/g)?.length ?? 0) <= (out.match(/\)/g)?.length ?? 0) - 1) {
+      out = out.slice(0, -1);
+    } else if (last === "]" && (out.match(/\[/g)?.length ?? 0) <= (out.match(/\]/g)?.length ?? 0) - 1) {
+      out = out.slice(0, -1);
+    } else if (last === ">" || last === "»") {
+      out = out.slice(0, -1);
+    } else {
+      break;
+    }
+  }
+  return out;
+}
 
 /**
  * Parse raw markdown text into decorated segments.
@@ -126,7 +159,12 @@ function pushWithUrls(
     if (match.index > lastIdx) {
       segments.push({ text: text.slice(lastIdx, match.index), ...flags });
     }
-    segments.push({ text: match[0], link: true, ...flags });
+    const trimmed = trimTrailingPunctuation(match[0]);
+    segments.push({ text: trimmed, link: true, ...flags });
+    if (trimmed.length < match[0].length) {
+      // Push the stripped trailing punctuation back as plain text.
+      segments.push({ text: match[0].slice(trimmed.length), ...flags });
+    }
     lastIdx = URL_RE.lastIndex;
   }
   if (lastIdx < text.length) {
@@ -247,10 +285,17 @@ export function markdownToHtml(raw: string): string {
   html = html.replace(/__(.+?)__/g, "<u>$1</u>");
   // ~~strikethrough~~
   html = html.replace(/~~(.+?)~~/g, "<s>$1</s>");
-  // URLs -> clickable links (must run after entity escaping)
+  // URLs -> clickable links (must run after entity escaping). Trailing
+  // punctuation is stripped before the link is built so commas/parens
+  // inside a URL are preserved while sentence punctuation isn't swallowed.
   html = html.replace(
-    /(https?:\/\/[^\s<>"'`,)\]]+|ftp:\/\/[^\s<>"'`,)\]]+)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
+    /(?:https?|ftp):\/\/[^\s<>"'`]+/g,
+    (raw) => {
+      const url = trimTrailingPunctuation(raw);
+      const trail = raw.slice(url.length);
+      const safe = url.replace(/"/g, "&quot;");
+      return `<a href="${safe}" target="_blank" rel="noopener noreferrer">${safe}</a>${trail}`;
+    },
   );
   // Newlines -> <br> (must come last so inline formatting is applied first)
   html = html.replaceAll("\n", "<br>");

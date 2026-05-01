@@ -11,6 +11,7 @@ import MobileCallControls from "./MobileCallControls";
 const PinnedMessagesPanel = lazy(() => import("./PinnedMessagesPanel"));
 const DownloadsPanel = lazy(() => import("./DownloadsPanel"));
 import UploadProgressItem, { type UploadPlaceholder } from "./UploadProgressItem";
+import PendingMessageItem from "./PendingMessageItem";
 import ChatComposer from "./ChatComposer";
 import { usePolls } from "./usePolls";
 import { useReactions } from "./useReactions";
@@ -106,6 +107,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   // DM state
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
   const dmMessages = useAppStore((s) => s.dmMessages);
+  const pendingMessages = useAppStore((s) => s.pendingMessages);
 
   const isDmMode = selectedDmUser !== null;
   const dmPartner = isDmMode ? users.find((u) => u.session === selectedDmUser) : undefined;
@@ -217,6 +219,14 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     return [...messages, ...channelPolls];
   }, [isDmMode, dmMessages, messages, pollMessages, selectedChannel]);
 
+  /** Pending optimistic messages scoped to the current channel / DM. */
+  const scopedPending = useMemo(() => {
+    if (isDmMode) {
+      return pendingMessages.filter((p) => p.dmSession === selectedDmUser);
+    }
+    return pendingMessages.filter((p) => p.channelId === selectedChannel);
+  }, [pendingMessages, isDmMode, selectedDmUser, selectedChannel]);
+
   const hasNewPins = selectedChannel !== null
     && (unseenPinIds.get(selectedChannel)?.size ?? 0) > 0;
 
@@ -322,6 +332,20 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     setUploadPlaceholders([]);
   }, [selectedChannel, selectedDmUser]);
 
+  const {
+    canDelete, selectionMode, selectedMsgIds,
+    msgContextMenu, deleteConfirm, isDeleting, toast,
+    toggleMsgSelection, enterSelectionMode, exitSelectionMode,
+    handleMessageContextMenu, handleSingleDelete, handleBulkDelete, confirmDelete,
+    handleTouchStart, cancelLongPress,
+    handleCite, handleCopyText,
+    handleScrollToMessage, removePendingQuote,
+    closeContextMenu, clearDeleteConfirm, clearToast, showToast,
+  } = useMessageSelection({
+    selectedChannel, selectedDmUser,
+    channel, messagesContainerRef, setPendingQuotes,
+  });
+
   const { sending, handleSend, sendMediaFile, handlePaste, handleGifSelect } = useChatSend({
     pendingQuotes,
     clearQuotes: () => setPendingQuotes([]),
@@ -329,6 +353,7 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
     clearDraft: () => setDraft(""),
     editingMessage,
     onEditComplete: cancelEdit,
+    showToast,
   });
 
   const handleSendAndResetTyping = useCallback(async () => {
@@ -344,19 +369,6 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
   const [shareDialog, setShareDialog] = useState<{ filePath: string; filename: string } | null>(null);
   const [uploadPlaceholders, setUploadPlaceholders] = useState<UploadPlaceholder[]>([]);
 
-  const {
-    canDelete, selectionMode, selectedMsgIds,
-    msgContextMenu, deleteConfirm, isDeleting, toast,
-    toggleMsgSelection, enterSelectionMode, exitSelectionMode,
-    handleMessageContextMenu, handleSingleDelete, handleBulkDelete, confirmDelete,
-    handleTouchStart, cancelLongPress,
-    handleCite, handleCopyText,
-    handleScrollToMessage, removePendingQuote,
-    closeContextMenu, clearDeleteConfirm, clearToast, showToast,
-  } = useMessageSelection({
-    selectedChannel, selectedDmUser,
-    channel, messagesContainerRef, setPendingQuotes,
-  });
 
   const handleAttachFile = useCallback(async () => {
     if (selectedChannel === null) return;
@@ -759,6 +771,9 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
           )}
           {uploadPlaceholders.map((p) => (
             <UploadProgressItem key={p.id} placeholder={p} onDismiss={handleDismissUpload} onCancel={handleCancelUpload} />
+          ))}
+          {scopedPending.map((p) => (
+            <PendingMessageItem key={p.pendingId} pending={p} />
           ))}
           {/* Bottom sentinel - scroll target for auto-scroll */}
           <div ref={bottomSentinelRef} aria-hidden="true" style={{ height: 0, overflow: "hidden" }} />

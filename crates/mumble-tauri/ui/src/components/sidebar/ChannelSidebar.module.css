@@ -6,8 +6,8 @@
   flex-direction: column;
   align-self: stretch;
   background: var(--color-glass);
-  backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
   border-right: 1px solid var(--color-glass-border);
   flex-shrink: 0;
   min-height: 0;

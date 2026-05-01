@@ -260,6 +260,11 @@
   position: relative;
   width: 48px;
   height: 26px;
+  padding: 0;
+  /* The global mobile rule forces min-height/min-width: 44px on all
+     buttons; reset them here so the pill keeps its intended proportions. */
+  min-height: 0;
+  min-width: 0;
   border-radius: 13px;
   border: none;
   background: var(--color-glass-strong);

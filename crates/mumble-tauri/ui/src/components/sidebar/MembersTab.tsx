@@ -310,6 +310,12 @@ export function MembersTab({
         return next;
       });
     });
+    // If the server denies the user-list request (user lacks the Register
+    // permission), the `user-list` event never fires and the skeleton
+    // would spin forever.  Dismiss it immediately on any permission-denied.
+    const unlistenPermDenied = listen("permission-denied", () => {
+      flush();
+    });
     invoke("request_user_list").catch(() => {
       scheduleFlush();
     });
@@ -318,6 +324,7 @@ export function MembersTab({
       if (minTimer !== null) window.clearTimeout(minTimer);
       unlistenList.then((f) => f());
       unlistenComment.then((f) => f());
+      unlistenPermDenied.then((f) => f());
     };
   }, [serverKey]);
 
