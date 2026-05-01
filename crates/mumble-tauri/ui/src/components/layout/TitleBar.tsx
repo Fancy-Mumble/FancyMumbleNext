@@ -1,6 +1,7 @@
 import { InfoFilledIcon, MaximizeIcon, MinimizeIcon, WindowCloseIcon } from "../../icons";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isDesktopPlatform } from "../../utils/platform";
+import ServerTabsBar from "./ServerTabsBar";
 import styles from "./TitleBar.module.css";
 
 export default function TitleBar() {
@@ -31,6 +32,10 @@ export default function TitleBar() {
           <InfoFilledIcon width={20} height={20} />
         </div>
         <span className={styles.title}>Fancy Mumble</span>
+      </div>
+
+      <div className={styles.tabsSection} data-tauri-drag-region>
+        <ServerTabsBar />
       </div>
 
       <div className={styles.controls}>

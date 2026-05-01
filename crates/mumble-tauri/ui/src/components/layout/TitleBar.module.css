@@ -18,8 +18,17 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.tabsSection {
+  display: flex;
+  align-items: center;
   flex: 1;
   min-width: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .logo {

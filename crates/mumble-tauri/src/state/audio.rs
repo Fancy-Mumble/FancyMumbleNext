@@ -15,7 +15,7 @@ use super::AppState;
 impl AppState {
     /// Get current audio settings.
     pub fn audio_settings(&self) -> super::types::AudioSettings {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .map(|s| s.audio.settings.clone())
             .unwrap_or_default()
@@ -28,7 +28,8 @@ impl AppState {
     /// Volume changes are applied live via atomic handles (no restart).
     pub fn set_audio_settings(&self, settings: super::types::AudioSettings) -> Option<(bool, bool, bool)> {
         let (old_settings, voice_active) = {
-            let state = self.inner.lock().ok()?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().ok()?;
             (
                 state.audio.settings.clone(),
                 state.audio.voice_state == VoiceState::Active,
@@ -40,7 +41,7 @@ impl AppState {
         let force_tcp_changed = old_settings.force_tcp_audio != settings.force_tcp_audio;
 
         // Update live volume handles (no pipeline restart needed).
-        if let Ok(state) = self.inner.lock() {
+        if let Ok(state) = self.inner.snapshot().lock() {
             use std::sync::atomic::Ordering;
             if let Some(ref h) = state.audio.input_volume_handle {
                 h.store(settings.input_volume.to_bits(), Ordering::Relaxed);
@@ -50,7 +51,7 @@ impl AppState {
             }
         }
 
-        if let Ok(mut state) = self.inner.lock() {
+        if let Ok(mut state) = self.inner.snapshot().lock() {
             state.audio.settings = settings;
         }
 
@@ -59,7 +60,7 @@ impl AppState {
 
     /// Get current voice state.
     pub fn voice_state(&self) -> VoiceState {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .map(|s| s.audio.voice_state)
             .unwrap_or_default()
@@ -77,7 +78,7 @@ impl AppState {
     ///
     /// `volume` is a multiplier (0.0 = muted, 1.0 = normal, 2.0 = 200%).
     pub fn set_user_volume(&self, session: u32, volume: f32) {
-        if let Ok(state) = self.inner.lock() {
+        if let Ok(state) = self.inner.snapshot().lock() {
             if let Ok(mut sv) = state.audio.speaker_volumes.lock() {
                 if (volume - 1.0).abs() < f32::EPSILON {
                     let _ = sv.remove(&session);
@@ -119,7 +120,8 @@ mod voice_pipeline {
         /// Enable voice calling: unmute + undeaf, start audio pipelines.
         pub async fn enable_voice(&self) -> Result<(), String> {
             let (handle, audio_settings) = {
-                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let state = __session.lock().map_err(|e| e.to_string())?;
                 (state.conn.client_handle.clone(), state.audio.settings.clone())
             };
 
@@ -134,7 +136,8 @@ mod voice_pipeline {
                 std::sync::Mutex::new(std::collections::HashMap::new()),
             );
             let speaker_volumes = {
-                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let state = __session.lock().map_err(|e| e.to_string())?;
                 state.audio.speaker_volumes.clone()
             };
             let mixer = AudioMixer::new(speaker_buffers.clone(), AudioFormat::MONO_48KHZ_F32);
@@ -149,7 +152,8 @@ mod voice_pipeline {
                 .map_err(|e| format!("Playback start: {e}"))?;
 
             {
-                let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let mut state = __session.lock().map_err(|e| e.to_string())?;
                 state.audio.mixer = Some(mixer);
                 state.audio.mixing_playback = Some(mixing_playback);
                 state.audio.input_volume_handle = Some(input_vol);
@@ -160,7 +164,8 @@ mod voice_pipeline {
             self.start_outbound_pipeline(&audio_settings, &handle)?;
 
             {
-                let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let mut state = __session.lock().map_err(|e| e.to_string())?;
                 state.audio.voice_state = VoiceState::Active;
             }
 
@@ -182,7 +187,8 @@ mod voice_pipeline {
             self.stop_audio();
 
             let handle = {
-                let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let mut state = __session.lock().map_err(|e| e.to_string())?;
                 state.audio.voice_state = VoiceState::Inactive;
                 state.conn.client_handle.clone()
             };
@@ -200,7 +206,18 @@ mod voice_pipeline {
 
         /// Stop all running audio pipelines and tasks.
         pub(in crate::state) fn stop_audio(&self) {
-            let stopped_sessions: Vec<(u32, tauri::AppHandle)> = if let Ok(mut state) = self.inner.lock() {
+            self.stop_audio_on(&self.inner.snapshot());
+        }
+
+        /// Stop all running audio pipelines and tasks for a specific
+        /// session arc.  Used during multi-server active-session swaps
+        /// so the previous session's pipeline can be torn down even
+        /// after `inner` has already been swapped to a new session.
+        pub(in crate::state) fn stop_audio_on(
+            &self,
+            arc: &Arc<std::sync::Mutex<crate::state::SharedState>>,
+        ) {
+            let stopped_sessions: Vec<(u32, tauri::AppHandle)> = if let Ok(mut state) = arc.lock() {
                 if let Some(handle) = state.audio.outbound_task_handle.take() {
                     handle.abort();
                 }
@@ -238,7 +255,7 @@ mod voice_pipeline {
 
         /// Stop only the outbound (mic capture) pipeline.
         fn stop_outbound(&self) {
-            if let Ok(mut state) = self.inner.lock() {
+            if let Ok(mut state) = self.inner.snapshot().lock() {
                 if let Some(handle) = state.audio.outbound_task_handle.take() {
                     handle.abort();
                 }
@@ -254,7 +271,8 @@ mod voice_pipeline {
             self.stop_outbound();
 
             let (audio_settings, client_handle) = {
-                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let state = __session.lock().map_err(|e| e.to_string())?;
                 (state.audio.settings.clone(), state.conn.client_handle.clone())
             };
 
@@ -268,7 +286,7 @@ mod voice_pipeline {
             info!("restart_inbound: restarting playback pipeline with new settings");
 
             // Stop the old inbound pipeline.
-            if let Ok(mut state) = self.inner.lock() {
+            if let Ok(mut state) = self.inner.snapshot().lock() {
                 if let Some(mut playback) = state.audio.mixing_playback.take() {
                     let _ = playback.stop();
                 }
@@ -276,7 +294,8 @@ mod voice_pipeline {
             }
 
             let audio_settings = {
-                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let state = __session.lock().map_err(|e| e.to_string())?;
                 state.audio.settings.clone()
             };
 
@@ -286,7 +305,8 @@ mod voice_pipeline {
                 std::sync::Mutex::new(std::collections::HashMap::new()),
             );
             let speaker_volumes = {
-                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let state = __session.lock().map_err(|e| e.to_string())?;
                 state.audio.speaker_volumes.clone()
             };
             let mixer = AudioMixer::new(speaker_buffers.clone(), AudioFormat::MONO_48KHZ_F32);
@@ -300,7 +320,9 @@ mod voice_pipeline {
                 .start()
                 .map_err(|e| format!("Playback start: {e}"))?;
 
-            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+
+            let mut state = __session.lock().map_err(|e| e.to_string())?;
             state.audio.mixer = Some(mixer);
             state.audio.mixing_playback = Some(mixing_playback);
             state.audio.output_volume_handle = Some(output_vol);
@@ -315,7 +337,8 @@ mod voice_pipeline {
         ) -> Result<(), String> {
             // Re-use existing input volume handle or create a new one.
             let (input_vol, app, own_session) = {
-                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let state = __session.lock().map_err(|e| e.to_string())?;
                 (
                     state.audio.input_volume_handle.clone(),
                     state.conn.tauri_app_handle.clone(),
@@ -399,7 +422,9 @@ mod voice_pipeline {
                 None
             };
 
-            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+
+            let mut state = __session.lock().map_err(|e| e.to_string())?;
             state.audio.outbound_task_handle = outbound_handle;
             state.audio.input_volume_handle = Some(input_vol);
             Ok(())
@@ -411,7 +436,8 @@ mod voice_pipeline {
         /// Used when undeafening from Inactive to land in Muted state.
         pub async fn enable_voice_muted(&self) -> Result<(), String> {
             let (handle, audio_settings) = {
-                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let state = __session.lock().map_err(|e| e.to_string())?;
                 (state.conn.client_handle.clone(), state.audio.settings.clone())
             };
 
@@ -423,7 +449,8 @@ mod voice_pipeline {
                 std::sync::Mutex::new(std::collections::HashMap::new()),
             );
             let speaker_volumes = {
-                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let state = __session.lock().map_err(|e| e.to_string())?;
                 state.audio.speaker_volumes.clone()
             };
             let mixer = AudioMixer::new(speaker_buffers.clone(), AudioFormat::MONO_48KHZ_F32);
@@ -438,7 +465,8 @@ mod voice_pipeline {
                 .map_err(|e| format!("Playback start: {e}"))?;
 
             {
-                let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let mut state = __session.lock().map_err(|e| e.to_string())?;
                 state.audio.voice_state = VoiceState::Muted;
                 state.audio.mixer = Some(mixer);
                 state.audio.mixing_playback = Some(mixing_playback);
@@ -471,7 +499,8 @@ mod voice_pipeline {
         /// | Muted     | Active  |
         pub async fn toggle_mute(&self) -> Result<(), String> {
             let (voice_state, handle, audio_settings) = {
-                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let state = __session.lock().map_err(|e| e.to_string())?;
                 (
                     state.audio.voice_state,
                     state.conn.client_handle.clone(),
@@ -484,7 +513,8 @@ mod voice_pipeline {
                     info!("toggle_mute: muting (stopping outbound)");
                     self.stop_outbound();
                     {
-                        let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+                        let __session = self.inner.snapshot();
+                        let mut state = __session.lock().map_err(|e| e.to_string())?;
                         state.audio.voice_state = VoiceState::Muted;
                     }
                     if let Some(handle) = handle {
@@ -498,7 +528,8 @@ mod voice_pipeline {
                     info!("toggle_mute: unmuting (restarting outbound)");
                     self.start_outbound_pipeline(&audio_settings, &handle)?;
                     {
-                        let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+                        let __session = self.inner.snapshot();
+                        let mut state = __session.lock().map_err(|e| e.to_string())?;
                         state.audio.voice_state = VoiceState::Active;
                     }
                     if let Some(handle) = handle {
@@ -528,7 +559,8 @@ mod voice_pipeline {
         /// | Muted     | Inactive | (deaf + muted)
         pub async fn toggle_deafen(&self) -> Result<(), String> {
             let voice_state = {
-                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let state = __session.lock().map_err(|e| e.to_string())?;
                 state.audio.voice_state
             };
 
@@ -553,7 +585,8 @@ mod voice_pipeline {
             self.stop_mic_test();
 
             let audio_settings = {
-                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let state = __session.lock().map_err(|e| e.to_string())?;
                 state.audio.settings.clone()
             };
 
@@ -588,20 +621,22 @@ mod voice_pipeline {
 
             let app = self.app_handle().ok_or("No app handle")?;
             let auto_sensitivity = audio_settings.auto_input_sensitivity;
-            let inner = self.inner.clone();
+            let inner = self.inner.clone_arc();
 
             let handle = tauri::async_runtime::spawn(async move {
                 mic_test_loop(capture, app, auto_sensitivity, inner, agc_filter).await;
             });
 
-            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+
+            let mut state = __session.lock().map_err(|e| e.to_string())?;
             state.audio.mic_test_handle = Some(handle);
             Ok(())
         }
 
         /// Stop the mic test.
         pub fn stop_mic_test(&self) {
-            if let Ok(mut state) = self.inner.lock() {
+            if let Ok(mut state) = self.inner.snapshot().lock() {
                 if let Some(handle) = state.audio.mic_test_handle.take() {
                     handle.abort();
                 }
@@ -616,7 +651,8 @@ mod voice_pipeline {
             self.stop_latency_test();
 
             let client_handle = {
-                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let state = __session.lock().map_err(|e| e.to_string())?;
                 state
                     .conn.client_handle
                     .clone()
@@ -627,14 +663,16 @@ mod voice_pipeline {
                 latency_ping_loop(client_handle).await;
             });
 
-            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+
+            let mut state = __session.lock().map_err(|e| e.to_string())?;
             state.audio.latency_test_handle = Some(handle);
             Ok(())
         }
 
         /// Stop the latency test.
         pub fn stop_latency_test(&self) {
-            if let Ok(mut state) = self.inner.lock() {
+            if let Ok(mut state) = self.inner.snapshot().lock() {
                 if let Some(handle) = state.audio.latency_test_handle.take() {
                     handle.abort();
                 }
@@ -649,7 +687,8 @@ mod voice_pipeline {
         /// noise floor.  Returns the new threshold.
         pub async fn calibrate_voice_threshold(&self) -> Result<f32, String> {
             let audio_settings = {
-                let state = self.inner.lock().map_err(|e| e.to_string())?;
+                let __session = self.inner.snapshot();
+                let state = __session.lock().map_err(|e| e.to_string())?;
                 state.audio.settings.clone()
             };
 
@@ -741,7 +780,7 @@ mod voice_pipeline {
                 noise_floor_ema, threshold
             );
 
-            if let Ok(mut state) = self.inner.lock() {
+            if let Ok(mut state) = self.inner.snapshot().lock() {
                 state.audio.settings.vad_threshold = threshold;
             }
 

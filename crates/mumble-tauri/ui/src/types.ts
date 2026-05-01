@@ -107,6 +107,28 @@ export interface PendingMessage {
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
+/**
+ * Multi-server: stable identifier for a connected server, minted by the
+ * backend on each `connect` call.  Phase A: surfaced via the
+ * `list_servers` / `get_active_server` / `set_active_server` Tauri
+ * commands and stamped onto every emitted event payload as `serverId`.
+ */
+export type ServerId = string;
+
+/**
+ * User-visible summary of a connected (or connecting) server returned
+ * by the `list_servers` command.
+ */
+export interface SessionMeta {
+  id: ServerId;
+  label: string;
+  host: string;
+  port: number;
+  username: string;
+  certLabel: string | null;
+  status: ConnectionStatus;
+}
+
 export interface ServerLogEntry {
   timestamp_ms: number;
   message: string;

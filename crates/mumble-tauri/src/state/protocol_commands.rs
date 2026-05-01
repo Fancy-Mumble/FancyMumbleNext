@@ -15,7 +15,8 @@ impl AppState {
         data_id: String,
     ) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
 
@@ -35,7 +36,8 @@ impl AppState {
 
     pub async fn send_push_update(&self, muted_channels: Vec<u32>) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
 
@@ -63,7 +65,8 @@ impl AppState {
         muted_channels: Vec<u32>,
     ) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
 
@@ -79,7 +82,8 @@ impl AppState {
 
     pub async fn send_typing_indicator(&self, channel_id: u32) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
 
@@ -99,7 +103,8 @@ impl AppState {
         request_id: String,
     ) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
 
@@ -119,7 +124,8 @@ impl AppState {
         last_read_message_id: String,
     ) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
 
@@ -140,7 +146,8 @@ impl AppState {
 
     pub async fn query_read_receipts(&self, channel_id: u32) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
 
@@ -166,7 +173,8 @@ impl AppState {
         payload: String,
     ) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
 
@@ -192,7 +200,8 @@ impl AppState {
         action: String,
     ) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
 
@@ -246,7 +255,8 @@ impl AppState {
         unpin: bool,
     ) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
 
@@ -277,7 +287,8 @@ impl AppState {
         sender_hash: Option<String>,
     ) -> Result<(), String> {
         let (handle, rx) = {
-            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let mut state = __session.lock().map_err(|e| e.to_string())?;
             let h = state.conn.client_handle.clone().ok_or("Not connected")?;
 
             let (tx, rx) = tokio::sync::oneshot::channel::<DeleteAckResult>();

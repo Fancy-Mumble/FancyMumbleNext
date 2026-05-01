@@ -7,14 +7,14 @@ use super::AppState;
 
 impl AppState {
     pub fn status(&self) -> ConnectionStatus {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .map(|s| s.conn.status)
             .unwrap_or(ConnectionStatus::Disconnected)
     }
 
     pub fn channels(&self) -> Vec<ChannelEntry> {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .map(|mut s| {
                 Self::refresh_user_counts(&mut s);
@@ -32,7 +32,7 @@ impl AppState {
     }
 
     pub fn users(&self) -> Vec<UserEntry> {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .map(|s| s.users.values().cloned().collect())
             .unwrap_or_default()
@@ -43,7 +43,7 @@ impl AppState {
     /// lazily fetch avatars after `get_users` returned only the byte
     /// length (`texture_size`).
     pub fn user_texture(&self, session: u32) -> Option<Vec<u8>> {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .ok()
             .and_then(|s| s.users.get(&session).and_then(|u| u.texture.clone()))
@@ -54,7 +54,7 @@ impl AppState {
     /// lazily fetch descriptions after `get_channels` returned only the
     /// byte length (`description_size`).
     pub fn channel_description(&self, channel_id: u32) -> Option<String> {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .ok()
             .and_then(|s| s.channels.get(&channel_id).map(|c| c.description.clone()))
@@ -62,39 +62,39 @@ impl AppState {
     }
 
     pub fn messages(&self, channel_id: u32) -> Vec<ChatMessage> {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .map(|s| s.msgs.by_channel.get(&channel_id).cloned().unwrap_or_default())
             .unwrap_or_default()
     }
 
     pub fn dm_messages(&self, session: u32) -> Vec<ChatMessage> {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .map(|s| s.msgs.by_dm.get(&session).cloned().unwrap_or_default())
             .unwrap_or_default()
     }
 
     pub fn get_own_session(&self) -> Option<u32> {
-        self.inner.lock().ok().and_then(|s| s.conn.own_session)
+        self.inner.snapshot().lock().ok().and_then(|s| s.conn.own_session)
     }
 
     pub fn push_subscribed_channels(&self) -> Vec<u32> {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .map(|s| s.push_subscribed_channels.iter().copied().collect())
             .unwrap_or_default()
     }
 
     pub fn server_config(&self) -> ServerConfig {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .map(|s| s.server.config.clone())
             .unwrap_or_default()
     }
 
     pub fn server_info(&self) -> ServerInfo {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .map(|s| {
                 let vi = &s.server.version_info;
@@ -144,7 +144,7 @@ impl AppState {
     }
 
     pub fn debug_stats(&self) -> DebugStats {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .map(|s| {
                 let channel_msgs: usize = s.msgs.by_channel.values().map(Vec::len).sum();
@@ -180,7 +180,7 @@ impl AppState {
     }
 
     pub fn welcome_text(&self) -> Option<String> {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .ok()
             .and_then(|s| s.server.welcome_text.clone())

@@ -351,6 +351,17 @@ pub(crate) struct RejectedPayload {
     pub reject_type: Option<i32>,
 }
 
+/// Payload for the `server-disconnected` event.  Carries the id of
+/// the session that was disconnected so the frontend can route the
+/// event to the correct tab and avoid clobbering other sessions'
+/// state.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DisconnectedPayload {
+    pub server_id: Option<String>,
+    pub reason: Option<String>,
+}
+
 #[derive(Clone, Serialize)]
 pub(crate) struct UnreadPayload {
     /// `channel_id` -> unread count

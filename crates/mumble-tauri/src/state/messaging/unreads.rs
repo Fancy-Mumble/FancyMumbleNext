@@ -9,14 +9,14 @@ use crate::state::AppState;
 
 impl AppState {
     pub fn unread_counts(&self) -> HashMap<u32, u32> {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .map(|s| s.msgs.channel_unread.clone())
             .unwrap_or_default()
     }
 
     pub fn mark_read(&self, channel_id: u32) {
-        if let Ok(mut state) = self.inner.lock() {
+        if let Ok(mut state) = self.inner.snapshot().lock() {
             let _ = state.msgs.channel_unread.remove(&channel_id);
         }
         self.emit_unreads();
@@ -30,14 +30,14 @@ impl AppState {
     }
 
     pub fn dm_unread_counts(&self) -> HashMap<u32, u32> {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .map(|s| s.msgs.dm_unread.clone())
             .unwrap_or_default()
     }
 
     pub fn mark_dm_read(&self, session: u32) {
-        if let Ok(mut state) = self.inner.lock() {
+        if let Ok(mut state) = self.inner.snapshot().lock() {
             let _ = state.msgs.dm_unread.remove(&session);
         }
         self.emit_dm_unreads();

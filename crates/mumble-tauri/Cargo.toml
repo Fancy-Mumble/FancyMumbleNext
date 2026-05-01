@@ -33,6 +33,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
 rand = "0.10"
 ring = "0.17"
+arc-swap = "1"
 base64 = "0.22"
 prost = "0.14"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "deflate", "multipart", "stream", "json"] }

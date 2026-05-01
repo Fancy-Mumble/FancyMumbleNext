@@ -41,7 +41,9 @@ impl AppState {
             return Vec::new();
         }
 
-        let Ok(state) = self.inner.lock() else {
+        let __session = self.inner.snapshot();
+
+        let Ok(state) = __session.lock() else {
             return Vec::new();
         };
 
@@ -72,7 +74,8 @@ impl AppState {
     /// Photos are sorted newest-first (by timestamp if available, then
     /// insertion order as fallback).  Pagination is via `offset` / `limit`.
     pub fn get_photos(&self, offset: usize, limit: usize) -> Vec<PhotoEntry> {
-        let Ok(state) = self.inner.lock() else {
+        let __session = self.inner.snapshot();
+        let Ok(state) = __session.lock() else {
             return Vec::new();
         };
 

@@ -72,7 +72,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Focused(focused) = event {
                 if let Some(state) = window.try_state::<AppState>() {
-                    if let Ok(mut s) = state.inner.lock() {
+                    if let Ok(mut s) = state.inner.snapshot().lock() {
                         s.prefs.app_focused = *focused;
                     }
                 }
@@ -190,6 +190,10 @@ macro_rules! all_command_handlers {
             commands::certificates::import_certificate,
             commands::connection::disconnect,
             commands::connection::get_status,
+            commands::servers::list_servers,
+            commands::servers::get_active_server,
+            commands::servers::set_active_server,
+            commands::servers::disconnect_server,
             commands::channels::get_channels,
             commands::channels::get_users,
             commands::channels::get_user_texture,

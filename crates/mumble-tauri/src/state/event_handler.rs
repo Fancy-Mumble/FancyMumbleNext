@@ -23,12 +23,32 @@ use super::types::*;
 use super::SharedState;
 
 /// Tauri-backed event emitter forwarding to `AppHandle::emit`.
+///
+/// Stamps every JSON object payload with a `serverId` field identifying
+/// the active session at emit time so the frontend can route events to
+/// the correct server tab.  Non-object payloads (strings, arrays) are
+/// forwarded unchanged.
 struct TauriEmitter {
     app: AppHandle,
+    shared: Arc<Mutex<SharedState>>,
+}
+
+impl TauriEmitter {
+    fn active_server_id(&self) -> Option<String> {
+        self.shared
+            .lock()
+            .ok()
+            .and_then(|g| g.server_id.map(|id| id.to_string()))
+    }
 }
 
 impl EventEmitter for TauriEmitter {
-    fn emit_json(&self, event: &str, payload: serde_json::Value) {
+    fn emit_json(&self, event: &str, mut payload: serde_json::Value) {
+        if let (Some(id), Some(obj)) = (self.active_server_id(), payload.as_object_mut()) {
+            let _ = obj
+                .entry("serverId")
+                .or_insert(serde_json::Value::String(id));
+        }
         let _ = self.app.emit(event, payload);
     }
 
@@ -94,6 +114,11 @@ pub(super) struct TauriEventHandler {
     /// `on_disconnected` only acts when this matches the current epoch,
     /// preventing stale callbacks from orphaned tasks.
     pub epoch: u64,
+    /// The session id this handler was created for.  Used by
+    /// `on_disconnected` to emit a correctly-scoped
+    /// `DisconnectedPayload` even after `disconnect_session` has
+    /// already cleared `state.server_id` as part of its teardown.
+    pub server_id: super::sessions::ServerId,
     /// Running count of inbound audio packets (for periodic diagnostics).
     pub(super) inbound_audio_count: u64,
 }
@@ -104,6 +129,7 @@ impl EventHandler for TauriEventHandler {
             shared: Arc::clone(&self.shared),
             emitter: Box::new(TauriEmitter {
                 app: self.app.clone(),
+                shared: Arc::clone(&self.shared),
             }),
         };
         handler::dispatch(msg, &ctx);
@@ -191,6 +217,8 @@ impl EventHandler for TauriEventHandler {
             }
 
             state.conn.status = ConnectionStatus::Disconnected;
+            state.server_id = None;
+            state.cert_label = None;
             state.conn.client_handle = None;
             state.conn.event_loop_handle = None;
             // Stop audio pipelines on disconnect.
@@ -221,8 +249,15 @@ impl EventHandler for TauriEventHandler {
             user_initiated = state.conn.user_initiated_disconnect;
             state.conn.user_initiated_disconnect = false;
         }
-        let reason = if user_initiated { None } else { Some("Connection to server was lost.") };
-        let _ = self.app.emit("server-disconnected", reason);
+        let reason = if user_initiated {
+            None
+        } else {
+            Some("Connection to server was lost.".to_string())
+        };
+        let _ = self.app.emit(
+            "server-disconnected",
+            DisconnectedPayload { server_id: Some(self.server_id.to_string()), reason },
+        );
 
         // Stop Android foreground service now that we are disconnected.
         #[cfg(target_os = "android")]
