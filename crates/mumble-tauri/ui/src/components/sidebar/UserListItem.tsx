@@ -9,6 +9,8 @@ import { ProfilePreviewCard } from "../../pages/settings/ProfilePreviewCard";
 import { useUserStats } from "../../hooks/useUserStats";
 import { colorFor } from "../../utils/format";
 import { isMobile } from "../../utils/platform";
+import { PERM_MOVE as PERM_MOVE_BIT } from "../../utils/permissions";
+import { useUserDrag } from "../../utils/userMoveDnd";
 import { useStreamThumbnail } from "../chat/useStreamPreview";
 import styles from "./UserListItem.module.css";
 
@@ -268,6 +270,10 @@ export const UserListItem = memo(function UserListItem({
   const dmUnread = useAppStore((s) => s.dmUnreadCounts[user.session] ?? 0);
   const volumePct = useAppStore((s) => user.hash ? (s.userVolumes[user.hash] ?? 100) : 100);
   const isBroadcasting = useAppStore((s) => s.broadcastingSessions.has(user.session));
+  const canMoveUser = useAppStore((s) => {
+    const ch = s.channels.find((c) => c.id === user.channel_id);
+    return ch?.permissions != null && (ch.permissions & PERM_MOVE_BIT) !== 0;
+  });
   const { showCard, cardPos, itemRef, handleEnter, handleLeave } = useHoverCardPosition(isBroadcasting);
   const stats = useUserStats(user.session, showCard);
   const streamThumbnail = useStreamThumbnail(user.session, showCard && isBroadcasting);
@@ -289,7 +295,17 @@ export const UserListItem = memo(function UserListItem({
     }
   }, [showCard, offline, user.comment, user.user_id, onRequestComment]);
 
+  const dragDisabled = isMobile || isSelf || !!offline || !canMoveUser;
+  const { handlers: dragHandlers, overlay: dragOverlay } = useUserDrag(
+    user.session,
+    user.name,
+    url,
+    dragDisabled,
+  );
+
   return (
+    <>
+    {dragOverlay}
     <button
       ref={itemRef}
       type="button"
@@ -298,7 +314,13 @@ export const UserListItem = memo(function UserListItem({
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
       onClick={onClick}
+      onClickCapture={dragHandlers.onClickCapture}
       onContextMenu={onContextMenu}
+      onPointerDown={dragHandlers.onPointerDown}
+      onPointerMove={dragHandlers.onPointerMove}
+      onPointerUp={dragHandlers.onPointerUp}
+      onPointerCancel={dragHandlers.onPointerCancel}
+      style={dragHandlers.style}
     >
       <div className={`${styles.avatarWrap} ${isTalking ? styles.avatarTalking : ""}`}>
         {url ? (
@@ -375,5 +397,6 @@ export const UserListItem = memo(function UserListItem({
         />
       )}
     </button>
+    </>
   );
 });

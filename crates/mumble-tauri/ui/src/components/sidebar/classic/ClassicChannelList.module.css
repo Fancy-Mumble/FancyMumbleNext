@@ -1,5 +1,18 @@
 /* ClassicChannelList - traditional Mumble hierarchical tree view. */
 
+/* --- Drop zone (drag-to-move users) ----------------------------- */
+
+.dropZone {
+  border-radius: var(--radius-sm, 4px);
+  transition: background 0.12s, outline-color 0.12s;
+}
+
+.dropZoneActive {
+  background: var(--color-glass-active);
+  outline: 2px dashed var(--color-accent, #2aabee);
+  outline-offset: -2px;
+}
+
 /* --- Sticky current channel ------------------------------------- */
 
 .stickyCurrentChannel {
