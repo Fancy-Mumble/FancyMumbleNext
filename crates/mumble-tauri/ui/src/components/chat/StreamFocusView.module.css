@@ -216,8 +216,8 @@
   border: none;
   border-radius: 8px;
   background: var(--color-overlay-heavy);
-  backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   color: rgba(255, 255, 255, 0.75);
   font-size: 12px;
   font-weight: 500;
@@ -235,8 +235,8 @@
 
 .layoutPicker {
   background: rgba(22, 22, 28, 0.95);
-  backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
   border: 1px solid var(--color-glass-medium);
   border-radius: 12px;
   padding: 12px;

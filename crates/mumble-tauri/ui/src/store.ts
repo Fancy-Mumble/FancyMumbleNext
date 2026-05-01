@@ -40,6 +40,7 @@ import type {
   UploadResponse,
   DownloadEntry,
   CustomServerEmote,
+  PendingMessage,
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator";
 import { registerPoll, registerVote } from "./components/chat/PollCard";
@@ -286,6 +287,10 @@ interface AppState {
   /** Synthetic local-only messages for rendering polls in the chat flow. */
   pollMessages: ChatMessage[];
 
+  // -- Optimistic outbound messages (in-memory, not persisted) ---
+  /** Messages we have started sending but haven't yet confirmed. */
+  pendingMessages: PendingMessage[];
+
   // -- Link embed state (in-memory, not persisted) ---------------
   /** Link embeds keyed by message_id. */
   linkEmbeds: Map<string, import("./types").LinkEmbed[]>;
@@ -379,6 +384,20 @@ interface AppState {
   selectChannel: (id: number) => Promise<void>;
   joinChannel: (id: number) => Promise<void>;
   sendMessage: (channelId: number, body: string) => Promise<void>;
+  /**
+   * Insert a synthetic pending-message placeholder.  Used by the chat
+   * composer to surface UI feedback while local media processing
+   * (image/video re-encoding) runs BEFORE the actual `send_message`
+   * call.  Returns the generated pending id so the caller can dismiss
+   * or fail it once processing finishes.
+   */
+  addPendingPlaceholder: (channelId: number | null, dmSession: number | null, body: string) => string;
+  /** Mark an existing pending message as failed with an error message. */
+  markPendingFailed: (pendingId: string, errorMessage: string) => void;
+  /** Discard a failed pending message. */
+  dismissPendingMessage: (pendingId: string) => void;
+  /** Retry a failed pending message. */
+  retryPendingMessage: (pendingId: string) => Promise<void>;
   editMessage: (channelId: number, messageId: string, newBody: string) => Promise<void>;
   toggleListen: (channelId: number) => Promise<void>;
 
@@ -537,6 +556,7 @@ const INITIAL: Pick<
   | "dmUnreadCounts"
   | "polls"
   | "pollMessages"
+  | "pendingMessages"
   | "linkEmbeds"
   | "reactionVersion"
   | "unseenPinIds"
@@ -600,6 +620,7 @@ const INITIAL: Pick<
   dmUnreadCounts: {},
   polls: new Map(),
   pollMessages: [],
+  pendingMessages: [],
   linkEmbeds: new Map(),
   reactionVersion: 0,
   unseenPinIds: new Map(),
@@ -641,6 +662,27 @@ const INITIAL: Pick<
  * stale `get_messages` responses from overwriting fresher data.
  */
 let messageWriteSeq = 0;
+
+/**
+ * Threshold (in HTML body length) above which a sent message gets an
+ * optimistic placeholder + progress UI even when it doesn't contain an
+ * image.  Picked so plain chat messages never trigger the indicator
+ * but anything that is likely to take noticeable time on a slow link
+ * does.
+ */
+const LARGE_MESSAGE_THRESHOLD = 4096;
+
+/** Whether a message body should show an optimistic upload-progress UI. */
+function bodyNeedsProgressUI(body: string): boolean {
+  if (body.includes("<img")) return true;
+  if (body.includes("<video")) return true;
+  return body.length > LARGE_MESSAGE_THRESHOLD;
+}
+
+function newPendingId(): string {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 /** Update the taskbar badge with the total unread count (channels + DMs). */
 function updateBadgeCount(): void {
@@ -782,17 +824,100 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   sendMessage: async (channelId, body) => {
+    const pendingId = newPendingId();
+    const showPlaceholder = bodyNeedsProgressUI(body);
+    if (showPlaceholder) {
+      set((s) => ({
+        pendingMessages: [
+          ...s.pendingMessages,
+          {
+            pendingId,
+            channelId,
+            dmSession: null,
+            body,
+            createdAt: Date.now(),
+            state: "sending",
+          },
+        ],
+      }));
+    }
     try {
       await invoke("send_message", { channelId, body });
       const seq = ++messageWriteSeq;
       const messages = await invoke<ChatMessage[]>("get_messages", {
         channelId,
       });
+      const updates: Partial<AppState> = {};
       if (messageWriteSeq === seq) {
-        set({ messages });
+        updates.messages = messages;
+      }
+      if (showPlaceholder) {
+        set((s) => ({
+          ...updates,
+          pendingMessages: s.pendingMessages.filter((p) => p.pendingId !== pendingId),
+        }));
+      } else if (Object.keys(updates).length > 0) {
+        set(updates);
       }
     } catch (e) {
       console.error("send_message error:", e);
+      if (showPlaceholder) {
+        const detail = e instanceof Error ? e.message : String(e);
+        set((s) => ({
+          pendingMessages: s.pendingMessages.map((p) =>
+            p.pendingId === pendingId
+              ? { ...p, state: "failed" as const, errorMessage: detail }
+              : p,
+          ),
+        }));
+      }
+    }
+  },
+
+  dismissPendingMessage: (pendingId) => {
+    set((s) => ({
+      pendingMessages: s.pendingMessages.filter((p) => p.pendingId !== pendingId),
+    }));
+  },
+
+  addPendingPlaceholder: (channelId, dmSession, body) => {
+    const pendingId = newPendingId();
+    set((s) => ({
+      pendingMessages: [
+        ...s.pendingMessages,
+        {
+          pendingId,
+          channelId,
+          dmSession,
+          body,
+          createdAt: Date.now(),
+          state: "sending",
+        },
+      ],
+    }));
+    return pendingId;
+  },
+
+  markPendingFailed: (pendingId, errorMessage) => {
+    set((s) => ({
+      pendingMessages: s.pendingMessages.map((p) =>
+        p.pendingId === pendingId
+          ? { ...p, state: "failed" as const, errorMessage }
+          : p,
+      ),
+    }));
+  },
+
+  retryPendingMessage: async (pendingId) => {
+    const target = get().pendingMessages.find((p) => p.pendingId === pendingId);
+    if (!target) return;
+    set((s) => ({
+      pendingMessages: s.pendingMessages.filter((p) => p.pendingId !== pendingId),
+    }));
+    if (target.dmSession !== null) {
+      await get().sendDm(target.dmSession, target.body);
+    } else if (target.channelId !== null) {
+      await get().sendMessage(target.channelId, target.body);
     }
   },
 
@@ -939,12 +1064,46 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   sendDm: async (targetSession, body) => {
+    const pendingId = newPendingId();
+    const showPlaceholder = bodyNeedsProgressUI(body);
+    if (showPlaceholder) {
+      set((s) => ({
+        pendingMessages: [
+          ...s.pendingMessages,
+          {
+            pendingId,
+            channelId: null,
+            dmSession: targetSession,
+            body,
+            createdAt: Date.now(),
+            state: "sending",
+          },
+        ],
+      }));
+    }
     try {
       await invoke("send_dm", { targetSession, body });
       const dmMessages = await invoke<ChatMessage[]>("get_dm_messages", { session: targetSession });
-      set({ dmMessages });
+      if (showPlaceholder) {
+        set((s) => ({
+          dmMessages,
+          pendingMessages: s.pendingMessages.filter((p) => p.pendingId !== pendingId),
+        }));
+      } else {
+        set({ dmMessages });
+      }
     } catch (e) {
       console.error("send_dm error:", e);
+      if (showPlaceholder) {
+        const detail = e instanceof Error ? e.message : String(e);
+        set((s) => ({
+          pendingMessages: s.pendingMessages.map((p) =>
+            p.pendingId === pendingId
+              ? { ...p, state: "failed" as const, errorMessage: detail }
+              : p,
+          ),
+        }));
+      }
     }
   },
 

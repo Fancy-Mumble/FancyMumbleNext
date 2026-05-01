@@ -44,6 +44,16 @@ body {
     radial-gradient(500px circle at -100px calc(100% + 150px), var(--color-bg-app-glow-purple), transparent 70%),
     var(--color-bg-app-gradient);
   overflow: hidden;
+  /* Promote .app to its own GPU-composited layer.  Android Chromium
+     WebView only applies backdrop-filter on descendants when the source
+     content beneath is rasterized on a GPU layer (otherwise the filter
+     pass is silently skipped in release builds).  translateZ(0) is the
+     classic, cross-browser way to force layer promotion. */
+  transform: translateZ(0);
+  /* Establish an isolated stacking context so backdrop-filter samples
+     this layer rather than a higher ancestor (which on Android can be
+     the WebView surface itself, yielding no visible blur). */
+  isolation: isolate;
   /* Respect mobile safe area insets (notch, home indicator, status bar) */
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);

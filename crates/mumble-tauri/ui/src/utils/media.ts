@@ -63,6 +63,17 @@ export function mediaKind(mime: string): MediaKind | null {
 }
 
 /**
+ * Yield control back to the browser event loop so React/CSS can paint
+ * a frame between long-running synchronous canvas operations.  Without
+ * this, JPEG re-encoding inside `fitImage` blocks the main thread for
+ * several seconds on mobile devices, freezing any pending-message
+ * progress UI.
+ */
+function yieldToUI(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
  * Read a File as a base64 data-URL string.
  * Returns the full `data:<mime>;base64,...` string.
  */
@@ -111,6 +122,9 @@ export async function fitImage(
 
   /** Render at `scale` x original dimensions with given JPEG `quality`. */
   async function tryEncode(scale: number, quality: number): Promise<string> {
+    // Yield BEFORE the heavy synchronous draw+encode so React can paint
+    // the optimistic "preparing" placeholder between iterations.
+    await yieldToUI();
     const w = Math.max(1, Math.round(srcW * scale));
     const h = Math.max(1, Math.round(srcH * scale));
     const canvas = new OffscreenCanvas(w, h);

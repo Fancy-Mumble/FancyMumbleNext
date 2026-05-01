@@ -82,6 +82,29 @@ export interface ChatMessage {
   pinned_at?: number | null;
 }
 
+/**
+ * An optimistically-rendered chat message that is currently being sent
+ * to the server.  Lives only in the frontend store; replaced by the
+ * real ChatMessage once `send_message` resolves successfully (or marked
+ * as failed if the send rejects).
+ */
+export interface PendingMessage {
+  /** Frontend-generated correlation id (UUID). */
+  pendingId: string;
+  /** Channel id this message targets. Null when sending a DM. */
+  channelId: number | null;
+  /** Other participant's session for DMs. Null for channel messages. */
+  dmSession: number | null;
+  /** HTML body that was passed to send_message. */
+  body: string;
+  /** Unix epoch ms when the send was initiated. */
+  createdAt: number;
+  /** Lifecycle state. */
+  state: "sending" | "failed";
+  /** Optional error message when state === "failed". */
+  errorMessage?: string;
+}
+
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
 export interface ServerLogEntry {
@@ -163,11 +186,27 @@ export interface PublicServer {
 
 // --- Link Embeds --------------------------------------------------
 
+/** A server-side downscaled, base64 inlined preview of an image-type
+ *  media field. Surfaced by the server so clients never need to contact
+ *  the origin host (avoids leaking the user's IP). */
+export interface EmbedPreview {
+  /** A `data:image/<mime>;base64,...` URL ready to use as `<img src>`. */
+  data_url: string;
+  mime: string;
+  width?: number;
+  height?: number;
+}
+
 /** Dimension/URL pair for an embedded image or video. */
 export interface EmbedMedia {
   url: string;
   width?: number;
   height?: number;
+  /** Original byte size of the upstream resource (when known). */
+  original_size?: number;
+  /** Server-generated downscaled preview, when available. Always prefer
+   *  `preview.data_url` over `url` to avoid IP leaks. */
+  preview?: EmbedPreview;
 }
 
 /** Access mode for a file uploaded via the file-server plugin. */
