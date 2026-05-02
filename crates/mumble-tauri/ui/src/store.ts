@@ -895,6 +895,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         certLabel: certLabel ?? null,
         password: password ?? null,
       });
+      // Sync activeServerId before rejection events arrive, so listener
+      // routing works even if the new session id isn't known yet.
+      await get().refreshSessions().catch(() => {});
     } catch (e) {
       set({
         status: "disconnected",
@@ -1992,14 +1995,21 @@ export async function initEventListeners(
           ? payload
           : (typeof payload === "object" && payload !== null ? payload.reason : null);
 
-        const { activeServerId } = useAppStore.getState();
+        const { activeServerId, pendingConnect: pendingForActive } = useAppStore.getState();
         // Only treat the event as affecting the active session if the
         // backend explicitly tagged it with the active session's id.
         // A missing/null serverId means "unknown" - we must not assume
         // it belongs to the currently-focused tab, otherwise closing a
         // background session would clobber the foreground one.
+        //
+        // Exception: if a `pendingConnect` is in flight, the disconnect
+        // almost certainly belongs to it (the backend just registered
+        // the new session and `activeServerId` may not have caught up
+        // yet).  Treating it as active surfaces the error instead of
+        // leaving the UI stuck on a "connecting" skeleton.
         const isActiveSession =
-          eventServerId !== null && eventServerId === activeServerId;
+          (eventServerId !== null && eventServerId === activeServerId) ||
+          pendingForActive !== null;
 
         // If the user explicitly closed this session via the tab close
         // button, the `disconnectSession` action manages the UI handoff
@@ -2185,8 +2195,15 @@ export async function initEventListeners(
       // Ignore rejections targeting non-active sessions: the matching
       // server-disconnected event will surface them via the per-session
       // status and the reconnect overlay when the user opens that tab.
-      const { activeServerId } = useAppStore.getState();
-      if (eventServerId !== null && eventServerId !== activeServerId) {
+      //
+      // Exception: if a `pendingConnect` is in flight, the rejection
+      // almost certainly belongs to it (the backend just registered the
+      // new session and `activeServerId` may not have caught up yet).
+      // Treating it as the active one is necessary so the user sees the
+      // error instead of being stuck on a "connecting" skeleton.
+      const { activeServerId, pendingConnect } = useAppStore.getState();
+      const isPending = pendingConnect !== null;
+      if (eventServerId !== null && eventServerId !== activeServerId && !isPending) {
         return;
       }
       const rt = event.payload.reject_type;
@@ -2199,9 +2216,28 @@ export async function initEventListeners(
           error: passwordAttempted ? event.payload.reason : null,
           passwordRequired: true,
           bootstrapStage: null,
-          // pendingConnect was set by the connect action - keep it.
+          // pendingConnect was set by the connect action - keep it
+          // so the dialog can re-issue the connect with the password.
         });
-        navigate("/");
+        // Make sure the failed-session tab is the active one so the
+        // PasswordDialog (rendered on /chat over the disconnected
+        // session card) appears anchored to it.  Otherwise the user
+        // is left on "/" which renders an extra synthetic "New
+        // connection" tab alongside the real failed-session tab.
+        await useAppStore.getState().refreshSessions().catch(() => {});
+        const { sessions } = useAppStore.getState();
+        if (eventServerId && sessions.some((s) => s.id === eventServerId)) {
+          await useAppStore.getState().switchServer(eventServerId).catch(() => {});
+          // switchServer re-syncs status/error from the session
+          // metadata, which would clobber passwordRequired.  Restore.
+          useAppStore.setState({
+            status: "disconnected",
+            passwordRequired: true,
+            error: passwordAttempted ? event.payload.reason : null,
+            pendingConnect: useAppStore.getState().pendingConnect,
+          });
+          navigate("/chat");
+        }
         return;
       }
       useAppStore.setState({
