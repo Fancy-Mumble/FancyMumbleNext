@@ -40,6 +40,7 @@ import { htmlToMarkdown } from "./MarkdownInput";
 import type { MessageScope } from "../../messageOffload";
 import { useScreenShare } from "./useScreenShare";
 import ScreenShareViewer, { BroadcastBanner, WebRtcErrorBanner } from "./ScreenShareViewer";
+import ActiveWatchBanner from "./watch/ActiveWatchBanner";
 import styles from "./ChatView.module.css";
 import { Lightbox, type LightboxHandle } from "../elements/Lightbox";
 
@@ -727,6 +728,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
             {persistent.disputeBanner}
             {persistent.revokedBanner}
           </BannerStack>
+
+          <ActiveWatchBanner />
 
           {allMessages.length === 0 ? (
             <div className={styles.empty}>

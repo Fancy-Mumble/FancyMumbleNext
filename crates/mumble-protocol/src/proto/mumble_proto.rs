@@ -1712,6 +1712,185 @@ pub mod fancy_link_preview_response {
         }
     }
 }
+/// Synchronised video playback control.
+///
+/// All events for a single watch session share the same `session_id` (a
+/// client-chosen UUID).  The host is the participant currently driving
+/// playback; participants mirror its `currentTime` and `state`.
+///
+/// On a Fancy server the message is delivered natively; on a legacy
+/// server the protocol's PluginData fallback applies (see
+/// fancy_codec.rs / fancy_message_support.rs).
+///
+/// Wire type ID = 134.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FancyWatchSync {
+    /// Watch session identifier (UUID v4 chosen by the originator).
+    #[prost(string, optional, tag = "1")]
+    pub session_id: ::core::option::Option<::prost::alloc::string::String>,
+    /// Session ID of the user that emitted this event.  Set by the
+    /// server on relay (mirroring TextMessage / FancyTypingIndicator).
+    #[prost(uint32, optional, tag = "2")]
+    pub actor: ::core::option::Option<u32>,
+    /// Exactly one event per message.
+    #[prost(oneof = "fancy_watch_sync::Event", tags = "10, 11, 12, 13, 14, 15, 16")]
+    pub event: ::core::option::Option<fancy_watch_sync::Event>,
+}
+/// Nested message and enum types in `FancyWatchSync`.
+pub mod fancy_watch_sync {
+    /// Begin a watch session.  Sent once by the originator.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Start {
+        /// Channel where the session lives.
+        #[prost(uint32, optional, tag = "1")]
+        pub channel_id: ::core::option::Option<u32>,
+        /// Source URL (direct media URL or canonical YouTube watch URL).
+        #[prost(string, optional, tag = "2")]
+        pub source_url: ::core::option::Option<::prost::alloc::string::String>,
+        /// Source kind for adapter selection.
+        #[prost(enumeration = "SourceKind", optional, tag = "3")]
+        pub source_kind: ::core::option::Option<i32>,
+        /// Display title (chat message excerpt or fetched media title).
+        #[prost(string, optional, tag = "4")]
+        pub title: ::core::option::Option<::prost::alloc::string::String>,
+        /// Initial host session ID.
+        #[prost(uint32, optional, tag = "5")]
+        pub host_session: ::core::option::Option<u32>,
+    }
+    /// Authoritative playback state, emitted by the host as a heartbeat
+    /// (~1 Hz while playing) and as a reply to StateRequest.
+    #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+    pub struct State {
+        #[prost(enumeration = "PlaybackState", optional, tag = "1")]
+        pub state: ::core::option::Option<i32>,
+        /// Current playback position in seconds.
+        #[prost(double, optional, tag = "2")]
+        pub current_time: ::core::option::Option<f64>,
+        /// Sender's wall-clock time in Unix epoch milliseconds, used by
+        /// participants to compensate for one-way latency.
+        #[prost(uint64, optional, tag = "3")]
+        pub updated_at_ms: ::core::option::Option<u64>,
+        /// Current host session (lets late joiners discover the host).
+        #[prost(uint32, optional, tag = "4")]
+        pub host_session: ::core::option::Option<u32>,
+    }
+    /// Membership change.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Member {
+        #[prost(uint32, optional, tag = "1")]
+        pub session: ::core::option::Option<u32>,
+    }
+    /// Late-joiner request for current state.  Targeted at the host.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct StateRequest {}
+    /// End the session for everyone.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct End {}
+    /// Explicit host transfer (rare; the common path is the
+    /// deterministic re-election triggered when the host disconnects).
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct HostTransfer {
+        #[prost(uint32, optional, tag = "1")]
+        pub new_host_session: ::core::option::Option<u32>,
+    }
+    /// Recognised video source kinds.
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum SourceKind {
+        /// Direct media URL or file-server upload.
+        DirectMedia = 0,
+        /// YouTube video, controlled via IFrame API.
+        Youtube = 1,
+    }
+    impl SourceKind {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::DirectMedia => "DIRECT_MEDIA",
+                Self::Youtube => "YOUTUBE",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "DIRECT_MEDIA" => Some(Self::DirectMedia),
+                "YOUTUBE" => Some(Self::Youtube),
+                _ => None,
+            }
+        }
+    }
+    /// Playback state for the State sub-message.
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum PlaybackState {
+        Paused = 0,
+        Playing = 1,
+        Ended = 2,
+    }
+    impl PlaybackState {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Paused => "PAUSED",
+                Self::Playing => "PLAYING",
+                Self::Ended => "ENDED",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "PAUSED" => Some(Self::Paused),
+                "PLAYING" => Some(Self::Playing),
+                "ENDED" => Some(Self::Ended),
+                _ => None,
+            }
+        }
+    }
+    /// Exactly one event per message.
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Event {
+        #[prost(message, tag = "10")]
+        Start(Start),
+        #[prost(message, tag = "11")]
+        State(State),
+        #[prost(message, tag = "12")]
+        Join(Member),
+        #[prost(message, tag = "13")]
+        Leave(Member),
+        #[prost(message, tag = "14")]
+        StateRequest(StateRequest),
+        #[prost(message, tag = "15")]
+        End(End),
+        #[prost(message, tag = "16")]
+        HostTransfer(HostTransfer),
+    }
+}
 /// Unified pchat protocol indicator.
 /// Each value identifies both the E2EE protocol implementation
 /// and the persistence behaviour for a channel.

@@ -2,6 +2,7 @@
 //! deletes, search, photos, typing/read receipts and link previews.
 
 use crate::state::{self, AppState, ChatMessage, PhotoEntry, SearchResult};
+use crate::state::protocol_commands::WatchSyncEventArg;
 
 #[tauri::command]
 pub(crate) fn super_search(
@@ -54,6 +55,16 @@ pub(crate) async fn send_typing_indicator(
 ) -> Result<(), String> {
     tracing::debug!(channel_id, "send_typing_indicator invoked");
     state.send_typing_indicator(channel_id).await
+}
+
+/// Send a single watch-together (`FancyWatchSync`) event.
+#[tauri::command]
+pub(crate) async fn send_watch_sync(
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+    event: WatchSyncEventArg,
+) -> Result<(), String> {
+    state.send_watch_sync(session_id, event).await
 }
 
 /// Request link previews for the given URLs from the server.

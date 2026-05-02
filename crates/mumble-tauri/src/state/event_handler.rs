@@ -44,10 +44,8 @@ impl TauriEmitter {
 
 impl EventEmitter for TauriEmitter {
     fn emit_json(&self, event: &str, mut payload: serde_json::Value) {
-        if let (Some(id), Some(obj)) = (self.active_server_id(), payload.as_object_mut()) {
-            let _ = obj
-                .entry("serverId")
-                .or_insert(serde_json::Value::String(id));
+        if let Some(id) = self.active_server_id() {
+            stamp_server_id(&mut payload, &id);
         }
         let _ = self.app.emit(event, payload);
     }
@@ -303,5 +301,62 @@ impl EventHandler for TauriEventHandler {
             },
         };
         let _ = self.app.emit("crypto-stats", payload);
+    }
+}
+
+/// Stamp the active session's `serverId` onto a JSON object payload.
+///
+/// Replaces missing OR explicitly-null `serverId` fields.  Payloads
+/// serialised from `Option<String>::None` produce `"serverId": null`,
+/// which would otherwise prevent the frontend from routing the event
+/// to the correct tab.
+fn stamp_server_id(payload: &mut serde_json::Value, id: &str) {
+    let Some(obj) = payload.as_object_mut() else {
+        return;
+    };
+    let needs_stamp = obj
+        .get("serverId")
+        .map(serde_json::Value::is_null)
+        .unwrap_or(true);
+    if needs_stamp {
+        let _ = obj.insert("serverId".to_string(), serde_json::Value::String(id.to_string()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stamp_server_id;
+    use serde_json::json;
+
+    #[test]
+    fn stamps_when_field_missing() {
+        let mut payload = json!({ "reason": "boom" });
+        stamp_server_id(&mut payload, "srv-1");
+        assert_eq!(payload["serverId"], json!("srv-1"));
+    }
+
+    #[test]
+    fn stamps_when_field_is_null() {
+        // Reproduces the kick-path bug: payload was serialised from
+        // `Option<String>::None`, producing `"serverId": null`.  The
+        // emitter must overwrite the null with the active server id so
+        // the frontend can route the event to the correct tab.
+        let mut payload = json!({ "serverId": null, "reason": "kicked" });
+        stamp_server_id(&mut payload, "srv-1");
+        assert_eq!(payload["serverId"], json!("srv-1"));
+    }
+
+    #[test]
+    fn preserves_existing_non_null_id() {
+        let mut payload = json!({ "serverId": "srv-2", "reason": "x" });
+        stamp_server_id(&mut payload, "srv-1");
+        assert_eq!(payload["serverId"], json!("srv-2"));
+    }
+
+    #[test]
+    fn ignores_non_object_payload() {
+        let mut payload = json!("just a string");
+        stamp_server_id(&mut payload, "srv-1");
+        assert_eq!(payload, json!("just a string"));
     }
 }

@@ -1,0 +1,119 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 0.625rem;
+  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+  max-width: 720px;
+  width: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+}
+
+.title {
+  font-weight: 600;
+  color: var(--text-primary, rgba(255, 255, 255, 0.9));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.badges {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex: 0 0 auto;
+}
+
+.hostBadge {
+  background: var(--accent, #4f8df7);
+  color: white;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  padding: 0.125rem 0.5rem;
+  font-weight: 600;
+}
+
+.participants {
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+.player {
+  width: 100%;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: #000;
+  min-height: 240px;
+}
+
+.warning {
+  font-size: 0.8125rem;
+  color: #ffb86b;
+  background: rgba(255, 184, 107, 0.08);
+  border: 1px solid rgba(255, 184, 107, 0.25);
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.375rem;
+}
+
+.error {
+  font-size: 0.8125rem;
+  color: #ff8a8a;
+  background: rgba(255, 138, 138, 0.08);
+  border: 1px solid rgba(255, 138, 138, 0.25);
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.375rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.actions button {
+  background: var(--surface-3, rgba(255, 255, 255, 0.07));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  color: inherit;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.actions button:hover {
+  background: var(--surface-4, rgba(255, 255, 255, 0.12));
+}
+
+.actions .danger {
+  color: #ff8a8a;
+}
+
+.startBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  color: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  margin-top: 0.375rem;
+}
+
+.startBtn:hover {
+  background: var(--surface-3, rgba(255, 255, 255, 0.08));
+}

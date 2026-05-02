@@ -10,6 +10,7 @@ import { useVisualViewport } from "./hooks/useVisualViewport";
 import { useNotificationSounds } from "./hooks/useNotificationSounds";
 import { useSpoilerReveal } from "./hooks/useSpoilerReveal";
 import { useCodeHighlight } from "./hooks/useCodeHighlight";
+import { useWatchLifecycle } from "./components/chat/watch/useWatchLifecycle";
 import { DEFAULT_NOTIFICATION_SOUNDS } from "./pages/settings/NotificationsPanel";
 import type { NotificationSoundSettings } from "./types";
 import TitleBar from "./components/layout/TitleBar";
@@ -77,6 +78,10 @@ function MainApp() {
   // Syntax-highlight any <pre><code> block rendered anywhere in the app.
   useCodeHighlight();
 
+  // Watch-together lifecycle: host re-election on disconnect and
+  // automatic leave when the local user changes channel.
+  useWatchLifecycle();
+
   // Check first-run status on mount and load persisted preferences.
   // Also apply saved audio settings and shortcuts to the backend so
   // they take effect without the user visiting the settings page.
@@ -86,6 +91,7 @@ function MainApp() {
       setKlipyApiKey(prefs.klipyApiKey);
       setKlipyApiKeyBanner(prefs.klipyApiKey);
       useAppStore.setState({ disableLinkPreviews: prefs.disableLinkPreviews ?? false });
+      useAppStore.setState({ enableExternalEmbeds: prefs.enableExternalEmbeds ?? false });
       useAppStore.setState({ streamerMode: prefs.streamerMode ?? false });
       // When streamer mode is enabled at startup, suppress native notifications
       // so they cannot leak personal data into a screen recording.

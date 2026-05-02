@@ -410,6 +410,10 @@ export interface UserPreferences {
   disableOsmMaps?: boolean;
   /** When true, rich link previews (including external resource embeds) are hidden. */
   disableLinkPreviews?: boolean;
+  /** When true, the watch-together feature may embed external players
+   *  (e.g. YouTube IFrame API).  When false, only direct media URLs
+   *  shared inside the chat can be played in sync. */
+  enableExternalEmbeds?: boolean;
   /** Streamer mode: hides identifying information (server host/IP, own IP)
    *  and suppresses native notifications so personal data does not leak
    *  into screen captures or recordings. */

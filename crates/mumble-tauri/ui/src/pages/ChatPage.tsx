@@ -5,8 +5,10 @@ import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store";
 import { isMobile } from "../utils/platform";
 import { useSwipeDrawer } from "../hooks/useSwipeDrawer";
+import { usePasswordPrompt } from "../hooks/usePasswordPrompt";
 import ChannelSidebar from "../components/sidebar/ChannelSidebar";
 import ChatView from "../components/chat/ChatView";
+import PasswordDialog from "../components/server/PasswordDialog";
 import styles from "./ChatPage.module.css";
 
 const ServerInfoPanel = lazy(() => import("../components/server/ServerInfoPanel"));
@@ -23,11 +25,17 @@ export default function ChatPage() {
   const sessions = useAppStore((s) => s.sessions);
   const activeServerId = useAppStore((s) => s.activeServerId);
   const error = useAppStore((s) => s.error);
+  const passwordRequired = useAppStore((s) => s.passwordRequired);
+  const pendingConnect = useAppStore((s) => s.pendingConnect);
+  const dismissPasswordPrompt = useAppStore((s) => s.dismissPasswordPrompt);
   const connect = useAppStore((s) => s.connect);
   const refreshSessions = useAppStore((s) => s.refreshSessions);
   const navigate = useNavigate();
 
   const [isReconnecting, setIsReconnecting] = useState(false);
+
+  const { handleSubmit: handlePasswordSubmit, handleChangeUsername, showSaveOption } =
+    usePasswordPrompt();
 
 
   // On desktop, track whether the viewport is narrow (<= 768px).
@@ -148,6 +156,16 @@ export default function ChatPage() {
             {isReconnecting ? "Reconnecting..." : "Reconnect"}
           </button>
         </div>
+        <PasswordDialog
+          open={passwordRequired}
+          onSubmit={handlePasswordSubmit}
+          onCancel={dismissPasswordPrompt}
+          serverHost={pendingConnect?.host}
+          username={pendingConnect?.username}
+          error={error}
+          showSaveOption={showSaveOption}
+          onChangeUsername={handleChangeUsername}
+        />
       </div>
     );
   }
