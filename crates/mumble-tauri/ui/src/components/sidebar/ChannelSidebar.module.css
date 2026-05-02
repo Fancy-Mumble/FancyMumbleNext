@@ -6,8 +6,8 @@
   flex-direction: column;
   align-self: stretch;
   background: var(--color-glass);
-  backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
   border-right: 1px solid var(--color-glass-border);
   flex-shrink: 0;
   min-height: 0;
@@ -278,6 +278,7 @@
 .selfUserSection {
   margin-top: auto;
   padding-top: 6px;
+  padding-bottom: 6px;
   border-top: 1px solid var(--color-glass-border);
   flex-shrink: 0;
   display: flex;
@@ -295,7 +296,7 @@
 
 .selfVoiceActions {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: 4px;
   flex-shrink: 0;
   padding-right: 4px;
@@ -304,7 +305,8 @@
 
 .selfVoiceActions .voiceToggle {
   width: 36px;
-  height: auto;
+  height: 100%;
+  min-height: 36px;
 }
 
 /* --- Desktop/Mobile visibility --------------------------------- */
@@ -486,7 +488,7 @@
 
 @keyframes voicePulse {
   0%, 100% { box-shadow: 0 0 0 0 var(--color-online-glow); }
-  50% { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0); }
+  50% { box-shadow: 0 0 0 4px transparent; }
 }
 
 .voiceLabel {
@@ -531,13 +533,25 @@
 .voiceActive {
   color: var(--color-online);
   background: var(--color-online-medium);
-  border-color: rgba(34, 197, 94, 0.25);
+  border-color: var(--color-online-medium);
 }
 
 .voiceActive:hover {
   color: var(--color-danger);
   background: var(--color-danger-bg);
   border-color: var(--color-danger-border);
+}
+
+.voiceMuted {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger-border);
+}
+
+.voiceMuted:hover {
+  color: var(--color-danger-light);
+  background: var(--color-danger-medium);
+  border-color: var(--color-danger-border-strong);
 }
 
 .settingsBtn {

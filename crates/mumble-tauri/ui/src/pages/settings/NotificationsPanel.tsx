@@ -94,7 +94,7 @@ const EVENT_DEFS: EventDef[] = [
 ];
 
 export const DEFAULT_NOTIFICATION_SOUNDS: NotificationSoundSettings = {
-  masterEnabled: true,
+  masterEnabled: false,
   events: {
     chatMessage: { enabled: true, sound: "dragon-3", volume: 0.5 },
     directMessage: { enabled: true, sound: "univ-033", volume: 0.7 },

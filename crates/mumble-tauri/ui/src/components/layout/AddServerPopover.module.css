@@ -1,0 +1,165 @@
+.popover {
+  position: fixed;
+  width: 280px;
+  max-height: 360px;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-elevated, #1f2126);
+  border: 1px solid var(--color-glass-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-glass-border);
+}
+
+.title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.headerBtn {
+  border: 1px solid var(--color-glass-border);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.headerBtn:hover {
+  background: var(--color-glass-medium);
+  border-color: var(--color-accent);
+}
+
+.searchRow {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-glass-border);
+}
+
+.searchInput {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--color-glass-subtle);
+  border: 1px solid var(--color-glass-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  outline: none;
+}
+
+.searchInput:focus {
+  border-color: var(--color-accent);
+  background: var(--color-glass-medium);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--color-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.item:hover:not(:disabled) {
+  background: var(--color-glass-medium);
+}
+
+.item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pingDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotProbing { background: #6b7280; }
+.dotOffline { background: #ef4444; }
+.dotGreat   { background: #22c55e; }
+.dotOkay    { background: #eab308; }
+.dotPoor    { background: #f97316; }
+
+.itemBody {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.itemLabel {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.itemMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.connectedTag {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #22c55e;
+  letter-spacing: 0.04em;
+}
+
+.empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.primaryBtn {
+  margin-top: 8px;
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent-soft, transparent);
+  color: var(--color-text-primary);
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.primaryBtn:hover {
+  background: var(--color-accent);
+}

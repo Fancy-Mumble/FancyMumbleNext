@@ -9,7 +9,8 @@ use crate::state::AppState;
 impl AppState {
     pub async fn send_dm(&self, target_session: u32, body: String) -> Result<(), String> {
         let (handle, own_session, own_name, own_hash, is_fancy) = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             let hash = own_session_hash(&state);
             (
                 state.conn.client_handle.clone(),
@@ -46,7 +47,7 @@ impl AppState {
             .await
             .map_err(|e| format!("Failed to send DM: {e}"))?;
 
-        if let Ok(mut state) = self.inner.lock() {
+        if let Ok(mut state) = self.inner.snapshot().lock() {
             let mut msg = ChatMessage {
                 sender_session: own_session,
                 sender_name: own_name,
@@ -73,7 +74,8 @@ impl AppState {
 
     pub fn select_dm_user(&self, session: u32) -> Result<(), String> {
         {
-            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let mut state = __session.lock().map_err(|e| e.to_string())?;
             state.msgs.selected_dm_user = Some(session);
             state.selected_channel = None;
             let _ = state.msgs.dm_unread.remove(&session);

@@ -22,6 +22,12 @@ impl HandleMessage for mumble_tcp::UserRemove {
                 state.conn.status = ConnectionStatus::Disconnected;
                 state.conn.client_handle = None;
                 state.conn.event_loop_handle = None;
+                // Mark this disconnect as user-initiated from the protocol
+                // layer's point of view: the upcoming `on_disconnected`
+                // callback (triggered when the TCP connection drops) must
+                // NOT emit its own generic "Connection to server was lost."
+                // reason that would clobber the kick reason we emit below.
+                state.conn.user_initiated_disconnect = true;
                 state.users.clear();
                 state.channels.clear();
                 state.msgs.by_channel.clear();
@@ -42,8 +48,14 @@ impl HandleMessage for mumble_tcp::UserRemove {
                 #[cfg(not(target_os = "android"))]
                 stop_audio_pipelines(&mut state);
             }
-            ctx.emit("connection-rejected", RejectedPayload { reason, reject_type: None });
-            ctx.emit_empty("server-disconnected");
+            ctx.emit("connection-rejected", RejectedPayload { reason: reason.clone(), reject_type: None });
+            // server_id stays set on shared state until the connect helper
+            // tears the session down; the TauriEmitter will stamp `serverId`
+            // onto the object payload so the frontend can route the event.
+            ctx.emit(
+                "server-disconnected",
+                DisconnectedPayload { server_id: None, reason: Some(reason) },
+            );
         } else {
             // Look up the departing user's name for the activity log.
             let departing_name = ctx

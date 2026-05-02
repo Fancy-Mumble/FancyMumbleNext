@@ -23,12 +23,30 @@ use super::types::*;
 use super::SharedState;
 
 /// Tauri-backed event emitter forwarding to `AppHandle::emit`.
+///
+/// Stamps every JSON object payload with a `serverId` field identifying
+/// the active session at emit time so the frontend can route events to
+/// the correct server tab.  Non-object payloads (strings, arrays) are
+/// forwarded unchanged.
 struct TauriEmitter {
     app: AppHandle,
+    shared: Arc<Mutex<SharedState>>,
+}
+
+impl TauriEmitter {
+    fn active_server_id(&self) -> Option<String> {
+        self.shared
+            .lock()
+            .ok()
+            .and_then(|g| g.server_id.map(|id| id.to_string()))
+    }
 }
 
 impl EventEmitter for TauriEmitter {
-    fn emit_json(&self, event: &str, payload: serde_json::Value) {
+    fn emit_json(&self, event: &str, mut payload: serde_json::Value) {
+        if let Some(id) = self.active_server_id() {
+            stamp_server_id(&mut payload, &id);
+        }
         let _ = self.app.emit(event, payload);
     }
 
@@ -94,6 +112,11 @@ pub(super) struct TauriEventHandler {
     /// `on_disconnected` only acts when this matches the current epoch,
     /// preventing stale callbacks from orphaned tasks.
     pub epoch: u64,
+    /// The session id this handler was created for.  Used by
+    /// `on_disconnected` to emit a correctly-scoped
+    /// `DisconnectedPayload` even after `disconnect_session` has
+    /// already cleared `state.server_id` as part of its teardown.
+    pub server_id: super::sessions::ServerId,
     /// Running count of inbound audio packets (for periodic diagnostics).
     pub(super) inbound_audio_count: u64,
 }
@@ -104,6 +127,7 @@ impl EventHandler for TauriEventHandler {
             shared: Arc::clone(&self.shared),
             emitter: Box::new(TauriEmitter {
                 app: self.app.clone(),
+                shared: Arc::clone(&self.shared),
             }),
         };
         handler::dispatch(msg, &ctx);
@@ -191,6 +215,8 @@ impl EventHandler for TauriEventHandler {
             }
 
             state.conn.status = ConnectionStatus::Disconnected;
+            state.server_id = None;
+            state.cert_label = None;
             state.conn.client_handle = None;
             state.conn.event_loop_handle = None;
             // Stop audio pipelines on disconnect.
@@ -221,8 +247,15 @@ impl EventHandler for TauriEventHandler {
             user_initiated = state.conn.user_initiated_disconnect;
             state.conn.user_initiated_disconnect = false;
         }
-        let reason = if user_initiated { None } else { Some("Connection to server was lost.") };
-        let _ = self.app.emit("server-disconnected", reason);
+        let reason = if user_initiated {
+            None
+        } else {
+            Some("Connection to server was lost.".to_string())
+        };
+        let _ = self.app.emit(
+            "server-disconnected",
+            DisconnectedPayload { server_id: Some(self.server_id.to_string()), reason },
+        );
 
         // Stop Android foreground service now that we are disconnected.
         #[cfg(target_os = "android")]
@@ -268,5 +301,62 @@ impl EventHandler for TauriEventHandler {
             },
         };
         let _ = self.app.emit("crypto-stats", payload);
+    }
+}
+
+/// Stamp the active session's `serverId` onto a JSON object payload.
+///
+/// Replaces missing OR explicitly-null `serverId` fields.  Payloads
+/// serialised from `Option<String>::None` produce `"serverId": null`,
+/// which would otherwise prevent the frontend from routing the event
+/// to the correct tab.
+fn stamp_server_id(payload: &mut serde_json::Value, id: &str) {
+    let Some(obj) = payload.as_object_mut() else {
+        return;
+    };
+    let needs_stamp = obj
+        .get("serverId")
+        .map(serde_json::Value::is_null)
+        .unwrap_or(true);
+    if needs_stamp {
+        let _ = obj.insert("serverId".to_string(), serde_json::Value::String(id.to_string()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stamp_server_id;
+    use serde_json::json;
+
+    #[test]
+    fn stamps_when_field_missing() {
+        let mut payload = json!({ "reason": "boom" });
+        stamp_server_id(&mut payload, "srv-1");
+        assert_eq!(payload["serverId"], json!("srv-1"));
+    }
+
+    #[test]
+    fn stamps_when_field_is_null() {
+        // Reproduces the kick-path bug: payload was serialised from
+        // `Option<String>::None`, producing `"serverId": null`.  The
+        // emitter must overwrite the null with the active server id so
+        // the frontend can route the event to the correct tab.
+        let mut payload = json!({ "serverId": null, "reason": "kicked" });
+        stamp_server_id(&mut payload, "srv-1");
+        assert_eq!(payload["serverId"], json!("srv-1"));
+    }
+
+    #[test]
+    fn preserves_existing_non_null_id() {
+        let mut payload = json!({ "serverId": "srv-2", "reason": "x" });
+        stamp_server_id(&mut payload, "srv-1");
+        assert_eq!(payload["serverId"], json!("srv-2"));
+    }
+
+    #[test]
+    fn ignores_non_object_payload() {
+        let mut payload = json!("just a string");
+        stamp_server_id(&mut payload, "srv-1");
+        assert_eq!(payload, json!("just a string"));
     }
 }

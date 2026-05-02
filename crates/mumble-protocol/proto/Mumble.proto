@@ -929,18 +929,32 @@ message FancyLinkPreviewResponse {
 	// Link embed data with media, provider, and author info.
 	message Embed {
 		optional string url = 1;
-		// "video", "image", "gifv", "article", "link", "rich"
+		// "video", "image", "gifv", "article", "link", "rich", "audio", "file"
 		optional string type = 2;
 		optional string title = 3;
 		optional string description = 4;
+		// Dominant theme colour, packed as 0xRRGGBB.
 		optional int32 color = 5;
 		optional string site_name = 6;
 
-		// Reusable sub-message for media (thumbnail, image, video).
+		// Reusable sub-message for media (thumbnail, image, video, favicon).
+		//
+		// `url` still carries the original CDN URL so the client may fetch
+		// full-resolution media on user request, but `preview_data` carries
+		// a server-side downscaled JPEG so the default render path never
+		// leaks the user's IP to a third-party host.
 		message Media {
 			optional string url = 1;
 			optional int32 width = 2;
 			optional int32 height = 3;
+			// Server-fetched, downscaled preview bytes (typically JPEG).
+			optional bytes preview_data = 4;
+			// MIME type of `preview_data` (e.g. "image/jpeg").
+			optional string preview_mime = 5;
+			optional int32 preview_width = 6;
+			optional int32 preview_height = 7;
+			// Size in bytes of the original (un-downscaled) media.
+			optional uint32 original_size = 8;
 		}
 		optional Media thumbnail = 7;
 		optional Media image = 8;
@@ -959,9 +973,143 @@ message FancyLinkPreviewResponse {
 			optional string url = 2;
 		}
 		optional Author author = 11;
+
+		// --- Rich preview extensions --------------------------------
+
+		// Site favicon (also carries server-fetched preview_data).
+		optional Media favicon = 12;
+		// Canonical URL as advertised by <link rel="canonical"> or og:url.
+		optional string canonical_url = 13;
+		// Page language tag ("en", "de", "en-US", ...).
+		optional string lang = 14;
+		// Article publish/modify timestamps in ISO-8601 form.
+		optional string published_time = 15;
+		optional string modified_time = 16;
+		// Page-declared keywords/tags.
+		repeated string keywords = 17;
+		// Server-side extractive summary of the page body. May be longer
+		// than `description` and is intended for a "read more" toggle.
+		optional string summary = 18;
+		// MIME type of the resource at `url` when known (direct media).
+		optional string content_type = 19;
+		// Size in bytes of the resource at `url` when advertised.
+		optional uint64 content_length = 20;
+		// Human-readable media duration ("03:14", "1:02:45").
+		optional string media_duration = 21;
+		// Coarse "adult content" flag derived from rating meta tags.
+		optional bool nsfw = 22;
+		// Estimated reading time, e.g. "5 min read".
+		optional string reading_time = 23;
+
+		// Discord-style key/value field rows (e.g. resolution, file size,
+		// repository stars). `inline` allows the client to render multiple
+		// fields side-by-side.
+		message Field {
+			optional string name = 1;
+			optional string value = 2;
+			optional bool inline = 3;
+		}
+		repeated Field fields = 24;
+
+		// ISO-8601 timestamp at which the server fetched this preview.
+		optional string fetched_at = 25;
 	}
 
 	// Correlation ID from the request.
 	optional string request_id = 1;
 	repeated Embed embeds = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Watch-together (Fancy Mumble extension, ID 134)
+// ---------------------------------------------------------------------------
+
+// Synchronised video playback control.
+//
+// All events for a single watch session share the same `session_id` (a
+// client-chosen UUID).  The host is the participant currently driving
+// playback; participants mirror its `currentTime` and `state`.
+//
+// On a Fancy server the message is delivered natively; on a legacy
+// server the protocol's PluginData fallback applies (see
+// fancy_codec.rs / fancy_message_support.rs).
+//
+// Wire type ID = 134.
+message FancyWatchSync {
+	// Watch session identifier (UUID v4 chosen by the originator).
+	optional string session_id = 1;
+
+	// Session ID of the user that emitted this event.  Set by the
+	// server on relay (mirroring TextMessage / FancyTypingIndicator).
+	optional uint32 actor = 2;
+
+	// Recognised video source kinds.
+	enum SourceKind {
+		DIRECT_MEDIA = 0;  // Direct media URL or file-server upload.
+		YOUTUBE      = 1;  // YouTube video, controlled via IFrame API.
+	}
+
+	// Playback state for the State sub-message.
+	enum PlaybackState {
+		PAUSED  = 0;
+		PLAYING = 1;
+		ENDED   = 2;
+	}
+
+	// Begin a watch session.  Sent once by the originator.
+	message Start {
+		// Channel where the session lives.
+		optional uint32 channel_id = 1;
+		// Source URL (direct media URL or canonical YouTube watch URL).
+		optional string source_url = 2;
+		// Source kind for adapter selection.
+		optional SourceKind source_kind = 3;
+		// Display title (chat message excerpt or fetched media title).
+		optional string title = 4;
+		// Initial host session ID.
+		optional uint32 host_session = 5;
+	}
+
+	// Authoritative playback state, emitted by the host as a heartbeat
+	// (~1 Hz while playing) and as a reply to StateRequest.
+	message State {
+		optional PlaybackState state = 1;
+		// Current playback position in seconds.
+		optional double current_time = 2;
+		// Sender's wall-clock time in Unix epoch milliseconds, used by
+		// participants to compensate for one-way latency.
+		optional uint64 updated_at_ms = 3;
+		// Current host session (lets late joiners discover the host).
+		optional uint32 host_session = 4;
+	}
+
+	// Membership change.
+	message Member {
+		optional uint32 session = 1;
+	}
+
+	// Late-joiner request for current state.  Targeted at the host.
+	message StateRequest {
+	}
+
+	// End the session for everyone.
+	message End {
+	}
+
+	// Explicit host transfer (rare; the common path is the
+	// deterministic re-election triggered when the host disconnects).
+	message HostTransfer {
+		optional uint32 new_host_session = 1;
+	}
+
+	// Exactly one event per message.
+	oneof event {
+		Start        start          = 10;
+		State        state          = 11;
+		Member       join           = 12;
+		Member       leave          = 13;
+		StateRequest state_request  = 14;
+		End          end            = 15;
+		HostTransfer host_transfer  = 16;
+	}
 }

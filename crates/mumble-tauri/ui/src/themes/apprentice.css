@@ -1,10 +1,10 @@
 /* ================================================================
    Apprentice Theme - Fancy Mumble
-   Muted, low-contrast palette with earthy tones.
+   Neutral grey backbone with saturated, punchy chromatic colors.
    ================================================================ */
 
 [data-theme="apprentice"] {
-  /* -- Background ------------------------------------------------ */
+  /* -- Background (neutral greys) -------------------------------- */
   --color-bg-primary: #1c1c1c;
   --color-bg-secondary: #262626;
   --color-bg-elevated: #303030;
@@ -12,141 +12,141 @@
   --color-bg-deepest: #121212;
   --color-bg-media: #000000;
   --color-bg-app-gradient: linear-gradient(135deg, #1c1c1c 0%, #262626 50%, #303030 100%);
-  --color-bg-app-glow-accent: rgba(95, 135, 175, 0.12);
-  --color-bg-app-glow-purple: rgba(95, 95, 135, 0.12);
+  --color-bg-app-glow-accent: rgba(70, 140, 220, 0.15);
+  --color-bg-app-glow-purple: rgba(120, 100, 220, 0.15);
 
-  /* -- Text ------------------------------------------------------ */
-  --color-text-primary: #bcbcbc;
-  --color-text-secondary: rgba(188, 188, 188, 0.6);
-  --color-text-muted: rgba(188, 188, 188, 0.38);
+  /* -- Text (neutral greys) -------------------------------------- */
+  --color-text-primary: #d0d0d0;
+  --color-text-secondary: rgba(208, 208, 208, 0.65);
+  --color-text-muted: rgba(208, 208, 208, 0.4);
   --color-text-on-accent: #ffffff;
-  --color-text-button: rgba(188, 188, 188, 0.7);
+  --color-text-button: rgba(208, 208, 208, 0.75);
   --color-text-placeholder: #6c6c6c;
 
-  /* -- Accent (muted blue) --------------------------------------- */
-  --color-accent: #5f87af;
-  --color-accent-hover: #8fafd7;
-  --color-accent-glow: rgba(95, 135, 175, 0.3);
-  --color-accent-soft: rgba(95, 135, 175, 0.06);
-  --color-accent-subtle: rgba(95, 135, 175, 0.08);
-  --color-accent-light: rgba(95, 135, 175, 0.12);
-  --color-accent-medium: rgba(95, 135, 175, 0.15);
-  --color-accent-strong: rgba(95, 135, 175, 0.2);
-  --color-accent-fill: rgba(95, 135, 175, 0.25);
-  --color-accent-border: rgba(95, 135, 175, 0.28);
-  --color-accent-selection: rgba(95, 135, 175, 0.3);
-  --color-accent-border-strong: rgba(95, 135, 175, 0.35);
-  --color-accent-gradient-end: rgba(143, 175, 215, 0.10);
-  --color-accent-bright: #8fafd7;
+  /* -- Accent (vivid blue) --------------------------------------- */
+  --color-accent: #468cdc;
+  --color-accent-hover: #6aacf0;
+  --color-accent-glow: rgba(70, 140, 220, 0.35);
+  --color-accent-soft: rgba(70, 140, 220, 0.06);
+  --color-accent-subtle: rgba(70, 140, 220, 0.1);
+  --color-accent-light: rgba(70, 140, 220, 0.14);
+  --color-accent-medium: rgba(70, 140, 220, 0.18);
+  --color-accent-strong: rgba(70, 140, 220, 0.24);
+  --color-accent-fill: rgba(70, 140, 220, 0.3);
+  --color-accent-border: rgba(70, 140, 220, 0.32);
+  --color-accent-selection: rgba(70, 140, 220, 0.35);
+  --color-accent-border-strong: rgba(70, 140, 220, 0.4);
+  --color-accent-gradient-end: rgba(106, 172, 240, 0.12);
+  --color-accent-bright: #6aacf0;
 
   /* -- Purple (gradients) ---------------------------------------- */
-  --color-purple: #5f5f87;
+  --color-purple: #7864dc;
 
-  /* -- Glass ----------------------------------------------------- */
-  --color-glass: rgba(188, 188, 188, 0.04);
-  --color-glass-subtle: rgba(188, 188, 188, 0.05);
-  --color-glass-hover: rgba(188, 188, 188, 0.08);
-  --color-glass-medium: rgba(188, 188, 188, 0.1);
-  --color-glass-active: rgba(95, 135, 175, 0.12);
-  --color-glass-strong: rgba(188, 188, 188, 0.12);
-  --color-glass-heavy: rgba(188, 188, 188, 0.15);
-  --color-glass-border: rgba(188, 188, 188, 0.08);
-  --color-glass-border-hover: rgba(188, 188, 188, 0.14);
+  /* -- Glass (neutral greys) ------------------------------------- */
+  --color-glass: rgba(208, 208, 208, 0.04);
+  --color-glass-subtle: rgba(208, 208, 208, 0.05);
+  --color-glass-hover: rgba(208, 208, 208, 0.08);
+  --color-glass-medium: rgba(208, 208, 208, 0.1);
+  --color-glass-active: rgba(70, 140, 220, 0.14);
+  --color-glass-strong: rgba(208, 208, 208, 0.12);
+  --color-glass-heavy: rgba(208, 208, 208, 0.15);
+  --color-glass-border: rgba(208, 208, 208, 0.08);
+  --color-glass-border-hover: rgba(208, 208, 208, 0.15);
 
-  /* -- Danger / Error (muted red) -------------------------------- */
-  --color-danger: #af5f5f;
-  --color-danger-alt: #af5f5f;
-  --color-danger-light: #d08080;
-  --color-danger-muted: #995555;
-  --color-danger-soft: rgba(175, 95, 95, 0.04);
-  --color-danger-subtle: rgba(175, 95, 95, 0.08);
-  --color-danger-bg: rgba(175, 95, 95, 0.1);
-  --color-danger-medium: rgba(175, 95, 95, 0.12);
-  --color-danger-strong: rgba(175, 95, 95, 0.15);
-  --color-danger-border: rgba(175, 95, 95, 0.2);
-  --color-danger-border-strong: rgba(175, 95, 95, 0.3);
-  --color-danger-alt-light: rgba(175, 95, 95, 0.12);
-  --color-danger-alt-glow: rgba(175, 95, 95, 0.4);
-  --color-danger-alt-soft: rgba(175, 95, 95, 0.04);
-  --color-danger-alt-subtle: rgba(175, 95, 95, 0.06);
-  --color-danger-alt-border: rgba(175, 95, 95, 0.2);
-  --color-danger-alt-strong: rgba(175, 95, 95, 0.25);
-  --color-danger-alt-border-strong: rgba(175, 95, 95, 0.35);
+  /* -- Danger / Error (vivid red) -------------------------------- */
+  --color-danger: #e04848;
+  --color-danger-alt: #dc4444;
+  --color-danger-light: #f08080;
+  --color-danger-muted: #cc4040;
+  --color-danger-soft: rgba(224, 72, 72, 0.05);
+  --color-danger-subtle: rgba(224, 72, 72, 0.1);
+  --color-danger-bg: rgba(224, 72, 72, 0.12);
+  --color-danger-medium: rgba(224, 72, 72, 0.15);
+  --color-danger-strong: rgba(224, 72, 72, 0.2);
+  --color-danger-border: rgba(224, 72, 72, 0.25);
+  --color-danger-border-strong: rgba(224, 72, 72, 0.35);
+  --color-danger-alt-light: rgba(220, 68, 68, 0.14);
+  --color-danger-alt-glow: rgba(220, 68, 68, 0.45);
+  --color-danger-alt-soft: rgba(220, 68, 68, 0.05);
+  --color-danger-alt-subtle: rgba(220, 68, 68, 0.08);
+  --color-danger-alt-border: rgba(220, 68, 68, 0.22);
+  --color-danger-alt-strong: rgba(220, 68, 68, 0.28);
+  --color-danger-alt-border-strong: rgba(220, 68, 68, 0.38);
 
-  /* -- Success / Online (muted green) ---------------------------- */
-  --color-online: #5f875f;
-  --color-online-bright: #87af87;
-  --color-online-subtle: rgba(95, 135, 95, 0.08);
-  --color-online-bg: rgba(95, 135, 95, 0.1);
-  --color-online-medium: rgba(95, 135, 95, 0.12);
-  --color-online-glow: rgba(95, 135, 95, 0.5);
-  --color-success-gradient-start: rgba(95, 135, 95, 0.12);
-  --color-success-gradient-end: rgba(95, 135, 95, 0.06);
+  /* -- Success / Online (vivid green) ---------------------------- */
+  --color-online: #3dbc5c;
+  --color-online-bright: #5cd87a;
+  --color-online-subtle: rgba(61, 188, 92, 0.1);
+  --color-online-bg: rgba(61, 188, 92, 0.12);
+  --color-online-medium: rgba(61, 188, 92, 0.15);
+  --color-online-glow: rgba(61, 188, 92, 0.55);
+  --color-success-gradient-start: rgba(61, 188, 92, 0.14);
+  --color-success-gradient-end: rgba(61, 188, 92, 0.07);
 
-  /* -- Warning / Unverified (muted yellow) ----------------------- */
-  --color-warning: #87875f;
-  --color-warning-bright: #ffffaf;
-  --color-warning-amber: #ff8700;
-  --color-warning-text: #87875f;
-  --color-warning-soft: rgba(135, 135, 95, 0.04);
-  --color-warning-subtle: rgba(135, 135, 95, 0.08);
-  --color-warning-amber-subtle: rgba(255, 135, 0, 0.08);
-  --color-warning-amber-glow: rgba(255, 135, 0, 0.4);
-  --color-warning-bright-bg: rgba(255, 255, 175, 0.1);
-  --color-warning-bright-medium: rgba(255, 255, 175, 0.12);
-  --color-warning-bright-border: rgba(255, 255, 175, 0.25);
+  /* -- Warning / Unverified (vivid yellow) ----------------------- */
+  --color-warning: #d4a020;
+  --color-warning-bright: #f0cc44;
+  --color-warning-amber: #f09020;
+  --color-warning-text: #d4a020;
+  --color-warning-soft: rgba(212, 160, 32, 0.05);
+  --color-warning-subtle: rgba(212, 160, 32, 0.1);
+  --color-warning-amber-subtle: rgba(240, 144, 32, 0.1);
+  --color-warning-amber-glow: rgba(240, 144, 32, 0.45);
+  --color-warning-bright-bg: rgba(240, 204, 68, 0.12);
+  --color-warning-bright-medium: rgba(240, 204, 68, 0.15);
+  --color-warning-bright-border: rgba(240, 204, 68, 0.28);
 
   /* -- Link ------------------------------------------------------ */
-  --color-link: #8fafd7;
+  --color-link: #6aacf0;
 
-  /* -- Discord-style palette (reactions / emoji picker) ----------- */
-  --color-discord-purple: #8787af;
+  /* -- Discord-style palette (neutral greys) --------------------- */
+  --color-discord-purple: #8878dc;
   --color-discord-dark: #1c1c1c;
   --color-discord-bg: #262626;
   --color-discord-border: #3a3a3a;
   --color-discord-hover: #303030;
   --color-discord-muted: #6c6c6c;
-  --color-discord-text: #bcbcbc;
+  --color-discord-text: #d0d0d0;
   --color-discord-active: #3a3a3a;
 
   /* -- Overlays / Shadows ---------------------------------------- */
-  --color-overlay-light: rgba(0, 0, 0, 0.18);
-  --color-overlay-medium: rgba(0, 0, 0, 0.28);
-  --color-overlay-heavy: rgba(0, 0, 0, 0.45);
-  --color-overlay-strong: rgba(0, 0, 0, 0.38);
-  --color-overlay-dark: rgba(0, 0, 0, 0.65);
-  --color-overlay-darkest: rgba(0, 0, 0, 0.78);
+  --color-overlay-light: rgba(0, 0, 0, 0.2);
+  --color-overlay-medium: rgba(0, 0, 0, 0.3);
+  --color-overlay-heavy: rgba(0, 0, 0, 0.48);
+  --color-overlay-strong: rgba(0, 0, 0, 0.4);
+  --color-overlay-dark: rgba(0, 0, 0, 0.68);
+  --color-overlay-darkest: rgba(0, 0, 0, 0.8);
 
-  /* -- Surfaces (bars, panels, toasts) --------------------------- */
-  --color-surface-titlebar: rgba(28, 28, 28, 0.88);
+  /* -- Surfaces (neutral greys) ---------------------------------- */
+  --color-surface-titlebar: rgba(28, 28, 28, 0.9);
   --color-surface-action-bar: rgba(38, 38, 38, 0.92);
-  --color-surface-toast: rgba(48, 48, 48, 0.92);
+  --color-surface-toast: rgba(48, 48, 48, 0.94);
   --color-surface-streaming: #1c1c1c;
 
   /* -- Badge / specialty colors ---------------------------------- */
-  --color-badge-fancy: #8787af;
-  --color-badge-signal: #8fafd7;
-  --color-badge-server: #87af87;
+  --color-badge-fancy: #8878dc;
+  --color-badge-signal: #6aacf0;
+  --color-badge-server: #5cd87a;
 
   /* -- Search result type icons ---------------------------------- */
-  --color-search-user: #5f875f;
-  --color-search-user-bg: rgba(95, 135, 95, 0.12);
-  --color-search-group: #8787af;
-  --color-search-group-bg: rgba(135, 135, 175, 0.12);
-  --color-search-message: #ff8700;
-  --color-search-message-bg: rgba(255, 135, 0, 0.12);
+  --color-search-user: #3dbc5c;
+  --color-search-user-bg: rgba(61, 188, 92, 0.14);
+  --color-search-group: #8878dc;
+  --color-search-group-bg: rgba(136, 120, 220, 0.14);
+  --color-search-message: #f09020;
+  --color-search-message-bg: rgba(240, 144, 32, 0.14);
 
   /* -- Own bubble (sent messages) -------------------------------- */
-  --color-own-bubble-start: rgba(75, 110, 145, 0.4);
-  --color-own-bubble-end: rgba(95, 135, 175, 0.3);
-  --color-own-bubble-text: #bcbcbc;
-  --color-own-bubble-time: rgba(188, 188, 188, 0.6);
+  --color-own-bubble-start: rgba(50, 110, 185, 0.4);
+  --color-own-bubble-end: rgba(70, 140, 220, 0.3);
+  --color-own-bubble-text: #d0d0d0;
+  --color-own-bubble-time: rgba(208, 208, 208, 0.6);
 
   /* -- Quote ----------------------------------------------------- */
-  --color-quote-gradient-start: rgba(75, 110, 145, 0.4);
-  --color-quote-gradient-end: rgba(95, 135, 175, 0.3);
+  --color-quote-gradient-start: rgba(50, 110, 185, 0.4);
+  --color-quote-gradient-end: rgba(70, 140, 220, 0.3);
 
-  /* -- Scrollbar ------------------------------------------------- */
-  --color-scrollbar: rgba(188, 188, 188, 0.1);
-  --color-scrollbar-hover: rgba(188, 188, 188, 0.2);
+  /* -- Scrollbar (neutral grey) ---------------------------------- */
+  --color-scrollbar: rgba(208, 208, 208, 0.1);
+  --color-scrollbar-hover: rgba(208, 208, 208, 0.2);
 }

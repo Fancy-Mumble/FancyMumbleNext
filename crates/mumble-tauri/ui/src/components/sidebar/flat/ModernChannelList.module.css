@@ -30,6 +30,13 @@
   border-color: var(--color-accent-fill);
 }
 
+/* Highlight when a user is being dragged over this channel. */
+.dropTarget > .channelCard {
+  outline: 2px dashed var(--color-accent, #2aabee);
+  outline-offset: -2px;
+  background: var(--color-glass-active);
+}
+
 /* --- Header row ------------------------------------------------- */
 
 .headerRow {

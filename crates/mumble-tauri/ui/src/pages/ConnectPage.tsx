@@ -304,6 +304,31 @@ export default function ConnectPage() {
     [connectingServerId, matchingServerId, retryWithPassword],
   );
 
+  const handleChangeUsername = useCallback(
+    async (newUsername: string) => {
+      if (!pendingConnect) return;
+      const targetId = connectingServerId ?? matchingServerId;
+      // Persist the new username on the saved server entry so future
+      // quick-connects use it.
+      if (targetId) {
+        await updateServer(targetId, { username: newUsername });
+        setSavedServers((prev) =>
+          prev.map((s) => (s.id === targetId ? { ...s, username: newUsername } : s)),
+        );
+      }
+      // Dismiss the password prompt before issuing a fresh connect so the
+      // store isn't blocked by a stale passwordRequired flag.
+      dismissPasswordPrompt();
+      await connect(
+        pendingConnect.host,
+        pendingConnect.port,
+        newUsername,
+        pendingConnect.certLabel ?? null,
+      );
+    },
+    [pendingConnect, connectingServerId, matchingServerId, dismissPasswordPrompt, connect],
+  );
+
   const handleShowWizard = () => {
     resetWizard();
     setView("wizard");
@@ -648,6 +673,7 @@ export default function ConnectPage() {
         username={pendingConnect?.username}
         error={error}
         showSaveOption={matchingServerId !== null}
+        onChangeUsername={handleChangeUsername}
       />
     </div>
   );

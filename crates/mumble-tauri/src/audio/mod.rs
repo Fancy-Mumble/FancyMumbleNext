@@ -159,6 +159,7 @@ pub use android::OboeAudioFactory as PlatformAudioFactory;
 /// asymptotically approaches +/-1.0 without ever exceeding it.  This
 /// avoids the harsh distortion of hard clipping while preserving
 /// dynamics for normal-level audio.
+#[cfg(not(target_os = "android"))]
 #[inline]
 pub(crate) fn soft_clip(sample: f32) -> f32 {
     const KNEE: f32 = 0.9;

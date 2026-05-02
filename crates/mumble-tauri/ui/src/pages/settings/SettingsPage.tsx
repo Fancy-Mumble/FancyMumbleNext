@@ -108,6 +108,8 @@ export default function SettingsPage() {
   const [disableTypingIndicators, setDisableTypingIndicators] = useState(false);
   const [disableOsmMaps, setDisableOsmMaps] = useState(false);
   const [disableLinkPreviews, setDisableLinkPreviews] = useState(false);
+  const [enableExternalEmbeds, setEnableExternalEmbeds] = useState(false);
+  const [streamerMode, setStreamerMode] = useState(false);
   const [autoReconnect, setAutoReconnect] = useState(false);
   const [autoUpdateOnStartup, setAutoUpdateOnStartup] = useState(false);
   const [logLevel, setLogLevel] = useState<string>("info");
@@ -178,6 +180,8 @@ export default function SettingsPage() {
         setDisableTypingIndicators(prefs.disableTypingIndicators ?? false);
         setDisableOsmMaps(prefs.disableOsmMaps ?? false);
         setDisableLinkPreviews(prefs.disableLinkPreviews ?? false);
+        setEnableExternalEmbeds(prefs.enableExternalEmbeds ?? false);
+        setStreamerMode(prefs.streamerMode ?? false);
         setAutoReconnect(prefs.autoReconnect ?? false);
         setAutoUpdateOnStartup(prefs.autoUpdateOnStartup ?? false);
         setLogLevel(prefs.logLevel ?? (prefs.debugLogging ? "debug" : "info"));
@@ -468,6 +472,26 @@ export default function SettingsPage() {
     });
   }, []);
 
+  const handleToggleExternalEmbeds = useCallback(() => {
+    setEnableExternalEmbeds((prev) => {
+      const next = !prev;
+      updatePreferences({ enableExternalEmbeds: next });
+      useAppStore.setState({ enableExternalEmbeds: next });
+      return next;
+    });
+  }, []);
+
+  const handleToggleStreamerMode = useCallback(() => {
+    setStreamerMode((prev) => {
+      const next = !prev;
+      updatePreferences({ streamerMode: next });
+      useAppStore.setState({ streamerMode: next });
+      const notificationsEnabled = next ? false : (enableNotifications ?? true);
+      invoke("set_notifications_enabled", { enabled: notificationsEnabled }).catch(() => undefined);
+      return next;
+    });
+  }, [enableNotifications]);
+
   const handleToggleAutoReconnect = useCallback(() => {
     setAutoReconnect((prev) => {
       const next = !prev;
@@ -657,11 +681,15 @@ export default function SettingsPage() {
               disableTypingIndicators={disableTypingIndicators}
               disableOsmMaps={disableOsmMaps}
               disableLinkPreviews={disableLinkPreviews}
+              enableExternalEmbeds={enableExternalEmbeds}
+              streamerMode={streamerMode}
               onToggleDualPath={handleToggleDualPath}
               onToggleReadReceipts={handleToggleReadReceipts}
               onToggleTypingIndicators={handleToggleTypingIndicators}
               onToggleOsmMaps={handleToggleOsmMaps}
               onToggleLinkPreviews={handleToggleLinkPreviews}
+              onToggleExternalEmbeds={handleToggleExternalEmbeds}
+              onToggleStreamerMode={handleToggleStreamerMode}
             />
           )}
 

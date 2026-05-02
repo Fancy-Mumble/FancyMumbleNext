@@ -40,9 +40,12 @@ import type {
   UploadResponse,
   DownloadEntry,
   CustomServerEmote,
+  PendingMessage,
 } from "./types";
 import type { PollPayload, PollVotePayload } from "./components/chat/PollCreator";
 import { registerPoll, registerVote } from "./components/chat/PollCard";
+import type { WatchSession, WatchSyncPayload } from "./components/chat/watch/watchTypes";
+import { applyWatchSyncEvent } from "./components/chat/watch/watchStore";
 import { applyReaction, resetReactions, setServerCustomReactions, type ServerCustomReaction } from "./components/chat/reactionStore";
 import { applyReadStates, clearReadReceipts } from "./components/chat/readReceiptStore";
 import { offloadManager } from "./messageOffload";
@@ -170,6 +173,15 @@ async function probeFileServerCapabilities(): Promise<void> {
 
 let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let manualDisconnectRequested = false;
+/** Sessions whose disconnect was triggered by the user (e.g. via the
+ *  tab close button).  The `server-disconnected` listener consults this
+ *  set so it does not surface a "Connection lost" overlay for what the
+ *  user just initiated themselves.  Entries are removed once handled. */
+const intentionallyClosingSessions = new Set<string>();
+/** Module-level handle to react-router's `navigate`.  Set by
+ *  `initEventListeners`; used by store actions that need to redirect
+ *  (e.g. `disconnectSession` falling back to the connect page). */
+let navigateRef: ((path: string) => void) | null = null;
 let isRestoringVoice = false;
 
 function clearAutoReconnectTimer(): void {
@@ -286,12 +298,23 @@ interface AppState {
   /** Synthetic local-only messages for rendering polls in the chat flow. */
   pollMessages: ChatMessage[];
 
+  // -- Optimistic outbound messages (in-memory, not persisted) ---
+  /** Messages we have started sending but haven't yet confirmed. */
+  pendingMessages: PendingMessage[];
+
   // -- Link embed state (in-memory, not persisted) ---------------
   /** Link embeds keyed by message_id. */
   linkEmbeds: Map<string, import("./types").LinkEmbed[]>;
 
   /** Whether the user has opted out of requesting link previews. */
   disableLinkPreviews: boolean;
+
+  /** Whether the user allows external embed sources (e.g. YouTube IFrame API). */
+  enableExternalEmbeds: boolean;
+
+  /** Streamer mode - when true, sensitive identifiers (host/IP) are
+   *  masked across the UI to keep them out of screen captures. */
+  streamerMode: boolean;
 
   /** Monotonic counter incremented whenever the module-level reaction store changes. */
   reactionVersion: number;
@@ -304,6 +327,11 @@ interface AppState {
 
   /** Map of channel_id -> set of session IDs currently typing. */
   typingUsers: Map<number, Set<number>>;
+
+  /** Active watch-together sessions keyed by their session UUID. */
+  watchSessions: Map<string, WatchSession>;
+  /** Monotonic counter bumped whenever any watch session is mutated. */
+  watchSessionsVersion: number;
 
   // -- Screen share state (in-memory) ----------------------------
   /** Whether we are currently sharing our own screen. */
@@ -375,6 +403,20 @@ interface AppState {
   selectChannel: (id: number) => Promise<void>;
   joinChannel: (id: number) => Promise<void>;
   sendMessage: (channelId: number, body: string) => Promise<void>;
+  /**
+   * Insert a synthetic pending-message placeholder.  Used by the chat
+   * composer to surface UI feedback while local media processing
+   * (image/video re-encoding) runs BEFORE the actual `send_message`
+   * call.  Returns the generated pending id so the caller can dismiss
+   * or fail it once processing finishes.
+   */
+  addPendingPlaceholder: (channelId: number | null, dmSession: number | null, body: string) => string;
+  /** Mark an existing pending message as failed with an error message. */
+  markPendingFailed: (pendingId: string, errorMessage: string) => void;
+  /** Discard a failed pending message. */
+  dismissPendingMessage: (pendingId: string) => void;
+  /** Retry a failed pending message. */
+  retryPendingMessage: (pendingId: string) => Promise<void>;
   editMessage: (channelId: number, messageId: string, newBody: string) => Promise<void>;
   toggleListen: (channelId: number) => Promise<void>;
 
@@ -399,6 +441,35 @@ interface AppState {
     pchatRetentionDays?: number;
   }) => Promise<void>;
   deleteChannel: (channelId: number) => Promise<void>;
+
+  // -- Multi-server (Phase C) ------------------------------------
+  /** Snapshot of every backend session currently registered.  Survives
+   *  disconnects of individual sessions; only cleared by `refreshSessions`. */
+  sessions: import("./types").SessionMeta[];
+  /** Backend's currently-active session id (the one frontend commands
+   *  without an explicit serverId target).  `null` when no sessions. */
+  activeServerId: import("./types").ServerId | null;
+  /** Re-pull `list_servers` + `get_active_server` from the backend.
+   *  Idempotent; safe to call after any connect / disconnect. */
+  refreshSessions: () => Promise<void>;
+  /** Make `id` the backend's active session, then refresh per-session
+   *  data (channels / users / messages) for the new active session. */
+  switchServer: (id: import("./types").ServerId) => Promise<void>;
+  /** Tear down a single session by id (used by the tab-close button).
+   *  Suppresses the "Connection lost" overlay and switches the active
+   *  view to the next remaining session, or to the connect page when
+   *  no sessions remain. */
+  disconnectSession: (id: import("./types").ServerId) => Promise<void>;
+  /** Total unread message count per session (channels + DMs combined),
+   *  keyed by serverId.  Updated from `unread-changed` /
+   *  `dm-unread-changed` events for non-active sessions; the active
+   *  session's totals live in `unreadCounts` / `dmUnreadCounts`. */
+  sessionUnreadTotals: Record<string, number>;
+  /** Last disconnect / rejection reason per session, keyed by serverId.
+   *  Populated by `server-disconnected` / `connection-rejected` listeners
+   *  for *every* session (active or not) so that switching to a
+   *  disconnected tab restores its specific reason in the UI. */
+  sessionErrors: Record<string, string | null>;
 
   refreshState: () => Promise<void>;
   refreshMessages: (channelId: number) => Promise<void>;
@@ -533,11 +604,14 @@ const INITIAL: Pick<
   | "dmUnreadCounts"
   | "polls"
   | "pollMessages"
+  | "pendingMessages"
   | "linkEmbeds"
   | "reactionVersion"
   | "unseenPinIds"
   | "readReceiptVersion"
   | "typingUsers"
+  | "watchSessions"
+  | "watchSessionsVersion"
   | "isSharingOwn"
   | "webrtcConnecting"
   | "webrtcError"
@@ -596,11 +670,14 @@ const INITIAL: Pick<
   dmUnreadCounts: {},
   polls: new Map(),
   pollMessages: [],
+  pendingMessages: [],
   linkEmbeds: new Map(),
   reactionVersion: 0,
   unseenPinIds: new Map(),
   readReceiptVersion: 0,
   typingUsers: new Map(),
+  watchSessions: new Map(),
+  watchSessionsVersion: 0,
   isSharingOwn: false,
   webrtcConnecting: false,
   webrtcError: null,
@@ -638,6 +715,27 @@ const INITIAL: Pick<
  */
 let messageWriteSeq = 0;
 
+/**
+ * Threshold (in HTML body length) above which a sent message gets an
+ * optimistic placeholder + progress UI even when it doesn't contain an
+ * image.  Picked so plain chat messages never trigger the indicator
+ * but anything that is likely to take noticeable time on a slow link
+ * does.
+ */
+const LARGE_MESSAGE_THRESHOLD = 4096;
+
+/** Whether a message body should show an optimistic upload-progress UI. */
+function bodyNeedsProgressUI(body: string): boolean {
+  if (body.includes("<img")) return true;
+  if (body.includes("<video")) return true;
+  return body.length > LARGE_MESSAGE_THRESHOLD;
+}
+
+function newPendingId(): string {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 /** Update the taskbar badge with the total unread count (channels + DMs). */
 function updateBadgeCount(): void {
   const { unreadCounts, dmUnreadCounts, silencedChannels } = useAppStore.getState();
@@ -654,6 +752,129 @@ function updateBadgeCount(): void {
 export const useAppStore = create<AppState>((set, get) => ({
   ...INITIAL,
   disableLinkPreviews: false,
+  enableExternalEmbeds: false,
+  streamerMode: false,
+
+  // Multi-server (Phase C): outside INITIAL so it survives single-session disconnects.
+  sessions: [],
+  activeServerId: null,
+  sessionUnreadTotals: {},
+  sessionErrors: {},
+
+  refreshSessions: async () => {
+    try {
+      const [sessions, activeServerId] = await Promise.all([
+        invoke<import("./types").SessionMeta[]>("list_servers"),
+        invoke<import("./types").ServerId | null>("get_active_server"),
+      ]);
+      set((prev) => {
+        // Drop per-tab badge entries for sessions that no longer exist.
+        const ids = new Set(sessions.map((s) => s.id));
+        const next: Record<string, number> = {};
+        for (const [k, v] of Object.entries(prev.sessionUnreadTotals)) {
+          const baseId = k.split(":")[0];
+          if (ids.has(baseId)) next[k] = v;
+        }
+        // Drop stored errors for sessions that no longer exist.
+        const nextErrors: Record<string, string | null> = {};
+        for (const [k, v] of Object.entries(prev.sessionErrors)) {
+          if (ids.has(k)) nextErrors[k] = v;
+        }
+        return { sessions, activeServerId, sessionUnreadTotals: next, sessionErrors: nextErrors };
+      });
+    } catch (e) {
+      console.error("refreshSessions error:", e);
+    }
+  },
+
+  switchServer: async (id) => {
+    try {
+      await invoke("set_active_server", { serverId: id });
+      // Clear our per-tab badge cache for the newly-active session;
+      // its unreads now live in `unreadCounts` / `dmUnreadCounts`.
+      set((prev) => {
+        const next = { ...prev.sessionUnreadTotals };
+        delete next[id];
+        delete next[`${id}:ch`];
+        delete next[`${id}:dm`];
+        return { activeServerId: id, sessionUnreadTotals: next };
+      });
+      // Sync global status/error from this session's own metadata so the
+      // ChatPage overlay reflects the tab the user just switched to,
+      // not whatever the previously-active tab's status was.
+      await get().refreshSessions().catch(() => {});
+      const { sessions, sessionErrors } = get();
+      const meta = sessions.find((s) => s.id === id);
+      const sessionStatus = meta?.status ?? "disconnected";
+      set({
+        status: sessionStatus,
+        error: sessionStatus === "connected" ? null : (sessionErrors[id] ?? null),
+      });
+      // Repopulate per-session data for the newly-active session.
+      await get().refreshState();
+      try {
+        const currentCh = await invoke<number | null>("get_current_channel");
+        set({ currentChannel: currentCh, selectedChannel: currentCh });
+        if (currentCh !== null) {
+          const messages = await invoke<ChatMessage[]>("get_messages", { channelId: currentCh });
+          set({ messages });
+        } else {
+          set({ messages: [] });
+        }
+      } catch (e) {
+        console.error("switchServer post-switch refresh error:", e);
+      }
+      try {
+        const ownSession = await invoke<number | null>("get_own_session");
+        set({ ownSession });
+      } catch {
+        // not connected; leave as-is.
+      }
+    } catch (e) {
+      console.error("switchServer error:", e);
+      throw e;
+    }
+  },
+
+  disconnectSession: async (id) => {
+    intentionallyClosingSessions.add(id);
+    const wasActive = get().activeServerId === id;
+    try {
+      await invoke("disconnect_server", { serverId: id });
+    } catch (e) {
+      console.error("disconnectSession error:", e);
+      intentionallyClosingSessions.delete(id);
+      throw e;
+    }
+    // Drop the cached error for the closed session.
+    set((prev) => {
+      if (prev.sessionErrors[id] == null) return prev;
+      const next = { ...prev.sessionErrors };
+      delete next[id];
+      return { sessionErrors: next };
+    });
+    // Refresh the sessions list and learn which session (if any) the
+    // backend made active in place of the one we just closed.
+    await get().refreshSessions().catch(() => {});
+    const { sessions: nextSessions, activeServerId: nextActive } = get();
+    if (wasActive) {
+      if (nextActive && nextSessions.some((s) => s.id === nextActive)) {
+        // The backend rebound the active session to a remaining one.
+        // Reflect its status / error / data in the global store.
+        await get().switchServer(nextActive).catch(() => {});
+      } else {
+        // No sessions left - reset to the empty connect-page state.
+        manualDisconnectRequested = true;
+        offloadManager.dispose().catch(() => {});
+        volumeAppliedSessions.clear();
+        clearReadReceipts();
+        set({ ...INITIAL });
+        invoke("update_badge_count", { count: null }).catch(() => {});
+        navigateRef?.("/");
+      }
+    }
+    intentionallyClosingSessions.delete(id);
+  },
 
   connect: async (host, port, username, certLabel, password) => {
     manualDisconnectRequested = false;
@@ -674,6 +895,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         certLabel: certLabel ?? null,
         password: password ?? null,
       });
+      // Sync activeServerId before rejection events arrive, so listener
+      // routing works even if the new session id isn't known yet.
+      await get().refreshSessions().catch(() => {});
     } catch (e) {
       set({
         status: "disconnected",
@@ -686,10 +910,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   disconnect: async () => {
-    manualDisconnectRequested = true;
     clearAutoReconnectTimer();
+    const activeId = get().activeServerId;
+    if (activeId) {
+      // Delegate to the multi-session-aware path so closing the active
+      // session via the sidebar button behaves identically to closing
+      // it via the tab close button: the backend rebinds `inner` to
+      // the next session and the UI follows along instead of flashing
+      // a misleading "Connection lost" overlay on the next tab.
+      try {
+        await get().disconnectSession(activeId);
+      } catch (e) {
+        console.error("disconnect error:", e);
+      }
+      return;
+    }
+    // No active session - fall back to a full local reset.
+    manualDisconnectRequested = true;
     try {
-      // Clean up offloaded temp files before resetting state.
       await offloadManager.dispose();
       await invoke("disconnect");
     } catch (e) {
@@ -699,6 +937,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     clearReadReceipts();
     set({ ...INITIAL });
     invoke("update_badge_count", { count: null }).catch(() => {});
+    useAppStore.getState().refreshSessions().catch(() => {});
   },
 
   selectChannel: async (id) => {
@@ -777,17 +1016,100 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   sendMessage: async (channelId, body) => {
+    const pendingId = newPendingId();
+    const showPlaceholder = bodyNeedsProgressUI(body);
+    if (showPlaceholder) {
+      set((s) => ({
+        pendingMessages: [
+          ...s.pendingMessages,
+          {
+            pendingId,
+            channelId,
+            dmSession: null,
+            body,
+            createdAt: Date.now(),
+            state: "sending",
+          },
+        ],
+      }));
+    }
     try {
       await invoke("send_message", { channelId, body });
       const seq = ++messageWriteSeq;
       const messages = await invoke<ChatMessage[]>("get_messages", {
         channelId,
       });
+      const updates: Partial<AppState> = {};
       if (messageWriteSeq === seq) {
-        set({ messages });
+        updates.messages = messages;
+      }
+      if (showPlaceholder) {
+        set((s) => ({
+          ...updates,
+          pendingMessages: s.pendingMessages.filter((p) => p.pendingId !== pendingId),
+        }));
+      } else if (Object.keys(updates).length > 0) {
+        set(updates);
       }
     } catch (e) {
       console.error("send_message error:", e);
+      if (showPlaceholder) {
+        const detail = e instanceof Error ? e.message : String(e);
+        set((s) => ({
+          pendingMessages: s.pendingMessages.map((p) =>
+            p.pendingId === pendingId
+              ? { ...p, state: "failed" as const, errorMessage: detail }
+              : p,
+          ),
+        }));
+      }
+    }
+  },
+
+  dismissPendingMessage: (pendingId) => {
+    set((s) => ({
+      pendingMessages: s.pendingMessages.filter((p) => p.pendingId !== pendingId),
+    }));
+  },
+
+  addPendingPlaceholder: (channelId, dmSession, body) => {
+    const pendingId = newPendingId();
+    set((s) => ({
+      pendingMessages: [
+        ...s.pendingMessages,
+        {
+          pendingId,
+          channelId,
+          dmSession,
+          body,
+          createdAt: Date.now(),
+          state: "sending",
+        },
+      ],
+    }));
+    return pendingId;
+  },
+
+  markPendingFailed: (pendingId, errorMessage) => {
+    set((s) => ({
+      pendingMessages: s.pendingMessages.map((p) =>
+        p.pendingId === pendingId
+          ? { ...p, state: "failed" as const, errorMessage }
+          : p,
+      ),
+    }));
+  },
+
+  retryPendingMessage: async (pendingId) => {
+    const target = get().pendingMessages.find((p) => p.pendingId === pendingId);
+    if (!target) return;
+    set((s) => ({
+      pendingMessages: s.pendingMessages.filter((p) => p.pendingId !== pendingId),
+    }));
+    if (target.dmSession !== null) {
+      await get().sendDm(target.dmSession, target.body);
+    } else if (target.channelId !== null) {
+      await get().sendMessage(target.channelId, target.body);
     }
   },
 
@@ -934,12 +1256,46 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   sendDm: async (targetSession, body) => {
+    const pendingId = newPendingId();
+    const showPlaceholder = bodyNeedsProgressUI(body);
+    if (showPlaceholder) {
+      set((s) => ({
+        pendingMessages: [
+          ...s.pendingMessages,
+          {
+            pendingId,
+            channelId: null,
+            dmSession: targetSession,
+            body,
+            createdAt: Date.now(),
+            state: "sending",
+          },
+        ],
+      }));
+    }
     try {
       await invoke("send_dm", { targetSession, body });
       const dmMessages = await invoke<ChatMessage[]>("get_dm_messages", { session: targetSession });
-      set({ dmMessages });
+      if (showPlaceholder) {
+        set((s) => ({
+          dmMessages,
+          pendingMessages: s.pendingMessages.filter((p) => p.pendingId !== pendingId),
+        }));
+      } else {
+        set({ dmMessages });
+      }
     } catch (e) {
       console.error("send_dm error:", e);
+      if (showPlaceholder) {
+        const detail = e instanceof Error ? e.message : String(e);
+        set((s) => ({
+          pendingMessages: s.pendingMessages.map((p) =>
+            p.pendingId === pendingId
+              ? { ...p, state: "failed" as const, errorMessage: detail }
+              : p,
+          ),
+        }));
+      }
     }
   },
 
@@ -1428,7 +1784,12 @@ export async function requestLinkPreview(urls: string[], requestId: string): Pro
 export async function initEventListeners(
   navigate: (path: string) => void,
 ): Promise<UnlistenFn[]> {
+  navigateRef = navigate;
   const unlisteners: UnlistenFn[] = [];
+
+  // Bootstrap the multi-server session list once at startup so the
+  // sessions slice reflects whatever the backend already has.
+  useAppStore.getState().refreshSessions().catch(() => {});
 
   // Ensure notification permissions and channel are set up (Android 8+ / 13+).
   try {
@@ -1502,6 +1863,24 @@ export async function initEventListeners(
         mutedPushChannels: mutedPush,
         userVolumes: storedVolumes,
         bootstrapStage: "Fetching channels and users...",
+      });
+
+      // Refresh the multi-server session list so any newly-connected
+      // server appears in the sessions slice immediately.
+      useAppStore.getState().refreshSessions().catch(() => {
+        // best-effort; the sessions list will be repopulated on next event.
+      }).then(() => {
+        // Clear any stale per-session error stored from a prior disconnect
+        // for this newly-connected session.
+        const { activeServerId } = useAppStore.getState();
+        if (activeServerId) {
+          useAppStore.setState((prev) => {
+            if (prev.sessionErrors[activeServerId] == null) return prev;
+            const next = { ...prev.sessionErrors };
+            delete next[activeServerId];
+            return { sessionErrors: next };
+          });
+        }
       });
 
       // Load channels/users/messages, then resolve identity, then
@@ -1603,24 +1982,90 @@ export async function initEventListeners(
 
   // Connection dropped.
   unlisteners.push(
-    await listen<string | null>("server-disconnected", (event) => {
-      // Clean up offloaded temp files.
-      offloadManager.dispose().catch(() => {});
-      volumeAppliedSessions.clear();
-      clearReadReceipts();
-      // Preserve error / password-prompt state that was set by connection-rejected.
-      const { error: currentError, passwordRequired: pwRequired, pendingConnect: pending } = useAppStore.getState();
-      // If a password prompt is already pending, keep the rejection error
-      // instead of overwriting it with a generic disconnect message.
-      const reason = pwRequired ? currentError : (event.payload ?? currentError);
-      useAppStore.setState({ ...INITIAL, error: reason, passwordRequired: pwRequired, pendingConnect: pending });
-      invoke("update_badge_count", { count: null }).catch(() => {});
-      navigate("/");
+    await listen<{ serverId?: string | null; reason: string | null } | string | null>(
+      "server-disconnected",
+      async (event) => {
+        // Normalise: backend now always sends an object payload, but tolerate
+        // a bare reason string for forwards/backwards compatibility.
+        const payload = event.payload;
+        const eventServerId = typeof payload === "object" && payload !== null
+          ? (payload.serverId ?? null)
+          : null;
+        const eventReason = typeof payload === "string"
+          ? payload
+          : (typeof payload === "object" && payload !== null ? payload.reason : null);
 
-      if (!manualDisconnectRequested && !pwRequired && pending) {
-        scheduleAutoReconnect(pending);
-      }
-    }),
+        const { activeServerId, pendingConnect: pendingForActive } = useAppStore.getState();
+        // Only treat the event as affecting the active session if the
+        // backend explicitly tagged it with the active session's id.
+        // A missing/null serverId means "unknown" - we must not assume
+        // it belongs to the currently-focused tab, otherwise closing a
+        // background session would clobber the foreground one.
+        //
+        // Exception: if a `pendingConnect` is in flight, the disconnect
+        // almost certainly belongs to it (the backend just registered
+        // the new session and `activeServerId` may not have caught up
+        // yet).  Treating it as active surfaces the error instead of
+        // leaving the UI stuck on a "connecting" skeleton.
+        const isActiveSession =
+          (eventServerId !== null && eventServerId === activeServerId) ||
+          pendingForActive !== null;
+
+        // If the user explicitly closed this session via the tab close
+        // button, the `disconnectSession` action manages the UI handoff
+        // (refresh + switch to next active tab).  Skip the listener's
+        // own state-clobbering cleanup so we don't flash a misleading
+        // "Connection lost" overlay on the *next* tab.
+        if (eventServerId && intentionallyClosingSessions.has(eventServerId)) {
+          await useAppStore.getState().refreshSessions().catch(() => {});
+          return;
+        }
+
+        // Always refresh the sessions list so the disconnected tab updates
+        // its status dot / badge regardless of which tab was affected.
+        await useAppStore.getState().refreshSessions().catch(() => {});
+
+        // Always remember the disconnect reason for this specific session
+        // so the user sees the correct reason when they switch tabs.
+        // Skip overwriting an already-stored reason with null - kick events
+        // may be followed by a generic on_disconnected with no reason.
+        if (eventServerId && eventReason) {
+          useAppStore.setState((prev) => ({
+            sessionErrors: { ...prev.sessionErrors, [eventServerId]: eventReason },
+          }));
+        }
+
+        if (!isActiveSession) {
+          // A non-active session disconnected: do not touch the active
+          // session's state (status, channels, users, etc.).  The tab
+          // bar already reflects the new status; nothing else to do.
+          return;
+        }
+
+        // Active session was the one that disconnected — proceed with
+        // the full local cleanup.
+        offloadManager.dispose().catch(() => {});
+        volumeAppliedSessions.clear();
+        clearReadReceipts();
+        const { error: currentError, passwordRequired: pwRequired, pendingConnect: pending } = useAppStore.getState();
+        // If a password prompt is already pending, keep the rejection error
+        // instead of overwriting it with a generic disconnect message.
+        const reason = pwRequired ? currentError : (eventReason ?? currentError);
+        useAppStore.setState({ ...INITIAL, error: reason, passwordRequired: pwRequired, pendingConnect: pending });
+        invoke("update_badge_count", { count: null }).catch(() => {});
+
+        const { sessions } = useAppStore.getState();
+        if (sessions.length === 0 || pwRequired) {
+          navigate("/");
+        } else {
+          navigate("/chat");
+        }
+
+        if (!manualDisconnectRequested && !pwRequired && pending) {
+          scheduleAutoReconnect(pending);
+        }
+      },
+    ),
   );
 
   // Channel / user list changed - debounce rapid-fire updates.
@@ -1689,25 +2134,78 @@ export async function initEventListeners(
     }),
 
     // Unread counts changed.
-    await listen<{ unreads: Record<number, number> }>(
+    await listen<{ unreads: Record<number, number>; serverId?: string | null }>(
       "unread-changed",
       (event) => {
+        const { activeServerId } = useAppStore.getState();
+        const eventServerId = event.payload.serverId ?? null;
+        // Compute total for this session (sum of unreads).
+        const total = Object.values(event.payload.unreads).reduce((a, b) => a + b, 0);
+        if (eventServerId && eventServerId !== activeServerId) {
+          // Non-active session: only update its per-tab badge total.
+          useAppStore.setState((prev) => {
+            // Combine channel total with whatever DM total we last saw
+            // for this session (we store the channel total alone here;
+            // dm-unread updates merge in the same way).
+            const next = { ...prev.sessionUnreadTotals };
+            const prevDm = next[`${eventServerId}:dm`] ?? 0;
+            next[`${eventServerId}:ch`] = total;
+            next[eventServerId] = total + prevDm;
+            return { sessionUnreadTotals: next };
+          });
+          return;
+        }
         useAppStore.setState({ unreadCounts: event.payload.unreads });
         updateBadgeCount();
       },
     ),
 
     // DM unread counts changed.
-    await listen<{ unreads: Record<number, number> }>(
+    await listen<{ unreads: Record<number, number>; serverId?: string | null }>(
       "dm-unread-changed",
       (event) => {
+        const { activeServerId } = useAppStore.getState();
+        const eventServerId = event.payload.serverId ?? null;
+        const total = Object.values(event.payload.unreads).reduce((a, b) => a + b, 0);
+        if (eventServerId && eventServerId !== activeServerId) {
+          useAppStore.setState((prev) => {
+            const next = { ...prev.sessionUnreadTotals };
+            const prevCh = next[`${eventServerId}:ch`] ?? 0;
+            next[`${eventServerId}:dm`] = total;
+            next[eventServerId] = total + prevCh;
+            return { sessionUnreadTotals: next };
+          });
+          return;
+        }
         useAppStore.setState({ dmUnreadCounts: event.payload.unreads });
         updateBadgeCount();
       },
     ),
 
     // Server rejected the connection.
-    await listen<{ reason: string; reject_type: number | null }>("connection-rejected", (event) => {
+    await listen<{ serverId?: string | null; reason: string; reject_type: number | null }>("connection-rejected", async (event) => {
+      // Always remember the rejection reason for this session so the
+      // user sees it when they switch to its tab.
+      const eventServerId = event.payload.serverId ?? null;
+      if (eventServerId) {
+        useAppStore.setState((prev) => ({
+          sessionErrors: { ...prev.sessionErrors, [eventServerId]: event.payload.reason },
+        }));
+      }
+      // Ignore rejections targeting non-active sessions: the matching
+      // server-disconnected event will surface them via the per-session
+      // status and the reconnect overlay when the user opens that tab.
+      //
+      // Exception: if a `pendingConnect` is in flight, the rejection
+      // almost certainly belongs to it (the backend just registered the
+      // new session and `activeServerId` may not have caught up yet).
+      // Treating it as the active one is necessary so the user sees the
+      // error instead of being stuck on a "connecting" skeleton.
+      const { activeServerId, pendingConnect } = useAppStore.getState();
+      const isPending = pendingConnect !== null;
+      if (eventServerId !== null && eventServerId !== activeServerId && !isPending) {
+        return;
+      }
       const rt = event.payload.reject_type;
       // WrongUserPW = 3, WrongServerPW = 4
       const isPasswordError = rt === 3 || rt === 4;
@@ -1718,17 +2216,42 @@ export async function initEventListeners(
           error: passwordAttempted ? event.payload.reason : null,
           passwordRequired: true,
           bootstrapStage: null,
-          // pendingConnect was set by the connect action - keep it.
+          // pendingConnect was set by the connect action - keep it
+          // so the dialog can re-issue the connect with the password.
         });
-      } else {
-        useAppStore.setState({
-          status: "disconnected",
-          error: event.payload.reason,
-          pendingConnect: null,
-          bootstrapStage: null,
-        });
+        // Make sure the failed-session tab is the active one so the
+        // PasswordDialog (rendered on /chat over the disconnected
+        // session card) appears anchored to it.  Otherwise the user
+        // is left on "/" which renders an extra synthetic "New
+        // connection" tab alongside the real failed-session tab.
+        await useAppStore.getState().refreshSessions().catch(() => {});
+        const { sessions } = useAppStore.getState();
+        if (eventServerId && sessions.some((s) => s.id === eventServerId)) {
+          await useAppStore.getState().switchServer(eventServerId).catch(() => {});
+          // switchServer re-syncs status/error from the session
+          // metadata, which would clobber passwordRequired.  Restore.
+          useAppStore.setState({
+            status: "disconnected",
+            passwordRequired: true,
+            error: passwordAttempted ? event.payload.reason : null,
+            pendingConnect: useAppStore.getState().pendingConnect,
+          });
+          navigate("/chat");
+        }
+        return;
       }
-      navigate("/");
+      useAppStore.setState({
+        status: "disconnected",
+        error: event.payload.reason,
+        pendingConnect: null,
+        bootstrapStage: null,
+      });
+      // Stay on /chat when other tabs remain so the reconnect overlay
+      // surfaces the kick/ban reason via `error`.  Connect-time failures
+      // (no other sessions) fall back to the connect page.
+      await useAppStore.getState().refreshSessions().catch(() => {});
+      const { sessions } = useAppStore.getState();
+      navigate(sessions.length > 0 ? "/chat" : "/");
     }),
 
     // Listen request was denied by the server - revert the UI.
@@ -2000,6 +2523,14 @@ export async function initEventListeners(
         }, 5000);
       },
     ),
+  );
+
+  // -- Watch-together (FancyWatchSync) events ---------------------
+
+  unlisteners.push(
+    await listen<WatchSyncPayload>("watch-sync", (event) => {
+      applyWatchSyncEvent(event.payload);
+    }),
   );
 
   // -- Persistent chat events -------------------------------------

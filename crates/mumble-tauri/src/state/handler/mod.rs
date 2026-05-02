@@ -27,6 +27,7 @@ mod user_remove;
 mod user_state;
 mod user_stats;
 mod version;
+mod watch_sync;
 mod webrtc_signal;
 
 #[cfg(test)]
@@ -161,6 +162,7 @@ pub(crate) fn dispatch(msg: &ControlMessage, ctx: &HandlerContext) {
         ControlMessage::FancyReadReceiptDeliver(m) => m.handle(ctx),
         ControlMessage::FancyTypingIndicator(m) => m.handle(ctx),
         ControlMessage::FancyLinkPreviewResponse(m) => m.handle(ctx),
+        ControlMessage::FancyWatchSync(m) => m.handle(ctx),
         ControlMessage::BanList(m) => m.handle(ctx),
         ControlMessage::UserList(m) => m.handle(ctx),
         ControlMessage::Acl(m) => m.handle(ctx),

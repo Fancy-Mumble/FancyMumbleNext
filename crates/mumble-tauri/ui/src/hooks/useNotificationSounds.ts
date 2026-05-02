@@ -89,8 +89,30 @@ export function useNotificationSounds(
     let lastVoiceState: VoiceState | null = null;
     let lastChannel: number | null = null;
     let lastOwnSession: number | null | undefined = undefined;
+    let lastActiveServerId: string | null = null;
+
+    const resetPerServerRefs = () => {
+      prevUserCountRef.current = null;
+      prevChannelUsersRef.current = null;
+      prevChannelRef.current = null;
+    };
 
     const unsub = useAppStore.subscribe((state) => {
+      // When the active server changes, reset all per-server counters so
+      // the first snapshot from the new server does not trigger spurious
+      // join/leave/channel sounds.
+      if (state.activeServerId !== lastActiveServerId) {
+        lastActiveServerId = state.activeServerId;
+        resetPerServerRefs();
+        // Also reset cached refs so we don't compare stale slices.
+        lastUsersRef = null;
+        lastTalkingRef = null;
+        lastVoiceState = null;
+        lastChannel = null;
+        lastOwnSession = undefined;
+        return;
+      }
+
       const usersChanged = state.users !== lastUsersRef;
       const talkingChanged = state.talkingSessions !== lastTalkingRef;
       const voiceChanged = state.voiceState !== lastVoiceState;
@@ -98,6 +120,21 @@ export function useNotificationSounds(
       const ownChanged = state.ownSession !== lastOwnSession;
 
       if (!usersChanged && !talkingChanged && !voiceChanged && !channelChanged && !ownChanged) {
+        return;
+      }
+
+      // When `ownSession` changes (server switch / late post-connect ownSession
+      // arrival), the snapshots used by the user-join detectors were built
+      // while filtering out a different session id.  Swapping that filter
+      // would otherwise look like a user joining/leaving.  Silently rebuild
+      // the snapshots and skip sound emission this tick.
+      if (ownChanged && lastOwnSession !== undefined) {
+        lastUsersRef = state.users;
+        lastTalkingRef = state.talkingSessions;
+        lastVoiceState = state.voiceState;
+        lastChannel = state.currentChannel;
+        lastOwnSession = state.ownSession;
+        resetPerServerRefs();
         return;
       }
 

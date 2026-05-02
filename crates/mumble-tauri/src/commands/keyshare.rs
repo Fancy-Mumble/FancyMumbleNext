@@ -8,7 +8,8 @@ pub(crate) fn confirm_custodians(
     state: tauri::State<'_, AppState>,
     channel_id: u32,
 ) -> Result<(), String> {
-    let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
+    let __session = state.inner.snapshot();
+    let mut shared = __session.lock().map_err(|e| e.to_string())?;
     if let Some(ref mut pchat) = shared.pchat_ctx.pchat {
         pchat.key_manager.confirm_custodian_list(channel_id);
     }
@@ -21,7 +22,8 @@ pub(crate) fn accept_custodian_changes(
     state: tauri::State<'_, AppState>,
     channel_id: u32,
 ) -> Result<(), String> {
-    let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
+    let __session = state.inner.snapshot();
+    let mut shared = __session.lock().map_err(|e| e.to_string())?;
     if let Some(ref mut pchat) = shared.pchat_ctx.pchat {
         pchat.key_manager.accept_custodian_update(channel_id);
     }
@@ -41,7 +43,8 @@ pub(crate) async fn approve_key_share(
 
     // Extract everything we need while holding the lock, then release it.
     let (handle, exchange, share_requests_emit) = {
-        let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
+        let __session = state.inner.snapshot();
+        let mut shared = __session.lock().map_err(|e| e.to_string())?;
 
         // Remove the pending entry and capture its request_id.
         let idx = shared
@@ -122,7 +125,7 @@ pub(crate) async fn approve_key_share(
 
     // Record the peer as a key holder locally so we don't prompt consent
     // for them again on subsequent channel moves.
-    if let Ok(mut shared) = state.inner.lock() {
+    if let Ok(mut shared) = state.inner.snapshot().lock() {
         if let Some(ref mut pchat) = shared.pchat_ctx.pchat {
             pchat
                 .key_manager
@@ -151,7 +154,8 @@ pub(crate) fn dismiss_key_share(
     peer_cert_hash: String,
 ) -> Result<(), String> {
     let share_requests_emit = {
-        let mut shared = state.inner.lock().map_err(|e| e.to_string())?;
+        let __session = state.inner.snapshot();
+        let mut shared = __session.lock().map_err(|e| e.to_string())?;
 
         shared
             .pchat_ctx.pending_key_shares
@@ -191,7 +195,8 @@ pub(crate) async fn query_key_holders(
     channel_id: u32,
 ) -> Result<(), String> {
     let handle = {
-        let shared = state.inner.lock().map_err(|e| e.to_string())?;
+        let __session = state.inner.snapshot();
+        let shared = __session.lock().map_err(|e| e.to_string())?;
         shared.conn.client_handle.clone().ok_or("not connected")?
     };
     let query = mumble_protocol::proto::mumble_tcp::PchatKeyHoldersQuery {
@@ -209,7 +214,8 @@ pub(crate) fn get_key_holders(
     state: tauri::State<'_, AppState>,
     channel_id: u32,
 ) -> Vec<state::types::KeyHolderEntry> {
-    let shared = state.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let __session = state.inner.snapshot();
+    let shared = __session.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     shared.pchat_ctx.key_holders.get(&channel_id).cloned().unwrap_or_default()
 }
 
@@ -232,6 +238,6 @@ pub(crate) async fn key_takeover(
         "key_only" => KeyTakeoverMode::KeyOnly,
         _ => return Err(format!("invalid takeover mode: {mode}")),
     };
-    state::pchat::send_key_takeover(&state.inner, channel_id, takeover_mode);
+    state::pchat::send_key_takeover(&state.inner.snapshot(), channel_id, takeover_mode);
     Ok(())
 }

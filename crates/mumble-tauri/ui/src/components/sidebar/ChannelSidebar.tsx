@@ -51,7 +51,7 @@ function SelfVoiceControls({ voiceState, inCall, toggleMute, toggleDeafen, enabl
     {/* Desktop: mute + deaf toggles (hidden on mobile via CSS) */}
     <div className={`${styles.selfVoiceActions} ${styles.desktopOnly}`}>
       <button
-        className={`${styles.voiceToggle} ${isActive ? styles.voiceActive : ""}`}
+        className={`${styles.voiceToggle} ${isActive ? styles.voiceActive : styles.voiceMuted}`}
         onClick={toggleMute}
         title={muteTitle}
       >
@@ -62,7 +62,7 @@ function SelfVoiceControls({ voiceState, inCall, toggleMute, toggleDeafen, enabl
         )}
       </button>
       <button
-        className={`${styles.voiceToggle} ${isInactive ? "" : styles.voiceActive}`}
+        className={`${styles.voiceToggle} ${isInactive ? styles.voiceMuted : styles.voiceActive}`}
         onClick={toggleDeafen}
         title={isInactive ? "Enable Voice" : "Disable Voice"}
       >

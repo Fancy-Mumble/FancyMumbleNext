@@ -8,6 +8,122 @@
   z-index: 1;
 }
 
+/* --- Reconnect overlay (shown when active session is disconnected) */
+
+.reconnectPage {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  /* Inherit the global app gradient by leaving the background transparent. */
+  background: transparent;
+}
+
+.reconnectCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 36px 44px;
+  background: var(--color-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-glass-border);
+  box-shadow: 0 8px 32px var(--color-overlay-medium);
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+}
+
+.reconnectIcon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--color-danger-bg);
+  border: 1px solid var(--color-danger-border-strong);
+  color: var(--color-danger);
+  font-size: 24px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.reconnectTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.reconnectServer {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.reconnectError {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.reconnectReasonBox {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+  width: 100%;
+  padding: 12px 14px;
+  margin-top: 4px;
+  border-radius: var(--radius-md);
+  background: var(--color-danger-bg);
+  border: 1px solid var(--color-danger-border);
+  text-align: left;
+}
+
+.reconnectReasonLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-danger);
+}
+
+.reconnectBtn {
+  margin-top: 8px;
+  padding: 10px 28px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-hover));
+  color: var(--color-text-on-accent);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px var(--color-accent-glow);
+  transition: opacity 0.2s, transform 0.1s, box-shadow 0.2s;
+}
+
+.reconnectBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+  box-shadow: none;
+}
+
+.reconnectBtn:not(:disabled):hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.reconnectBtn:not(:disabled):active {
+  transform: translateY(0);
+}
+
 /* --- Sidebar Drawer (narrow / mobile) --------------------------- */
 
 .sidebarContainer {
@@ -34,18 +150,15 @@
     width: 85vw;
     max-width: 360px;
     z-index: 200;
-    transform: translateX(-100%);
+    transform: translate3d(-100%, 0, 0);
+    will-change: transform;
     transition: transform 0.25s ease;
-    /* Apply the frosted-glass blur here instead of on the inner
-       .sidebar, because `transform` creates a new stacking context
-       that prevents backdrop-filter on descendants from blurring the
-       page content behind the drawer. */
-    backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
   }
 
   .sidebarContainer.sidebarOpen {
-    transform: translateX(0);
+    transform: translate3d(0, 0, 0);
   }
 
   .backdrop {

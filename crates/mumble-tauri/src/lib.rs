@@ -72,7 +72,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Focused(focused) = event {
                 if let Some(state) = window.try_state::<AppState>() {
-                    if let Ok(mut s) = state.inner.lock() {
+                    if let Ok(mut s) = state.inner.snapshot().lock() {
                         s.prefs.app_focused = *focused;
                     }
                 }
@@ -190,6 +190,10 @@ macro_rules! all_command_handlers {
             commands::certificates::import_certificate,
             commands::connection::disconnect,
             commands::connection::get_status,
+            commands::servers::list_servers,
+            commands::servers::get_active_server,
+            commands::servers::set_active_server,
+            commands::servers::disconnect_server,
             commands::channels::get_channels,
             commands::channels::get_users,
             commands::channels::get_user_texture,
@@ -250,6 +254,7 @@ macro_rules! all_command_handlers {
             commands::messaging::send_read_receipt,
             commands::messaging::query_read_receipts,
             commands::messaging::send_typing_indicator,
+            commands::messaging::send_watch_sync,
             commands::messaging::request_link_preview,
             commands::realtime::send_webrtc_signal,
             commands::messaging::send_reaction,
@@ -282,6 +287,7 @@ macro_rules! all_command_handlers {
             commands::admin::set_priority_speaker,
             commands::admin::reset_user_comment,
             commands::admin::remove_user_avatar,
+            commands::admin::move_user_to_channel,
             commands::admin::request_user_stats,
             commands::admin::request_user_list,
             commands::admin::update_user_list,

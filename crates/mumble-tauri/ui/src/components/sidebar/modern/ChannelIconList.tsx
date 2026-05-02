@@ -19,6 +19,9 @@ import { useUserStats } from "../../../hooks/useUserStats";
 import { useStreamThumbnail } from "../../chat/useStreamPreview";
 import SwipeableCard from "../../elements/SwipeableCard";
 import { isMobile } from "../../../utils/platform";
+import { useUserDrag, useChannelDropTarget } from "../../../utils/userMoveDnd";
+import { PERM_MOVE } from "../../../utils/permissions";
+import { useAppStore } from "../../../store";
 import { PchatBadge } from "../PchatBadge";
 import styles from "./ChannelIconList.module.css";
 
@@ -94,6 +97,12 @@ interface MemberRowProps {
 }
 
 function MemberRow({ user, isTalking, isBroadcasting, onContextMenu, onClick }: MemberRowProps) {
+  const ownSession = useAppStore((s) => s.ownSession);
+  const isSelf = ownSession === user.session;
+  const canMoveUser = useAppStore((s) => {
+    const ch = s.channels.find((c) => c.id === user.channel_id);
+    return ch?.permissions != null && (ch.permissions & PERM_MOVE) !== 0;
+  });
   const roleColors = useContext(RoleColorsContext);
   const roleColor = user.user_id != null ? (roleColors.get(user.user_id) ?? null) : null;
   const url = useUserAvatar(user.session, user.texture_size);
@@ -114,8 +123,16 @@ function MemberRow({ user, isTalking, isBroadcasting, onContextMenu, onClick }: 
     [onContextMenu, user],
   );
 
+  const { handlers: dragHandlers, overlay: dragOverlay } = useUserDrag(
+    user.session,
+    user.name,
+    url,
+    isMobile || isSelf || !canMoveUser,
+  );
+
   return (
     <>
+      {dragOverlay}
       <button
         ref={itemRef}
         type="button"
@@ -124,6 +141,12 @@ function MemberRow({ user, isTalking, isBroadcasting, onContextMenu, onClick }: 
         onMouseLeave={handleLeave}
         onContextMenu={handleContextMenu}
         onClick={() => onClick?.(user.session)}
+        onClickCapture={dragHandlers.onClickCapture}
+        onPointerDown={dragHandlers.onPointerDown}
+        onPointerMove={dragHandlers.onPointerMove}
+        onPointerUp={dragHandlers.onPointerUp}
+        onPointerCancel={dragHandlers.onPointerCancel}
+        style={dragHandlers.style}
       >
         <div
           className={styles.memberAvatar}
@@ -171,6 +194,18 @@ function MemberRow({ user, isTalking, isBroadcasting, onContextMenu, onClick }: 
 }
 
 // -- Main component ------------------------------------------------
+
+function ChannelDropWrapper({
+  channelId,
+  children,
+}: Readonly<{ channelId: number; children: React.ReactNode }>) {
+  const { ref, active } = useChannelDropTarget(channelId);
+  return (
+    <div ref={ref} className={active ? styles.dropTarget : undefined}>
+      {children}
+    </div>
+  );
+}
 
 export default function ChannelIconList({
   channels,
@@ -244,6 +279,7 @@ export default function ChannelIconList({
     const hasUsers = chUsers.length > 0;
 
     return (
+      <ChannelDropWrapper channelId={channel.id}>
       <div
         className={[
           styles.channelRow,
@@ -306,6 +342,7 @@ export default function ChannelIconList({
           </div>
         )}
       </div>
+      </ChannelDropWrapper>
     );
   }, [
     usersByChannel, unreadCounts, listenedChannels, selectedChannel,

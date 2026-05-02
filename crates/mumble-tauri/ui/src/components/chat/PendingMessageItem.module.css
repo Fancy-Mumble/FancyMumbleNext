@@ -1,0 +1,137 @@
+/* Optimistic outgoing message bubble shown while send_message is in flight. */
+
+.wrapper {
+  display: flex;
+  align-self: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 2px 1rem 4px 0;
+  max-width: min(100%, 32rem);
+}
+
+.bubble {
+  position: relative;
+  background: linear-gradient(
+    135deg,
+    var(--color-own-bubble-start) 0%,
+    var(--color-own-bubble-end) 100%
+  );
+  border-radius: var(--radius-md) var(--radius-md) 4px var(--radius-md);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  padding: 0.5rem 0.75rem 0.75rem;
+  overflow: hidden;
+  color: var(--color-own-bubble-text, #ffffff);
+}
+
+.bubbleSending {
+  opacity: 0.78;
+}
+
+.bubbleFailed {
+  opacity: 1;
+  outline: 1px solid var(--color-error, #f87171);
+}
+
+/* Body container: inline-only HTML rendering of the message body.
+   Images are constrained so the placeholder occupies the same area
+   as the eventual real message. */
+.body {
+  font-size: 0.9rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.body img,
+.body video {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+}
+
+/* Indeterminate progress bar - a shimmer scan across the track,
+   matching the style of UploadProgressItem. */
+@keyframes pendingProgressScan {
+  0%   { background-position: -100% 0; }
+  100% { background-position: 250% 0; }
+}
+
+.progressTrack {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+  margin-top: 0.5rem;
+}
+
+.progressBar {
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.85) 40%,
+    rgba(255, 255, 255, 0.95) 50%,
+    rgba(255, 255, 255, 0.85) 60%,
+    transparent 100%
+  );
+  background-size: 50% 100%;
+  animation: pendingProgressScan 1.4s ease-in-out infinite;
+}
+
+/* Status row: label on the left, action on the right. */
+.statusRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--color-own-bubble-time, rgba(255, 255, 255, 0.7));
+}
+
+.statusLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.statusLabelError {
+  color: var(--color-error, #f87171);
+}
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.iconBtn:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.errorText {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--color-error, #f87171);
+  word-break: break-word;
+}

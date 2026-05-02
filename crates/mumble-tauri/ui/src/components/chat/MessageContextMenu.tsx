@@ -1,4 +1,4 @@
-import { ArrowUpRightIcon, CheckboxIcon, CopyIcon, EditIcon, EmojiPlusIcon, QuoteIcon, TrashIcon } from "../../icons";
+import { ArrowUpRightIcon, CheckboxIcon, CopyIcon, EditIcon, EmojiPlusIcon, PlayIcon, QuoteIcon, TrashIcon } from "../../icons";
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { ChatMessage } from "../../types";
@@ -6,6 +6,7 @@ import type { ReactionSummary } from "./reactionStore";
 import { getReadersForMessage } from "./readReceiptStore";
 import { useAppStore } from "../../store";
 import { QUICK_REACTIONS } from "../elements/MessageActionBar";
+import { useWatchStart } from "./watch/useWatchStart";
 import styles from "./MessageContextMenu.module.css";
 
 // -- Overflow-aware position computation --------------------------
@@ -88,6 +89,10 @@ export default function MessageContextMenu({
 }: MessageContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<MenuPosition | null>(null);
+  const { canStart: canWatchTogether, busy: watchBusy, start: startWatch } = useWatchStart(
+    menu.message.body,
+    menu.message.channel_id,
+  );
 
   useEffect(() => {
     if (menuRef.current) {
@@ -184,6 +189,19 @@ export default function MessageContextMenu({
               <QuoteIcon width={14} height={14} />
             </span>
             Quote
+          </button>
+        )}
+        {canWatchTogether && (
+          <button
+            type="button"
+            className={styles.menuItem}
+            disabled={watchBusy}
+            onClick={() => { void startWatch(); onClose(); }}
+          >
+            <span className={styles.menuIcon}>
+              <PlayIcon width={14} height={14} />
+            </span>
+            {watchBusy ? "Starting\u2026" : "Watch together"}
           </button>
         )}
         {onCopyText && (

@@ -12,7 +12,8 @@ use super::AppState;
 impl AppState {
     pub async fn select_channel(&self, channel_id: u32) -> Result<(), String> {
         let handle = {
-            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let mut state = __session.lock().map_err(|e| e.to_string())?;
             state.selected_channel = Some(channel_id);
             state.msgs.selected_dm_user = None;
             let _ = state.msgs.channel_unread.remove(&channel_id);
@@ -31,7 +32,8 @@ impl AppState {
 
     pub async fn join_channel(&self, channel_id: u32) -> Result<(), String> {
         let handle = {
-            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let mut state = __session.lock().map_err(|e| e.to_string())?;
             state.current_channel = Some(channel_id);
             state.conn.client_handle.clone()
         };
@@ -53,7 +55,7 @@ impl AppState {
     }
 
     pub fn current_channel(&self) -> Option<u32> {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .ok()
             .and_then(|s| s.current_channel)
@@ -62,7 +64,8 @@ impl AppState {
     pub async fn toggle_listen(&self, channel_id: u32) -> Result<bool, String> {
         debug!(channel_id, "toggle_listen called");
         let (handle, is_now_listened, add, remove) = {
-            let mut state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let mut state = __session.lock().map_err(|e| e.to_string())?;
             let handle = state.conn.client_handle.clone();
 
             if !state.permanently_listened.contains(&channel_id) {
@@ -123,7 +126,7 @@ impl AppState {
     }
 
     pub fn listened_channels(&self) -> Vec<u32> {
-        self.inner
+        self.inner.snapshot()
             .lock()
             .map(|s| s.permanently_listened.iter().copied().collect())
             .unwrap_or_default()
@@ -143,7 +146,8 @@ impl AppState {
         pchat_retention_days: Option<u32>,
     ) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {
@@ -180,7 +184,8 @@ impl AppState {
 
     pub async fn delete_channel(&self, channel_id: u32) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {
@@ -206,7 +211,8 @@ impl AppState {
         pchat_retention_days: Option<u32>,
     ) -> Result<(), String> {
         let handle = {
-            let state = self.inner.lock().map_err(|e| e.to_string())?;
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
         match handle {

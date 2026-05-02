@@ -82,7 +82,52 @@ export interface ChatMessage {
   pinned_at?: number | null;
 }
 
+/**
+ * An optimistically-rendered chat message that is currently being sent
+ * to the server.  Lives only in the frontend store; replaced by the
+ * real ChatMessage once `send_message` resolves successfully (or marked
+ * as failed if the send rejects).
+ */
+export interface PendingMessage {
+  /** Frontend-generated correlation id (UUID). */
+  pendingId: string;
+  /** Channel id this message targets. Null when sending a DM. */
+  channelId: number | null;
+  /** Other participant's session for DMs. Null for channel messages. */
+  dmSession: number | null;
+  /** HTML body that was passed to send_message. */
+  body: string;
+  /** Unix epoch ms when the send was initiated. */
+  createdAt: number;
+  /** Lifecycle state. */
+  state: "sending" | "failed";
+  /** Optional error message when state === "failed". */
+  errorMessage?: string;
+}
+
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
+
+/**
+ * Multi-server: stable identifier for a connected server, minted by the
+ * backend on each `connect` call.  Phase A: surfaced via the
+ * `list_servers` / `get_active_server` / `set_active_server` Tauri
+ * commands and stamped onto every emitted event payload as `serverId`.
+ */
+export type ServerId = string;
+
+/**
+ * User-visible summary of a connected (or connecting) server returned
+ * by the `list_servers` command.
+ */
+export interface SessionMeta {
+  id: ServerId;
+  label: string;
+  host: string;
+  port: number;
+  username: string;
+  certLabel: string | null;
+  status: ConnectionStatus;
+}
 
 export interface ServerLogEntry {
   timestamp_ms: number;
@@ -163,11 +208,27 @@ export interface PublicServer {
 
 // --- Link Embeds --------------------------------------------------
 
+/** A server-side downscaled, base64 inlined preview of an image-type
+ *  media field. Surfaced by the server so clients never need to contact
+ *  the origin host (avoids leaking the user's IP). */
+export interface EmbedPreview {
+  /** A `data:image/<mime>;base64,...` URL ready to use as `<img src>`. */
+  data_url: string;
+  mime: string;
+  width?: number;
+  height?: number;
+}
+
 /** Dimension/URL pair for an embedded image or video. */
 export interface EmbedMedia {
   url: string;
   width?: number;
   height?: number;
+  /** Original byte size of the upstream resource (when known). */
+  original_size?: number;
+  /** Server-generated downscaled preview, when available. Always prefer
+   *  `preview.data_url` over `url` to avoid IP leaks. */
+  preview?: EmbedPreview;
 }
 
 /** Access mode for a file uploaded via the file-server plugin. */
@@ -349,6 +410,14 @@ export interface UserPreferences {
   disableOsmMaps?: boolean;
   /** When true, rich link previews (including external resource embeds) are hidden. */
   disableLinkPreviews?: boolean;
+  /** When true, the watch-together feature may embed external players
+   *  (e.g. YouTube IFrame API).  When false, only direct media URLs
+   *  shared inside the chat can be played in sync. */
+  enableExternalEmbeds?: boolean;
+  /** Streamer mode: hides identifying information (server host/IP, own IP)
+   *  and suppresses native notifications so personal data does not leak
+   *  into screen captures or recordings. */
+  streamerMode?: boolean;
   /** When true, automatically retry connecting after an unexpected disconnect. */
   autoReconnect?: boolean;
   /** When true, app updates are downloaded and installed automatically on

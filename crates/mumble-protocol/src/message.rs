@@ -133,6 +133,8 @@ pub enum TcpMessageType {
     FancyLinkPreviewRequest = 132,
     /// Fancy Mumble: server responds with link embed metadata.
     FancyLinkPreviewResponse = 133,
+    /// Fancy Mumble: synchronised watch-together control event.
+    FancyWatchSync = 134,
 }
 
 /// Generates both `TryFrom<u16> for TcpMessageType` and
@@ -292,6 +294,8 @@ pub enum ControlMessage {
     FancyLinkPreviewRequest(mumble_tcp::FancyLinkPreviewRequest),
     /// Fancy: server responds with link embed metadata.
     FancyLinkPreviewResponse(mumble_tcp::FancyLinkPreviewResponse),
+    /// Fancy: synchronised watch-together control event.
+    FancyWatchSync(mumble_tcp::FancyWatchSync),
     /// UDP audio tunneled through TCP (fallback path).
     UdpTunnel(Vec<u8>),
 }
@@ -319,6 +323,7 @@ message_type_mapping! {
     PchatPin, PchatPinDeliver, PchatPinFetchResponse,
     FancyTypingIndicator,
     FancyLinkPreviewRequest, FancyLinkPreviewResponse,
+    FancyWatchSync,
 }
 
 /// A decoded UDP message - either audio or a UDP ping.
@@ -471,7 +476,7 @@ mod tests {
     fn tcp_message_type_invalid_returns_error() {
         assert!(TcpMessageType::try_from(27u16).is_err());
         assert!(TcpMessageType::try_from(99u16).is_err());
-        assert!(TcpMessageType::try_from(134u16).is_err());
+        assert!(TcpMessageType::try_from(135u16).is_err());
         assert!(TcpMessageType::try_from(199u16).is_err());
         assert!(TcpMessageType::try_from(203u16).is_err());
         assert!(TcpMessageType::try_from(u16::MAX).is_err());
