@@ -14,16 +14,19 @@
 }
 
 .fancy {
-  background: rgba(177, 100, 230, 0.2);
+  background: color-mix(in srgb, var(--color-badge-fancy) 18%, transparent);
   color: var(--color-badge-fancy);
+  border: 1px solid color-mix(in srgb, var(--color-badge-fancy) 35%, transparent);
 }
 
 .signal {
-  background: rgba(58, 118, 240, 0.2);
+  background: color-mix(in srgb, var(--color-badge-signal) 18%, transparent);
   color: var(--color-badge-signal);
+  border: 1px solid color-mix(in srgb, var(--color-badge-signal) 35%, transparent);
 }
 
 .server {
-  background: rgba(50, 190, 140, 0.2);
+  background: color-mix(in srgb, var(--color-badge-server) 18%, transparent);
   color: var(--color-badge-server);
+  border: 1px solid color-mix(in srgb, var(--color-badge-server) 35%, transparent);
 }

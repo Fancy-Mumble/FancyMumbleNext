@@ -55,6 +55,10 @@ function WatchTogetherCardImpl({ sessionId, mountKey }: Props) {
   }, [sessionId, effectiveMountKey]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // Tracks the sessionId for which we already sent an optimistic join.
+  // Using a ref (not state) prevents feeding back into the effect's
+  // dependency array and breaking the update cycle in React 19.
+  const joinSentRef = useRef<string | null>(null);
   const [adapter, setAdapter] = useState<PlayerAdapter | null>(null);
   const [adapterError, setAdapterError] = useState<string | null>(null);
   // Tracks an explicit user-initiated `leave`.  Without this the
@@ -103,6 +107,12 @@ function WatchTogetherCardImpl({ sessionId, mountKey }: Props) {
     if (!session || ownSession == null) return;
     if (explicitlyLeft || !owns) return;
     if (session.participants.has(ownSession)) return;
+    // Guard with a ref so that the optimistic `applyWatchSyncEvent`
+    // call below (which mutates the store and therefore changes the
+    // `session` reference) does not cause this effect to fire a
+    // second time before React finishes the flush.
+    if (joinSentRef.current === sessionId) return;
+    joinSentRef.current = sessionId;
     void sendJoin(sessionId, ownSession);
     // Optimistic local apply: server does not echo events back to the
     // sender, so without this our own participant count would lag
@@ -170,6 +180,7 @@ function WatchTogetherCardImpl({ sessionId, mountKey }: Props) {
   }, [leave, ownSession, sessionId]);
 
   const handleRejoin = useCallback(() => {
+    joinSentRef.current = null;
     setExplicitlyLeft(false);
   }, []);
 

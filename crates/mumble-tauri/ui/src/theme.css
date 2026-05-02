@@ -10,13 +10,14 @@
 @import "./themes/dark.css";
 @import "./themes/light.css";
 @import "./themes/apprentice.css";
-@import "./themes/vivid-apprentice.css";
-@import "./themes/storm.css";
-@import "./themes/tokyo-night.css";
+@import "./themes/mobel.css";
 @import "./themes/rose.css";
-@import "./themes/neon.css";
+@import "./themes/inversa.css";
 @import "./themes/hearth.css";
 @import "./themes/macchiato.css";
+@import "./themes/midnight-pretenders.css";
+@import "./themes/ply.css";
+@import "./themes/guardbase.css";
 
 :root {
   /* -- Glass effect ---------------------------------------------- */
