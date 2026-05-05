@@ -12,7 +12,7 @@ import { useSpoilerReveal } from "./hooks/useSpoilerReveal";
 import { useCodeHighlight } from "./hooks/useCodeHighlight";
 import { useWatchLifecycle } from "./components/chat/watch/useWatchLifecycle";
 import { DEFAULT_NOTIFICATION_SOUNDS } from "./pages/settings/NotificationsPanel";
-import type { NotificationSoundSettings } from "./types";
+import type { NotificationSoundSettings, AudioSettings } from "./types";
 import TitleBar from "./components/layout/TitleBar";
 import ConnectPage from "./pages/ConnectPage";
 import LoadingSplash from "./components/elements/LoadingSplash";
@@ -108,11 +108,20 @@ function MainApp() {
     getNotificationSounds().then((ns) => {
       if (ns) setNotifSounds(ns);
     });
-    getSavedAudioSettings().then((saved) => {
-      if (saved) {
-        invoke("set_audio_settings", { settings: saved }).catch((e) =>
-          console.error("Startup audio settings error:", e),
-        );
+    getSavedAudioSettings().then(async (saved) => {
+      if (!saved) return;
+      try {
+        // Merge persisted values on top of the backend defaults so any
+        // fields missing from older saves don't cause serde to reject
+        // the invoke.  Without this merge the call silently fails and
+        // the saved device (and other settings) only get applied once
+        // the user opens the settings page, which performs its own
+        // merge before re-invoking.
+        const cfg = await invoke<AudioSettings>("get_audio_settings");
+        const merged: AudioSettings = { ...cfg, ...saved };
+        await invoke("set_audio_settings", { settings: merged });
+      } catch (e) {
+        console.error("Startup audio settings error:", e);
       }
     });
     loadShortcuts().then((sc) => {

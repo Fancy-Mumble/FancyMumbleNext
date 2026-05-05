@@ -391,6 +391,15 @@ export default function ServerTabsBar() {
                 // before our pointer handlers can run.
                 e.stopPropagation();
               }}
+              onAuxClick={(e) => {
+                // Middle-click closes the tab (with the same confirm
+                // dialog as the X button).
+                if (e.button === 1) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setPendingDisconnect(meta);
+                }
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();

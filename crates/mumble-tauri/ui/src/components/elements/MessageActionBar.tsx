@@ -98,14 +98,6 @@ export default function MessageActionBar({
       onClick: () => { void startWatch(); },
     });
   }
-  if (onCopyText) {
-    kebabItems.push({
-      id: "copy",
-      label: "Copy text",
-      icon: <CopyIcon width={14} height={14} />,
-      onClick: () => onCopyText(message),
-    });
-  }
   if (canDelete && onDelete) {
     kebabItems.push({
       id: "delete",
@@ -158,6 +150,19 @@ export default function MessageActionBar({
       >
         <QuoteIcon width={16} height={16} />
       </button>
+
+      {/* Copy text */}
+      {onCopyText && (
+        <button
+          type="button"
+          className={styles.actionBtn}
+          title="Copy text"
+          aria-label="Copy message text"
+          onClick={() => onCopyText(message)}
+        >
+          <CopyIcon width={16} height={16} />
+        </button>
+      )}
 
       {/* Kebab menu */}
       {kebabItems.length > 0 && (

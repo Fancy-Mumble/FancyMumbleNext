@@ -19,9 +19,9 @@ use mumble_protocol::audio::capture::AudioCapture;
 use mumble_protocol::audio::mixer::{SpeakerBuffers, SpeakerVolumes};
 use mumble_protocol::audio::sample::{AudioFormat, AudioFrame};
 use mumble_protocol::error::{Error, Result};
-use rodio::microphone::MicrophoneBuilder;
+use rodio::microphone::{available_inputs, MicrophoneBuilder};
 use rodio::source::Source;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 // -- Capture (Microphone) -------------------------------------------
 
@@ -44,11 +44,12 @@ pub struct RodioCapture {
     _capture_thread: Option<thread::JoinHandle<()>>,
     volume: Arc<AtomicU32>,
     pending: Vec<f32>,
+    device_name: Option<String>,
 }
 
 impl RodioCapture {
     pub fn new(
-        _device_name: Option<&str>,
+        device_name: Option<&str>,
         frame_size: usize,
         volume: Arc<AtomicU32>,
     ) -> Result<Self> {
@@ -60,7 +61,17 @@ impl RodioCapture {
             _capture_thread: None,
             volume,
             pending: Vec::with_capacity(frame_size * 2),
+            device_name: device_name.map(str::to_owned),
         })
+    }
+
+    /// Look up an input device by display name (as returned by
+    /// `get_audio_devices`).  Returns `None` if no matching device is
+    /// found, in which case the caller should fall back to the
+    /// default device.
+    fn find_input_by_name(name: &str) -> Option<rodio::microphone::Input> {
+        let inputs = available_inputs().ok()?;
+        inputs.into_iter().find(|i| i.to_string() == name)
     }
 }
 
@@ -107,9 +118,30 @@ impl AudioCapture for RodioCapture {
     }
 
     fn start(&mut self) -> Result<()> {
-        let builder = MicrophoneBuilder::new()
-            .default_device()
-            .map_err(|e| Error::InvalidState(format!("No input device: {e}")))?
+        let device_builder = MicrophoneBuilder::new();
+        let with_device = if let Some(name) = self.device_name.as_deref() {
+            match Self::find_input_by_name(name) {
+                Some(input) => {
+                    debug!("rodio capture: using selected input device '{name}'");
+                    device_builder
+                        .device(input)
+                        .map_err(|e| Error::InvalidState(format!("Open input '{name}': {e}")))?
+                }
+                None => {
+                    warn!(
+                        "rodio capture: selected input device '{name}' not found, falling back to default"
+                    );
+                    device_builder
+                        .default_device()
+                        .map_err(|e| Error::InvalidState(format!("No input device: {e}")))?
+                }
+            }
+        } else {
+            device_builder
+                .default_device()
+                .map_err(|e| Error::InvalidState(format!("No input device: {e}")))?
+        };
+        let builder = with_device
             .default_config()
             .map_err(|e| Error::InvalidState(format!("Input config: {e}")))?
             .prefer_channel_counts([MONO_CHANNELS])
@@ -470,11 +502,12 @@ pub struct RodioMixingPlayback {
     buffers: SpeakerBuffers,
     speaker_volumes: SpeakerVolumes,
     volume: Arc<AtomicU32>,
+    device_name: Option<String>,
 }
 
 impl RodioMixingPlayback {
     pub fn new(
-        _device_name: Option<&str>,
+        device_name: Option<&str>,
         volume: Arc<AtomicU32>,
         buffers: SpeakerBuffers,
         speaker_volumes: SpeakerVolumes,
@@ -485,15 +518,48 @@ impl RodioMixingPlayback {
             buffers,
             speaker_volumes,
             volume,
+            device_name: device_name.map(str::to_owned),
+        })
+    }
+
+    /// Look up a cpal output device by description name (matching the
+    /// names returned by `get_output_devices`).
+    fn find_output_by_name(name: &str) -> Option<cpal::Device> {
+        use cpal::traits::{DeviceTrait, HostTrait};
+        let host = cpal::default_host();
+        host.output_devices().ok()?.find(|d| {
+            d.description()
+                .ok()
+                .map(|desc| desc.name().to_string())
+                .as_deref()
+                == Some(name)
         })
     }
 }
 
 impl super::MixingPlayback for RodioMixingPlayback {
     fn start(&mut self) -> Result<()> {
-        // Open the default output device and get a mixer handle.
-        let device_sink = rodio::stream::DeviceSinkBuilder::from_default_device()
-            .map_err(|e| Error::InvalidState(format!("Open output device: {e}")))?
+        let builder = if let Some(name) = self.device_name.as_deref() {
+            match Self::find_output_by_name(name) {
+                Some(device) => {
+                    debug!("rodio playback: using selected output device '{name}'");
+                    rodio::stream::DeviceSinkBuilder::from_device(device).map_err(|e| {
+                        Error::InvalidState(format!("Open output '{name}': {e}"))
+                    })?
+                }
+                None => {
+                    warn!(
+                        "rodio playback: selected output device '{name}' not found, falling back to default"
+                    );
+                    rodio::stream::DeviceSinkBuilder::from_default_device()
+                        .map_err(|e| Error::InvalidState(format!("Open output device: {e}")))?
+                }
+            }
+        } else {
+            rodio::stream::DeviceSinkBuilder::from_default_device()
+                .map_err(|e| Error::InvalidState(format!("Open output device: {e}")))?
+        };
+        let device_sink = builder
             .open_stream()
             .map_err(|e| Error::InvalidState(format!("Open output stream: {e}")))?;
         let mixer = device_sink.mixer().clone();

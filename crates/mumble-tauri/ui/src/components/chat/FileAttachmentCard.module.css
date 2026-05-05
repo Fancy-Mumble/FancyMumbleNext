@@ -149,3 +149,21 @@
   background: var(--color-accent-medium, rgba(100, 160, 255, 0.15));
   border-color: var(--color-accent, #89b4fa);
 }
+
+/* ---- Expired link state ---------------------------------------- */
+
+.expiredCard {
+  border-color: var(--color-warning-border, rgba(255, 170, 80, 0.35));
+  background: var(--color-warning-bg, rgba(255, 170, 80, 0.06));
+}
+
+.expiredIcon {
+  color: var(--color-warning, #f0a04b);
+  background: rgba(255, 170, 80, 0.1);
+}
+
+.expiredMessage {
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--color-warning, #f0a04b);
+}

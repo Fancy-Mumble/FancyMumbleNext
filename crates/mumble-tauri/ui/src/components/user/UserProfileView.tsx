@@ -93,11 +93,11 @@ export default function UserProfileView() {
   const selectedDmUser = useAppStore((s) => s.selectedDmUser);
   const users = useAppStore((s) => s.users);
   const selectUser = useAppStore((s) => s.selectUser);
+  const selectDmUser = useAppStore((s) => s.selectDmUser);
 
   // In DM mode, always show the DM partner's profile even if the user
   // closed the generic profile panel.
   const effectiveSession = selectedUser ?? selectedDmUser;
-  const isDmProfile = selectedUser === null && selectedDmUser !== null;
 
   const user: UserEntry | undefined = useMemo(
     () => users.find((u) => u.session === effectiveSession),
@@ -106,10 +106,14 @@ export default function UserProfileView() {
 
   if (!user) return null;
 
+  const handleClose = selectedDmUser === null
+    ? () => selectUser(null)
+    : () => { void selectDmUser(selectedDmUser); };
+
   return (
     <UserProfilePanel
       user={user}
-      onClose={isDmProfile ? undefined : () => selectUser(null)}
+      onClose={handleClose}
     />
   );
 }

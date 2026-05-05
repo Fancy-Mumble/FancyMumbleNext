@@ -125,13 +125,8 @@ export default function ChatHeader({
   hasNewDownloads,
   onDownloads,
 }: ChatHeaderProps) {
-  let prefix: string;
-  if (isDm) prefix = "@";
-  else prefix = "#";
-
-  let subtitle: string;
-  if (isDm) subtitle = "Direct Message";
-  else subtitle = `${memberCount} members`;
+  const prefix = isDm ? "@" : "#";
+  const subtitle = isDm ? "Direct Message" : `${memberCount} members`;
 
   const privateBadge = isDm;
   const isStreaming = !!broadcastInfo;

@@ -92,13 +92,17 @@ interface MemberRowProps {
   readonly user: UserEntry;
   readonly isTalking: boolean;
   readonly isBroadcasting: boolean;
+  readonly isActive?: boolean;
   readonly onContextMenu?: (e: React.MouseEvent, user: UserEntry) => void;
   readonly onClick?: (session: number) => void;
 }
 
-function MemberRow({ user, isTalking, isBroadcasting, onContextMenu, onClick }: MemberRowProps) {
+function MemberRow({ user, isTalking, isBroadcasting, isActive, onContextMenu, onClick }: MemberRowProps) {
   const ownSession = useAppStore((s) => s.ownSession);
+  const selectedDmUser = useAppStore((s) => s.selectedDmUser);
+  const dmUnread = useAppStore((s) => s.dmUnreadCounts[user.session] ?? 0);
   const isSelf = ownSession === user.session;
+  const active = isActive ?? (!isSelf && selectedDmUser === user.session);
   const canMoveUser = useAppStore((s) => {
     const ch = s.channels.find((c) => c.id === user.channel_id);
     return ch?.permissions != null && (ch.permissions & PERM_MOVE) !== 0;
@@ -136,7 +140,7 @@ function MemberRow({ user, isTalking, isBroadcasting, onContextMenu, onClick }: 
       <button
         ref={itemRef}
         type="button"
-        className={`${styles.memberRow} ${isTalking ? styles.memberTalking : ""}`}
+        className={`${styles.memberRow} ${active ? styles.memberRowActive : ""} ${isTalking ? styles.memberTalking : ""}`}
         onMouseEnter={handleEnter}
         onMouseLeave={handleLeave}
         onContextMenu={handleContextMenu}
@@ -172,6 +176,11 @@ function MemberRow({ user, isTalking, isBroadcasting, onContextMenu, onClick }: 
           <span className={styles.liveBadge} title="Sharing screen">
             <ScreenShareIcon width={10} height={10} />
             Live
+          </span>
+        )}
+        {dmUnread > 0 && (
+          <span className={styles.dmUnreadBadge} title={`${dmUnread} unread direct message${dmUnread === 1 ? "" : "s"}`}>
+            {dmUnread > 99 ? "99+" : dmUnread}
           </span>
         )}
       </button>

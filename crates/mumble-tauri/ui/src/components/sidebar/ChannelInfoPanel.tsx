@@ -41,6 +41,7 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
 
   const users = useAppStore((s) => s.users);
   const selectDmUser = useAppStore((s) => s.selectDmUser);
+  const selectedDmUser = useAppStore((s) => s.selectedDmUser);
 
   // Key holder state
   const keyHolders = useAppStore((s) => s.keyHolders);
@@ -272,6 +273,7 @@ export default function ChannelInfoPanel({ onClose }: ChannelInfoPanelProps) {
                 <div key={u.session} className={styles.memberRow}>
                   <UserListItem
                     user={u}
+                    active={selectedDmUser === u.session}
                     onClick={() => selectDmUser(u.session)}
                     onContextMenu={(e) => openUserCtxMenu(e, u.session)}
                   />
