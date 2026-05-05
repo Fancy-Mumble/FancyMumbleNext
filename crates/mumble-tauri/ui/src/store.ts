@@ -1245,6 +1245,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectUser: (session) => set({ selectedUser: session }),
 
   selectDmUser: async (session) => {
+    // Toggle: clicking the currently-selected DM user a second time
+    // switches back to the channel the local user is currently in.
+    const { selectedDmUser, currentChannel, selectChannel } = get();
+    if (selectedDmUser === session) {
+      if (currentChannel == null) {
+        set({ selectedDmUser: null, dmMessages: [], selectedUser: null });
+      } else {
+        await selectChannel(currentChannel);
+        set({ selectedUser: null });
+      }
+      return;
+    }
     set({ selectedDmUser: session, selectedChannel: null, messages: [], selectedUser: session });
     try {
       await invoke("select_dm_user", { session });

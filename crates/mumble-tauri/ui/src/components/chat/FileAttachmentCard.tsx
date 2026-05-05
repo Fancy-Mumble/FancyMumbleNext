@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -103,6 +103,9 @@ export default function FileAttachmentCard({ info }: FileAttachmentCardProps) {
   const [saved, setSaved] = useState(false);
   const [savedPath, setSavedPath] = useState<string | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const initiallyExpired =
+    info.expiresAt != null && info.expiresAt > 0 && info.expiresAt * 1000 < Date.now();
+  const [expired, setExpired] = useState<boolean>(initiallyExpired);
 
   const kind = previewKindForFilename(info.filename);
   const previewable = kind === "image" || kind === "audio" || kind === "video";
@@ -127,7 +130,50 @@ export default function FileAttachmentCard({ info }: FileAttachmentCardProps) {
 
   const closeLightbox = useCallback(() => setLightboxOpen(false), []);
 
-  const canOpenInBrowser = info.mode === "public" || info.mode === "password";
+  // Switch to expired state automatically once the announced expiry
+  // timestamp passes, without waiting for a network failure.
+  useEffect(() => {
+    if (savedPath || expired) return;
+    if (info.expiresAt == null || info.expiresAt <= 0) return;
+    const msUntilExpiry = info.expiresAt * 1000 - Date.now();
+    if (msUntilExpiry <= 0) {
+      setExpired(true);
+      return;
+    }
+    const timer = globalThis.setTimeout(() => setExpired(true), msUntilExpiry + 500);
+    return () => globalThis.clearTimeout(timer);
+  }, [info.expiresAt, savedPath, expired]);
+
+  // Probe the URL when an inline preview fails to load. The file-server
+  // returns HTTP 404 with a JSON body of `{"error":"link expired"}` for
+  // expired signed URLs - distinguish that from a generic load failure.
+  const probeForExpiry = useCallback(async () => {
+    try {
+      const resp = await fetch(info.url, { method: "GET" });
+      if (resp.status === 404) {
+        let body = "";
+        try {
+          body = await resp.text();
+        } catch {
+          // ignore body parse failure
+        }
+        if (body.toLowerCase().includes("expired")) {
+          setExpired(true);
+          return;
+        }
+      }
+      setError("Preview failed to load.");
+    } catch {
+      setError("Preview failed to load.");
+    }
+  }, [info.url]);
+
+  const handlePreviewError = useCallback(() => {
+    if (expired) return;
+    void probeForExpiry();
+  }, [expired, probeForExpiry]);
+
+  const canOpenInBrowser = (info.mode === "public" || info.mode === "password") && !expired;
 
   const onSave = useCallback(async () => {
     setBusy(true);
@@ -160,7 +206,12 @@ export default function FileAttachmentCard({ info }: FileAttachmentCardProps) {
       setSaved(true);
       setSavedPath(dest);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.toLowerCase().includes("expired")) {
+        setExpired(true);
+      } else {
+        setError(msg);
+      }
     } finally {
       setBusy(false);
     }
@@ -181,6 +232,7 @@ export default function FileAttachmentCard({ info }: FileAttachmentCardProps) {
             alt={info.filename}
             className={styles.previewImage}
             loading="lazy"
+            onError={handlePreviewError}
           />
         </button>
       );
@@ -188,7 +240,13 @@ export default function FileAttachmentCard({ info }: FileAttachmentCardProps) {
     if (kind === "audio") {
       return (
         <div className={styles.previewAudioWrap}>
-          <audio controls preload="none" src={previewSrc} className={styles.previewAudio}>
+          <audio
+            controls
+            preload="none"
+            src={previewSrc}
+            className={styles.previewAudio}
+            onError={handlePreviewError}
+          >
             <track kind="captions" />
           </audio>
         </div>
@@ -196,13 +254,50 @@ export default function FileAttachmentCard({ info }: FileAttachmentCardProps) {
     }
     if (kind === "video") {
       return (
-        <video controls preload="metadata" src={previewSrc} className={styles.previewVideo}>
+        <video
+          controls
+          preload="metadata"
+          src={previewSrc}
+          className={styles.previewVideo}
+          onError={handlePreviewError}
+        >
           <track kind="captions" />
         </video>
       );
     }
     return null;
   })();
+
+  if (expired) {
+    return (
+      <div className={`${styles.card} ${styles.expiredCard}`}>
+        <div className={styles.cardRow}>
+          <div className={`${styles.icon} ${styles.expiredIcon}`} aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <polyline points="12 7 12 12 15 14" />
+            </svg>
+          </div>
+          <div className={styles.body}>
+            <div className={styles.filename}>{info.filename}</div>
+            <div className={styles.expiredMessage}>
+              This download link has expired and is no longer available.
+            </div>
+            <div className={styles.meta}>
+              {formatBytes(info.sizeBytes)}
+              {info.mode !== "public" && <span className={styles.badge}>{info.mode}</span>}
+              {info.expiresAt != null && info.expiresAt > 0 && (
+                <span className={styles.expiry}>
+                  expired {new Date(info.expiresAt * 1000).toLocaleString()}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.card}>

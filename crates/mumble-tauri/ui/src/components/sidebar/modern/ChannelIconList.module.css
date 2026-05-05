@@ -205,6 +205,29 @@
   background: var(--color-glass-hover);
 }
 
+.memberRowActive {
+  background: var(--color-glass-active, rgba(99, 102, 241, 0.15));
+  box-shadow: inset 2px 0 0 var(--color-accent, rgba(99, 102, 241, 0.85));
+}
+
+.dmUnreadBadge {
+  flex-shrink: 0;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 99px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: var(--color-accent);
+  box-shadow: 0 0 6px rgba(42, 171, 238, 0.4);
+}
+
 .memberTalking {
   background: rgba(46, 204, 113, 0.1);
 }
