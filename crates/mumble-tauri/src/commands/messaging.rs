@@ -2,7 +2,7 @@
 //! deletes, search, photos, typing/read receipts and link previews.
 
 use crate::state::{self, AppState, ChatMessage, PhotoEntry, SearchResult};
-use crate::state::protocol_commands::WatchSyncEventArg;
+use crate::state::protocol_commands::{DrawStrokeArgs, WatchSyncEventArg};
 
 #[tauri::command]
 pub(crate) fn super_search(
@@ -75,6 +75,15 @@ pub(crate) async fn request_link_preview(
     request_id: String,
 ) -> Result<(), String> {
     state.request_link_preview(urls, request_id).await
+}
+
+/// Send a drawing stroke for the collaborative screen-share overlay.
+#[tauri::command]
+pub(crate) async fn send_draw_stroke(
+    state: tauri::State<'_, AppState>,
+    args: DrawStrokeArgs,
+) -> Result<(), String> {
+    state.send_draw_stroke(args).await
 }
 
 /// Send a read receipt watermark to the server.

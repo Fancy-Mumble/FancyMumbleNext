@@ -88,3 +88,25 @@ impl MacosAspectRatio {
         }
     }
 }
+
+/// Toggle window-server capture exclusion via `NSWindow.sharingType`.
+///
+/// Setting `NSWindowSharingNone` (= 0) hides the window from
+/// `CGWindowListCreateImage`, screen-recording APIs and most
+/// third-party capture stacks. Reverting to `NSWindowSharingReadOnly`
+/// (= 1, the default) makes the window capturable again.
+pub(super) fn set_excluded_from_capture(
+    win: &WebviewWindow,
+    excluded: bool,
+) -> Result<(), WindowExtError> {
+    let ns_window = win
+        .ns_window()
+        .map_err(|e| WindowExtError::NoHandle(e.to_string()))?
+        .cast::<AnyObject>();
+    let sharing_type: usize = if excluded { 0 } else { 1 };
+    // SAFETY: see `MacosAspectRatio::set_aspect_ratio`.
+    unsafe {
+        let _: () = msg_send![ns_window, setSharingType: sharing_type];
+    }
+    Ok(())
+}

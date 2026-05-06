@@ -1,8 +1,15 @@
 /**
  * Regression: connection rejections must surface an error rather than
  * leaving the UI stuck on a "connecting" skeleton.  When `pendingConnect`
- * is set, rejections are treated as targeting that attempt even if
- * `activeServerId` has not caught up to the new session id yet.
+ * is set AND there is no active session yet (initial-connect race),
+ * rejections are treated as targeting that attempt even if the new
+ * session id has not yet been registered as `activeServerId`.
+ *
+ * Conversely, when the user is ALREADY connected to a server and a new
+ * connect to a *different* server fails, the rejection / disconnect
+ * event must NOT clobber the currently-active tab's state.  It is
+ * recorded in `sessionErrors` so the failed tab shows the reason when
+ * the user switches to it.
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -28,11 +35,14 @@ interface DisconnectEvent {
 function shouldHandleReject(event: RejectEvent): boolean {
   const eventServerId = event.serverId ?? null;
   const { activeServerId, pendingConnect } = useAppStore.getState();
-  const isPending = pendingConnect !== null;
+  const pendingFallbackApplies =
+    pendingConnect !== null &&
+    activeServerId === null &&
+    (eventServerId === null || eventServerId !== activeServerId);
   return !(
     eventServerId !== null &&
     eventServerId !== activeServerId &&
-    !isPending
+    !pendingFallbackApplies
   );
 }
 
@@ -40,9 +50,13 @@ function shouldHandleReject(event: RejectEvent): boolean {
 function shouldHandleDisconnect(event: DisconnectEvent): boolean {
   const eventServerId = event.serverId ?? null;
   const { activeServerId, pendingConnect } = useAppStore.getState();
+  const pendingFallbackApplies =
+    pendingConnect !== null &&
+    activeServerId === null &&
+    (eventServerId === null || eventServerId !== activeServerId);
   return (
     (eventServerId !== null && eventServerId === activeServerId) ||
-    pendingConnect !== null
+    pendingFallbackApplies
   );
 }
 
@@ -64,7 +78,7 @@ describe("connect-time rejection surfacing", () => {
     expect(handled).toBe(false);
   });
 
-  it("handles rejection for a pending connect even if activeServerId is stale", () => {
+  it("handles rejection for a pending connect when no active session exists yet", () => {
     // Initial connect: no prior tabs, activeServerId is null,
     // pendingConnect was set by the connect action.
     useAppStore.setState({
@@ -84,12 +98,14 @@ describe("connect-time rejection surfacing", () => {
     expect(handled).toBe(true);
   });
 
-  it("handles reconnect rejection for a pending connect with a different stale activeServerId", () => {
-    // Reconnect flow: ChatPage.handleReconnect removed the old session
-    // and started a new one.  activeServerId may have rebound to some
-    // other tab; pendingConnect is still set.
+  it("does NOT clobber an active session when a *different* connect attempt is rejected", () => {
+    // Regression: user is already connected to A; tries to add server B
+    // (or reconnect from a tab that left other sessions intact).  The
+    // rejection arrives tagged with the new session's id.  We must NOT
+    // treat it as belonging to the active tab, otherwise A's tab
+    // becomes unusable with a misleading "Disconnected" overlay.
     useAppStore.setState({
-      activeServerId: "srv-other-tab",
+      activeServerId: "srv-A-existing",
       pendingConnect: {
         host: "h",
         port: 64738,
@@ -98,11 +114,11 @@ describe("connect-time rejection surfacing", () => {
       },
     });
     const handled = shouldHandleReject({
-      serverId: "srv-fresh-after-reconnect",
+      serverId: "srv-B-failed",
       reason: "Connection refused",
       reject_type: null,
     });
-    expect(handled).toBe(true);
+    expect(handled).toBe(false);
   });
 
   it("still handles rejections for the active session as before", () => {
@@ -117,7 +133,7 @@ describe("connect-time rejection surfacing", () => {
 });
 
 describe("connect-time disconnect surfacing", () => {
-  it("treats a disconnect event for a pending connect as active even with stale activeServerId", () => {
+  it("treats a disconnect event for a pending connect as active when no active session exists yet", () => {
     useAppStore.setState({
       activeServerId: null,
       pendingConnect: {
@@ -145,4 +161,25 @@ describe("connect-time disconnect surfacing", () => {
     });
     expect(handled).toBe(false);
   });
+
+  it("does NOT clobber an active tab when a *different* pending connect fails", () => {
+    // Regression: user connected to A and starts a connect to B which
+    // fails.  The disconnect event for B must not surface as a
+    // "Disconnected" overlay on A's tab.
+    useAppStore.setState({
+      activeServerId: "srv-A-existing",
+      pendingConnect: {
+        host: "h",
+        port: 64738,
+        username: "u",
+        certLabel: null,
+      },
+    });
+    const handled = shouldHandleDisconnect({
+      serverId: "srv-B-failed",
+      reason: "Connection refused",
+    });
+    expect(handled).toBe(false);
+  });
 });
+

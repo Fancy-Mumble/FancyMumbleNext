@@ -26,6 +26,24 @@ impl AppState {
     ) -> Result<(), String> {
         let app_handle = self.app_handle().ok_or("App not initialized")?;
 
+        // Drop any stale, fully-disconnected session that targets the
+        // exact same `(host, port, username)`.  Without this prune the
+        // automatic reconnect path would leak one extra tab per retry
+        // (each `connect` allocates a fresh `ServerId`) and rapidly
+        // spam the tab strip when the server is briefly unreachable.
+        let pruned = self
+            .registry
+            .prune_disconnected_for(&host, port, &username);
+        if !pruned.is_empty() {
+            info!(
+                count = pruned.len(),
+                host = %host,
+                port,
+                username = %username,
+                "pruned stale disconnected sessions before reconnect"
+            );
+        }
+
         // Allocate a fresh `SharedState` for this session and register
         // it.  Existing sessions stay alive on their own `Arc`s; we
         // simply swap the `inner` handle to point at the new one so it

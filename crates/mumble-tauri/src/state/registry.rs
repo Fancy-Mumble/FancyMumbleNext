@@ -76,6 +76,46 @@ impl Registry {
         removed
     }
 
+    /// Remove every disconnected session whose `(host, port, username)`
+    /// matches the supplied target.  Used by `connect()` to eliminate
+    /// stale tabs left behind by an automatic reconnect attempt against
+    /// the same target — without this pruning each retry would leave
+    /// the previous failed session in the registry, spamming the tab
+    /// strip with one entry per attempt.
+    ///
+    /// Sessions whose status is still `Connecting` or `Connected` are
+    /// left alone: the user may legitimately have several attempts in
+    /// flight, and we never want to silently kill a live session.
+    pub(crate) fn prune_disconnected_for(
+        &self,
+        host: &str,
+        port: u16,
+        username: &str,
+    ) -> Vec<ServerId> {
+        let Ok(mut guard) = self.inner.lock() else {
+            return Vec::new();
+        };
+        let stale: Vec<ServerId> = guard
+            .sessions
+            .iter()
+            .filter_map(|(id, shared)| {
+                let s = shared.lock().ok()?;
+                let matches = s.server.host == host
+                    && s.server.port == port
+                    && s.conn.own_name == username
+                    && s.conn.status == super::types::ConnectionStatus::Disconnected;
+                matches.then_some(*id)
+            })
+            .collect();
+        for id in &stale {
+            let _ = guard.sessions.remove(id);
+            if guard.active == Some(*id) {
+                guard.active = None;
+            }
+        }
+        stale
+    }
+
     /// Snapshot the metadata of every known session, suitable for the
     /// `list_servers` command.  Reads the per-session `SharedState` to
     /// derive the live status, host, port, username, etc.
@@ -154,5 +194,39 @@ mod tests {
         let metas = reg.list_meta();
         assert_eq!(metas.len(), 1);
         assert_eq!(metas[0].label, "alice@mumble.example:64738");
+    }
+
+    #[test]
+    fn prune_removes_only_disconnected_matching_target() {
+        use super::super::types::ConnectionStatus;
+
+        let reg = Registry::default();
+        // Two stale disconnected sessions targeting the same server.
+        let stale_a = ServerId::new();
+        let stale_b = ServerId::new();
+        // A live connecting session to the same target — must NOT be pruned.
+        let live = ServerId::new();
+        // A disconnected session targeting a *different* server — must NOT be pruned.
+        let other = ServerId::new();
+
+        let stale_a_shared = make_shared("h", 1, "u");
+        let stale_b_shared = make_shared("h", 1, "u");
+        let live_shared = make_shared("h", 1, "u");
+        live_shared.lock().unwrap().conn.status = ConnectionStatus::Connecting;
+        let other_shared = make_shared("other", 1, "u");
+
+        let _ = reg.register_active(stale_a, stale_a_shared);
+        let _ = reg.register_active(stale_b, stale_b_shared);
+        let _ = reg.register_active(live, live_shared);
+        let _ = reg.register_active(other, other_shared);
+
+        let pruned = reg.prune_disconnected_for("h", 1, "u");
+        assert_eq!(pruned.len(), 2);
+        assert!(pruned.contains(&stale_a));
+        assert!(pruned.contains(&stale_b));
+        let remaining: Vec<_> = reg.list_meta().into_iter().map(|m| m.id).collect();
+        assert!(remaining.contains(&live));
+        assert!(remaining.contains(&other));
+        assert_eq!(remaining.len(), 2);
     }
 }

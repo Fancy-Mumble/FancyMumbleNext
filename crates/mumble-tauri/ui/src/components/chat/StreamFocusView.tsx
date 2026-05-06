@@ -207,16 +207,18 @@ interface PrimaryPaneProps {
   readonly session?: number;
   readonly hasOthers: boolean;
   readonly isPrimaryDragOver: boolean;
+  readonly channelId: number;
+  readonly ownSession: number;
 }
 
-function PrimaryPane({ isOwnBroadcast, localStream, session, hasOthers, isPrimaryDragOver }: PrimaryPaneProps) {
+function PrimaryPane({ isOwnBroadcast, localStream, session, hasOthers, isPrimaryDragOver, channelId, ownSession }: PrimaryPaneProps) {
   return (
     <section
       className={styles.primaryPane}
       aria-label="Primary stream"
       data-drop-zone={hasOthers ? "primary" : undefined}
     >
-      <ScreenShareViewer isOwnBroadcast={isOwnBroadcast} localStream={localStream} session={session} />
+      <ScreenShareViewer isOwnBroadcast={isOwnBroadcast} localStream={localStream} session={session} channelId={channelId} ownSession={ownSession} />
       {hasOthers && (
         <div
           className={`${styles.primaryDropZone} ${isPrimaryDragOver ? styles.primaryDropZoneActive : ""}`}
@@ -447,6 +449,7 @@ export default function StreamFocusView({
   const [layout, setLayout] = useState<GridLayout>("solo");
   const pickerRef = useRef<HTMLDivElement>(null);
   const ownSession = useAppStore((s) => s.ownSession);
+  const channelId = useAppStore((s) => s.selectedChannel) ?? 0;
 
   const { orderedList, reorder } = useBroadcasterOrder(otherBroadcasters);
   const { dragOverTarget, dragHandlers } = useDragStream(onWatch, reorder);
@@ -489,6 +492,8 @@ export default function StreamFocusView({
           session={session}
           hasOthers={hasOthers}
           isPrimaryDragOver={dragOverTarget === "primary"}
+          channelId={channelId}
+          ownSession={ownSession ?? 0}
         />
 
         <LayoutSecondaryPanes

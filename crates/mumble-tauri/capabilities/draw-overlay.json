@@ -1,0 +1,11 @@
+{
+  "identifier": "draw-overlay",
+  "description": "Permissions for the desktop drawing overlay window (transparent, click-through, capture-excluded canvas).",
+  "windows": ["draw-overlay"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

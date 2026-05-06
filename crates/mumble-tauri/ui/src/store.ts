@@ -336,14 +336,42 @@ interface AppState {
   // -- Screen share state (in-memory) ----------------------------
   /** Whether we are currently sharing our own screen. */
   isSharingOwn: boolean;
+  /** The Mumble session ID of the tab whose webcam/screen is being captured
+   *  locally.  Set when `startSharing` succeeds, cleared when broadcasting
+   *  stops.  Compared against the current tab's `ownSession` so that other
+   *  server tabs in the same window do not mistake themselves for the
+   *  broadcaster (which would render a phantom local stream and a stray
+   *  "Desktop overlay" button on the wrong tab). */
+  broadcastingOwnSession: number | null;
   /** Whether the broadcaster WebRTC connection is still negotiating. */
   webrtcConnecting: boolean;
   /** Inline error message when a WebRTC operation fails (e.g. unreachable SFU). */
   webrtcError: string | null;
+  /** Whether the click-through desktop drawing-overlay window is currently
+   *  open.  Persisted in the global store (rather than as React local state
+   *  in `OwnBroadcastPreview`) so that switching to a different server tab
+   *  - which unmounts the preview component - does not implicitly close
+   *  the overlay.  Cleared automatically when broadcasting stops. */
+  desktopDrawingOverlayOpen: boolean;
+  /** Channel IDs where the screen-share drawing tools (color picker,
+   *  width slider, clear button) are currently active.  Stored in the
+   *  global store so the toggle button in `StreamControls` and the
+   *  toolbar in `DrawingOverlay` stay in sync, and so switching tabs
+   *  preserves the active state. */
+  drawingActiveChannels: Set<number>;
   /** Session IDs of other users currently broadcasting. */
   broadcastingSessions: Set<number>;
   /** Session ID we are currently watching (null if not watching). */
   watchingSession: number | null;
+  /** The Mumble session ID of the tab whose viewer is currently watching
+   *  `watchingSession`.  Set when `watchBroadcast` runs, cleared when
+   *  `stopWatching` runs.  Compared against the current tab's `ownSession`
+   *  so that other server tabs in the same window do not mistake the
+   *  watch state as their own (which would render a stray RemoteViewer
+   *  - including on the broadcaster's tab, where it would try to render
+   *  the broadcaster's own session as a remote stream and hang on
+   *  "Connecting..."). */
+  watchingOwnSession: number | null;
 
   // -- Persistent chat state -------------------------------------
   /** Persistence metadata per channel (mode, retention, fetch state). */
@@ -499,7 +527,7 @@ interface AppState {
     password?: string;
   }) => Promise<number>;
   /** Send a WebRTC screen-sharing signaling message via native proto. */
-  sendWebRtcSignal: (targetSession: number, signalType: number, payload: string) => Promise<void>;
+  sendWebRtcSignal: (targetSession: number, signalType: number, payload: string, serverId?: string | null) => Promise<void>;
   /** Send a reaction (add/remove) on a persistent chat message via native proto. */
   sendReaction: (channelId: number, messageId: string, emoji: string, action: "add" | "remove") => Promise<void>;
   /** Pin or unpin a message in a persistent channel. */
@@ -613,10 +641,14 @@ const INITIAL: Pick<
   | "watchSessions"
   | "watchSessionsVersion"
   | "isSharingOwn"
+  | "broadcastingOwnSession"
   | "webrtcConnecting"
   | "webrtcError"
+  | "desktopDrawingOverlayOpen"
+  | "drawingActiveChannels"
   | "broadcastingSessions"
   | "watchingSession"
+  | "watchingOwnSession"
   | "channelPersistence"
   | "keyTrust"
   | "custodianPins"
@@ -679,10 +711,14 @@ const INITIAL: Pick<
   watchSessions: new Map(),
   watchSessionsVersion: 0,
   isSharingOwn: false,
+  broadcastingOwnSession: null,
   webrtcConnecting: false,
   webrtcError: null,
+  desktopDrawingOverlayOpen: false,
+  drawingActiveChannels: new Set(),
   broadcastingSessions: new Set(),
   watchingSession: null,
+  watchingOwnSession: null,
   channelPersistence: {},
   keyTrust: {},
   custodianPins: {},
@@ -1161,6 +1197,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (broadcastingSessions.size > 0) {
         const pruned = new Set([...broadcastingSessions].filter((s) => currentSessions.has(s)));
         if (pruned.size !== broadcastingSessions.size) {
+          // Wipe drawings authored by anyone who disconnected mid-stream
+          // so their annotations vanish for every viewer.  Imported
+          // lazily to avoid a circular module dependency between the
+          // store and the chat-only DrawingOverlay module.
+          const dropped = [...broadcastingSessions].filter((s) => !currentSessions.has(s));
+          if (dropped.length > 0) {
+            void import("./components/chat/DrawingOverlay").then((m) => {
+              for (const s of dropped) m.clearStrokesFromSender(s);
+            }).catch(() => {});
+          }
           set({ broadcastingSessions: pruned });
         }
       }
@@ -1374,12 +1420,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
-  sendWebRtcSignal: async (targetSession, signalType, payload) => {
+  sendWebRtcSignal: async (targetSession, signalType, payload, serverId) => {
     try {
       await invoke("send_webrtc_signal", {
         targetSession,
         signalType,
         payload,
+        serverId: serverId ?? null,
       });
     } catch (e) {
       console.error("send_webrtc_signal error:", e);
@@ -1762,7 +1809,7 @@ export function onPluginData(handler: PluginDataHandler): () => void {
 
 // --- WebRTC signal handler registry ---
 
-type WebRtcSignalHandler = (senderSession: number | null, targetSession: number | null, signalType: number, payload: string) => void;
+type WebRtcSignalHandler = (senderSession: number | null, targetSession: number | null, signalType: number, payload: string, serverId: string | null) => void;
 const webRtcSignalHandlers: WebRtcSignalHandler[] = [];
 
 /** Register a handler for incoming WebRTC screen-sharing signals. */
@@ -2014,14 +2061,24 @@ export async function initEventListeners(
         // it belongs to the currently-focused tab, otherwise closing a
         // background session would clobber the foreground one.
         //
-        // Exception: if a `pendingConnect` is in flight, the disconnect
-        // almost certainly belongs to it (the backend just registered
-        // the new session and `activeServerId` may not have caught up
-        // yet).  Treating it as active surfaces the error instead of
-        // leaving the UI stuck on a "connecting" skeleton.
+        // Exception: if a `pendingConnect` is in flight AND we don't yet
+        // have an active session (initial connect race - the backend
+        // fired the disconnect before our `refreshSessions()` returned),
+        // fall back to assuming the event belongs to the pending connect
+        // so the user sees the error instead of being stuck on a
+        // "connecting" skeleton. Crucially, we do NOT apply this fallback
+        // when the user already has an active session AND the
+        // `eventServerId` either differs from it or is unknown - in that
+        // case the disconnect belongs to a *different* tab (a new
+        // connection attempt) and clobbering the active one would make
+        // the foreground server's tab unusable.
+        const pendingFallbackApplies =
+          pendingForActive !== null &&
+          activeServerId === null &&
+          (eventServerId === null || eventServerId !== activeServerId);
         const isActiveSession =
           (eventServerId !== null && eventServerId === activeServerId) ||
-          pendingForActive !== null;
+          pendingFallbackApplies;
 
         // If the user explicitly closed this session via the tab close
         // button, the `disconnectSession` action manages the UI handoff
@@ -2208,14 +2265,21 @@ export async function initEventListeners(
       // server-disconnected event will surface them via the per-session
       // status and the reconnect overlay when the user opens that tab.
       //
-      // Exception: if a `pendingConnect` is in flight, the rejection
-      // almost certainly belongs to it (the backend just registered the
-      // new session and `activeServerId` may not have caught up yet).
-      // Treating it as the active one is necessary so the user sees the
-      // error instead of being stuck on a "connecting" skeleton.
+      // Exception: if a `pendingConnect` is in flight AND we have no
+      // active session yet (initial connect race - backend fired the
+      // rejection before `refreshSessions()` returned), fall back to
+      // assuming the rejection belongs to the pending connect so the
+      // user sees the error instead of being stuck on a "connecting"
+      // skeleton. We do NOT apply this fallback when the user already
+      // has an active session AND `eventServerId` differs - that would
+      // clobber the foreground server's tab when a *different* tab's
+      // connection attempt was rejected.
       const { activeServerId, pendingConnect } = useAppStore.getState();
-      const isPending = pendingConnect !== null;
-      if (eventServerId !== null && eventServerId !== activeServerId && !isPending) {
+      const pendingFallbackApplies =
+        pendingConnect !== null &&
+        activeServerId === null &&
+        (eventServerId === null || eventServerId !== activeServerId);
+      if (eventServerId !== null && eventServerId !== activeServerId && !pendingFallbackApplies) {
         return;
       }
       const rt = event.payload.reject_type;
@@ -2446,12 +2510,13 @@ export async function initEventListeners(
   // -- WebRTC signal events ----------------------------------------
 
   unlisteners.push(
-    await listen<{ sender_session: number | null; target_session: number | null; signal_type: number; payload: string }>(
+    await listen<{ sender_session: number | null; target_session: number | null; signal_type: number; payload: string; serverId?: string | null }>(
       "webrtc-signal",
       (event) => {
         const { sender_session, target_session, signal_type, payload } = event.payload;
+        const serverId = event.payload.serverId ?? null;
         for (const handler of webRtcSignalHandlers) {
-          handler(sender_session, target_session, signal_type, payload);
+          handler(sender_session, target_session, signal_type, payload, serverId);
         }
       },
     ),

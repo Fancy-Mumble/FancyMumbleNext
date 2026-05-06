@@ -1891,6 +1891,62 @@ pub mod fancy_watch_sync {
         HostTransfer(HostTransfer),
     }
 }
+/// Client -> Server -> Channel: relay a drawing stroke over a screen-share.
+///
+/// The server fills in `sender_session` and broadcasts to all Fancy clients
+/// in `channel_id`.  Coordinates are normalised to the range \[0, 1\] relative
+/// to the shared screen frame, so they scale correctly on the receiver side
+/// regardless of resolution.
+///
+/// Wire type ID = 135.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FancyDrawStroke {
+    /// Session ID of the sender (set by server on relay, ignored from client).
+    #[prost(uint32, optional, tag = "1")]
+    pub sender_session: ::core::option::Option<u32>,
+    /// Channel where the screen share is taking place.
+    #[prost(uint32, optional, tag = "2")]
+    pub channel_id: ::core::option::Option<u32>,
+    /// Client-chosen stroke identifier (UUID v4).
+    /// Used to group individual point packets into one logical stroke.
+    #[prost(string, optional, tag = "3")]
+    pub stroke_id: ::core::option::Option<::prost::alloc::string::String>,
+    /// Stroke colour packed as 0xAARRGGBB.
+    #[prost(uint32, optional, tag = "4")]
+    pub color: ::core::option::Option<u32>,
+    /// Stroke width in logical pixels at 1x scale (typically 2-8).
+    /// DEPRECATED: prefer `width_frac` which is resolution-independent.
+    /// Kept as fallback for older clients that don't read `width_frac`.
+    #[prost(float, optional, tag = "5")]
+    pub width: ::core::option::Option<f32>,
+    /// Alternating normalised X/Y coordinates: \[x0, y0, x1, y1, ...\].
+    /// Coordinates are normalised against the *actual shared content
+    /// rect* (not the on-screen video element, which may letterbox).
+    /// Packed for wire efficiency.
+    #[prost(float, repeated, tag = "6")]
+    pub points: ::prost::alloc::vec::Vec<f32>,
+    /// True when this packet ends the stroke (pen-up / pointer-release).
+    #[prost(bool, optional, tag = "7")]
+    pub is_end: ::core::option::Option<bool>,
+    /// True to clear all strokes sent by this sender in this channel.
+    #[prost(bool, optional, tag = "8")]
+    pub is_clear: ::core::option::Option<bool>,
+    /// Stroke width as a fraction of the shared content's pixel
+    /// HEIGHT (e.g. 0.005 = 0.5% of the source height).  Receivers
+    /// should multiply by their displayed content's height to get
+    /// the on-screen pixel width.  Resolution-independent so the
+    /// stroke looks the same on every viewer regardless of monitor
+    /// or window size.
+    #[prost(float, optional, tag = "9")]
+    pub width_frac: ::core::option::Option<f32>,
+    /// When set together with `is_clear`, wipes ALL strokes in the
+    /// channel (every sender) instead of just the sender's own.
+    /// Reserved for the active screen-sharer; receivers should
+    /// ignore `clear_all` from senders that aren't currently
+    /// broadcasting in the channel.
+    #[prost(bool, optional, tag = "10")]
+    pub clear_all: ::core::option::Option<bool>,
+}
 /// Unified pchat protocol indicator.
 /// Each value identifies both the E2EE protocol implementation
 /// and the persistence behaviour for a channel.
