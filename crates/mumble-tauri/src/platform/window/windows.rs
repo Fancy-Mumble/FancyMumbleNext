@@ -30,9 +30,10 @@ use windows_sys::Win32::UI::Shell::{
     DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetClientRect, GetWindowRect, SetWindowPos, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER,
-    WMSZ_BOTTOM, WMSZ_BOTTOMLEFT, WMSZ_BOTTOMRIGHT, WMSZ_LEFT, WMSZ_RIGHT, WMSZ_TOP,
-    WMSZ_TOPLEFT, WMSZ_TOPRIGHT, WM_NCDESTROY, WM_SIZING,
+    GetClientRect, GetWindowRect, SetWindowDisplayAffinity, SetWindowPos, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOZORDER, WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WMSZ_BOTTOM, WMSZ_BOTTOMLEFT,
+    WMSZ_BOTTOMRIGHT, WMSZ_LEFT, WMSZ_RIGHT, WMSZ_TOP, WMSZ_TOPLEFT, WMSZ_TOPRIGHT,
+    WM_NCDESTROY, WM_SIZING,
 };
 
 use super::{AspectRatioConstraint, WindowExtError};
@@ -266,4 +267,32 @@ impl WindowsAspectRatio {
         // window proc; the HWND/msg/params are exactly what we received.
         unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
     }
+}
+
+/// Toggle [`WDA_EXCLUDEFROMCAPTURE`] on the window's HWND.
+///
+/// `WDA_EXCLUDEFROMCAPTURE` (Windows 10 2004+) makes the window
+/// invisible to `BitBlt`, `PrintWindow`, and the Windows Graphics
+/// Capture API path used by virtually every modern screen-share /
+/// recording stack. Older Windows versions silently fall back to
+/// `WDA_MONITOR` semantics (window appears black in captures), which
+/// is still acceptable for the drawing-overlay use case.
+pub(super) fn set_excluded_from_capture(
+    win: &WebviewWindow,
+    excluded: bool,
+) -> Result<(), WindowExtError> {
+    let hwnd = win
+        .hwnd()
+        .map_err(|e| WindowExtError::NoHandle(e.to_string()))?;
+    let raw = hwnd.0 as HWND;
+    let affinity = if excluded { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE };
+    // SAFETY: SetWindowDisplayAffinity accepts any valid HWND and
+    // validates it internally.  We are on the UI thread (Tauri command).
+    let ok = unsafe { SetWindowDisplayAffinity(raw, affinity) };
+    if ok == 0 {
+        return Err(WindowExtError::Native(
+            "SetWindowDisplayAffinity returned FALSE".into(),
+        ));
+    }
+    Ok(())
 }

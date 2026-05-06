@@ -9,6 +9,30 @@ use serde::Deserialize;
 use super::types::DeleteAckResult;
 use super::AppState;
 
+/// Parameters for a single drawing-stroke packet sent to the server.
+///
+/// Grouped into a struct to satisfy the `clippy::too_many_arguments` lint
+/// on both [`AppState::send_draw_stroke`] and the Tauri command wrapper.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DrawStrokeArgs {
+    pub channel_id: u32,
+    pub stroke_id: String,
+    pub color: u32,
+    pub width: f32,
+    /// Width as a fraction of the shared content's pixel height.
+    /// Optional for backwards compatibility with older clients.
+    #[serde(default)]
+    pub width_frac: Option<f32>,
+    pub points: Vec<f32>,
+    pub is_end: bool,
+    pub is_clear: bool,
+    /// When set with `is_clear`, wipes ALL strokes in the channel
+    /// (every sender).  Reserved for the active screen-sharer.
+    #[serde(default)]
+    pub clear_all: bool,
+}
+
 /// Frontend-facing tagged-union mirror of
 /// [`mumble_tcp::fancy_watch_sync::Event`].
 ///
@@ -223,6 +247,45 @@ impl AppState {
         Ok(())
     }
 
+    pub async fn send_draw_stroke(&self, args: DrawStrokeArgs) -> Result<(), String> {
+        let handle = {
+            let __session = self.inner.snapshot();
+            let state = __session.lock().map_err(|e| e.to_string())?;
+            state.conn.client_handle.clone()
+        };
+
+        let handle = handle.ok_or("Not connected")?;
+
+        tracing::info!(
+            target: "draw",
+            channel_id = args.channel_id,
+            stroke_id = %args.stroke_id,
+            coords = args.points.len(),
+            is_end = args.is_end,
+            is_clear = args.is_clear,
+            clear_all = args.clear_all,
+            width_frac = ?args.width_frac,
+            "tx send_draw_stroke"
+        );
+
+        handle
+            .send(command::SendDrawStroke {
+                channel_id: args.channel_id,
+                stroke_id: args.stroke_id,
+                color: args.color,
+                width: args.width,
+                width_frac: args.width_frac,
+                points: args.points,
+                is_end: args.is_end,
+                is_clear: args.is_clear,
+                clear_all: args.clear_all,
+            })
+            .await
+            .map_err(|e| format!("Failed to send draw stroke: {e}"))?;
+
+        Ok(())
+    }
+
     pub async fn request_link_preview(
         &self,
         urls: Vec<String>,
@@ -297,10 +360,27 @@ impl AppState {
         target_session: u32,
         signal_type: i32,
         payload: String,
+        server_id: Option<String>,
     ) -> Result<(), String> {
         let handle = {
-            let __session = self.inner.snapshot();
-            let state = __session.lock().map_err(|e| e.to_string())?;
+            // When the caller specifies a server_id, send via THAT
+            // connection's client handle (not the active session's).
+            // This is essential when multiple server tabs are open in
+            // the same window: WebRTC ICE candidates trickle in async
+            // and must always be delivered through the connection that
+            // owns the peer connection, regardless of which tab the
+            // user is currently looking at.
+            let arc = if let Some(sid_str) = server_id.as_deref() {
+                let sid: super::sessions::ServerId = sid_str
+                    .parse()
+                    .map_err(|e| format!("invalid server_id: {e}"))?;
+                self.registry
+                    .session(sid)
+                    .ok_or_else(|| format!("unknown server_id: {sid_str}"))?
+            } else {
+                self.inner.snapshot()
+            };
+            let state = arc.lock().map_err(|e| e.to_string())?;
             state.conn.client_handle.clone()
         };
 

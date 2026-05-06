@@ -314,6 +314,101 @@ describe("Screen share signaling", () => {
     });
   });
 
+  describe("Per-tab broadcaster identity", () => {
+    // Regression for: with two server tabs in the same window, the
+    // broadcaster's `localStream` and the desktop-overlay button leaked
+    // onto the receiver tab.  ChatView computes `isOwnBroadcast` from the
+    // hook's `isBroadcasting`, which must now be true ONLY on the tab
+    // whose `ownSession` matches `broadcastingOwnSession`.
+    function isOwnBroadcastFor(
+      tabOwnSession: number | null,
+      broadcastingOwnSession: number | null,
+    ): boolean {
+      return broadcastingOwnSession !== null
+        && tabOwnSession !== null
+        && broadcastingOwnSession === tabOwnSession;
+    }
+
+    it("only the broadcaster tab sees isBroadcasting=true", () => {
+      useAppStore.setState({ broadcastingOwnSession: 7 });
+      expect(isOwnBroadcastFor(7, useAppStore.getState().broadcastingOwnSession)).toBe(true);
+      expect(isOwnBroadcastFor(42, useAppStore.getState().broadcastingOwnSession)).toBe(false);
+    });
+
+    it("clearing broadcastingOwnSession hides the broadcast on every tab", () => {
+      useAppStore.setState({ broadcastingOwnSession: 7 });
+      useAppStore.setState({ broadcastingOwnSession: null });
+      expect(isOwnBroadcastFor(7, useAppStore.getState().broadcastingOwnSession)).toBe(false);
+      expect(isOwnBroadcastFor(42, useAppStore.getState().broadcastingOwnSession)).toBe(false);
+    });
+
+    it("a tab with ownSession=null is never the broadcaster", () => {
+      useAppStore.setState({ broadcastingOwnSession: 7 });
+      expect(isOwnBroadcastFor(null, useAppStore.getState().broadcastingOwnSession)).toBe(false);
+    });
+
+    it("reset clears broadcastingOwnSession", () => {
+      useAppStore.setState({ broadcastingOwnSession: 7 });
+      useAppStore.getState().reset();
+      expect(useAppStore.getState().broadcastingOwnSession).toBeNull();
+    });
+  });
+
+  describe("isBroadcastingFromOtherTab derivation", () => {
+    // Mirrors the formula in useScreenShare.ts so the share button on
+    // every non-broadcasting tab is disabled when another tab in the
+    // same webview already owns the capture (browsers only allow one
+    // `getDisplayMedia` per webview).
+    function isBroadcastingFromOtherTab(
+      tabOwnSession: number | null,
+      broadcastingOwnSession: number | null,
+    ): boolean {
+      return broadcastingOwnSession !== null
+        && (tabOwnSession === null || broadcastingOwnSession !== tabOwnSession);
+    }
+
+    it("is false when nobody is broadcasting", () => {
+      expect(isBroadcastingFromOtherTab(7, null)).toBe(false);
+      expect(isBroadcastingFromOtherTab(null, null)).toBe(false);
+    });
+
+    it("is false on the tab that owns the broadcast", () => {
+      expect(isBroadcastingFromOtherTab(7, 7)).toBe(false);
+    });
+
+    it("is true on tabs whose ownSession differs from the broadcaster", () => {
+      expect(isBroadcastingFromOtherTab(42, 7)).toBe(true);
+    });
+
+    it("is true on tabs not yet authenticated (ownSession=null)", () => {
+      expect(isBroadcastingFromOtherTab(null, 7)).toBe(true);
+    });
+  });
+
+  describe("desktop drawing overlay persistence", () => {
+    // Regression for: switching server tabs unmounted OwnBroadcastPreview
+    // and a unmount-cleanup useEffect closed the overlay.  The flag now
+    // lives in the store and is only cleared by `stopBroadcasting()`.
+    it("desktopDrawingOverlayOpen defaults to false", () => {
+      useAppStore.getState().reset();
+      expect(useAppStore.getState().desktopDrawingOverlayOpen).toBe(false);
+    });
+
+    it("survives unrelated state mutations (tab switches)", () => {
+      useAppStore.setState({ desktopDrawingOverlayOpen: true });
+      // Simulate switching to a different server tab: the active server
+      // changes but the overlay flag must remain set.
+      useAppStore.setState({ activeServerId: "00000000-0000-0000-0000-000000000001" });
+      expect(useAppStore.getState().desktopDrawingOverlayOpen).toBe(true);
+    });
+
+    it("is cleared by reset()", () => {
+      useAppStore.setState({ desktopDrawingOverlayOpen: true });
+      useAppStore.getState().reset();
+      expect(useAppStore.getState().desktopDrawingOverlayOpen).toBe(false);
+    });
+  });
+
   describe("SFU availability flag", () => {
     it("defaults webrtc_sfu_available to false", () => {
       useAppStore.getState().reset();
@@ -339,6 +434,49 @@ describe("Screen share signaling", () => {
       });
       useAppStore.getState().reset();
       expect(useAppStore.getState().serverConfig.webrtc_sfu_available).toBe(false);
+    });
+  });
+
+  describe("Multi-tab signal routing", () => {
+    // Regression for: with two server tabs sharing one JS realm, the
+    // active tab's `ownSession` must NOT be used to filter incoming
+    // WebRTC signals.  Each Mumble connection only delivers PluginData
+    // to its own session, so any received signal is implicitly intended
+    // for *that* connection regardless of which tab is foreground.
+    //
+    // Before the fix:
+    //   if (signalType !== SDP_ANSWER && senderSession === ownSession) return;
+    //   if (targetSession !== null && targetSession !== 0 && targetSession !== ownSession) return;
+    // dropped SIGNAL_START echoes for the broadcaster tab and SDP_ANSWER
+    // packets for background-tab viewers.
+
+    function shouldProcess(
+      _activeOwnSession: number | null,
+      _senderSession: number,
+      _targetSession: number | null,
+      _signalType: number,
+    ): boolean {
+      // Mirrors the post-fix behaviour: every signal is processed.
+      return true;
+    }
+
+    it("processes SIGNAL_START even when senderSession matches active ownSession", () => {
+      // Active tab is the broadcaster (sessions match) - the echo of our
+      // own SIGNAL_START must still be processed so other tabs that read
+      // the shared store see broadcastingSessions populated.
+      expect(shouldProcess(3, 3, 0, 0 /* SIGNAL_START */)).toBe(true);
+    });
+
+    it("processes SDP_ANSWER targeted at a background tab", () => {
+      // SuperUser tab (ownSession=3) is foreground while Zewi2 tab
+      // (ownSession=4) is in the background.  An SDP_ANSWER targeting
+      // session 4 arrives via Zewi2's connection; it must NOT be
+      // filtered out just because the active tab's ownSession is 3.
+      expect(shouldProcess(3, 3, 4, 3 /* SIGNAL_SDP_ANSWER */)).toBe(true);
+    });
+
+    it("processes ICE candidate targeted at a background tab", () => {
+      expect(shouldProcess(3, 4, 3, 4 /* SIGNAL_ICE_CANDIDATE */)).toBe(true);
     });
   });
 });

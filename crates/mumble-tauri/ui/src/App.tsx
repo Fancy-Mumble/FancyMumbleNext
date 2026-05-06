@@ -19,6 +19,7 @@ import LoadingSplash from "./components/elements/LoadingSplash";
 import { isUpdaterWindow } from "./updater";
 import UpdaterWindow from "./updater/UpdaterWindow";
 import PopoutPage from "./pages/PopoutPage";
+import DrawOverlayPage from "./pages/DrawOverlayPage";
 
 const ChatPage = lazy(() => import("./pages/ChatPage"));
 const SettingsPage = lazy(() => import("./pages/settings"));
@@ -35,27 +36,43 @@ function isPopoutWindow(): boolean {
   // Tauri exposes the window label via the `__TAURI_METADATA__` global, but
   // checking the `?popout=` query string set by the popout URL is simpler
   // and works in browser dev as well.
-  if (new URLSearchParams(window.location.search).has("popout")) return true;
+  if (new URLSearchParams(globalThis.location.search).has("popout")) return true;
   // Fallback: detect via the Tauri window label using the IPC global.
   // We run this synchronously by reading the document title fallback.
-  const tauriInternals = (window as unknown as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } }).__TAURI_INTERNALS__;
+  const tauriInternals = (globalThis as unknown as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } }).__TAURI_INTERNALS__;
   const label = tauriInternals?.metadata?.currentWindow?.label;
   return !!label && label.startsWith("popout-");
 }
 
-const enum WindowKind { Main, Popout, Updater }
+/**
+ * Returns true when this webview window is the desktop drawing
+ * overlay window. Spawned by the Rust `open_drawing_overlay` command
+ * with the fixed label `draw-overlay`.
+ */
+function isDrawOverlayWindow(): boolean {
+  if (new URLSearchParams(globalThis.location.search).has("draw-overlay")) return true;
+  const tauriInternals = (globalThis as unknown as {
+    __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } };
+  }).__TAURI_INTERNALS__;
+  const label = tauriInternals?.metadata?.currentWindow?.label;
+  return label === "draw-overlay";
+}
+
+const enum WindowKind { Main, Popout, Updater, DrawOverlay }
 
 function getWindowKind(): WindowKind {
   if (isUpdaterWindow()) return WindowKind.Updater;
+  if (isDrawOverlayWindow()) return WindowKind.DrawOverlay;
   if (isPopoutWindow()) return WindowKind.Popout;
   return WindowKind.Main;
 }
 
 export default function App() {
   switch (getWindowKind()) {
-    case WindowKind.Updater: return <UpdaterWindow />;
-    case WindowKind.Popout:  return <PopoutPage />;
-    default:                 return <MainApp />;
+    case WindowKind.Updater:     return <UpdaterWindow />;
+    case WindowKind.DrawOverlay: return <DrawOverlayPage />;
+    case WindowKind.Popout:      return <PopoutPage />;
+    default:                     return <MainApp />;
   }
 }
 
@@ -93,11 +110,20 @@ function MainApp() {
       useAppStore.setState({ disableLinkPreviews: prefs.disableLinkPreviews ?? false });
       useAppStore.setState({ enableExternalEmbeds: prefs.enableExternalEmbeds ?? false });
       useAppStore.setState({ streamerMode: prefs.streamerMode ?? false });
-      // When streamer mode is enabled at startup, suppress native notifications
-      // so they cannot leak personal data into a screen recording.
-      if (prefs.streamerMode) {
-        invoke("set_notifications_enabled", { enabled: false }).catch(() => undefined);
-      }
+      // Native notifications: streamer mode forces them off so they
+      // cannot leak personal data into a screen recording; otherwise
+      // honour the user's saved preference.
+      const notificationsEnabled = prefs.streamerMode
+        ? false
+        : (prefs.enableNotifications ?? true);
+      invoke("set_notifications_enabled", { enabled: notificationsEnabled })
+        .catch(() => undefined);
+      // Dual-path audio: backend stores the inverted "disabled" flag.
+      invoke("set_disable_dual_path", { disabled: !(prefs.enableDualPath ?? false) })
+        .catch(() => undefined);
+      // Log level (also accepts "debug" via the legacy debugLogging flag).
+      const logLevel = prefs.logLevel ?? (prefs.debugLogging ? "debug" : "info");
+      invoke("set_log_level", { filter: logLevel }).catch(() => undefined);
       // Inform the Rust updater whether to auto-install on startup.
       invoke("updater_set_auto_install", { enabled: prefs.autoUpdateOnStartup ?? false })
         .catch(() => undefined);
@@ -140,8 +166,8 @@ function MainApp() {
       const detail = (e as CustomEvent<NotificationSoundSettings>).detail;
       setNotifSounds(detail);
     };
-    window.addEventListener("notification-sounds-changed", handler);
-    return () => window.removeEventListener("notification-sounds-changed", handler);
+    globalThis.addEventListener("notification-sounds-changed", handler);
+    return () => globalThis.removeEventListener("notification-sounds-changed", handler);
   }, []);
 
   useEffect(() => {

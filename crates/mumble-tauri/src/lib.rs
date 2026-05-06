@@ -113,6 +113,82 @@ fn init_app_state(app: &mut tauri::App) {
     if let Err(e) = state.init_offload_store() {
         tracing::warn!("Failed to initialise offload store: {e}");
     }
+    hydrate_persisted_prefs(app.handle(), &state);
+}
+
+/// Read `preferences.json` (written by `@tauri-apps/plugin-store`) and
+/// hydrate the backend `AppState` with the user's persisted audio
+/// settings, notification toggle, dual-path toggle and log level.
+///
+/// Without this step the backend stays on its built-in defaults until
+/// the frontend gets around to invoking the per-setting commands, which
+/// races against the user enabling voice and produces noticeably worse
+/// audio (wrong VAD threshold, wrong device, wrong denoiser, etc.) for
+/// the first call after launch.
+fn hydrate_persisted_prefs(app: &tauri::AppHandle, state: &AppState) {
+    let Ok(config_dir) = app.path().app_config_dir() else {
+        return;
+    };
+    let path = config_dir.join("preferences.json");
+    let Ok(bytes) = std::fs::read(&path) else {
+        tracing::debug!("hydrate_persisted_prefs: no preferences at {}", path.display());
+        return;
+    };
+    let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        tracing::warn!("hydrate_persisted_prefs: preferences.json is not valid JSON");
+        return;
+    };
+
+    if let Some(audio) = json.get("audioSettings") {
+        match serde_json::from_value::<state::types::AudioSettings>(audio.clone()) {
+            Ok(settings) => {
+                tracing::info!("hydrate_persisted_prefs: applying saved audio settings");
+                let _ = state.set_audio_settings(settings);
+            }
+            Err(e) => {
+                tracing::warn!("hydrate_persisted_prefs: invalid audioSettings: {e}");
+            }
+        }
+    }
+
+    let prefs = json.get("preferences").unwrap_or(&json);
+    if let Ok(mut s) = state.inner.snapshot().lock() {
+        if let Some(b) = prefs
+            .get("enableNotifications")
+            .and_then(serde_json::Value::as_bool)
+        {
+            let streamer_mode = prefs
+                .get("streamerMode")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            s.prefs.notifications_enabled = b && !streamer_mode;
+        }
+        if let Some(b) = prefs
+            .get("enableDualPath")
+            .and_then(serde_json::Value::as_bool)
+        {
+            s.prefs.disable_dual_path = !b;
+        }
+    }
+
+    let log_level = prefs
+        .get("logLevel")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+        .or_else(|| {
+            prefs
+                .get("debugLogging")
+                .and_then(serde_json::Value::as_bool)
+                .map(|b| if b { "debug".to_string() } else { "info".to_string() })
+        });
+    if let Some(level) = log_level {
+        if let Some(handle) = LOG_RELOAD_HANDLE.get() {
+            if let Ok(filter) = EnvFilter::try_new(&level) {
+                let _ = handle.reload(filter);
+                tracing::info!("hydrate_persisted_prefs: log level = {level}");
+            }
+        }
+    }
 }
 
 fn create_base_builder() -> tauri::Builder<tauri::Wry> {
@@ -255,6 +331,7 @@ macro_rules! all_command_handlers {
             commands::messaging::query_read_receipts,
             commands::messaging::send_typing_indicator,
             commands::messaging::send_watch_sync,
+            commands::messaging::send_draw_stroke,
             commands::messaging::request_link_preview,
             commands::realtime::send_webrtc_signal,
             commands::messaging::send_reaction,
@@ -307,6 +384,9 @@ macro_rules! all_command_handlers {
             commands::image::process_background,
             commands::popout::open_image_popout,
             commands::popout::take_popout_image,
+            commands::draw_overlay::open_drawing_overlay,
+            commands::draw_overlay::close_drawing_overlay,
+            commands::draw_overlay::take_drawing_overlay_context,
             commands::window::set_window_aspect_ratio,
             #[cfg(not(target_os = "android"))]
             updater::commands::updater_check,
