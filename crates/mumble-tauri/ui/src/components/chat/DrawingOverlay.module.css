@@ -1,0 +1,86 @@
+/* Drawing overlay root - fills the parent viewport */
+.overlayRoot {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* Canvas - full size, transparent */
+.canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  touch-action: none;
+}
+
+/* When drawing is active, capture pointer events */
+.canvasActive {
+  pointer-events: all;
+  cursor: crosshair;
+}
+
+/* Toolbar - bottom-left, always visible */
+.toolbar {
+  position: absolute;
+  bottom: 48px; /* above StreamControls */
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+  border-radius: 8px;
+  pointer-events: all;
+}
+
+.toolBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.toolBtn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.toolBtnActive {
+  background: var(--color-accent, #5865f2);
+  border-color: var(--color-accent, #5865f2);
+}
+
+.colorSwatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.15s;
+}
+
+.colorSwatch:hover {
+  transform: scale(1.2);
+}
+
+.colorSwatchSelected {
+  border-color: #fff;
+  transform: scale(1.15);
+}
+
+.widthSlider {
+  width: 64px;
+  accent-color: var(--color-accent, #5865f2);
+  cursor: pointer;
+}

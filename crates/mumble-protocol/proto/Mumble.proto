@@ -1113,3 +1113,53 @@ message FancyWatchSync {
 		HostTransfer host_transfer  = 16;
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Screen drawing overlay (Fancy Mumble extension, ID 135)
+// ---------------------------------------------------------------------------
+
+// Client -> Server -> Channel: relay a drawing stroke over a screen-share.
+//
+// The server fills in `sender_session` and broadcasts to all Fancy clients
+// in `channel_id`.  Coordinates are normalised to the range [0, 1] relative
+// to the shared screen frame, so they scale correctly on the receiver side
+// regardless of resolution.
+//
+// Wire type ID = 135.
+message FancyDrawStroke {
+	// Session ID of the sender (set by server on relay, ignored from client).
+	optional uint32 sender_session = 1;
+	// Channel where the screen share is taking place.
+	optional uint32 channel_id = 2;
+	// Client-chosen stroke identifier (UUID v4).
+	// Used to group individual point packets into one logical stroke.
+	optional string stroke_id = 3;
+	// Stroke colour packed as 0xAARRGGBB.
+	optional uint32 color = 4;
+	// Stroke width in logical pixels at 1x scale (typically 2-8).
+	// DEPRECATED: prefer `width_frac` which is resolution-independent.
+	// Kept as fallback for older clients that don't read `width_frac`.
+	optional float width = 5;
+	// Alternating normalised X/Y coordinates: [x0, y0, x1, y1, ...].
+	// Coordinates are normalised against the *actual shared content
+	// rect* (not the on-screen video element, which may letterbox).
+	// Packed for wire efficiency.
+	repeated float points = 6 [packed = true];
+	// True when this packet ends the stroke (pen-up / pointer-release).
+	optional bool is_end = 7;
+	// True to clear all strokes sent by this sender in this channel.
+	optional bool is_clear = 8;
+	// Stroke width as a fraction of the shared content's pixel
+	// HEIGHT (e.g. 0.005 = 0.5% of the source height).  Receivers
+	// should multiply by their displayed content's height to get
+	// the on-screen pixel width.  Resolution-independent so the
+	// stroke looks the same on every viewer regardless of monitor
+	// or window size.
+	optional float width_frac = 9;
+	// When set together with `is_clear`, wipes ALL strokes in the
+	// channel (every sender) instead of just the sender's own.
+	// Reserved for the active screen-sharer; receivers should
+	// ignore `clear_all` from senders that aren't currently
+	// broadcasting in the channel.
+	optional bool clear_all = 10;
+}

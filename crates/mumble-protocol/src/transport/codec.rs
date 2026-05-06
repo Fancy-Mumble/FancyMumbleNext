@@ -123,6 +123,7 @@ pub(crate) fn serialize_control_message(msg: &ControlMessage) -> Result<(u16, Ve
         FancyLinkPreviewRequest(m) => m.encode_to_vec(),
         FancyLinkPreviewResponse(m) => m.encode_to_vec(),
         FancyWatchSync(m) => m.encode_to_vec(),
+        FancyDrawStroke(m) => m.encode_to_vec(),
         UdpTunnel(data) => data.clone(),
     };
 
@@ -196,6 +197,7 @@ pub(crate) fn deserialize_control_message(type_id: u16, payload: &[u8]) -> Resul
         FancyLinkPreviewRequest => ControlMessage::FancyLinkPreviewRequest(mumble_tcp::FancyLinkPreviewRequest::decode(payload)?),
         FancyLinkPreviewResponse => ControlMessage::FancyLinkPreviewResponse(mumble_tcp::FancyLinkPreviewResponse::decode(payload)?),
         FancyWatchSync => ControlMessage::FancyWatchSync(mumble_tcp::FancyWatchSync::decode(payload)?),
+        FancyDrawStroke => ControlMessage::FancyDrawStroke(mumble_tcp::FancyDrawStroke::decode(payload)?),
     };
     Ok(msg)
 }

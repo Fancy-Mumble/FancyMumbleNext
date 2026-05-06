@@ -221,6 +221,15 @@ pub struct AppState {
     /// Image sources pending pickup by freshly-opened image popout windows.
     /// Keyed by random id; each entry is consumed once by `take_popout_image`.
     pub(crate) popout_images: Mutex<HashMap<String, crate::commands::popout::PopoutImagePayload>>,
+    /// Channel/session context for the (single) drawing-overlay window.
+    /// Read by the overlay via `take_drawing_overlay_context` once it
+    /// has spawned. `None` while no overlay is open.
+    pub(crate) draw_overlay_context:
+        Mutex<Option<crate::commands::draw_overlay::DrawOverlayContext>>,
+    /// Background task that follows the shared window's screen rect
+    /// (Windows only) and repositions the desktop overlay accordingly.
+    /// Aborted when the overlay closes.
+    pub(crate) draw_overlay_tracker: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl AppState {
@@ -242,19 +251,28 @@ impl AppState {
             http_client: file_server::new_http_client(),
             upload_cancels: Mutex::new(HashMap::new()),
             popout_images: Mutex::new(HashMap::new()),
+            draw_overlay_context: Mutex::new(None),
+            draw_overlay_tracker: Mutex::new(None),
         }
     }
 
-    /// Build a fresh, empty per-session `SharedState` with the same
-    /// global preferences as the default one (notifications on, focused).
+    /// Build a fresh, empty per-session `SharedState` seeded with the
+    /// global preferences and audio settings from the default session.
+    /// Audio settings are copied so that persisted preferences (device,
+    /// bitrate, denoiser, VAD threshold, …) apply to the very first
+    /// voice call without requiring the settings page to be opened.
     pub(crate) fn fresh_session_state(&self) -> Arc<Mutex<SharedState>> {
-        let prefs = self
+        let (prefs, audio_settings) = self
             .default_inner
             .lock()
-            .map(|s| s.prefs.clone())
+            .map(|s| (s.prefs.clone(), s.audio.settings.clone()))
             .unwrap_or_default();
         Arc::new(Mutex::new(SharedState {
             prefs,
+            audio: AudioPipelineState {
+                settings: audio_settings,
+                ..Default::default()
+            },
             ..Default::default()
         }))
     }

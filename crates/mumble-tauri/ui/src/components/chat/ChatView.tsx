@@ -615,6 +615,11 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
               ? (screenShare.isBroadcasting ? screenShare.stopSharing : screenShare.startSharing)
               : undefined
           }
+          screenShareDisabledReason={
+            screenShare.isBroadcastingFromOtherTab
+              ? "You are already sharing your screen from another server. Stop that share first."
+              : undefined
+          }
           sfuAvailable={sfuAvailable}
           broadcastInfo={broadcastInfo}
           hasNewPins={hasNewPins}
@@ -649,6 +654,8 @@ export default function ChatView({ onChannelInfoToggle, onChannelSearch }: ChatV
         <ScreenShareViewer
           isOwnBroadcast
           localStream={activeScreenShare.stream}
+          channelId={selectedChannel ?? 0}
+          ownSession={ownSession ?? 0}
         />
       )}
 

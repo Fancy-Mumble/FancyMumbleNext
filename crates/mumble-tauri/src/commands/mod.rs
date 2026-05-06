@@ -10,6 +10,7 @@ pub(crate) mod certificates;
 pub(crate) mod channels;
 pub(crate) mod connection;
 pub(crate) mod dm;
+pub(crate) mod draw_overlay;
 pub(crate) mod files;
 pub(crate) mod image;
 pub(crate) mod keyshare;

@@ -1,0 +1,19 @@
+.root {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.error {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  border-radius: 6px;
+  font: 13px/1.2 system-ui, sans-serif;
+  pointer-events: none;
+}

@@ -1,4 +1,4 @@
-import { CloseIcon, ErrorCircleIcon, FullscreenExitIcon, FullscreenIcon, PauseIcon, PlayIcon, ScreenShareIcon, VolumeIcon, VolumeOffIcon } from "../../icons";
+import { CloseIcon, EditIcon, ErrorCircleIcon, FullscreenExitIcon, FullscreenIcon, PauseIcon, PlayIcon, ScreenShareIcon, VolumeIcon, VolumeOffIcon } from "../../icons";
 /**
  * Screen share viewer components.
  *
@@ -8,7 +8,9 @@ import { CloseIcon, ErrorCircleIcon, FullscreenExitIcon, FullscreenIcon, PauseIc
  * - ScreenShareViewer: container panel (video only, header is in ChatHeader)
  * - BroadcastBanner: notification bar shown when someone else is sharing
  */
+import DrawingOverlay from "./DrawingOverlay";
 import { useRef, useEffect, useMemo, useState, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../store";
 import { useRemoteStream } from "./useScreenShare";
 import styles from "./ScreenShareViewer.module.css";
@@ -22,9 +24,18 @@ interface StreamControlsProps {
   readonly containerRef: React.RefObject<HTMLDivElement | null>;
   /** Whether this is the own preview (volume/pause disabled). */
   readonly isOwnPreview?: boolean;
+  /** When provided, render the "draw on screen" toggle button. The button
+   *  toggles `drawingActiveChannels` for this channel in the global store,
+   *  which controls the colour/width/clear toolbar in `DrawingOverlay`. */
+  readonly drawChannelId?: number;
+  /** When provided, render an additional "show desktop overlay" toggle
+   *  button (broadcaster only).  Receives the current state and a setter
+   *  so the parent can manage the click-through overlay window lifecycle. */
+  readonly desktopOverlayOn?: boolean;
+  readonly onToggleDesktopOverlay?: () => void;
 }
 
-function StreamControls({ videoRef, containerRef, isOwnPreview }: StreamControlsProps) {
+function StreamControls({ videoRef, containerRef, isOwnPreview, drawChannelId, desktopOverlayOn, onToggleDesktopOverlay }: StreamControlsProps) {
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(100);
@@ -84,6 +95,20 @@ function StreamControls({ videoRef, containerRef, isOwnPreview }: StreamControls
     }
   }, [containerRef]);
 
+  const drawingActive = useAppStore((s) =>
+    drawChannelId !== undefined && s.drawingActiveChannels.has(drawChannelId),
+  );
+  const toggleDrawing = useCallback(() => {
+    if (drawChannelId === undefined) return;
+    const set = new Set(useAppStore.getState().drawingActiveChannels);
+    if (set.has(drawChannelId)) {
+      set.delete(drawChannelId);
+    } else {
+      set.add(drawChannelId);
+    }
+    useAppStore.setState({ drawingActiveChannels: set });
+  }, [drawChannelId]);
+
   return (
     <div className={styles.streamControls}>
       {/* Play / Pause (only for remote streams) */}
@@ -133,21 +158,51 @@ function StreamControls({ videoRef, containerRef, isOwnPreview }: StreamControls
         </div>
       )}
 
+      {/* Draw on screen toggle */}
+      {drawChannelId !== undefined && (
+        <button
+          type="button"
+          className={`${styles.controlBtn} ${drawingActive ? styles.controlBtnActive : ""}`}
+          onClick={toggleDrawing}
+          title={drawingActive ? "Stop drawing" : "Draw on screen"}
+          aria-label={drawingActive ? "Stop drawing" : "Draw on screen"}
+          aria-pressed={drawingActive}
+        >
+          <EditIcon width={16} height={16} />
+        </button>
+      )}
+
+      {/* Desktop overlay toggle (broadcaster only) */}
+      {onToggleDesktopOverlay && (
+        <button
+          type="button"
+          className={`${styles.controlBtn} ${desktopOverlayOn ? styles.controlBtnActive : ""}`}
+          onClick={onToggleDesktopOverlay}
+          title={desktopOverlayOn ? "Hide desktop overlay" : "Show desktop overlay (click-through, hidden from capture)"}
+          aria-label={desktopOverlayOn ? "Hide desktop overlay" : "Show desktop overlay"}
+          aria-pressed={desktopOverlayOn}
+        >
+          <ScreenShareIcon width={16} height={16} />
+        </button>
+      )}
+
       {/* Spacer */}
       <div className={styles.controlsSpacer} />
 
-      {/* Fullscreen */}
-      <button
-        type="button"
-        className={styles.controlBtn}
-        onClick={toggleFullscreen}
-        title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-        aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-      >
-        {isFullscreen
-          ? <FullscreenExitIcon width={16} height={16} />
-          : <FullscreenIcon width={16} height={16} />}
-      </button>
+      {/* Fullscreen (remote streams only) */}
+      {!isOwnPreview && (
+        <button
+          type="button"
+          className={styles.controlBtn}
+          onClick={toggleFullscreen}
+          title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+          aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+        >
+          {isFullscreen
+            ? <FullscreenExitIcon width={16} height={16} />
+            : <FullscreenIcon width={16} height={16} />}
+        </button>
+      )}
     </div>
   );
 }
@@ -158,12 +213,19 @@ function StreamControls({ videoRef, containerRef, isOwnPreview }: StreamControls
 
 interface OwnPreviewProps {
   readonly stream: MediaStream;
+  readonly channelId: number;
+  readonly ownSession: number;
 }
 
-function OwnBroadcastPreview({ stream }: OwnPreviewProps) {
+function OwnBroadcastPreview({ stream, channelId, ownSession }: OwnPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const webrtcConnecting = useAppStore((s) => s.webrtcConnecting);
+  // Persisted in the global store so the overlay stays open when the user
+  // switches to a different server tab (which unmounts this component).
+  // It is closed automatically by `stopBroadcasting()` in `useScreenShare`
+  // when the broadcast actually ends.
+  const desktopOverlayOn = useAppStore((s) => s.desktopDrawingOverlayOpen);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -171,6 +233,39 @@ function OwnBroadcastPreview({ stream }: OwnPreviewProps) {
     video.srcObject = stream;
     return () => { video.srcObject = null; };
   }, [stream]);
+
+  const openDesktopOverlay = useCallback(async () => {
+    try {
+      // Pass the captured track's pixel size + display surface kind so
+      // the Rust side can either pin the overlay over the shared window
+      // (display_surface = "window") or cover the matching monitor.
+      const track = stream.getVideoTracks()[0];
+      const settings = (track?.getSettings?.() ?? {}) as MediaTrackSettings & { displaySurface?: string };
+      await invoke("open_drawing_overlay", {
+        channelId,
+        ownSession,
+        captureWidth: settings.width ?? null,
+        captureHeight: settings.height ?? null,
+        displaySurface: settings.displaySurface ?? null,
+      });
+      useAppStore.setState({ desktopDrawingOverlayOpen: true });
+    } catch (e) {
+      console.warn("open_drawing_overlay failed", e);
+    }
+  }, [channelId, ownSession, stream]);
+
+  const closeDesktopOverlay = useCallback(async () => {
+    await invoke("close_drawing_overlay").catch(() => {});
+    useAppStore.setState({ desktopDrawingOverlayOpen: false });
+  }, []);
+
+  const toggleDesktopOverlay = useCallback(() => {
+    if (desktopOverlayOn) {
+      void closeDesktopOverlay();
+    } else {
+      void openDesktopOverlay();
+    }
+  }, [desktopOverlayOn, openDesktopOverlay, closeDesktopOverlay]);
 
   return (
     <div ref={containerRef} className={styles.streamViewport}>
@@ -191,7 +286,15 @@ function OwnBroadcastPreview({ stream }: OwnPreviewProps) {
           <span className={styles.connectingText}>Setting up stream...</span>
         </div>
       )}
-      <StreamControls videoRef={videoRef} containerRef={containerRef} isOwnPreview />
+      <StreamControls
+        videoRef={videoRef}
+        containerRef={containerRef}
+        isOwnPreview
+        drawChannelId={channelId}
+        desktopOverlayOn={desktopOverlayOn}
+        onToggleDesktopOverlay={toggleDesktopOverlay}
+      />
+      <DrawingOverlay channelId={channelId} ownSession={ownSession} videoRef={videoRef} />
     </div>
   );
 }
@@ -200,7 +303,7 @@ function OwnBroadcastPreview({ stream }: OwnPreviewProps) {
 // Remote viewer - displays the WebRTC stream from the broadcaster
 // ---------------------------------------------------------------------------
 
-function RemoteViewer({ session }: { readonly session: number }) {
+function RemoteViewer({ session, channelId, ownSession }: { readonly session: number; readonly channelId: number; readonly ownSession: number }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const remoteStream = useRemoteStream(session);
@@ -235,8 +338,13 @@ function RemoteViewer({ session }: { readonly session: number }) {
         style={{ display: remoteStream ? "block" : "none" }}
       />
       {remoteStream && (
-        <StreamControls videoRef={videoRef} containerRef={containerRef} />
+        <StreamControls
+          videoRef={videoRef}
+          containerRef={containerRef}
+          drawChannelId={channelId}
+        />
       )}
+      <DrawingOverlay channelId={channelId} ownSession={ownSession} videoRef={videoRef} />
     </div>
   );
 }
@@ -250,18 +358,24 @@ interface ScreenShareViewerProps {
   readonly localStream: MediaStream | null;
   /** Session ID of the broadcaster (required when isOwnBroadcast is false). */
   readonly session?: number;
+  /** Channel ID for drawing overlay coordination. */
+  readonly channelId?: number;
+  /** Our own session ID for drawing overlay (filters out own echoes). */
+  readonly ownSession?: number;
 }
 
 export default function ScreenShareViewer({
   isOwnBroadcast,
   localStream,
   session,
+  channelId = 0,
+  ownSession = 0,
 }: ScreenShareViewerProps) {
   return (
     <div className={styles.broadcastArea}>
       {isOwnBroadcast && localStream
-        ? <OwnBroadcastPreview stream={localStream} />
-        : <RemoteViewer session={session ?? 0} />}
+        ? <OwnBroadcastPreview stream={localStream} channelId={channelId} ownSession={ownSession} />
+        : <RemoteViewer session={session ?? 0} channelId={channelId} ownSession={ownSession} />}
     </div>
   );
 }

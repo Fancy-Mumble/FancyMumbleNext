@@ -137,6 +137,18 @@ pub trait WindowExt {
     /// native implementation; the caller can then fall back to a
     /// post-hoc JS resize handler.
     fn set_aspect_ratio(&self, ratio: Option<f64>) -> Result<(), WindowExtError>;
+
+    /// Exclude / re-include the window from screen-capture APIs
+    /// (e.g. `BitBlt`, `PrintWindow`, the WGC capture path used by
+    /// most screen-share / OBS pipelines).
+    ///
+    /// Used by the drawing overlay so annotations rendered for the
+    /// broadcaster are not recorded back into their own stream.
+    ///
+    /// Returns [`WindowExtError::Unsupported`] on platforms without a
+    /// native implementation (currently Linux/X11 - no equivalent of
+    /// `WDA_EXCLUDEFROMCAPTURE` exists at the X11 layer).
+    fn set_excluded_from_capture(&self, excluded: bool) -> Result<(), WindowExtError>;
 }
 
 impl WindowExt for WebviewWindow {
@@ -145,6 +157,22 @@ impl WindowExt for WebviewWindow {
         match ratio {
             Some(r) if r.is_finite() && r > 0.0 => backend.install(self, r),
             _ => backend.uninstall(self),
+        }
+    }
+
+    fn set_excluded_from_capture(&self, excluded: bool) -> Result<(), WindowExtError> {
+        #[cfg(target_os = "windows")]
+        {
+            windows::set_excluded_from_capture(self, excluded)
+        }
+        #[cfg(target_os = "macos")]
+        {
+            macos::set_excluded_from_capture(self, excluded)
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            let _ = excluded;
+            Err(WindowExtError::Unsupported)
         }
     }
 }
