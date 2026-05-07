@@ -38,6 +38,8 @@ interface ChatHeaderProps {
   readonly onToggleSilence?: () => void;
   readonly isScreenSharing?: boolean;
   readonly onToggleScreenShare?: () => void;
+  /** When set, the share button is shown but disabled with this tooltip. */
+  readonly screenShareDisabledReason?: string;
   /** True when the server has a WebRTC SFU module for server-relayed screen sharing. */
   readonly sfuAvailable?: boolean;
   /** When a stream is active, display broadcast info in the header. */
@@ -118,6 +120,7 @@ export default function ChatHeader({
   onToggleSilence,
   isScreenSharing,
   onToggleScreenShare,
+  screenShareDisabledReason,
   sfuAvailable,
   broadcastInfo,
   hasNewPins,
@@ -224,13 +227,16 @@ export default function ChatHeader({
           <button
             className={`${styles.serverInfoBtn} ${isScreenSharing ? styles.screenShareActive : ""}`}
             onClick={onToggleScreenShare}
+            disabled={!!screenShareDisabledReason}
             aria-label={isScreenSharing ? "Stop sharing" : "Share screen"}
             title={
-              isScreenSharing
-                ? "Stop sharing"
-                : sfuAvailable
-                  ? "Share screen (server-relayed)"
-                  : "Share screen (no SFU - peer-to-peer)"
+              screenShareDisabledReason ?? (
+                isScreenSharing
+                  ? "Stop sharing"
+                  : sfuAvailable
+                    ? "Share screen (server-relayed)"
+                    : "Share screen (no SFU - peer-to-peer)"
+              )
             }
           >
             <ScreenShareIcon width={18} height={18} />

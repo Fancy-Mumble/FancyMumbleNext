@@ -135,6 +135,8 @@ pub enum TcpMessageType {
     FancyLinkPreviewResponse = 133,
     /// Fancy Mumble: synchronised watch-together control event.
     FancyWatchSync = 134,
+    /// Fancy Mumble: drawing stroke overlay for screen-share collaboration.
+    FancyDrawStroke = 135,
 }
 
 /// Generates both `TryFrom<u16> for TcpMessageType` and
@@ -296,6 +298,8 @@ pub enum ControlMessage {
     FancyLinkPreviewResponse(mumble_tcp::FancyLinkPreviewResponse),
     /// Fancy: synchronised watch-together control event.
     FancyWatchSync(mumble_tcp::FancyWatchSync),
+    /// Fancy: drawing stroke overlay for screen-share collaboration.
+    FancyDrawStroke(mumble_tcp::FancyDrawStroke),
     /// UDP audio tunneled through TCP (fallback path).
     UdpTunnel(Vec<u8>),
 }
@@ -323,7 +327,7 @@ message_type_mapping! {
     PchatPin, PchatPinDeliver, PchatPinFetchResponse,
     FancyTypingIndicator,
     FancyLinkPreviewRequest, FancyLinkPreviewResponse,
-    FancyWatchSync,
+    FancyWatchSync, FancyDrawStroke,
 }
 
 /// A decoded UDP message - either audio or a UDP ping.
@@ -465,10 +469,10 @@ mod tests {
             let msg_type = TcpMessageType::try_from(id).unwrap();
             assert_eq!(msg_type as u16, id);
         }
-        // FancyTypingIndicator (131)
-        {
-            let msg_type = TcpMessageType::try_from(131u16).unwrap();
-            assert_eq!(msg_type as u16, 131);
+        // FancyTypingIndicator (131) .. FancyDrawStroke (135)
+        for id in 131..=135u16 {
+            let msg_type = TcpMessageType::try_from(id).unwrap();
+            assert_eq!(msg_type as u16, id);
         }
     }
 
@@ -476,7 +480,7 @@ mod tests {
     fn tcp_message_type_invalid_returns_error() {
         assert!(TcpMessageType::try_from(27u16).is_err());
         assert!(TcpMessageType::try_from(99u16).is_err());
-        assert!(TcpMessageType::try_from(135u16).is_err());
+        assert!(TcpMessageType::try_from(136u16).is_err());
         assert!(TcpMessageType::try_from(199u16).is_err());
         assert!(TcpMessageType::try_from(203u16).is_err());
         assert!(TcpMessageType::try_from(u16::MAX).is_err());

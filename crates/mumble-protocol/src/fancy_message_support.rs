@@ -112,6 +112,9 @@ fancy_message_support! {
 
     // -- Watch together (client-to-client relay) -- 0.2.20 -----------
     (0, 2, 20) FancyWatchSync             => PluginData,
+
+    // -- Screen-share drawing (server-relayed) -- 0.3.0 --------------
+    (0, 3, 0) FancyDrawStroke             => ServerOnly,
 }
 
 #[cfg(test)]
@@ -159,5 +162,18 @@ mod tests {
         let support = message_support(&msg).unwrap();
         assert_eq!(support.fallback, FallbackPolicy::PluginData);
         assert_eq!(support.min_version, V_0_2_12);
+    }
+
+    #[test]
+    fn draw_stroke_is_server_only() {
+        let msg = ControlMessage::FancyDrawStroke(
+            mumble_tcp::FancyDrawStroke::default(),
+        );
+        let support = message_support(&msg).unwrap();
+        assert_eq!(support.fallback, FallbackPolicy::ServerOnly);
+        assert_eq!(
+            support.min_version,
+            fancy_utils::version::fancy_version_encode(0, 3, 0),
+        );
     }
 }
